@@ -1,3 +1,6 @@
+
+[<img width="1507" height="942" alt="Screenshot 2026-03-26 at 4 01 43 PM" src="https://github.com/user-attachments/assets/df4a84e7-918c-41cc-987c-0ebe89835504" />](https://enricopiovesan.com/)
+
 # Cogolo
 
 Cogolo is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
