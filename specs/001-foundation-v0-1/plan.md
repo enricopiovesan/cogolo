@@ -53,22 +53,22 @@ specs/001-foundation-v0-1/
 
 ```text
 crates/
-├── cogollo-contracts/
+├── cogolo-contracts/
 │   ├── src/
 │   └── tests/
-├── cogollo-registry/
+├── cogolo-registry/
 │   ├── src/
 │   └── tests/
-├── cogollo-runtime/
+├── cogolo-runtime/
 │   ├── src/
 │   └── tests/
-├── cogollo-mcp/
+├── cogolo-mcp/
 │   ├── src/
 │   └── tests/
-├── cogollo-cli/
+├── cogolo-cli/
 │   ├── src/
 │   └── tests/
-└── cogollo-capabilities/
+└── cogolo-capabilities/
     ├── comment-draft/
     ├── permissions/
     ├── text-improve/
@@ -185,7 +185,7 @@ Outputs:
 
 ## Module Responsibilities
 
-### `cogollo-contracts`
+### `cogolo-contracts`
 
 Responsible for:
 
@@ -197,7 +197,7 @@ Responsible for:
 
 Must have full coverage because it is core logic.
 
-### `cogollo-registry`
+### `cogolo-registry`
 
 Responsible for:
 
@@ -208,7 +208,7 @@ Responsible for:
 
 Must have full coverage for registry behavior and duplicate handling.
 
-### `cogollo-runtime`
+### `cogolo-runtime`
 
 Responsible for:
 
@@ -224,7 +224,7 @@ Responsible for:
 
 Must have full coverage for decision, state, workflow traversal, and trace behavior.
 
-### `cogollo-mcp`
+### `cogolo-mcp`
 
 Responsible for:
 
@@ -233,7 +233,7 @@ Responsible for:
 
 Must remain narrow in `v0.1`, but stable enough to semver and validate.
 
-### `cogollo-cli`
+### `cogolo-cli`
 
 Responsible for:
 
@@ -245,7 +245,7 @@ Responsible for:
 
 CLI glue should be well tested, with full coverage where logic is nontrivial.
 
-### `cogollo-capabilities`
+### `cogolo-capabilities`
 
 Responsible for:
 

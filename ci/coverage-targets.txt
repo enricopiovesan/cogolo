@@ -5,3 +5,4 @@
 #
 # Example:
 # cogolo-runtime 100
+cogolo-contracts 100

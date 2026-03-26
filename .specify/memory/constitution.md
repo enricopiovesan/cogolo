@@ -1,4 +1,4 @@
-# Cogollo Constitution
+# Cogolo Constitution
 
 ## Core Principles
 

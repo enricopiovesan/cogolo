@@ -39,7 +39,7 @@ for entry in "${targets[@]}"; do
   echo "Measuring line coverage for ${crate_name} with threshold ${minimum_percent}%"
   coverage_output="$(cargo llvm-cov --package "${crate_name}" --summary-only)"
   line_percent="$(
-    awk '/^TOTAL/ {gsub(/%/, "", $NF); print $NF}' <<<"${coverage_output}" | tail -n 1
+    awk '/^TOTAL/ {gsub(/%/, "", $(NF-3)); print $(NF-3)}' <<<"${coverage_output}" | tail -n 1
   )"
 
   if [[ -z "${line_percent}" ]]; then
