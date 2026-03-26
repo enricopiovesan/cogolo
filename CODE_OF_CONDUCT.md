@@ -2,7 +2,7 @@
 
 ## Our Standard
 
-Cogollo aims to be a respectful, constructive, and technically rigorous open-source project.
+Cogolo aims to be a respectful, constructive, and technically rigorous open-source project.
 
 Participants are expected to:
 

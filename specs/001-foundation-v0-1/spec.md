@@ -1,4 +1,4 @@
-# Feature Specification: Cogollo Foundation v0.1
+# Feature Specification: Cogolo Foundation v0.1
 
 **Feature Branch**: `001-foundation-v0-1`  
 **Created**: 2026-03-26  
@@ -9,9 +9,9 @@
 
 ### User Story 1 - Register and Run a Portable Capability (Priority: P1)
 
-As a platform developer, I want to define a capability contract, register a portable WASM capability, and execute it through the runtime so that Cogollo proves the core contract-to-runtime path end to end.
+As a platform developer, I want to define a capability contract, register a portable WASM capability, and execute it through the runtime so that Cogolo proves the core contract-to-runtime path end to end.
 
-**Why this priority**: This is the smallest meaningful slice of Cogollo. If the system cannot validate, register, discover, and execute a capability through contracts, the rest of the platform has no foundation.
+**Why this priority**: This is the smallest meaningful slice of Cogolo. If the system cannot validate, register, discover, and execute a capability through contracts, the rest of the platform has no foundation.
 
 **Independent Test**: Can be fully tested by creating a valid capability contract and WASM binary, registering it through the CLI, and executing it through the runtime to obtain a successful result and structured trace.
 
@@ -25,9 +25,9 @@ As a platform developer, I want to define a capability contract, register a port
 
 ### User Story 2 - Compose Capabilities Through Events and Workflows (Priority: P2)
 
-As a platform developer, I want to define event contracts and deterministic workflows across multiple capabilities so that Cogollo demonstrates composability and event-driven interaction instead of only isolated execution.
+As a platform developer, I want to define event contracts and deterministic workflows across multiple capabilities so that Cogolo demonstrates composability and event-driven interaction instead of only isolated execution.
 
-**Why this priority**: Cogollo is not only a single-capability runtime. It must show that capabilities can interact through contracts, events, and graph-based workflows.
+**Why this priority**: Cogolo is not only a single-capability runtime. It must show that capabilities can interact through contracts, events, and graph-based workflows.
 
 **Independent Test**: Can be fully tested by registering at least five capabilities and related event contracts, defining a workflow that traverses three or more capabilities, and verifying that the runtime executes the workflow and emits the expected events and trace.
 
@@ -41,7 +41,7 @@ As a platform developer, I want to define event contracts and deterministic work
 
 ### User Story 3 - Observe Runtime State and Events in a Browser UI (Priority: P3)
 
-As a product or platform user, I want a React browser demo to subscribe to runtime events and state changes so that I can see Cogollo’s runtime behavior reflected live in a UI.
+As a product or platform user, I want a React browser demo to subscribe to runtime events and state changes so that I can see Cogolo’s runtime behavior reflected live in a UI.
 
 **Why this priority**: A browser demo proves that the runtime can operate in the browser, expose meaningful events, and drive UI updates from runtime state rather than hardcoded app logic.
 
@@ -161,5 +161,5 @@ As a product or platform user, I want a React browser demo to subscribe to runti
 - Android and macOS demo applications are out of scope for `Foundation v0.1` and will be introduced later once the runtime and contract foundations are stable.
 - The first workflow model is deterministic and graph-based rather than planner-driven.
 - Capability and event registries, workflows, and browser runtime behavior may operate from a local projection of the system while remaining designed for future distributed consistency.
-- Production-grade quality is required from the start, but `Foundation v0.1` may use a narrower functional scope than the long-term Cogollo vision.
+- Production-grade quality is required from the start, but `Foundation v0.1` may use a narrower functional scope than the long-term Cogolo vision.
 - Approved specs are assumed to be versioned artifacts that govern implementation and merge validation for in-scope changes.

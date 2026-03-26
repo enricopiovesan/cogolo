@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to Cogollo.
+Thanks for contributing to Cogolo.
 
 ## Before You Start
 

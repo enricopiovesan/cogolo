@@ -1,11 +1,11 @@
-# Implementation Plan: Cogollo Foundation v0.1
+# Implementation Plan: Cogolo Foundation v0.1
 
 **Branch**: `001-foundation-v0-1` | **Date**: 2026-03-26 | **Spec**: [spec.md](/Users/piovese/Documents/cogolo/specs/001-foundation-v0-1/spec.md)
 **Input**: Feature specification from `/specs/001-foundation-v0-1/spec.md`
 
 ## Summary
 
-Build the first production-grade Cogollo foundation as a Rust-first, WASM-centered portable capability runtime. The implementation will establish capability contracts, event contracts, initial registries, deterministic graph-based workflows, a local-only placement abstraction, structured traces, and a runtime state machine, plus a React browser demo that subscribes to runtime events and state transitions.
+Build the first production-grade Cogolo foundation as a Rust-first, WASM-centered portable capability runtime. The implementation will establish capability contracts, event contracts, initial registries, deterministic graph-based workflows, a local-only placement abstraction, structured traces, and a runtime state machine, plus a React browser demo that subscribes to runtime events and state transitions.
 
 The plan keeps `Foundation v0.1` intentionally narrow: one runtime model, one local executor, one browser demo, five real capabilities, and no real AI agents yet. The architecture must still remain agent-ready, placement-ready, and portable for future browser, edge, cloud, Android, macOS, and MCP expansion. Approved specs are versioned, immutable implementation-governing artifacts, so the delivery plan must also include spec-alignment validation in the normal build and review flow.
 

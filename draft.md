@@ -1,26 +1,26 @@
-# Cogollo
+# Cogolo
 
-Cogollo is a portable runtime and control-plane model for business capabilities where contracts define boundaries, events connect capabilities, and workflows are formed by traversing a governed capability graph.
+Cogolo is a portable runtime and control-plane model for business capabilities where contracts define boundaries, events connect capabilities, and workflows are formed by traversing a governed capability graph.
 
-The goal of Cogollo is to make business logic portable, composable, discoverable, and executable across environments such as browser, edge, cloud, and on-device, instead of locking that logic inside applications or platform-specific stacks.
+The goal of Cogolo is to make business logic portable, composable, discoverable, and executable across environments such as browser, edge, cloud, and on-device, instead of locking that logic inside applications or platform-specific stacks.
 
-Cogollo is not an application framework. It is a runtime, registry, and composition model for capabilities, contracts, events, and runtime decisions.
+Cogolo is not an application framework. It is a runtime, registry, and composition model for capabilities, contracts, events, and runtime decisions.
 
 ## One-Sentence Summary
 
-Cogollo is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
+Cogolo is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
 
 ## Architectural Lineage
 
-Cogollo builds on three complementary ideas:
+Cogolo builds on three complementary ideas:
 
 - `UMA`: portable capability execution across environments
 - `ECCA`: event contracts as first-class, discoverable, governable assets
 - `C-DAD`: contracts as immutable, AI-native, validated units of record
 
-Formal specs are also first-class artifacts in Cogollo. They should be versioned, immutable once approved, and used as merge-gating sources of truth for implementation, generated code, and validation.
+Formal specs are also first-class artifacts in Cogolo. They should be versioned, immutable once approved, and used as merge-gating sources of truth for implementation, generated code, and validation.
 
-Cogollo applies these ideas to business capabilities as the primary unit of software.
+Cogolo applies these ideas to business capabilities as the primary unit of software.
 
 ## Core Ideas
 
@@ -116,7 +116,7 @@ Events connect capabilities, and event contracts should be cataloged and governe
 
 ### Runtime Control Plane
 
-Cogollo’s runtime is not only an execution engine. It is a control plane responsible for turning contracts and metadata into executable decisions.
+Cogolo’s runtime is not only an execution engine. It is a control plane responsible for turning contracts and metadata into executable decisions.
 
 The runtime should:
 
@@ -182,7 +182,7 @@ Traces are not just logs. They are runtime artifacts that support:
 
 ## System Layers
 
-Cogollo is composed of several core parts:
+Cogolo is composed of several core parts:
 
 | Component | Responsibility |
 | --- | --- |
@@ -251,7 +251,7 @@ New systems can be built by:
 
 ## v0.1 Scope
 
-Cogollo `v0.1` should stay intentionally small.
+Cogolo `v0.1` should stay intentionally small.
 
 ### v0.1 Components
 
@@ -328,7 +328,7 @@ The same capabilities should support different entry points because the graph an
 
 ## Long-Term Vision
 
-In the long term, Cogollo enables:
+In the long term, Cogolo enables:
 
 - Portable business logic
 - Capability and event marketplaces

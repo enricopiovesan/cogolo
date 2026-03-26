@@ -2,7 +2,7 @@
 
 ## Supported Stage
 
-Cogollo is currently in early foundation setup and should be treated as pre-production software.
+Cogolo is currently in early foundation setup and should be treated as pre-production software.
 
 ## Reporting a Vulnerability
 

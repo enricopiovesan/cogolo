@@ -1,6 +1,6 @@
 # Project Management
 
-Cogollo uses this GitHub Project as the canonical task board:
+Cogolo uses this GitHub Project as the canonical task board:
 
 - [GitHub Project 1](https://github.com/users/enricopiovesan/projects/1/)
 

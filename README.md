@@ -1,6 +1,6 @@
-# Cogollo
+# Cogolo
 
-Cogollo is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
+Cogolo is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
 
 ## Status
 
@@ -21,7 +21,7 @@ The project is currently focused on:
 
 ## Vision
 
-Cogollo treats business capabilities as the primary unit of software.
+Cogolo treats business capabilities as the primary unit of software.
 
 The long-term goal is to make business logic:
 
@@ -33,7 +33,7 @@ The long-term goal is to make business logic:
 
 ## Source of Truth
 
-Cogollo is spec-governed.
+Cogolo is spec-governed.
 
 The governing artifacts are:
 
