@@ -1,0 +1,3 @@
+.agents/*
+!.agents/skills/
+!.agents/skills/**

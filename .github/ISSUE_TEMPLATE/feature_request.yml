@@ -1,0 +1,45 @@
+name: Feature request
+description: Propose a new capability, workflow, runtime feature, or documentation improvement.
+title: "[Feature]: "
+labels:
+  - enhancement
+projects:
+  - "enricopiovesan/1"
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the feature clearly.
+      placeholder: What should be added or improved?
+    validations:
+      required: true
+  - type: input
+    id: governing_spec
+    attributes:
+      label: Governing spec
+      description: Reference the governing spec version or planned spec.
+      placeholder: specs/001-foundation-v0-1/spec.md
+    validations:
+      required: false
+  - type: textarea
+    id: problem
+    attributes:
+      label: Problem / motivation
+      description: Explain why this matters.
+    validations:
+      required: true
+  - type: textarea
+    id: scope
+    attributes:
+      label: Scope and impact
+      description: Note affected capabilities, events, workflows, runtime surfaces, or docs.
+    validations:
+      required: true
+  - type: textarea
+    id: compatibility
+    attributes:
+      label: Compatibility or governance concerns
+      description: Mention versioning, compatibility, or policy concerns.
+    validations:
+      required: false

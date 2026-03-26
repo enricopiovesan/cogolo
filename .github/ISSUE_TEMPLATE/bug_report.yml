@@ -1,0 +1,49 @@
+name: Bug report
+description: Report a runtime, contract, registry, workflow, or demo problem.
+title: "[Bug]: "
+labels:
+  - bug
+projects:
+  - "enricopiovesan/1"
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe the bug clearly.
+    validations:
+      required: true
+  - type: input
+    id: governing_spec
+    attributes:
+      label: Governing spec
+      description: Reference the governing spec version if known.
+      placeholder: specs/001-foundation-v0-1/spec.md
+    validations:
+      required: false
+  - type: textarea
+    id: steps
+    attributes:
+      label: Reproduction steps
+      description: List the steps to reproduce the issue.
+    validations:
+      required: true
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+  - type: textarea
+    id: evidence
+    attributes:
+      label: Validation evidence
+      description: Include trace ids, logs, screenshots, or failing checks if available.
+    validations:
+      required: false

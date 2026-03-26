@@ -1,0 +1,40 @@
+name: CI
+
+on:
+  push:
+    branches:
+      - main
+  pull_request:
+
+jobs:
+  repository-checks:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Verify required repository files
+        run: |
+          test -f README.md
+          test -f LICENSE
+          test -f NOTICE
+          test -f CONTRIBUTING.md
+          test -f CODE_OF_CONDUCT.md
+          test -f SECURITY.md
+          test -f SUPPORT.md
+          test -f .specify/memory/constitution.md
+          test -f docs/quality-standards.md
+          test -f docs/compatibility-policy.md
+          test -f docs/exception-process.md
+          test -f docs/adr/README.md
+          test -f docs/adr/0001-rust-wasm-foundation.md
+          test -f specs/001-foundation-v0-1/spec.md
+          test -f specs/001-foundation-v0-1/plan.md
+          test -f specs/001-foundation-v0-1/research.md
+
+      - name: Verify markdown docs are non-empty
+        run: |
+          for f in README.md CONTRIBUTING.md CODE_OF_CONDUCT.md SECURITY.md SUPPORT.md brainstorming.md draft.md docs/*.md docs/adr/*.md specs/001-foundation-v0-1/*.md; do
+            test -s "$f"
+          done
