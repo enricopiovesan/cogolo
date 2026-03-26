@@ -1,0 +1,7 @@
+# crate_name minimum_line_coverage_percent
+#
+# Add entries here once a crate contains core business or runtime logic that
+# must hold the project's non-negotiable 100% line coverage standard.
+#
+# Example:
+# cogolo-runtime 100

@@ -26,6 +26,15 @@ The AI review should focus on:
 - missing tests
 - hidden bypasses of contract, policy, constraint, or trace paths
 
+Repository automation:
+
+- workflow: `.github/workflows/ai-pr-review.yml`
+- script: `scripts/ci/ai_pr_review.sh`
+- required secret: `OPENAI_API_KEY`
+- optional repo variable: `OPENAI_MODEL` (defaults to `gpt-4o-mini`)
+
+The workflow updates a single sticky PR comment with the current AI review summary and findings.
+
 ## How Review Comments Should Be Handled
 
 For each actionable review comment:
@@ -53,6 +62,8 @@ Pull requests should not merge when:
 - required review threads are unresolved
 - review findings identify unresolved spec or contract drift
 - follow-up work is required but not captured in the project board
+
+If the AI workflow reports blocking issues, the PR should be treated as not ready even if the workflow is not yet a required branch-protection check.
 
 ## Task Tracking
 

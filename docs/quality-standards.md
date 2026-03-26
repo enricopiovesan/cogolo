@@ -57,6 +57,14 @@ Core logic includes:
 
 Coverage outside core logic should remain appropriate for risk and maintainability.
 
+Coverage gate implementation:
+
+- workflow job: `coverage-gate`
+- script: `scripts/ci/coverage_gate.sh`
+- protected crate list: `ci/coverage-targets.txt`
+
+The coverage gate is merge-safe even before core logic exists. It passes when no protected crates are configured, and becomes enforcing as soon as core crates are added to `ci/coverage-targets.txt`.
+
 ## Reproducibility Standard
 
 Build and validation flows should be reproducible from pinned inputs:
