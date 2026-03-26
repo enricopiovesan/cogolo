@@ -29,6 +29,28 @@ jobs:
       - name: Run Rust checks
         run: bash scripts/ci/rust_checks.sh
 
+  coverage-gate:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          components: llvm-tools-preview
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Install cargo-llvm-cov
+        uses: taiki-e/install-action@cargo-llvm-cov
+
+      - name: Run coverage gate
+        run: bash scripts/ci/coverage_gate.sh
+
   pr-hygiene:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
