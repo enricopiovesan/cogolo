@@ -26,14 +26,14 @@ The AI review should focus on:
 - missing tests
 - hidden bypasses of contract, policy, constraint, or trace paths
 
-Repository automation:
+Primary review mechanism:
 
-- workflow: `.github/workflows/ai-pr-review.yml`
-- script: `scripts/ci/ai_pr_review.sh`
-- required secret: `OPENAI_API_KEY`
-- optional repo variable: `OPENAI_MODEL` (defaults to `gpt-4o-mini`)
+- GitHub Copilot Code Review
+- repository custom instructions enabled
+- automatic PR review rules configured in GitHub settings/rulesets
 
-The workflow updates a single sticky PR comment with the current AI review summary and findings.
+Copilot should be used for review comments and suggestions inside the PR UI.
+Deterministic enforcement should remain in CI and branch protection, not in AI-only comments.
 
 ## How Review Comments Should Be Handled
 
@@ -63,7 +63,11 @@ Pull requests should not merge when:
 - review findings identify unresolved spec or contract drift
 - follow-up work is required but not captured in the project board
 
-If the AI workflow reports blocking issues, the PR should be treated as not ready even if the workflow is not yet a required branch-protection check.
+Copilot review comments should be treated the same way as other review feedback:
+
+- fix the issue
+- reject it with rationale
+- defer it with a linked task and owner
 
 ## Task Tracking
 
