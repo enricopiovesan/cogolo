@@ -17,6 +17,18 @@ jobs:
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
 
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Rust checks
+        run: bash scripts/ci/rust_checks.sh
+
   pr-hygiene:
     if: github.event_name == 'pull_request'
     runs-on: ubuntu-latest
