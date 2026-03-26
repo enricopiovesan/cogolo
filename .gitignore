@@ -1,3 +1,5 @@
 .agents/*
 !.agents/skills/
 !.agents/skills/**
+target/
+.DS_Store
