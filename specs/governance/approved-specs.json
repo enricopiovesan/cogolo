@@ -56,6 +56,16 @@
       "governs": [
         "crates/cogolo-registry/"
       ]
+    },
+    {
+      "id": "006-runtime-request-execution",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/006-runtime-request-execution/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/"
+      ]
     }
   ]
 }

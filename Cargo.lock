@@ -31,6 +31,13 @@ dependencies = [
 [[package]]
 name = "cogolo-runtime"
 version = "0.1.0"
+dependencies = [
+ "cogolo-contracts",
+ "cogolo-registry",
+ "semver",
+ "serde",
+ "serde_json",
+]
 
 [[package]]
 name = "itoa"

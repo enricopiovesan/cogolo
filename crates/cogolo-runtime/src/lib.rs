@@ -1,15 +1,1906 @@
 //! Runtime control-plane support for Cogolo.
 
-/// Returns the crate purpose as a stable placeholder.
-#[must_use]
-pub fn crate_name() -> &'static str {
-    "cogolo-runtime"
+use cogolo_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
+use cogolo_registry::{
+    CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope, RegistryScope,
+    ResolvedCapability,
+};
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+use std::fmt;
+
+const RUNTIME_REQUEST_KIND: &str = "runtime_request";
+const RUNTIME_RESULT_KIND: &str = "runtime_result";
+const RUNTIME_STATE_EVENT_KIND: &str = "runtime_state_event";
+const RUNTIME_TRACE_KIND: &str = "runtime_trace";
+const SUPPORTED_SCHEMA_VERSION: &str = "1.0.0";
+const GOVERNING_SPEC: &str = "006-runtime-request-execution";
+const EXECUTION_PREFIX: &str = "exec_";
+const TRACE_PREFIX: &str = "trace_";
+
+#[derive(Debug)]
+pub struct Runtime<E> {
+    registry: CapabilityRegistry,
+    executor: E,
+}
+
+impl<E> Runtime<E> {
+    #[must_use]
+    pub fn new(registry: CapabilityRegistry, executor: E) -> Self {
+        Self { registry, executor }
+    }
+}
+
+pub trait LocalExecutor {
+    /// Executes one locally selected capability.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`LocalExecutionFailure`] when the executor cannot complete the
+    /// selected capability.
+    fn execute(
+        &self,
+        capability: &ResolvedCapability,
+        input: &Value,
+    ) -> Result<Value, LocalExecutionFailure>;
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct LocalExecutionFailure {
+    pub code: LocalExecutionFailureCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum LocalExecutionFailureCode {
+    ExecutionFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeRequest {
+    pub kind: String,
+    pub schema_version: String,
+    pub request_id: String,
+    pub intent: RuntimeIntent,
+    pub input: Value,
+    pub lookup: RuntimeLookup,
+    pub context: RuntimeContext,
+    pub governing_spec: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeIntent {
+    #[serde(default)]
+    pub capability_id: Option<String>,
+    #[serde(default)]
+    pub capability_version: Option<String>,
+    #[serde(default)]
+    pub intent_key: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeLookup {
+    pub scope: RuntimeLookupScope,
+    pub allow_ambiguity: bool,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeLookupScope {
+    PublicOnly,
+    PreferPrivate,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeContext {
+    pub requested_target: PlacementTarget,
+    #[serde(default)]
+    pub correlation_id: Option<String>,
+    #[serde(default)]
+    pub caller: Option<String>,
+    #[serde(default)]
+    pub metadata: Option<Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementTarget {
+    Local,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeStateEvent {
+    pub kind: String,
+    pub schema_version: String,
+    pub execution_id: String,
+    pub request_id: String,
+    pub state: RuntimeState,
+    pub timestamp: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeState {
+    LoadingRegistry,
+    Ready,
+    Discovering,
+    EvaluatingConstraints,
+    Selecting,
+    Executing,
+    Completed,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeTrace {
+    pub kind: String,
+    pub schema_version: String,
+    pub trace_id: String,
+    pub execution_id: String,
+    pub request_id: String,
+    pub governing_spec: String,
+    pub request: RuntimeRequest,
+    pub candidate_collection: CandidateCollectionRecord,
+    pub selection: SelectionRecord,
+    pub execution: ExecutionRecord,
+    pub result: TraceResultRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CandidateCollectionRecord {
+    pub lookup_scope: RuntimeLookupScope,
+    pub candidates: Vec<RuntimeCandidate>,
+    pub rejected_candidates: Vec<RejectedRuntimeCandidate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeCandidate {
+    pub scope: RuntimeRegistryScope,
+    pub capability_id: String,
+    pub capability_version: String,
+    pub artifact_ref: String,
+    pub implementation_kind: RuntimeImplementationKind,
+    pub lifecycle: RuntimeLifecycle,
+    pub reason: CandidateReason,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RejectedRuntimeCandidate {
+    pub capability_id: String,
+    pub capability_version: String,
+    pub scope: RuntimeRegistryScope,
+    pub reason: RejectedCandidateReason,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum CandidateReason {
+    ExactMatch,
+    IntentMatch,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RejectedCandidateReason {
+    WrongScope,
+    NotRunnableLocally,
+    LifecycleNotRunnable,
+    InputContractInvalid,
+    ArtifactMissing,
+    SupersededByPrivateOverlay,
+    NotSelectedAfterOrdering,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SelectionRecord {
+    pub status: SelectionStatus,
+    #[serde(default)]
+    pub selected_capability_id: Option<String>,
+    #[serde(default)]
+    pub selected_capability_version: Option<String>,
+    #[serde(default)]
+    pub failure_reason: Option<SelectionFailureReason>,
+    #[serde(default)]
+    pub remaining_candidates: Vec<RuntimeCandidate>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionStatus {
+    Selected,
+    NoMatch,
+    Ambiguous,
+    InvalidRequest,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SelectionFailureReason {
+    InvalidRequest,
+    NoMatch,
+    Ambiguous,
+    NotRunnable,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionRecord {
+    pub placement_target: PlacementTarget,
+    pub status: ExecutionStatus,
+    #[serde(default)]
+    pub artifact_ref: Option<String>,
+    #[serde(default)]
+    pub started_at: Option<String>,
+    #[serde(default)]
+    pub completed_at: Option<String>,
+    #[serde(default)]
+    pub output_digest: Option<String>,
+    #[serde(default)]
+    pub failure_reason: Option<ExecutionFailureReason>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionStatus {
+    NotStarted,
+    Succeeded,
+    Failed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionFailureReason {
+    ContractInputInvalid,
+    ArtifactMissing,
+    ArtifactNotRunnable,
+    ExecutionFailed,
+    ContractOutputInvalid,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceResultRecord {
+    pub status: RuntimeResultStatus,
+    #[serde(default)]
+    pub error: Option<RuntimeError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeResult {
+    pub kind: String,
+    pub schema_version: String,
+    pub execution_id: String,
+    pub request_id: String,
+    pub status: RuntimeResultStatus,
+    pub trace_ref: String,
+    #[serde(default)]
+    pub output: Option<Value>,
+    #[serde(default)]
+    pub error: Option<RuntimeError>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeResultStatus {
+    Completed,
+    Error,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeError {
+    pub code: RuntimeErrorCode,
+    pub message: String,
+    pub details: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeErrorCode {
+    RequestInvalid,
+    CapabilityNotFound,
+    CapabilityAmbiguous,
+    CapabilityNotRunnable,
+    ArtifactMissing,
+    ExecutionFailed,
+    OutputValidationFailed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RuntimeExecutionOutcome {
+    pub result: RuntimeResult,
+    pub trace: RuntimeTrace,
+    pub state_events: Vec<RuntimeStateEvent>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeRegistryScope {
+    Public,
+    Private,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeImplementationKind {
+    Executable,
+    Workflow,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeLifecycle {
+    Draft,
+    Active,
+    Deprecated,
+    Retired,
+    Archived,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RequestParseFailure {
+    pub message: String,
+}
+
+impl fmt::Display for RequestParseFailure {
+    fn fmt(&self, formatter: &mut fmt::Formatter<'_>) -> fmt::Result {
+        formatter.write_str(&self.message)
+    }
+}
+
+impl std::error::Error for RequestParseFailure {}
+
+/// Parses a runtime request from raw JSON text.
+///
+/// # Errors
+///
+/// Returns [`RequestParseFailure`] when the JSON payload cannot be
+/// deserialized into the runtime request model.
+pub fn parse_runtime_request(json: &str) -> Result<RuntimeRequest, RequestParseFailure> {
+    serde_json::from_str::<RuntimeRequest>(json).map_err(|error| RequestParseFailure {
+        message: error.to_string(),
+    })
+}
+
+impl<E> Runtime<E>
+where
+    E: LocalExecutor,
+{
+    /// Executes one runtime request against the current registry state.
+    #[must_use]
+    pub fn execute(&self, request: RuntimeRequest) -> RuntimeExecutionOutcome {
+        let (attempt, mut emitter) = begin_attempt(request);
+
+        if let Some(error) = validate_request(&attempt.request) {
+            return invalid_request_outcome(attempt, emitter, error);
+        }
+
+        let resolution = self.resolve_candidates(&attempt.request, &mut emitter);
+
+        if resolution.eligible.is_empty() {
+            return no_eligible_outcome(attempt, emitter, resolution.collection);
+        }
+
+        if resolution.eligible.len() > 1 {
+            return ambiguous_outcome(attempt, emitter, resolution);
+        }
+
+        let mut eligible = resolution.eligible;
+        let selected = eligible.remove(0);
+        let selection = SelectionRecord {
+            status: SelectionStatus::Selected,
+            selected_capability_id: Some(selected.record.id.clone()),
+            selected_capability_version: Some(selected.record.version.clone()),
+            failure_reason: None,
+            remaining_candidates: Vec::new(),
+        };
+
+        self.execute_selected(
+            attempt,
+            emitter,
+            resolution.collection,
+            selection,
+            &selected,
+        )
+    }
+
+    fn collect_candidates(
+        &self,
+        request: &RuntimeRequest,
+        _reason: CandidateReason,
+    ) -> Vec<ResolvedCapability> {
+        let lookup_scope = map_lookup_scope(request.lookup.scope);
+
+        if is_exact_target(&request.intent) {
+            return request
+                .intent
+                .capability_id
+                .as_deref()
+                .zip(request.intent.capability_version.as_deref())
+                .and_then(|(id, version)| self.registry.find_exact(lookup_scope, id, version))
+                .into_iter()
+                .collect();
+        }
+
+        let target = request
+            .intent
+            .capability_id
+            .as_deref()
+            .or(request.intent.intent_key.as_deref())
+            .unwrap_or_default();
+
+        self.registry
+            .discover(lookup_scope, &DiscoveryQuery::default())
+            .into_iter()
+            .filter(|entry| entry.id == target)
+            .filter_map(|entry| {
+                let scope = match entry.scope {
+                    cogolo_registry::RegistryScope::Public => LookupScope::PublicOnly,
+                    cogolo_registry::RegistryScope::Private => LookupScope::PreferPrivate,
+                };
+                self.registry.find_exact(scope, &entry.id, &entry.version)
+            })
+            .collect()
+    }
+
+    fn resolve_candidates(
+        &self,
+        request: &RuntimeRequest,
+        emitter: &mut StateEmitter,
+    ) -> CandidateResolution {
+        emitter.push(
+            RuntimeState::Discovering,
+            json!({"lookup_scope": request.lookup.scope}),
+        );
+
+        let candidate_reason = if is_exact_target(&request.intent) {
+            CandidateReason::ExactMatch
+        } else {
+            CandidateReason::IntentMatch
+        };
+
+        let discovered = self.collect_candidates(request, candidate_reason);
+        emitter.push(
+            RuntimeState::EvaluatingConstraints,
+            json!({"candidate_count": discovered.len()}),
+        );
+
+        let mut eligible = Vec::new();
+        let mut rejected = Vec::new();
+        for candidate in discovered {
+            match evaluate_candidate(candidate) {
+                CandidateEvaluation::Eligible(capability) => eligible.push(capability),
+                CandidateEvaluation::Rejected(candidate, reason) => {
+                    rejected.push(RejectedRuntimeCandidate {
+                        capability_id: candidate.record.id.clone(),
+                        capability_version: candidate.record.version.clone(),
+                        scope: map_registry_scope(candidate.record.scope),
+                        reason,
+                    });
+                }
+            }
+        }
+
+        emitter.push(
+            RuntimeState::Selecting,
+            json!({"eligible_candidates": eligible.len(), "rejected_candidates": rejected.len()}),
+        );
+
+        CandidateResolution {
+            eligible: eligible.clone(),
+            collection: CandidateCollectionRecord {
+                lookup_scope: request.lookup.scope,
+                candidates: eligible
+                    .iter()
+                    .map(|capability| runtime_candidate(capability, candidate_reason))
+                    .collect(),
+                rejected_candidates: rejected,
+            },
+            candidate_reason,
+        }
+    }
+
+    fn execute_selected(
+        &self,
+        attempt: AttemptContext,
+        mut emitter: StateEmitter,
+        candidate_collection: CandidateCollectionRecord,
+        selection: SelectionRecord,
+        selected: &ResolvedCapability,
+    ) -> RuntimeExecutionOutcome {
+        if let Err(error) = validate_payload_against_contract(
+            &attempt.request.input,
+            &selected.contract.inputs.schema,
+            RuntimeErrorCode::RequestInvalid,
+            "runtime request input does not satisfy the selected capability input contract",
+        ) {
+            return pre_execution_failure_outcome(
+                attempt,
+                emitter,
+                candidate_collection,
+                selection,
+                Some(selected.record.artifact_ref.clone()),
+                ExecutionFailureReason::ContractInputInvalid,
+                error,
+            );
+        }
+
+        let started_at = emitter.next_timestamp();
+        emitter.push(
+            RuntimeState::Executing,
+            json!({
+                "capability_id": selected.record.id,
+                "capability_version": selected.record.version,
+                "artifact_ref": selected.record.artifact_ref,
+            }),
+        );
+
+        let execution_output = match self.executor.execute(selected, &attempt.request.input) {
+            Ok(output) => output,
+            Err(failure) => {
+                let error = runtime_error(
+                    RuntimeErrorCode::ExecutionFailed,
+                    &failure.message,
+                    json!({"code": "execution_failed"}),
+                );
+                return execution_failure_outcome(
+                    attempt,
+                    emitter,
+                    candidate_collection,
+                    selection,
+                    ExecutionFailureState {
+                        artifact_ref: selected.record.artifact_ref.clone(),
+                        started_at,
+                        failure_reason: ExecutionFailureReason::ExecutionFailed,
+                    },
+                    error,
+                );
+            }
+        };
+
+        if let Err(error) = validate_payload_against_contract(
+            &execution_output,
+            &selected.contract.outputs.schema,
+            RuntimeErrorCode::OutputValidationFailed,
+            "executor output does not satisfy the selected capability output contract",
+        ) {
+            return execution_failure_outcome(
+                attempt,
+                emitter,
+                candidate_collection,
+                selection,
+                ExecutionFailureState {
+                    artifact_ref: selected.record.artifact_ref.clone(),
+                    started_at,
+                    failure_reason: ExecutionFailureReason::ContractOutputInvalid,
+                },
+                error,
+            );
+        }
+
+        successful_execution_outcome(
+            attempt,
+            emitter,
+            candidate_collection,
+            selection,
+            selected,
+            started_at,
+            execution_output,
+        )
+    }
+}
+
+fn terminal_failure(context: FailureContext) -> RuntimeExecutionOutcome {
+    let trace = RuntimeTrace {
+        kind: RUNTIME_TRACE_KIND.to_string(),
+        schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+        trace_id: context.attempt.trace_id.clone(),
+        execution_id: context.attempt.execution_id.clone(),
+        request_id: context.attempt.request.request_id.clone(),
+        governing_spec: GOVERNING_SPEC.to_string(),
+        request: context.attempt.request.clone(),
+        candidate_collection: context.candidate_collection,
+        selection: context.selection,
+        execution: context.execution,
+        result: TraceResultRecord {
+            status: RuntimeResultStatus::Error,
+            error: Some(context.error.clone()),
+        },
+    };
+
+    let result = RuntimeResult {
+        kind: RUNTIME_RESULT_KIND.to_string(),
+        schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+        execution_id: context.attempt.execution_id,
+        request_id: context.attempt.request.request_id,
+        status: RuntimeResultStatus::Error,
+        trace_ref: context.attempt.trace_id,
+        output: None,
+        error: Some(context.error),
+    };
+
+    RuntimeExecutionOutcome {
+        result,
+        trace,
+        state_events: context.state_events,
+    }
+}
+
+fn begin_attempt(request: RuntimeRequest) -> (AttemptContext, StateEmitter) {
+    let request_id = request.request_id.clone();
+    let execution_id = format!("{EXECUTION_PREFIX}{request_id}");
+    let trace_id = format!("{TRACE_PREFIX}{execution_id}");
+    let mut emitter = StateEmitter::new(&execution_id, &request_id);
+    emitter.push(
+        RuntimeState::LoadingRegistry,
+        json!({"registry_status": "available"}),
+    );
+    emitter.push(
+        RuntimeState::Ready,
+        json!({"governing_spec": GOVERNING_SPEC}),
+    );
+
+    (
+        AttemptContext {
+            request,
+            execution_id,
+            trace_id,
+        },
+        emitter,
+    )
+}
+
+fn invalid_request_outcome(
+    attempt: AttemptContext,
+    mut emitter: StateEmitter,
+    error: RuntimeError,
+) -> RuntimeExecutionOutcome {
+    emitter.push(
+        RuntimeState::Error,
+        json!({"code": error.code, "message": error.message}),
+    );
+    terminal_failure(FailureContext {
+        attempt,
+        state_events: emitter.finish(),
+        candidate_collection: CandidateCollectionRecord {
+            lookup_scope: RuntimeLookupScope::PreferPrivate,
+            candidates: Vec::new(),
+            rejected_candidates: Vec::new(),
+        },
+        selection: SelectionRecord {
+            status: SelectionStatus::InvalidRequest,
+            selected_capability_id: None,
+            selected_capability_version: None,
+            failure_reason: Some(SelectionFailureReason::InvalidRequest),
+            remaining_candidates: Vec::new(),
+        },
+        execution: ExecutionRecord {
+            placement_target: PlacementTarget::Local,
+            status: ExecutionStatus::NotStarted,
+            artifact_ref: None,
+            started_at: None,
+            completed_at: None,
+            output_digest: None,
+            failure_reason: Some(ExecutionFailureReason::ContractInputInvalid),
+        },
+        error,
+    })
+}
+
+fn no_eligible_outcome(
+    attempt: AttemptContext,
+    mut emitter: StateEmitter,
+    candidate_collection: CandidateCollectionRecord,
+) -> RuntimeExecutionOutcome {
+    let error = if candidate_collection.rejected_candidates.is_empty() {
+        runtime_error(
+            RuntimeErrorCode::CapabilityNotFound,
+            "no eligible capability matched the runtime request",
+            json!({"request_id": attempt.request.request_id}),
+        )
+    } else {
+        runtime_error(
+            RuntimeErrorCode::CapabilityNotRunnable,
+            "matching capabilities were found but none were runnable locally",
+            json!({"rejected_candidates": candidate_collection.rejected_candidates}),
+        )
+    };
+    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+
+    terminal_failure(FailureContext {
+        attempt,
+        state_events: emitter.finish(),
+        candidate_collection,
+        selection: SelectionRecord {
+            status: SelectionStatus::NoMatch,
+            selected_capability_id: None,
+            selected_capability_version: None,
+            failure_reason: Some(if error.code == RuntimeErrorCode::CapabilityNotFound {
+                SelectionFailureReason::NoMatch
+            } else {
+                SelectionFailureReason::NotRunnable
+            }),
+            remaining_candidates: Vec::new(),
+        },
+        execution: ExecutionRecord {
+            placement_target: PlacementTarget::Local,
+            status: ExecutionStatus::NotStarted,
+            artifact_ref: None,
+            started_at: None,
+            completed_at: None,
+            output_digest: None,
+            failure_reason: Some(ExecutionFailureReason::ArtifactNotRunnable),
+        },
+        error,
+    })
+}
+
+fn ambiguous_outcome(
+    attempt: AttemptContext,
+    mut emitter: StateEmitter,
+    resolution: CandidateResolution,
+) -> RuntimeExecutionOutcome {
+    let remaining_candidates = resolution
+        .eligible
+        .iter()
+        .map(|candidate| runtime_candidate(candidate, resolution.candidate_reason))
+        .collect::<Vec<_>>();
+    let error = runtime_error(
+        RuntimeErrorCode::CapabilityAmbiguous,
+        "runtime request matched more than one eligible capability",
+        json!({"remaining_candidates": remaining_candidates}),
+    );
+    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+
+    terminal_failure(FailureContext {
+        attempt,
+        state_events: emitter.finish(),
+        candidate_collection: resolution.collection,
+        selection: SelectionRecord {
+            status: SelectionStatus::Ambiguous,
+            selected_capability_id: None,
+            selected_capability_version: None,
+            failure_reason: Some(SelectionFailureReason::Ambiguous),
+            remaining_candidates,
+        },
+        execution: ExecutionRecord {
+            placement_target: PlacementTarget::Local,
+            status: ExecutionStatus::NotStarted,
+            artifact_ref: None,
+            started_at: None,
+            completed_at: None,
+            output_digest: None,
+            failure_reason: Some(ExecutionFailureReason::ArtifactNotRunnable),
+        },
+        error,
+    })
+}
+
+fn pre_execution_failure_outcome(
+    attempt: AttemptContext,
+    mut emitter: StateEmitter,
+    candidate_collection: CandidateCollectionRecord,
+    selection: SelectionRecord,
+    artifact_ref: Option<String>,
+    failure_reason: ExecutionFailureReason,
+    error: RuntimeError,
+) -> RuntimeExecutionOutcome {
+    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+    terminal_failure(FailureContext {
+        attempt,
+        state_events: emitter.finish(),
+        candidate_collection,
+        selection,
+        execution: ExecutionRecord {
+            placement_target: PlacementTarget::Local,
+            status: ExecutionStatus::NotStarted,
+            artifact_ref,
+            started_at: None,
+            completed_at: None,
+            output_digest: None,
+            failure_reason: Some(failure_reason),
+        },
+        error,
+    })
+}
+
+fn execution_failure_outcome(
+    attempt: AttemptContext,
+    mut emitter: StateEmitter,
+    candidate_collection: CandidateCollectionRecord,
+    selection: SelectionRecord,
+    failure: ExecutionFailureState,
+    error: RuntimeError,
+) -> RuntimeExecutionOutcome {
+    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+    let completed_at = emitter.next_timestamp();
+
+    terminal_failure(FailureContext {
+        attempt,
+        state_events: emitter.finish(),
+        candidate_collection,
+        selection,
+        execution: ExecutionRecord {
+            placement_target: PlacementTarget::Local,
+            status: ExecutionStatus::Failed,
+            artifact_ref: Some(failure.artifact_ref),
+            started_at: Some(failure.started_at),
+            completed_at: Some(completed_at),
+            output_digest: None,
+            failure_reason: Some(failure.failure_reason),
+        },
+        error,
+    })
+}
+
+fn successful_execution_outcome(
+    attempt: AttemptContext,
+    mut emitter: StateEmitter,
+    candidate_collection: CandidateCollectionRecord,
+    selection: SelectionRecord,
+    selected: &ResolvedCapability,
+    started_at: String,
+    execution_output: Value,
+) -> RuntimeExecutionOutcome {
+    let completed_at = emitter.next_timestamp();
+    emitter.push(
+        RuntimeState::Completed,
+        json!({
+            "capability_id": selected.record.id,
+            "capability_version": selected.record.version,
+        }),
+    );
+
+    let execution = ExecutionRecord {
+        placement_target: PlacementTarget::Local,
+        status: ExecutionStatus::Succeeded,
+        artifact_ref: Some(selected.record.artifact_ref.clone()),
+        started_at: Some(started_at),
+        completed_at: Some(completed_at),
+        output_digest: Some(content_digest(&execution_output)),
+        failure_reason: None,
+    };
+
+    let trace = RuntimeTrace {
+        kind: RUNTIME_TRACE_KIND.to_string(),
+        schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+        trace_id: attempt.trace_id.clone(),
+        execution_id: attempt.execution_id.clone(),
+        request_id: attempt.request.request_id.clone(),
+        governing_spec: GOVERNING_SPEC.to_string(),
+        request: attempt.request.clone(),
+        candidate_collection,
+        selection,
+        execution,
+        result: TraceResultRecord {
+            status: RuntimeResultStatus::Completed,
+            error: None,
+        },
+    };
+
+    let result = RuntimeResult {
+        kind: RUNTIME_RESULT_KIND.to_string(),
+        schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+        execution_id: attempt.execution_id,
+        request_id: attempt.request.request_id,
+        status: RuntimeResultStatus::Completed,
+        trace_ref: attempt.trace_id,
+        output: Some(execution_output),
+        error: None,
+    };
+
+    RuntimeExecutionOutcome {
+        result,
+        trace,
+        state_events: emitter.finish(),
+    }
+}
+
+fn validate_request(request: &RuntimeRequest) -> Option<RuntimeError> {
+    if request.kind != RUNTIME_REQUEST_KIND {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "kind must equal runtime_request",
+            json!({"path": "$.kind"}),
+        ));
+    }
+    if request.schema_version != SUPPORTED_SCHEMA_VERSION {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "schema_version must equal 1.0.0",
+            json!({"path": "$.schema_version"}),
+        ));
+    }
+    if request.governing_spec != GOVERNING_SPEC {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "governing_spec must equal 006-runtime-request-execution",
+            json!({"path": "$.governing_spec"}),
+        ));
+    }
+    if request.request_id.trim().is_empty() {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "request_id must be non-empty",
+            json!({"path": "$.request_id"}),
+        ));
+    }
+    if request.lookup.allow_ambiguity {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "allow_ambiguity must be false in this runtime slice",
+            json!({"path": "$.lookup.allow_ambiguity"}),
+        ));
+    }
+    if request
+        .intent
+        .capability_version
+        .as_deref()
+        .is_some_and(|version| Version::parse(version).is_err())
+    {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "capability_version must be valid semantic versioning",
+            json!({"path": "$.intent.capability_version"}),
+        ));
+    }
+
+    let exact_id = request
+        .intent
+        .capability_id
+        .as_deref()
+        .is_some_and(non_empty);
+    let exact_version = request
+        .intent
+        .capability_version
+        .as_deref()
+        .is_some_and(non_empty);
+    let intent_key = request.intent.intent_key.as_deref().is_some_and(non_empty);
+
+    if !(exact_id || intent_key) {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "runtime intent must include capability_id or intent_key",
+            json!({"path": "$.intent"}),
+        ));
+    }
+
+    if exact_version && !exact_id {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "capability_version requires capability_id",
+            json!({"path": "$.intent.capability_version"}),
+        ));
+    }
+
+    None
+}
+
+fn is_exact_target(intent: &RuntimeIntent) -> bool {
+    intent.capability_id.as_deref().is_some_and(non_empty)
+        && intent.capability_version.as_deref().is_some_and(non_empty)
+}
+
+fn non_empty(value: &str) -> bool {
+    !value.trim().is_empty()
+}
+
+fn map_lookup_scope(scope: RuntimeLookupScope) -> LookupScope {
+    match scope {
+        RuntimeLookupScope::PublicOnly => LookupScope::PublicOnly,
+        RuntimeLookupScope::PreferPrivate => LookupScope::PreferPrivate,
+    }
+}
+
+fn evaluate_candidate(candidate: ResolvedCapability) -> CandidateEvaluation {
+    if !candidate.contract.lifecycle.is_runtime_eligible() {
+        return CandidateEvaluation::Rejected(
+            candidate,
+            RejectedCandidateReason::LifecycleNotRunnable,
+        );
+    }
+    if candidate.record.implementation_kind != ImplementationKind::Executable {
+        return CandidateEvaluation::Rejected(
+            candidate,
+            RejectedCandidateReason::NotRunnableLocally,
+        );
+    }
+
+    let Some(binary) = candidate.artifact.binary.as_ref() else {
+        return CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing);
+    };
+
+    if binary.location.trim().is_empty() {
+        return CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing);
+    }
+
+    let execution = &candidate.contract.execution;
+    if !execution
+        .preferred_targets
+        .contains(&ExecutionTarget::Local)
+        || execution.constraints.host_api_access != HostApiAccess::None
+        || execution.constraints.network_access != NetworkAccess::Forbidden
+    {
+        return CandidateEvaluation::Rejected(
+            candidate,
+            RejectedCandidateReason::NotRunnableLocally,
+        );
+    }
+
+    CandidateEvaluation::Eligible(candidate)
+}
+
+fn validate_payload_against_contract(
+    payload: &Value,
+    schema: &Value,
+    code: RuntimeErrorCode,
+    message: &str,
+) -> Result<(), RuntimeError> {
+    let mut errors = Vec::new();
+    validate_value_against_schema(payload, schema, "$", &mut errors);
+    if errors.is_empty() {
+        Ok(())
+    } else {
+        Err(runtime_error(
+            code,
+            message,
+            json!({ "violations": errors }),
+        ))
+    }
+}
+
+fn validate_value_against_schema(
+    value: &Value,
+    schema: &Value,
+    path: &str,
+    errors: &mut Vec<Value>,
+) {
+    let Some(schema_object) = schema.as_object() else {
+        errors.push(json!({
+            "path": path,
+            "message": "schema must be an object"
+        }));
+        return;
+    };
+
+    if let Some(schema_type) = schema_object.get("type").and_then(Value::as_str) {
+        match schema_type {
+            "object" => {
+                let Some(instance) = value.as_object() else {
+                    errors.push(type_error(path, "object"));
+                    return;
+                };
+                validate_required(instance, schema_object, path, errors);
+                validate_properties(instance, schema_object, path, errors);
+            }
+            "array" => {
+                let Some(items) = value.as_array() else {
+                    errors.push(type_error(path, "array"));
+                    return;
+                };
+                if let Some(item_schema) = schema_object.get("items") {
+                    for (index, item) in items.iter().enumerate() {
+                        validate_value_against_schema(
+                            item,
+                            item_schema,
+                            &format!("{path}[{index}]"),
+                            errors,
+                        );
+                    }
+                }
+            }
+            "string" if !value.is_string() => errors.push(type_error(path, "string")),
+            "integer" if value.as_i64().is_none() && value.as_u64().is_none() => {
+                errors.push(type_error(path, "integer"));
+            }
+            "number" if !value.is_number() => errors.push(type_error(path, "number")),
+            "boolean" if !value.is_boolean() => errors.push(type_error(path, "boolean")),
+            "null" if !value.is_null() => errors.push(type_error(path, "null")),
+            _ => {}
+        }
+    }
+}
+
+fn validate_required(
+    instance: &Map<String, Value>,
+    schema_object: &Map<String, Value>,
+    path: &str,
+    errors: &mut Vec<Value>,
+) {
+    let Some(required) = schema_object.get("required").and_then(Value::as_array) else {
+        return;
+    };
+
+    for required_field in required.iter().filter_map(Value::as_str) {
+        if !instance.contains_key(required_field) {
+            errors.push(json!({
+                "path": format!("{path}.{required_field}"),
+                "message": "required property is missing"
+            }));
+        }
+    }
+}
+
+fn validate_properties(
+    instance: &Map<String, Value>,
+    schema_object: &Map<String, Value>,
+    path: &str,
+    errors: &mut Vec<Value>,
+) {
+    let Some(properties) = schema_object.get("properties").and_then(Value::as_object) else {
+        return;
+    };
+
+    for (key, value) in instance {
+        if let Some(property_schema) = properties.get(key) {
+            validate_value_against_schema(value, property_schema, &format!("{path}.{key}"), errors);
+        }
+    }
+}
+
+fn type_error(path: &str, expected: &str) -> Value {
+    json!({
+        "path": path,
+        "message": format!("expected {expected}")
+    })
+}
+
+fn runtime_candidate(capability: &ResolvedCapability, reason: CandidateReason) -> RuntimeCandidate {
+    RuntimeCandidate {
+        scope: map_registry_scope(capability.record.scope),
+        capability_id: capability.record.id.clone(),
+        capability_version: capability.record.version.clone(),
+        artifact_ref: capability.record.artifact_ref.clone(),
+        implementation_kind: map_implementation_kind(capability.record.implementation_kind),
+        lifecycle: map_lifecycle(&capability.record.lifecycle),
+        reason,
+    }
+}
+
+fn map_registry_scope(scope: RegistryScope) -> RuntimeRegistryScope {
+    match scope {
+        RegistryScope::Public => RuntimeRegistryScope::Public,
+        RegistryScope::Private => RuntimeRegistryScope::Private,
+    }
+}
+
+fn map_implementation_kind(kind: ImplementationKind) -> RuntimeImplementationKind {
+    match kind {
+        ImplementationKind::Executable => RuntimeImplementationKind::Executable,
+        ImplementationKind::Workflow => RuntimeImplementationKind::Workflow,
+    }
+}
+
+fn map_lifecycle(lifecycle: &Lifecycle) -> RuntimeLifecycle {
+    match lifecycle {
+        Lifecycle::Draft => RuntimeLifecycle::Draft,
+        Lifecycle::Active => RuntimeLifecycle::Active,
+        Lifecycle::Deprecated => RuntimeLifecycle::Deprecated,
+        Lifecycle::Retired => RuntimeLifecycle::Retired,
+        Lifecycle::Archived => RuntimeLifecycle::Archived,
+    }
+}
+
+fn runtime_error(code: RuntimeErrorCode, message: &str, details: Value) -> RuntimeError {
+    RuntimeError {
+        code,
+        message: message.to_string(),
+        details,
+    }
+}
+
+fn content_digest(value: &Value) -> String {
+    let json = value.to_string();
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in json.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0001_0000_01b3);
+    }
+    format!("0.1.0:{hash:016x}")
+}
+
+struct AttemptContext {
+    request: RuntimeRequest,
+    execution_id: String,
+    trace_id: String,
+}
+
+struct CandidateResolution {
+    eligible: Vec<ResolvedCapability>,
+    collection: CandidateCollectionRecord,
+    candidate_reason: CandidateReason,
+}
+
+struct FailureContext {
+    attempt: AttemptContext,
+    state_events: Vec<RuntimeStateEvent>,
+    candidate_collection: CandidateCollectionRecord,
+    selection: SelectionRecord,
+    execution: ExecutionRecord,
+    error: RuntimeError,
+}
+
+struct ExecutionFailureState {
+    artifact_ref: String,
+    started_at: String,
+    failure_reason: ExecutionFailureReason,
+}
+
+enum CandidateEvaluation {
+    Eligible(ResolvedCapability),
+    Rejected(ResolvedCapability, RejectedCandidateReason),
+}
+
+struct StateEmitter {
+    execution_id: String,
+    request_id: String,
+    next_second: u32,
+    events: Vec<RuntimeStateEvent>,
+}
+
+impl StateEmitter {
+    fn new(execution_id: &str, request_id: &str) -> Self {
+        Self {
+            execution_id: execution_id.to_string(),
+            request_id: request_id.to_string(),
+            next_second: 0,
+            events: Vec::new(),
+        }
+    }
+
+    fn push(&mut self, state: RuntimeState, details: Value) {
+        let event = RuntimeStateEvent {
+            kind: RUNTIME_STATE_EVENT_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            execution_id: self.execution_id.clone(),
+            request_id: self.request_id.clone(),
+            state,
+            timestamp: self.next_timestamp(),
+            details,
+        };
+        self.events.push(event);
+    }
+
+    fn next_timestamp(&mut self) -> String {
+        let timestamp = format!("1970-01-01T00:00:{:02}Z", self.next_second);
+        self.next_second += 1;
+        timestamp
+    }
+
+    fn finish(self) -> Vec<RuntimeStateEvent> {
+        self.events
+    }
 }
 
 #[cfg(test)]
 mod tests {
+    use super::{
+        CandidateEvaluation, CandidateReason, LocalExecutor, PlacementTarget,
+        RejectedCandidateReason, RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope,
+        RuntimeLookupScope::*, RuntimeRequest, RuntimeResultStatus, RuntimeState,
+        evaluate_candidate, map_implementation_kind, map_lifecycle, map_registry_scope,
+        parse_runtime_request, runtime_candidate, validate_payload_against_contract,
+        validate_request,
+    };
+    use cogolo_contracts::{
+        BinaryFormat as ContractBinaryFormat, Entrypoint, EntrypointKind, Execution,
+        ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
+        NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer,
+    };
+    use cogolo_registry::{
+        ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
+        CapabilityRegistration, CapabilityRegistry, CapabilityRegistryRecord,
+        ComposabilityMetadata, CompositionKind, CompositionPattern, DiscoveryIndexEntry,
+        ImplementationKind, RegistryProvenance, RegistryScope, ResolvedCapability, SourceKind,
+        SourceReference,
+    };
+    use serde_json::json;
+
     #[test]
-    fn exposes_crate_name() {
-        assert_eq!(super::crate_name(), "cogolo-runtime");
+    fn missing_binary_metadata_is_rejected_as_artifact_missing() {
+        let capability = resolved_capability(None, Lifecycle::Active);
+
+        let evaluation = evaluate_candidate(capability);
+
+        assert!(matches!(
+            evaluation,
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::ArtifactMissing)
+        ));
+    }
+
+    #[test]
+    fn invalid_json_request_reports_parse_error_text() {
+        let error = parse_runtime_request("{invalid").err();
+
+        assert!(error.is_some());
+        let message = error.map(|item| item.to_string()).unwrap_or_default();
+        assert!(!message.is_empty());
+    }
+
+    #[test]
+    fn request_validation_rejects_all_invalid_request_guards() {
+        let mut request = valid_request();
+        request.kind = "wrong".to_string();
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.schema_version = "9.9.9".to_string();
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.governing_spec = "wrong-spec".to_string();
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.request_id.clear();
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.lookup.allow_ambiguity = true;
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.context.requested_target = PlacementTarget::Local;
+        request.intent.capability_version = Some("bad".to_string());
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.intent.capability_id = None;
+        request.intent.intent_key = None;
+        request.intent.capability_version = None;
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+
+        let mut request = valid_request();
+        request.intent.capability_id = None;
+        request.intent.capability_version = Some("1.0.0".to_string());
+        assert_eq!(
+            validate_request(&request).map(|error| error.code),
+            Some(super::RuntimeErrorCode::RequestInvalid)
+        );
+    }
+
+    #[test]
+    fn candidate_evaluation_covers_local_runnability_branches() {
+        let mut capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+        capability.record.implementation_kind = ImplementationKind::Workflow;
+        assert!(matches!(
+            evaluate_candidate(capability),
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::NotRunnableLocally)
+        ));
+
+        let capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: String::new(),
+            }),
+            Lifecycle::Active,
+        );
+        assert!(matches!(
+            evaluate_candidate(capability),
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::ArtifactMissing)
+        ));
+
+        let mut capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+        capability.contract.execution.preferred_targets = vec![ExecutionTarget::Cloud];
+        assert!(matches!(
+            evaluate_candidate(capability),
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::NotRunnableLocally)
+        ));
+
+        let mut capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+        capability.contract.execution.constraints.host_api_access =
+            HostApiAccess::ExceptionRequired;
+        assert!(matches!(
+            evaluate_candidate(capability),
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::NotRunnableLocally)
+        ));
+
+        let mut capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+        capability.contract.execution.constraints.network_access = NetworkAccess::Required;
+        assert!(matches!(
+            evaluate_candidate(capability),
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::NotRunnableLocally)
+        ));
+
+        let capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+        assert!(matches!(
+            evaluate_candidate(capability),
+            CandidateEvaluation::Eligible(_)
+        ));
+    }
+
+    #[test]
+    fn payload_validation_covers_schema_branches() {
+        let invalid_schema = validate_payload_against_contract(
+            &json!({"field": "value"}),
+            &json!("bad-schema"),
+            super::RuntimeErrorCode::RequestInvalid,
+            "invalid schema",
+        );
+        assert!(invalid_schema.is_err());
+
+        let wrong_object = validate_payload_against_contract(
+            &json!("value"),
+            &json!({"type": "object"}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "wrong object",
+        );
+        assert!(wrong_object.is_err());
+
+        let wrong_array = validate_payload_against_contract(
+            &json!("value"),
+            &json!({"type": "array"}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "wrong array",
+        );
+        assert!(wrong_array.is_err());
+
+        let typed_array = validate_payload_against_contract(
+            &json!(["value", 2]),
+            &json!({"type": "array", "items": {"type": "string"}}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "typed array",
+        );
+        assert!(typed_array.is_err());
+
+        for (value, schema) in [
+            (json!("value"), json!({"type": "integer"})),
+            (json!("value"), json!({"type": "number"})),
+            (json!("value"), json!({"type": "boolean"})),
+            (json!("value"), json!({"type": "null"})),
+        ] {
+            let result = validate_payload_against_contract(
+                &value,
+                &schema,
+                super::RuntimeErrorCode::RequestInvalid,
+                "typed validation",
+            );
+            assert!(result.is_err());
+        }
+
+        let missing_required = validate_payload_against_contract(
+            &json!({}),
+            &json!({"type": "object", "required": ["draft_id"]}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "required field",
+        );
+        assert!(missing_required.is_err());
+
+        let property_mismatch = validate_payload_against_contract(
+            &json!({"draft_id": 3}),
+            &json!({"type": "object", "properties": {"draft_id": {"type": "string"}}}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "property mismatch",
+        );
+        assert!(property_mismatch.is_err());
+
+        let array_without_item_schema = validate_payload_against_contract(
+            &json!(["draft-1"]),
+            &json!({"type": "array"}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "array without item schema",
+        );
+        assert!(array_without_item_schema.is_ok());
+
+        let object_without_type = validate_payload_against_contract(
+            &json!({"draft_id": "draft-1"}),
+            &json!({}),
+            super::RuntimeErrorCode::RequestInvalid,
+            "object without type",
+        );
+        assert!(object_without_type.is_ok());
+    }
+
+    #[test]
+    fn runtime_mapping_helpers_cover_all_variants() {
+        assert_eq!(
+            map_registry_scope(RegistryScope::Public),
+            super::RuntimeRegistryScope::Public
+        );
+        assert_eq!(
+            map_registry_scope(RegistryScope::Private),
+            super::RuntimeRegistryScope::Private
+        );
+        assert_eq!(
+            map_implementation_kind(ImplementationKind::Executable),
+            super::RuntimeImplementationKind::Executable
+        );
+        assert_eq!(
+            map_implementation_kind(ImplementationKind::Workflow),
+            super::RuntimeImplementationKind::Workflow
+        );
+        assert_eq!(
+            map_lifecycle(&Lifecycle::Draft),
+            super::RuntimeLifecycle::Draft
+        );
+        assert_eq!(
+            map_lifecycle(&Lifecycle::Active),
+            super::RuntimeLifecycle::Active
+        );
+        assert_eq!(
+            map_lifecycle(&Lifecycle::Deprecated),
+            super::RuntimeLifecycle::Deprecated
+        );
+        assert_eq!(
+            map_lifecycle(&Lifecycle::Retired),
+            super::RuntimeLifecycle::Retired
+        );
+        assert_eq!(
+            map_lifecycle(&Lifecycle::Archived),
+            super::RuntimeLifecycle::Archived
+        );
+    }
+
+    #[test]
+    fn runtime_candidate_helper_copies_registry_shape() {
+        let capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Deprecated,
+        );
+
+        let candidate = runtime_candidate(&capability, CandidateReason::IntentMatch);
+
+        assert_eq!(candidate.reason, CandidateReason::IntentMatch);
+        assert_eq!(candidate.lifecycle, super::RuntimeLifecycle::Deprecated);
+        assert_eq!(
+            candidate.implementation_kind,
+            super::RuntimeImplementationKind::Executable
+        );
+    }
+
+    #[test]
+    fn successful_runtime_execution_reports_completed_result_status() {
+        let mut events = super::StateEmitter::new("exec_1", "req_1");
+        events.push(RuntimeState::LoadingRegistry, json!({}));
+        let attempt = super::AttemptContext {
+            request: valid_request(),
+            execution_id: "exec_1".to_string(),
+            trace_id: "trace_exec_1".to_string(),
+        };
+        let capability = resolved_capability(
+            Some(cogolo_registry::BinaryReference {
+                format: cogolo_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+
+        let outcome = super::successful_execution_outcome(
+            attempt,
+            events,
+            super::CandidateCollectionRecord {
+                lookup_scope: PreferPrivate,
+                candidates: vec![runtime_candidate(&capability, CandidateReason::ExactMatch)],
+                rejected_candidates: Vec::new(),
+            },
+            super::SelectionRecord {
+                status: super::SelectionStatus::Selected,
+                selected_capability_id: Some(capability.record.id.clone()),
+                selected_capability_version: Some(capability.record.version.clone()),
+                failure_reason: None,
+                remaining_candidates: Vec::new(),
+            },
+            &capability,
+            "1970-01-01T00:00:00Z".to_string(),
+            json!({"draft_id": "draft-1"}),
+        );
+
+        assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+        assert_eq!(
+            outcome.state_events.last().map(|event| event.state),
+            Some(RuntimeState::Completed)
+        );
+    }
+
+    #[test]
+    fn collect_candidates_handles_missing_target_and_public_discovery() {
+        let runtime = super::Runtime::new(CapabilityRegistry::new(), NoopExecutor);
+        let mut request = valid_request();
+        request.intent.capability_id = None;
+        request.intent.capability_version = None;
+        request.intent.intent_key = None;
+
+        assert!(
+            runtime
+                .collect_candidates(&request, CandidateReason::IntentMatch)
+                .is_empty()
+        );
+
+        let mut registry = CapabilityRegistry::new();
+        let outcome = registry.register(public_registration());
+        assert!(outcome.is_ok());
+
+        let runtime = super::Runtime::new(registry, NoopExecutor);
+        let mut request = valid_request();
+        request.lookup.scope = PublicOnly;
+        request.intent.capability_id = None;
+        request.intent.capability_version = None;
+        request.intent.intent_key = Some("content.comments.create-comment-draft".to_string());
+
+        let candidates = runtime.collect_candidates(&request, CandidateReason::IntentMatch);
+
+        assert_eq!(candidates.len(), 1);
+        assert_eq!(candidates[0].record.scope, RegistryScope::Public);
+    }
+
+    #[test]
+    fn noop_executor_returns_structured_output() {
+        let executor = NoopExecutor;
+        let capability = resolved_capability(
+            Some(BinaryReference {
+                format: BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            }),
+            Lifecycle::Active,
+        );
+
+        let result = executor.execute(&capability, &json!({}));
+
+        assert_eq!(result, Ok(json!({"draft_id": "draft"})));
+    }
+
+    fn valid_request() -> RuntimeRequest {
+        RuntimeRequest {
+            kind: "runtime_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            request_id: "req_123".to_string(),
+            intent: RuntimeIntent {
+                capability_id: Some("content.comments.create-comment-draft".to_string()),
+                capability_version: Some("1.0.0".to_string()),
+                intent_key: Some("content.comments.create-comment-draft".to_string()),
+            },
+            input: json!({"comment_text": "Hello", "resource_id": "res-1"}),
+            lookup: RuntimeLookup {
+                scope: RuntimeLookupScope::PreferPrivate,
+                allow_ambiguity: false,
+            },
+            context: RuntimeContext {
+                requested_target: PlacementTarget::Local,
+                correlation_id: None,
+                caller: None,
+                metadata: None,
+            },
+            governing_spec: "006-runtime-request-execution".to_string(),
+        }
+    }
+
+    fn public_registration() -> CapabilityRegistration {
+        CapabilityRegistration {
+            scope: RegistryScope::Public,
+            contract: test_contract(Lifecycle::Active),
+            contract_path: "registry/contract.json".to_string(),
+            artifact: test_artifact(Some(BinaryReference {
+                format: BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+            })),
+            registered_at: "2026-03-27T00:00:00Z".to_string(),
+            tags: vec!["comments".to_string()],
+            composability: ComposabilityMetadata {
+                kind: CompositionKind::Atomic,
+                patterns: vec![CompositionPattern::Sequential],
+                provides: vec!["draft".to_string()],
+                requires: vec!["authenticated-user".to_string()],
+            },
+            governing_spec: "005-capability-registry".to_string(),
+            validator_version: "0.1.0".to_string(),
+        }
+    }
+
+    fn resolved_capability(
+        binary: Option<cogolo_registry::BinaryReference>,
+        lifecycle: Lifecycle,
+    ) -> ResolvedCapability {
+        ResolvedCapability {
+            contract: test_contract(lifecycle.clone()),
+            record: test_record(lifecycle.clone()),
+            artifact: test_artifact(binary),
+            index_entry: test_index_entry(lifecycle),
+        }
+    }
+
+    fn test_contract(lifecycle: Lifecycle) -> cogolo_contracts::CapabilityContract {
+        cogolo_contracts::CapabilityContract {
+            kind: "capability_contract".to_string(),
+            schema_version: "1.0.0".to_string(),
+            id: "content.comments.create-comment-draft".to_string(),
+            namespace: "content.comments".to_string(),
+            name: "create-comment-draft".to_string(),
+            version: "1.0.0".to_string(),
+            lifecycle,
+            owner: Owner {
+                team: "comments".to_string(),
+                contact: "comments@example.com".to_string(),
+            },
+            summary: "Create a comment draft for a resource".to_string(),
+            description: "Creates a draft comment and returns the generated draft identifier."
+                .to_string(),
+            inputs: SchemaContainer {
+                schema: json!({"type": "object"}),
+            },
+            outputs: SchemaContainer {
+                schema: json!({"type": "object"}),
+            },
+            preconditions: Vec::new(),
+            postconditions: Vec::new(),
+            side_effects: vec![cogolo_contracts::SideEffect {
+                kind: cogolo_contracts::SideEffectKind::MemoryOnly,
+                description: "Produces a draft representation in memory.".to_string(),
+            }],
+            emits: Vec::new(),
+            consumes: Vec::new(),
+            permissions: Vec::new(),
+            execution: Execution {
+                binary_format: ContractBinaryFormat::Wasm,
+                entrypoint: Entrypoint {
+                    kind: EntrypointKind::WasiCommand,
+                    command: "run".to_string(),
+                },
+                preferred_targets: vec![ExecutionTarget::Local],
+                constraints: ExecutionConstraints {
+                    host_api_access: HostApiAccess::None,
+                    network_access: NetworkAccess::Forbidden,
+                    filesystem_access: FilesystemAccess::None,
+                },
+            },
+            policies: Vec::new(),
+            dependencies: Vec::new(),
+            provenance: Provenance {
+                source: ProvenanceSource::Greenfield,
+                author: "Enrico Piovesan".to_string(),
+                created_at: "2026-03-27T00:00:00Z".to_string(),
+                spec_ref: Some("006-runtime-request-execution".to_string()),
+                adr_refs: Vec::new(),
+                exception_refs: Vec::new(),
+            },
+            evidence: Vec::new(),
+        }
+    }
+
+    fn test_record(lifecycle: Lifecycle) -> CapabilityRegistryRecord {
+        CapabilityRegistryRecord {
+            scope: RegistryScope::Private,
+            id: "content.comments.create-comment-draft".to_string(),
+            version: "1.0.0".to_string(),
+            lifecycle,
+            owner: Owner {
+                team: "comments".to_string(),
+                contact: "comments@example.com".to_string(),
+            },
+            contract_path: "registry/contract.json".to_string(),
+            contract_digest: "digest".to_string(),
+            implementation_kind: ImplementationKind::Executable,
+            artifact_ref: "artifact:content.comments.create-comment-draft:1.0.0".to_string(),
+            registered_at: "2026-03-27T00:00:00Z".to_string(),
+            provenance: RegistryProvenance {
+                source: "test".to_string(),
+                author: "Enrico Piovesan".to_string(),
+                created_at: "2026-03-27T00:00:00Z".to_string(),
+            },
+            evidence: cogolo_registry::RegistrationEvidence {
+                evidence_id: "evidence".to_string(),
+                artifact_ref: "artifact:content.comments.create-comment-draft:1.0.0".to_string(),
+                capability_id: "content.comments.create-comment-draft".to_string(),
+                capability_version: "1.0.0".to_string(),
+                scope: RegistryScope::Private,
+                governing_spec: "005-capability-registry".to_string(),
+                validator_version: "0.1.0".to_string(),
+                produced_at: "2026-03-27T00:00:00Z".to_string(),
+                result: cogolo_registry::RegistrationResult::Passed,
+            },
+        }
+    }
+
+    fn test_artifact(binary: Option<cogolo_registry::BinaryReference>) -> CapabilityArtifactRecord {
+        CapabilityArtifactRecord {
+            artifact_ref: "artifact:content.comments.create-comment-draft:1.0.0".to_string(),
+            implementation_kind: ImplementationKind::Executable,
+            source: SourceReference {
+                kind: SourceKind::Git,
+                location: "https://github.com/enricopiovesan/cogolo".to_string(),
+            },
+            binary,
+            workflow_ref: None,
+            digests: ArtifactDigests {
+                source_digest: "src-digest".to_string(),
+                binary_digest: Some("bin-digest".to_string()),
+            },
+            provenance: RegistryProvenance {
+                source: "test".to_string(),
+                author: "Enrico Piovesan".to_string(),
+                created_at: "2026-03-27T00:00:00Z".to_string(),
+            },
+        }
+    }
+
+    fn test_index_entry(lifecycle: Lifecycle) -> DiscoveryIndexEntry {
+        DiscoveryIndexEntry {
+            scope: RegistryScope::Private,
+            id: "content.comments.create-comment-draft".to_string(),
+            version: "1.0.0".to_string(),
+            lifecycle,
+            owner: Owner {
+                team: "comments".to_string(),
+                contact: "comments@example.com".to_string(),
+            },
+            summary: "Create a comment draft for a resource".to_string(),
+            tags: vec!["comments".to_string()],
+            permissions: Vec::new(),
+            emits: Vec::new(),
+            consumes: Vec::new(),
+            implementation_kind: ImplementationKind::Executable,
+            composability: cogolo_registry::ComposabilityMetadata {
+                kind: cogolo_registry::CompositionKind::Atomic,
+                patterns: vec![cogolo_registry::CompositionPattern::Sequential],
+                provides: vec!["draft".to_string()],
+                requires: vec!["authenticated-user".to_string()],
+            },
+            artifact_ref: "artifact:content.comments.create-comment-draft:1.0.0".to_string(),
+            registered_at: "2026-03-27T00:00:00Z".to_string(),
+        }
+    }
+
+    struct NoopExecutor;
+
+    impl super::LocalExecutor for NoopExecutor {
+        fn execute(
+            &self,
+            _capability: &ResolvedCapability,
+            _input: &serde_json::Value,
+        ) -> Result<serde_json::Value, super::LocalExecutionFailure> {
+            Ok(json!({"draft_id": "draft"}))
+        }
     }
 }
