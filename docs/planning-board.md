@@ -5,6 +5,7 @@ This document is the local planning view for MVP work and mirrors the active bac
 Status meanings:
 
 - `Ready`: can be implemented now under approved specs and current repo rules
+- `In Progress`: currently being worked on in an active issue or pull request
 - `Blocked`: should not start yet; the item must state why it is blocked
 - `Needs Spec`: implementation must not start because the governing slice is not approved yet
 - `Needs Enrico`: blocked on product or governance direction from Enrico
@@ -12,6 +13,13 @@ Status meanings:
 - `Future`: valid MVP-following work that is tracked but not part of the current active slice
 
 ## Active Backlog
+
+### `In Progress`
+
+- [#66](https://github.com/enricopiovesan/Traverse/issues/66) `Codify MVP backlog completeness and ticket-quality enforcement`
+  - area: `quality`, `documentation`
+  - status: active in PR [#67](https://github.com/enricopiovesan/Traverse/pull/67)
+  - done when: the backlog standards, templates, planning board, and repo checks land on `main`
 
 ### `Ready` + `No Spec Needed`
 

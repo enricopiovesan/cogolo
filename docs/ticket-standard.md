@@ -17,6 +17,7 @@ Every meaningful ticket must be explicit enough that a developer can tell:
 Every active or future ticket should use the relevant labels from this set:
 
 - `ready`
+- `in-progress`
 - `blocked`
 - `needs-spec`
 - `needs-enrico`
@@ -28,6 +29,13 @@ Every active or future ticket should use the relevant labels from this set:
 - `spec`
 
 Use `no-spec-needed` when the work can proceed under existing approved specs or is non-governing support work.
+
+Use status labels this way:
+
+- `ready`: approved and not started yet
+- `in-progress`: currently being worked on
+- `blocked`: started or selected, but cannot continue until the blocker is removed
+- `future`: valid backlog work that is intentionally not active now
 
 ## Required Ticket Sections
 

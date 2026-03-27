@@ -67,6 +67,7 @@ Exceptions should be rare and should be called out explicitly in the PR notes.
 Recommended workflow labels:
 
 - `ready`
+- `in-progress`
 - `blocked`
 - `needs-spec`
 - `needs-enrico`
@@ -83,3 +84,9 @@ Recommended categories for task tracking:
 - quality and CI
 
 The exact board columns can evolve, but the project board should remain the primary planning surface and the issue should remain the durable record of intent.
+
+Status intent should stay simple:
+
+- `ready` means the ticket can be started now
+- `in-progress` means someone is actively working it
+- `blocked` means work cannot continue until the blocker named in the ticket is cleared
