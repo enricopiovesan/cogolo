@@ -1,5 +1,4 @@
-
-[<img width="1507" height="942" alt="Screenshot 2026-03-26 at 4 01 43 PM" src="https://github.com/user-attachments/assets/df4a84e7-918c-41cc-987c-0ebe89835504" />](https://enricopiovesan.com/)
+[<img width="1357" height="440" alt="Screenshot 2026-03-27 at 9 22 54 AM" src="https://github.com/user-attachments/assets/aeafaaf8-650d-4489-bf5e-bd386f0bcaf0" />](https://enricopiovesan.com/)
 
 # Traverse
 
