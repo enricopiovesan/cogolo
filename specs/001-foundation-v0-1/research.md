@@ -20,11 +20,11 @@ The goal is not to explore every possible architecture. It is to choose the smal
 
 Use a Rust workspace with multiple focused crates:
 
-- `cogollo-contracts`
-- `cogollo-registry`
-- `cogollo-runtime`
-- `cogollo-mcp`
-- `cogollo-cli`
+- `cogolo-contracts`
+- `cogolo-registry`
+- `cogolo-runtime`
+- `cogolo-mcp`
+- `cogolo-cli`
 - example capability crates
 
 ### Rationale

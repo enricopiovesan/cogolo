@@ -1,15 +1,743 @@
-//! Core contract types for Cogolo.
+//! Capability contract parsing and validation for Cogolo.
 
-/// Returns the crate purpose as a stable placeholder.
-#[must_use]
-pub fn crate_name() -> &'static str {
-    "cogolo-contracts"
+use semver::Version;
+use serde::{Deserialize, Serialize};
+use serde_json::Value;
+use std::collections::{BTreeSet, HashSet};
+
+const CAPABILITY_CONTRACT_KIND: &str = "capability_contract";
+const SUPPORTED_SCHEMA_VERSION: &str = "1.0.0";
+const GOVERNED_CONTENT_VERSION: &str = "0.1.0";
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilityContract {
+    pub kind: String,
+    pub schema_version: String,
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub lifecycle: Lifecycle,
+    pub owner: Owner,
+    pub summary: String,
+    pub description: String,
+    pub inputs: SchemaContainer,
+    pub outputs: SchemaContainer,
+    pub preconditions: Vec<Condition>,
+    pub postconditions: Vec<Condition>,
+    pub side_effects: Vec<SideEffect>,
+    pub emits: Vec<EventReference>,
+    pub consumes: Vec<EventReference>,
+    pub permissions: Vec<IdReference>,
+    pub execution: Execution,
+    pub policies: Vec<IdReference>,
+    pub dependencies: Vec<DependencyReference>,
+    pub provenance: Provenance,
+    pub evidence: Vec<ValidationEvidence>,
 }
 
-#[cfg(test)]
-mod tests {
-    #[test]
-    fn exposes_crate_name() {
-        assert_eq!(super::crate_name(), "cogolo-contracts");
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Lifecycle {
+    Draft,
+    Active,
+    Deprecated,
+    Retired,
+    Archived,
+}
+
+impl Lifecycle {
+    #[must_use]
+    pub fn is_runtime_eligible(&self) -> bool {
+        matches!(self, Self::Active | Self::Deprecated)
     }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Owner {
+    pub team: String,
+    pub contact: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SchemaContainer {
+    pub schema: Value,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Condition {
+    pub id: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SideEffect {
+    pub kind: SideEffectKind,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum SideEffectKind {
+    None,
+    MemoryOnly,
+    EventEmission,
+    ExternalCall,
+    StateChange,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventReference {
+    pub event_id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct IdReference {
+    pub id: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Execution {
+    pub binary_format: BinaryFormat,
+    pub entrypoint: Entrypoint,
+    pub preferred_targets: Vec<ExecutionTarget>,
+    pub constraints: ExecutionConstraints,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BinaryFormat {
+    Wasm,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Entrypoint {
+    pub kind: EntrypointKind,
+    pub command: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EntrypointKind {
+    WasiCommand,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
+#[serde(rename_all = "snake_case")]
+pub enum ExecutionTarget {
+    Local,
+    Browser,
+    Edge,
+    Cloud,
+    Worker,
+    Device,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ExecutionConstraints {
+    pub host_api_access: HostApiAccess,
+    pub network_access: NetworkAccess,
+    pub filesystem_access: FilesystemAccess,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum HostApiAccess {
+    None,
+    ExceptionRequired,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum NetworkAccess {
+    Forbidden,
+    Required,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FilesystemAccess {
+    None,
+    SandboxOnly,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DependencyReference {
+    pub artifact_type: DependencyArtifactType,
+    pub id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum DependencyArtifactType {
+    Capability,
+    Event,
+    Policy,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Provenance {
+    pub source: ProvenanceSource,
+    pub author: String,
+    pub created_at: String,
+    #[serde(default)]
+    pub spec_ref: Option<String>,
+    #[serde(default)]
+    pub adr_refs: Vec<String>,
+    #[serde(default)]
+    pub exception_refs: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum ProvenanceSource {
+    Greenfield,
+    BrownfieldExtracted,
+    AiGenerated,
+    AiAssisted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ValidationEvidence {
+    pub evidence_id: String,
+    #[serde(rename = "type")]
+    pub evidence_type: EvidenceType,
+    pub status: EvidenceStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceType {
+    SpecAlignment,
+    ContractValidation,
+    Compatibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EvidenceStatus {
+    Passed,
+    Failed,
+    Superseded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedContractRecord {
+    pub id: String,
+    pub version: String,
+    pub governed_content_digest: String,
+    pub lifecycle: Lifecycle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationContext<'a> {
+    pub governing_spec: &'a str,
+    pub validator_version: &'a str,
+    pub existing_published: Option<&'a PublishedContractRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationResult {
+    pub normalized: CapabilityContract,
+    pub evidence: ProducedValidationEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ProducedValidationEvidence {
+    pub artifact_id: String,
+    pub artifact_version: String,
+    pub governing_spec: String,
+    pub validator_version: String,
+    pub status: EvidenceStatus,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationFailure {
+    pub errors: Vec<ValidationError>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ValidationError {
+    pub code: ValidationErrorCode,
+    pub message: String,
+    pub path: String,
+    pub severity: ErrorSeverity,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ValidationErrorCode {
+    MissingRequiredField,
+    InvalidLiteral,
+    InvalidFormat,
+    InvalidSemver,
+    InconsistentIdentity,
+    DuplicateItem,
+    InvalidCapabilityBoundary,
+    UnsupportedBinaryFormat,
+    UnsupportedEntrypoint,
+    PortabilityExceptionRequired,
+    ImmutableVersionConflict,
+    InvalidDependencyRef,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum ErrorSeverity {
+    Error,
+}
+
+/// Parses a capability contract from raw JSON text.
+///
+/// # Errors
+///
+/// Returns [`ValidationFailure`] when the JSON payload cannot be deserialized
+/// into the capability contract model.
+pub fn parse_contract(json: &str) -> Result<CapabilityContract, ValidationFailure> {
+    serde_json::from_str::<CapabilityContract>(json).map_err(|error| ValidationFailure {
+        errors: vec![ValidationError {
+            code: ValidationErrorCode::InvalidFormat,
+            message: error.to_string(),
+            path: "$".to_string(),
+            severity: ErrorSeverity::Error,
+        }],
+    })
+}
+
+/// Validates a parsed capability contract against the governed `v0.1` rules.
+///
+/// # Errors
+///
+/// Returns [`ValidationFailure`] when structural or semantic validation fails.
+pub fn validate_contract(
+    mut contract: CapabilityContract,
+    context: &ValidationContext<'_>,
+) -> Result<ValidationResult, ValidationFailure> {
+    let mut errors = Vec::new();
+
+    validate_kind(&contract, &mut errors);
+    validate_schema_version(&contract, &mut errors);
+    validate_identity(&contract, &mut errors);
+    validate_semver(&contract.version, "$.version", &mut errors);
+    validate_owner(&contract.owner, &mut errors);
+    validate_summary(&contract.summary, "$.summary", &mut errors);
+    validate_description(&contract.description, "$.description", &mut errors);
+    validate_schema_container(&contract.inputs, "$.inputs.schema", &mut errors);
+    validate_schema_container(&contract.outputs, "$.outputs.schema", &mut errors);
+    validate_conditions(&contract.preconditions, "$.preconditions", &mut errors);
+    validate_conditions(&contract.postconditions, "$.postconditions", &mut errors);
+    validate_side_effects(&contract.side_effects, &mut errors);
+    validate_event_references(&contract.emits, "$.emits", &mut errors);
+    validate_event_references(&contract.consumes, "$.consumes", &mut errors);
+    validate_id_references(&contract.permissions, "$.permissions", &mut errors);
+    validate_execution(&contract.execution, &contract.provenance, &mut errors);
+    validate_id_references(&contract.policies, "$.policies", &mut errors);
+    validate_dependencies(&contract.dependencies, &mut errors);
+    validate_provenance(&contract.provenance, &mut errors);
+    validate_evidence(&contract.evidence, &mut errors);
+    validate_boundary(&contract, &mut errors);
+    validate_published_record(&contract, context.existing_published, &mut errors);
+
+    if !errors.is_empty() {
+        return Err(ValidationFailure { errors });
+    }
+
+    contract.evidence.clear();
+
+    Ok(ValidationResult {
+        evidence: ProducedValidationEvidence {
+            artifact_id: contract.id.clone(),
+            artifact_version: contract.version.clone(),
+            governing_spec: context.governing_spec.to_string(),
+            validator_version: context.validator_version.to_string(),
+            status: EvidenceStatus::Passed,
+        },
+        normalized: contract,
+    })
+}
+
+#[must_use]
+pub fn governed_content_digest(contract: &CapabilityContract) -> String {
+    let mut clone = contract.clone();
+    clone.evidence.clear();
+    let json = format!("{clone:?}");
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in json.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0001_0000_01b3);
+    }
+    format!("{GOVERNED_CONTENT_VERSION}:{hash:016x}")
+}
+
+fn validate_kind(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+    if contract.kind != CAPABILITY_CONTRACT_KIND {
+        errors.push(error(
+            ValidationErrorCode::InvalidLiteral,
+            "$.kind",
+            "kind must equal capability_contract",
+        ));
+    }
+}
+
+fn validate_schema_version(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+    if contract.schema_version != SUPPORTED_SCHEMA_VERSION {
+        errors.push(error(
+            ValidationErrorCode::InvalidLiteral,
+            "$.schema_version",
+            "schema_version must equal 1.0.0",
+        ));
+    }
+}
+
+fn validate_identity(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+    if !is_valid_namespace(&contract.namespace) {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            "$.namespace",
+            "namespace must be dot-separated lowercase kebab-case segments",
+        ));
+    }
+
+    if !is_valid_name(&contract.name) {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            "$.name",
+            "name must be lowercase kebab-case",
+        ));
+    }
+
+    let expected_id = format!("{}.{}", contract.namespace, contract.name);
+    if contract.id != expected_id {
+        errors.push(error(
+            ValidationErrorCode::InconsistentIdentity,
+            "$.id",
+            "id must equal namespace.name",
+        ));
+    }
+}
+
+fn validate_semver(value: &str, path: &str, errors: &mut Vec<ValidationError>) {
+    if Version::parse(value).is_err() {
+        errors.push(error(
+            ValidationErrorCode::InvalidSemver,
+            path,
+            "version must match MAJOR.MINOR.PATCH",
+        ));
+    }
+}
+
+fn validate_owner(owner: &Owner, errors: &mut Vec<ValidationError>) {
+    validate_non_empty(&owner.team, "$.owner.team", errors);
+    validate_non_empty(&owner.contact, "$.owner.contact", errors);
+}
+
+fn validate_summary(summary: &str, path: &str, errors: &mut Vec<ValidationError>) {
+    if summary.trim().len() < 10 || summary.len() > 200 {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            path,
+            "summary length must be between 10 and 200 characters",
+        ));
+    }
+}
+
+fn validate_description(description: &str, path: &str, errors: &mut Vec<ValidationError>) {
+    if description.trim().len() < 20 {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            path,
+            "description must be at least 20 characters",
+        ));
+    }
+}
+
+fn validate_schema_container(
+    container: &SchemaContainer,
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if !container.schema.is_object() {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            path,
+            "schema must be a JSON object",
+        ));
+    }
+}
+
+fn validate_conditions(conditions: &[Condition], path: &str, errors: &mut Vec<ValidationError>) {
+    let mut seen = HashSet::new();
+    for (index, condition) in conditions.iter().enumerate() {
+        let id_path = format!("{path}[{index}].id");
+        let description_path = format!("{path}[{index}].description");
+        validate_non_empty(&condition.id, &id_path, errors);
+        validate_non_empty(&condition.description, &description_path, errors);
+        if !seen.insert(condition.id.clone()) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &id_path,
+                "condition ids must be unique",
+            ));
+        }
+    }
+}
+
+fn validate_side_effects(side_effects: &[SideEffect], errors: &mut Vec<ValidationError>) {
+    if side_effects.is_empty() {
+        errors.push(error(
+            ValidationErrorCode::MissingRequiredField,
+            "$.side_effects",
+            "side_effects must contain at least one item",
+        ));
+    }
+
+    for (index, side_effect) in side_effects.iter().enumerate() {
+        validate_non_empty(
+            &side_effect.description,
+            &format!("$.side_effects[{index}].description"),
+            errors,
+        );
+    }
+}
+
+fn validate_event_references(
+    references: &[EventReference],
+    path: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    let mut seen = HashSet::new();
+    for (index, item) in references.iter().enumerate() {
+        let event_path = format!("{path}[{index}].event_id");
+        let version_path = format!("{path}[{index}].version");
+        validate_non_empty(&item.event_id, &event_path, errors);
+        validate_semver(&item.version, &version_path, errors);
+        if !seen.insert((item.event_id.clone(), item.version.clone())) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &event_path,
+                "event references must be unique by id and version",
+            ));
+        }
+    }
+}
+
+fn validate_id_references(items: &[IdReference], path: &str, errors: &mut Vec<ValidationError>) {
+    let mut seen = HashSet::new();
+    for (index, item) in items.iter().enumerate() {
+        let item_path = format!("{path}[{index}].id");
+        validate_non_empty(&item.id, &item_path, errors);
+        if !seen.insert(item.id.clone()) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &item_path,
+                "ids must be unique",
+            ));
+        }
+    }
+}
+
+fn validate_execution(
+    execution: &Execution,
+    provenance: &Provenance,
+    errors: &mut Vec<ValidationError>,
+) {
+    match execution.binary_format {
+        BinaryFormat::Wasm => {}
+    }
+
+    match execution.entrypoint.kind {
+        EntrypointKind::WasiCommand => {}
+    }
+
+    validate_non_empty(
+        &execution.entrypoint.command,
+        "$.execution.entrypoint.command",
+        errors,
+    );
+
+    if execution.preferred_targets.is_empty() {
+        errors.push(error(
+            ValidationErrorCode::MissingRequiredField,
+            "$.execution.preferred_targets",
+            "preferred_targets must contain at least one item",
+        ));
+    }
+
+    let unique_targets: BTreeSet<_> = execution.preferred_targets.iter().cloned().collect();
+    if unique_targets.len() != execution.preferred_targets.len() {
+        errors.push(error(
+            ValidationErrorCode::DuplicateItem,
+            "$.execution.preferred_targets",
+            "preferred_targets must be unique",
+        ));
+    }
+
+    if matches!(
+        execution.constraints.host_api_access,
+        HostApiAccess::ExceptionRequired
+    ) && provenance.exception_refs.is_empty()
+    {
+        errors.push(error(
+            ValidationErrorCode::PortabilityExceptionRequired,
+            "$.execution.constraints.host_api_access",
+            "host_api_access=exception_required requires provenance.exception_refs",
+        ));
+    }
+}
+
+fn validate_dependencies(dependencies: &[DependencyReference], errors: &mut Vec<ValidationError>) {
+    let mut seen = HashSet::new();
+    for (index, dependency) in dependencies.iter().enumerate() {
+        let id_path = format!("$.dependencies[{index}].id");
+        let version_path = format!("$.dependencies[{index}].version");
+        validate_non_empty(&dependency.id, &id_path, errors);
+        validate_semver(&dependency.version, &version_path, errors);
+        if !seen.insert((
+            dependency.artifact_type.clone(),
+            dependency.id.clone(),
+            dependency.version.clone(),
+        )) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &id_path,
+                "dependencies must be unique by artifact_type, id, and version",
+            ));
+        }
+    }
+}
+
+fn validate_provenance(provenance: &Provenance, errors: &mut Vec<ValidationError>) {
+    validate_non_empty(&provenance.author, "$.provenance.author", errors);
+    validate_non_empty(&provenance.created_at, "$.provenance.created_at", errors);
+
+    if let Some(spec_ref) = &provenance.spec_ref {
+        validate_non_empty(spec_ref, "$.provenance.spec_ref", errors);
+    }
+
+    validate_unique_strings(
+        &provenance.adr_refs,
+        "$.provenance.adr_refs",
+        "adr_refs must be unique",
+        errors,
+    );
+    validate_unique_strings(
+        &provenance.exception_refs,
+        "$.provenance.exception_refs",
+        "exception_refs must be unique",
+        errors,
+    );
+}
+
+fn validate_evidence(evidence: &[ValidationEvidence], errors: &mut Vec<ValidationError>) {
+    let mut seen = HashSet::new();
+    for (index, item) in evidence.iter().enumerate() {
+        let id_path = format!("$.evidence[{index}].evidence_id");
+        validate_non_empty(&item.evidence_id, &id_path, errors);
+        if !seen.insert(item.evidence_id.clone()) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &id_path,
+                "evidence_id values must be unique",
+            ));
+        }
+    }
+}
+
+fn validate_boundary(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+    let summary = contract.summary.to_ascii_lowercase();
+    let description = contract.description.to_ascii_lowercase();
+    let combined = format!("{summary} {description}");
+    let banned_terms = [
+        "utility function",
+        "helper function",
+        "crud wrapper",
+        "transport handler",
+        "database insert",
+        "full application",
+        "subsystem",
+    ];
+
+    if banned_terms.iter().any(|term| combined.contains(term)) {
+        errors.push(error(
+            ValidationErrorCode::InvalidCapabilityBoundary,
+            "$.summary",
+            "capability must represent one meaningful business action",
+        ));
+    }
+}
+
+fn validate_published_record(
+    contract: &CapabilityContract,
+    published: Option<&PublishedContractRecord>,
+    errors: &mut Vec<ValidationError>,
+) {
+    let Some(published) = published else {
+        return;
+    };
+
+    if published.id != contract.id || published.version != contract.version {
+        return;
+    }
+
+    let digest = governed_content_digest(contract);
+    if published.governed_content_digest != digest {
+        errors.push(error(
+            ValidationErrorCode::ImmutableVersionConflict,
+            "$.version",
+            "published contract versions are immutable",
+        ));
+    }
+}
+
+fn validate_non_empty(value: &str, path: &str, errors: &mut Vec<ValidationError>) {
+    if value.trim().is_empty() {
+        errors.push(error(
+            ValidationErrorCode::MissingRequiredField,
+            path,
+            "value must be non-empty",
+        ));
+    }
+}
+
+fn validate_unique_strings(
+    values: &[String],
+    path: &str,
+    message: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    let mut seen = HashSet::new();
+    for value in values {
+        if !seen.insert(value.clone()) {
+            errors.push(error(ValidationErrorCode::DuplicateItem, path, message));
+            break;
+        }
+    }
+}
+
+fn error(code: ValidationErrorCode, path: &str, message: &str) -> ValidationError {
+    ValidationError {
+        code,
+        message: message.to_string(),
+        path: path.to_string(),
+        severity: ErrorSeverity::Error,
+    }
+}
+
+fn is_valid_name(name: &str) -> bool {
+    let mut parts = name.split('-');
+    let first = parts.next().unwrap_or_default();
+    is_valid_segment(first) && parts.all(is_valid_segment)
+}
+
+fn is_valid_namespace(namespace: &str) -> bool {
+    let mut parts = namespace.split('.');
+    let first = parts.next().unwrap_or_default();
+    is_valid_name(first) && parts.all(is_valid_name)
+}
+
+fn is_valid_segment(segment: &str) -> bool {
+    !segment.is_empty()
+        && segment
+            .chars()
+            .all(|character| character.is_ascii_lowercase() || character.is_ascii_digit())
 }
