@@ -1,6 +1,6 @@
 # Contributing
 
-Thanks for contributing to Cogolo.
+Thanks for contributing to Traverse.
 
 ## Before You Start
 

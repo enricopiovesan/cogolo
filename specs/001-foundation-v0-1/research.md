@@ -1,10 +1,10 @@
-# Research: Cogolo Foundation v0.1
+# Research: Traverse Foundation v0.1
 
 ## Purpose
 
 This document captures the implementation-critical decisions for `Foundation v0.1` before task breakdown begins.
 
-The goal is not to explore every possible architecture. It is to choose the smallest durable set of technical decisions that preserves Cogolo’s long-term direction:
+The goal is not to explore every possible architecture. It is to choose the smallest durable set of technical decisions that preserves Traverse’s long-term direction:
 
 - Rust-first
 - WASM-first
@@ -20,11 +20,11 @@ The goal is not to explore every possible architecture. It is to choose the smal
 
 Use a Rust workspace with multiple focused crates:
 
-- `cogolo-contracts`
-- `cogolo-registry`
-- `cogolo-runtime`
-- `cogolo-mcp`
-- `cogolo-cli`
+- `traverse-contracts`
+- `traverse-registry`
+- `traverse-runtime`
+- `traverse-mcp`
+- `traverse-cli`
 - example capability crates
 
 ### Rationale
@@ -244,7 +244,7 @@ If multiple valid capabilities match an intent and no deterministic resolution r
 
 ### Rationale
 
-This allows Cogolo to prove:
+This allows Traverse to prove:
 
 - discovery is real
 - the runtime is a control plane
@@ -291,7 +291,7 @@ It also keeps the contract model future-proof.
 
 Rejected because:
 
-- it would undercut one of the central ideas of Cogolo and UMA
+- it would undercut one of the central ideas of Traverse and UMA
 
 #### Real browser/edge/cloud executors in `v0.1`
 
@@ -313,7 +313,7 @@ The runtime is responsible for:
 
 ### Rationale
 
-This is essential to proving Cogolo is more than isolated WASM invocation.
+This is essential to proving Traverse is more than isolated WASM invocation.
 
 It also connects directly to:
 
@@ -377,7 +377,7 @@ This includes:
 
 ### Rationale
 
-Traceability is one of the key differentiators of Cogolo’s runtime model.
+Traceability is one of the key differentiators of Traverse’s runtime model.
 
 The trace should serve:
 
@@ -439,7 +439,7 @@ Defer Android and macOS demo apps to `v0.2`.
 
 The browser demo gives the best early proof that:
 
-- Cogolo can run in the browser context
+- Traverse can run in the browser context
 - runtime state and events can drive UI
 - the architecture is truly runtime-centered rather than app-centered
 

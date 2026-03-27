@@ -3,43 +3,6 @@
 version = 4
 
 [[package]]
-name = "cogolo-cli"
-version = "0.1.0"
-
-[[package]]
-name = "cogolo-contracts"
-version = "0.1.0"
-dependencies = [
- "semver",
- "serde",
- "serde_json",
-]
-
-[[package]]
-name = "cogolo-mcp"
-version = "0.1.0"
-
-[[package]]
-name = "cogolo-registry"
-version = "0.1.0"
-dependencies = [
- "cogolo-contracts",
- "semver",
- "serde_json",
-]
-
-[[package]]
-name = "cogolo-runtime"
-version = "0.1.0"
-dependencies = [
- "cogolo-contracts",
- "cogolo-registry",
- "semver",
- "serde",
- "serde_json",
-]
-
-[[package]]
 name = "itoa"
 version = "1.0.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -127,6 +90,43 @@ dependencies = [
  "proc-macro2",
  "quote",
  "unicode-ident",
+]
+
+[[package]]
+name = "traverse-cli"
+version = "0.1.0"
+
+[[package]]
+name = "traverse-contracts"
+version = "0.1.0"
+dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "traverse-mcp"
+version = "0.1.0"
+
+[[package]]
+name = "traverse-registry"
+version = "0.1.0"
+dependencies = [
+ "semver",
+ "serde_json",
+ "traverse-contracts",
+]
+
+[[package]]
+name = "traverse-runtime"
+version = "0.1.0"
+dependencies = [
+ "semver",
+ "serde",
+ "serde_json",
+ "traverse-contracts",
+ "traverse-registry",
 ]
 
 [[package]]

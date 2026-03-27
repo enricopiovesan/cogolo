@@ -1,5 +1,5 @@
 [package]
-name = "cogolo-registry"
+name = "traverse-contracts"
 version.workspace = true
 edition.workspace = true
 license.workspace = true
@@ -7,10 +7,9 @@ repository.workspace = true
 rust-version.workspace = true
 
 [dependencies]
-cogolo-contracts = { path = "../cogolo-contracts" }
 semver = "1.0.27"
+serde = { version = "1.0.228", features = ["derive"] }
 serde_json = "1.0.145"
 
-[dev-dependencies]
 [lints]
 workspace = true

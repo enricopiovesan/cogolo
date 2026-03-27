@@ -1,10 +1,10 @@
 [workspace]
 members = [
-  "crates/cogolo-cli",
-  "crates/cogolo-contracts",
-  "crates/cogolo-mcp",
-  "crates/cogolo-registry",
-  "crates/cogolo-runtime",
+  "crates/traverse-cli",
+  "crates/traverse-contracts",
+  "crates/traverse-mcp",
+  "crates/traverse-registry",
+  "crates/traverse-runtime",
 ]
 resolver = "3"
 

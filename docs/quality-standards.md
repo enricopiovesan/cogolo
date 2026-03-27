@@ -1,6 +1,6 @@
 # Quality Standards
 
-This document defines the operational quality standards for Cogolo.
+This document defines the operational quality standards for Traverse.
 
 These standards work together with the constitution and feature specs. If there is a conflict, the constitution and approved governing spec take precedence.
 

@@ -1,4 +1,4 @@
-# Cogolo Planning Board
+# Traverse Planning Board
 
 This document is the local planning view for active work and mirrors the current backlog in GitHub Project 1.
 
@@ -44,14 +44,14 @@ Status meanings:
 
 - Workflow registry and deterministic traversal
   - issue: [#10](https://github.com/enricopiovesan/cogolo/issues/10)
-  - target area: `crates/cogolo-registry`, `crates/cogolo-runtime`
+  - target area: `crates/traverse-registry`, `crates/traverse-runtime`
   - status: spec drafting in progress under `007-workflow-registry-traversal`
   - outcome: deterministic workflow artifact shape, workflow registry metadata, traversal rules, workflow-backed composed capability semantics
 
 ### `Needs Spec`
 
 - Event-driven composition
-  - target area: `crates/cogolo-runtime`
+  - target area: `crates/traverse-runtime`
   - missing first: event contract slice plus runtime event-flow slice
 
 ## Product and Architecture Backlog

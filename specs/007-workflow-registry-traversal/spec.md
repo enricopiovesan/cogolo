@@ -7,7 +7,7 @@
 
 ## Purpose
 
-This spec defines the first implementation-governing workflow slice for Cogolo.
+This spec defines the first implementation-governing workflow slice for Traverse.
 
 It narrows the broader `Foundation v0.1` workflow intent into a concrete, testable model for:
 
@@ -26,7 +26,7 @@ This slice does **not** define AI planning, dynamic path optimization, retries, 
 
 As a platform developer, I want to register a workflow definition with metadata and governed references so that workflows are first-class artifacts rather than hidden implementation glue.
 
-**Why this priority**: Cogolo’s composition model depends on workflows being governed artifacts in the same way capabilities and events are governed.
+**Why this priority**: Traverse’s composition model depends on workflows being governed artifacts in the same way capabilities and events are governed.
 
 **Independent Test**: Register a valid workflow definition referencing existing capability and event contracts, then verify the workflow registry stores the workflow artifact, metadata, and deterministic traversal order.
 
@@ -40,7 +40,7 @@ As a platform developer, I want to register a workflow definition with metadata 
 
 As a platform developer, I want the runtime to traverse a registered workflow in deterministic order so that composed behavior remains explainable and stable.
 
-**Why this priority**: Cogolo’s workflow value depends on composition being explicit and replayable, not hidden behind heuristics.
+**Why this priority**: Traverse’s workflow value depends on composition being explicit and replayable, not hidden behind heuristics.
 
 **Independent Test**: Execute a registered workflow with a valid workflow input and verify the runtime traverses the expected nodes and edges in deterministic order.
 
@@ -54,7 +54,7 @@ As a platform developer, I want the runtime to traverse a registered workflow in
 
 As a developer or future agent, I want composed capabilities to be backed by workflow definitions so that higher-level business actions remain discoverable and reusable.
 
-**Why this priority**: A composed capability is one of the main ways Cogolo turns graph traversal into stable business boundaries.
+**Why this priority**: A composed capability is one of the main ways Traverse turns graph traversal into stable business boundaries.
 
 **Independent Test**: Register a workflow-backed composed capability and verify its implementation reference points to the workflow definition while preserving capability identity and versioning.
 

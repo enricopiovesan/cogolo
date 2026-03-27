@@ -3,11 +3,11 @@
 **Feature Branch**: `006-runtime-request-execution`  
 **Created**: 2026-03-27  
 **Status**: Draft  
-**Input**: Foundation runtime slice for `cogolo-runtime`, covering request schema, deterministic local execution, ambiguity behavior, runtime state transitions, and trace output.
+**Input**: Foundation runtime slice for `traverse-runtime`, covering request schema, deterministic local execution, ambiguity behavior, runtime state transitions, and trace output.
 
 ## Purpose
 
-This spec defines the first implementation-governing runtime slice for Cogolo.
+This spec defines the first implementation-governing runtime slice for Traverse.
 
 It narrows the broad `Foundation v0.1` runtime intent into a concrete, testable model for:
 
@@ -24,7 +24,7 @@ This slice does **not** define workflow traversal yet. It is intentionally limit
 
 ### User Story 1 - Execute One Registered Capability Locally (Priority: P1)
 
-As a platform developer, I want to submit a runtime request that resolves to one registered capability and executes it locally so that Cogolo proves its first real control-plane execution path.
+As a platform developer, I want to submit a runtime request that resolves to one registered capability and executes it locally so that Traverse proves its first real control-plane execution path.
 
 **Why this priority**: Without deterministic request handling and one successful local execution path, there is no usable runtime foundation.
 
@@ -38,7 +38,7 @@ As a platform developer, I want to submit a runtime request that resolves to one
 
 ### User Story 2 - Reject Ambiguous Runtime Requests Safely (Priority: P1)
 
-As a platform developer, I want ambiguous runtime requests to fail explicitly so that Cogolo does not hide unsafe runtime decisions behind undocumented heuristics.
+As a platform developer, I want ambiguous runtime requests to fail explicitly so that Traverse does not hide unsafe runtime decisions behind undocumented heuristics.
 
 **Why this priority**: Explicit ambiguity failure is one of the non-negotiable runtime behaviors for `v0.1`.
 
@@ -107,7 +107,7 @@ As a platform developer or reviewer, I want each runtime execution attempt to pr
 - **NFR-003 Portability**: This slice MUST model execution in a way that preserves future browser, edge, and cloud placement without changing the request boundary.
 - **NFR-004 Testability**: Core runtime decision and execution logic MUST be separable enough to achieve 100% automated line coverage.
 - **NFR-005 Compatibility**: Runtime request and trace shapes MUST be versionable and suitable for semver discipline under the broader foundation contract.
-- **NFR-006 Maintainability**: Request parsing, candidate resolution, execution validation, state transitions, and trace assembly MUST remain clearly separated inside `cogolo-runtime`.
+- **NFR-006 Maintainability**: Request parsing, candidate resolution, execution validation, state transitions, and trace assembly MUST remain clearly separated inside `traverse-runtime`.
 
 ## Non-Negotiable Quality Standards
 

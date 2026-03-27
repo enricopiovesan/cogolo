@@ -22,7 +22,7 @@
       "immutable": true,
       "path": "specs/002-capability-contracts/spec.md",
       "governs": [
-        "crates/cogolo-contracts/"
+        "crates/traverse-contracts/"
       ]
     },
     {
@@ -32,7 +32,7 @@
       "immutable": true,
       "path": "specs/003-event-contracts/spec.md",
       "governs": [
-        "crates/cogolo-contracts/"
+        "crates/traverse-contracts/"
       ]
     },
     {
@@ -54,7 +54,7 @@
       "immutable": true,
       "path": "specs/005-capability-registry/spec.md",
       "governs": [
-        "crates/cogolo-registry/"
+        "crates/traverse-registry/"
       ]
     },
     {
@@ -64,7 +64,7 @@
       "immutable": true,
       "path": "specs/006-runtime-request-execution/spec.md",
       "governs": [
-        "crates/cogolo-runtime/"
+        "crates/traverse-runtime/"
       ]
     },
     {
@@ -74,8 +74,8 @@
       "immutable": true,
       "path": "specs/007-workflow-registry-traversal/spec.md",
       "governs": [
-        "crates/cogolo-registry/",
-        "crates/cogolo-runtime/"
+        "crates/traverse-registry/",
+        "crates/traverse-runtime/"
       ]
     }
   ]

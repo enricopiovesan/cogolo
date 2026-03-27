@@ -1,4 +1,4 @@
-# Data Model: Cogolo Capability Registry
+# Data Model: Traverse Capability Registry
 
 ## Purpose
 

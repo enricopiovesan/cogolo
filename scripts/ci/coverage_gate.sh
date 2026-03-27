@@ -40,13 +40,17 @@ for entry in "${targets[@]}"; do
   coverage_output="$(cargo llvm-cov --package "${crate_name}" --lcov)"
   line_counts="$(
     awk -F '[:,]' '
-      /^DA:/ { counts[$2] += $3 }
+      /^SF:/ { current_file = substr($0, 4); next }
+      /^DA:/ {
+        key = current_file ":" $2
+        counts[key] += $3
+      }
       END {
         total = 0
         hit = 0
-        for (line in counts) {
+        for (key in counts) {
           total += 1
-          if (counts[line] > 0) {
+          if (counts[key] > 0) {
             hit += 1
           }
         }

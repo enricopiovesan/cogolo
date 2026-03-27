@@ -1,6 +1,6 @@
 # Compatibility Policy
 
-This document defines compatibility expectations for versioned Cogolo artifacts.
+This document defines compatibility expectations for versioned Traverse artifacts.
 
 ## Governed Versioned Surfaces
 

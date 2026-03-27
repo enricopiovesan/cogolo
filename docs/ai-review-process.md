@@ -1,6 +1,6 @@
 # AI Review Process
 
-This document defines how AI-assisted review should work in Cogolo.
+This document defines how AI-assisted review should work in Traverse.
 
 ## Purpose
 

@@ -4,13 +4,13 @@ use crate::{
     pre_execution_failure_outcome, runtime_error, successful_execution_outcome,
     validate_payload_against_contract,
 };
-use cogolo_contracts::EventReference;
-use cogolo_registry::{
+use serde::{Deserialize, Serialize};
+use serde_json::{Map, Value, json};
+use traverse_contracts::EventReference;
+use traverse_registry::{
     LookupScope, RegistryScope, ResolvedCapability, ResolvedWorkflow, WorkflowEdge,
     WorkflowEdgeTrigger, WorkflowNode,
 };
-use serde::{Deserialize, Serialize};
-use serde_json::{Map, Value, json};
 
 const WORKFLOW_REQUEST_KIND: &str = "workflow_execution_request";
 const WORKFLOW_EVIDENCE_KIND: &str = "workflow_traversal_evidence";
@@ -691,14 +691,15 @@ mod tests {
         RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
         RuntimeResultStatus,
     };
-    use cogolo_contracts::{
+    use serde_json::json;
+    use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, Entrypoint,
         EntrypointKind, EventReference, EvidenceStatus, EvidenceType, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference,
         Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, SideEffect,
         SideEffectKind, ValidationEvidence,
     };
-    use cogolo_registry::{
+    use traverse_registry::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
         CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
         CompositionPattern, ImplementationKind, RegistryProvenance, RegistryScope, SourceKind,
@@ -706,7 +707,6 @@ mod tests {
         WorkflowNodeInput, WorkflowNodeOutput, WorkflowRegistration, WorkflowRegistry,
         WorkflowRegistryRecord, workflow_artifact_record,
     };
-    use serde_json::json;
 
     #[test]
     fn workflow_request_validation_rejects_invalid_guards() {
@@ -1192,7 +1192,7 @@ mod tests {
             .unwrap_or_else(|| unreachable!("fixture capability missing"));
         selected.record.scope = RegistryScope::Private;
         selected.record.implementation_kind = ImplementationKind::Workflow;
-        selected.artifact.workflow_ref = Some(cogolo_registry::WorkflowReference {
+        selected.artifact.workflow_ref = Some(traverse_registry::WorkflowReference {
             workflow_id: "content.comments.publish-comment".to_string(),
             workflow_version: "1.0.0".to_string(),
         });
@@ -1757,7 +1757,7 @@ mod tests {
                 registered_at: "2026-03-27T00:00:00Z".to_string(),
                 governing_spec: "007-workflow-registry-traversal".to_string(),
                 validator_version: "validator".to_string(),
-                evidence: cogolo_registry::WorkflowRegistrationEvidence {
+                evidence: traverse_registry::WorkflowRegistrationEvidence {
                     evidence_id: "evidence".to_string(),
                     workflow_id: definition.id.clone(),
                     workflow_version: definition.version.clone(),
@@ -1765,10 +1765,10 @@ mod tests {
                     governing_spec: "007-workflow-registry-traversal".to_string(),
                     validator_version: "validator".to_string(),
                     produced_at: "2026-03-27T00:00:00Z".to_string(),
-                    result: cogolo_registry::WorkflowRegistrationResult::Passed,
+                    result: traverse_registry::WorkflowRegistrationResult::Passed,
                 },
             },
-            index_entry: cogolo_registry::WorkflowDiscoveryIndexEntry {
+            index_entry: traverse_registry::WorkflowDiscoveryIndexEntry {
                 scope: RegistryScope::Public,
                 id: definition.id.clone(),
                 version: definition.version.clone(),

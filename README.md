@@ -1,9 +1,9 @@
 
 [<img width="1507" height="942" alt="Screenshot 2026-03-26 at 4 01 43 PM" src="https://github.com/user-attachments/assets/df4a84e7-918c-41cc-987c-0ebe89835504" />](https://enricopiovesan.com/)
 
-# Cogolo
+# Traverse
 
-Cogolo is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
+Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
 
 ## Status
 
@@ -24,7 +24,7 @@ The project is currently focused on:
 
 ## Vision
 
-Cogolo treats business capabilities as the primary unit of software.
+Traverse treats business capabilities as the primary unit of software.
 
 The long-term goal is to make business logic:
 
@@ -36,7 +36,7 @@ The long-term goal is to make business logic:
 
 ## Source of Truth
 
-Cogolo is spec-governed.
+Traverse is spec-governed.
 
 The governing artifacts are:
 

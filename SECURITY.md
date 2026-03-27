@@ -2,7 +2,7 @@
 
 ## Supported Stage
 
-Cogolo is currently in early foundation setup and should be treated as pre-production software.
+Traverse is currently in early foundation setup and should be treated as pre-production software.
 
 ## Reporting a Vulnerability
 

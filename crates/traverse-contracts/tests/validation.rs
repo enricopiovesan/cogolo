@@ -1,4 +1,4 @@
-use cogolo_contracts::{
+use traverse_contracts::{
     BinaryFormat, CapabilityContract, CapabilityReference, Condition, DependencyArtifactType,
     DependencyReference, Entrypoint, EntrypointKind, EventClassification, EventContract,
     EventPayload, EventProvenance, EventProvenanceSource, EventReference, EventType,
@@ -504,7 +504,7 @@ fn valid_contract() -> CapabilityContract {
         version: "0.1.0".to_string(),
         lifecycle: Lifecycle::Draft,
         owner: Owner {
-            team: "cogolo-core".to_string(),
+            team: "traverse-core".to_string(),
             contact: "enrico.piovesan10@gmail.com".to_string(),
         },
         summary: "Create a draft comment from validated request input.".to_string(),
@@ -825,7 +825,7 @@ fn valid_event_contract() -> EventContract {
         version: "0.1.0".to_string(),
         lifecycle: Lifecycle::Draft,
         owner: Owner {
-            team: "cogolo-core".to_string(),
+            team: "traverse-core".to_string(),
             contact: "enrico.piovesan10@gmail.com".to_string(),
         },
         summary: "A comment has been created and is ready for downstream processing.".to_string(),

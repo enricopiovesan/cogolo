@@ -1,13 +1,13 @@
-# Feature Specification: Cogolo Capability Registry
+# Feature Specification: Traverse Capability Registry
 
 **Feature Branch**: `005-capability-registry`  
 **Created**: 2026-03-27  
 **Status**: Draft  
-**Input**: Existing Cogolo foundation specification, capability contract and event contract slices, spec-alignment governance, and the registry design decisions agreed during the planning session.
+**Input**: Existing Traverse foundation specification, capability contract and event contract slices, spec-alignment governance, and the registry design decisions agreed during the planning session.
 
 ## Purpose
 
-This specification defines the first implementation-tight capability registry slice for Cogolo.
+This specification defines the first implementation-tight capability registry slice for Traverse.
 
 The capability registry is responsible for making governed capabilities discoverable, versioned, composable, and stable without weakening the contract as the source of truth.
 
@@ -20,13 +20,13 @@ This spec defines:
 - explicit composability metadata indexing
 - composed capability representation
 
-This specification governs work in `cogolo-registry` before runtime execution or workflow traversal logic depends on registry semantics.
+This specification governs work in `traverse-registry` before runtime execution or workflow traversal logic depends on registry semantics.
 
 ## User Scenarios & Testing
 
 ### User Story 1 - Register and Discover a Capability Version (Priority: P1)
 
-As a platform developer, I want to register a capability contract and discover it later by identity, version, and metadata so that Cogolo can treat capabilities as stable governed building blocks instead of ad hoc files.
+As a platform developer, I want to register a capability contract and discover it later by identity, version, and metadata so that Traverse can treat capabilities as stable governed building blocks instead of ad hoc files.
 
 **Why this priority**: Registry discovery is the operational bridge between contract authoring and runtime execution.
 
@@ -44,7 +44,7 @@ As a platform developer, I want to register a capability contract and discover i
 
 As a capability consumer, I want the registry to preserve semver stability and reject unsafe republishing so that my application or workflow can depend on capability versions with confidence.
 
-**Why this priority**: The registry is where Cogolo must do better than the weak honor-system parts of package ecosystems.
+**Why this priority**: The registry is where Traverse must do better than the weak honor-system parts of package ecosystems.
 
 **Independent Test**: Registering the same capability version with different governed content fails, while valid forward versions are checked against prior versions and accepted only when semver rules are satisfied.
 
@@ -60,7 +60,7 @@ As a capability consumer, I want the registry to preserve semver stability and r
 
 As an application builder, I want to use both shared public capabilities and app-specific private capabilities so that my system can compose common building blocks without giving up private business logic.
 
-**Why this priority**: Cogolo must support both an ecosystem model and app-local capability sets.
+**Why this priority**: Traverse must support both an ecosystem model and app-local capability sets.
 
 **Independent Test**: A lookup across a configured public registry and local private overlay resolves deterministic results with private overlay precedence.
 
@@ -76,7 +76,7 @@ As an application builder, I want to use both shared public capabilities and app
 
 As a developer or agent, I want the registry to expose composability metadata and composed capabilities clearly so that I can build reusable workflows and higher-level capabilities without guessing how capabilities fit together.
 
-**Why this priority**: Cogolo’s value depends on safe, inspectable composition, not just storage of isolated contracts.
+**Why this priority**: Traverse’s value depends on safe, inspectable composition, not just storage of isolated contracts.
 
 **Independent Test**: The registry can answer queries about atomic versus composed capabilities, composition roles, and downstream/upstream composition metadata deterministically.
 
@@ -179,4 +179,4 @@ This specification is governed by:
 
 This specification, once approved, is intended to govern implementation in:
 
-- `crates/cogolo-registry`
+- `crates/traverse-registry`

@@ -33,8 +33,8 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
-if rg -n "Cogollo" . -g '!scripts/ci/repository_checks.sh'; then
-  echo "Found stale project name references; expected 'Cogolo'." >&2
+if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+  echo "Found stale project name references; expected 'Traverse'." >&2
   exit 1
 fi
 
