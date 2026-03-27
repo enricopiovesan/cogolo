@@ -23,6 +23,9 @@ required_files=(
   "specs/001-foundation-v0-1/plan.md"
   "specs/001-foundation-v0-1/research.md"
   "specs/001-foundation-v0-1/data-model.md"
+  "specs/004-spec-alignment-gate/spec.md"
+  "specs/004-spec-alignment-gate/data-model.md"
+  "specs/governance/approved-specs.json"
 )
 
 for file in "${required_files[@]}"; do
@@ -44,5 +47,8 @@ grep -q "Enterprise Quality Standards" .specify/memory/constitution.md
 grep -q "Non-Functional Requirements" specs/001-foundation-v0-1/spec.md
 grep -q "Non-Negotiable Quality Standards" specs/001-foundation-v0-1/spec.md
 grep -q "AI Review Process" docs/ai-review-process.md
+grep -q '"schema_version": "1.0.0"' specs/governance/approved-specs.json
+grep -q "Spec-alignment gate implementation" docs/quality-standards.md
+grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."

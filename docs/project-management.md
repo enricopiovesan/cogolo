@@ -41,6 +41,10 @@ Pull requests should include:
 - validation evidence
 - ADR reference, if required
 
+Implementation pull requests must declare their governing specs in the PR body under a `## Governing Spec` section. Those declarations are validated against:
+
+- `specs/governance/approved-specs.json`
+
 ## Board Discipline
 
 Recommended categories for task tracking:
