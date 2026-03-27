@@ -1,6 +1,6 @@
 # Architecture Decision Records
 
-This directory stores Architecture Decision Records (ADRs) for material technical choices in Cogolo.
+This directory stores Architecture Decision Records (ADRs) for material technical choices in Traverse.
 
 ## When to Write an ADR
 

@@ -1,19 +1,19 @@
 #![allow(clippy::expect_used)]
 
-use cogolo_contracts::{
+use serde_json::json;
+use traverse_contracts::{
     BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, DependencyArtifactType,
     DependencyReference, Entrypoint, EntrypointKind, EventReference, EvidenceStatus, EvidenceType,
     Execution, ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference,
     Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, SideEffect,
     SideEffectKind, ValidationEvidence,
 };
-use cogolo_registry::{
+use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, DiscoveryQuery, ImplementationKind, LookupScope, RegistryErrorCode,
     RegistryProvenance, RegistryScope, SourceKind, SourceReference, WorkflowReference,
 };
-use serde_json::json;
 
 #[test]
 fn registers_and_finds_public_executable_capability() {
@@ -413,7 +413,7 @@ fn base_contract(id: &str, version: &str) -> CapabilityContract {
         version: version.to_string(),
         lifecycle: Lifecycle::Active,
         owner: Owner {
-            team: "cogolo-core".to_string(),
+            team: "traverse-core".to_string(),
             contact: "enrico.piovesan10@gmail.com".to_string(),
         },
         summary: "Create a validated comment draft for downstream composition.".to_string(),

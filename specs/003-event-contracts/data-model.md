@@ -1,10 +1,10 @@
-# Data Model: Cogolo Event Contracts
+# Data Model: Traverse Event Contracts
 
 ## Purpose
 
 This document defines the exact `v0.1` event contract data model and validation rules required by `003-event-contracts`.
 
-It is intentionally implementation-tight so the event contract portion of `cogolo-contracts` can be written without inventing event semantics during implementation.
+It is intentionally implementation-tight so the event contract portion of `traverse-contracts` can be written without inventing event semantics during implementation.
 
 ## Artifact Identity
 
@@ -54,7 +54,7 @@ Examples:
   "version": "0.1.0",
   "lifecycle": "draft",
   "owner": {
-    "team": "cogolo-core",
+    "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
   },
   "summary": "A comment has been created and is ready for downstream processing.",

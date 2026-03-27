@@ -1,4 +1,4 @@
-# Cogolo Constitution
+# Traverse Constitution
 
 ## Core Principles
 
@@ -25,7 +25,7 @@ Runtime behavior MUST be formed through explicit evaluation of contracts, constr
 
 ## Product Constraints
 
-Cogollo is a runtime and composition model for business capabilities, not an application framework.
+Traverse is a runtime and composition model for business capabilities, not an application framework.
 
 The initial repository and design work MUST prioritize these core components:
 

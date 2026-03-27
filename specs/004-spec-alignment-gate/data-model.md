@@ -1,4 +1,4 @@
-# Data Model: Cogolo Spec-Alignment CI Gate
+# Data Model: Traverse Spec-Alignment CI Gate
 
 ## Purpose
 
@@ -25,7 +25,7 @@ Top-level shape:
       "immutable": true,
       "path": "specs/002-capability-contracts/spec.md",
       "governs": [
-        "crates/cogolo-contracts/"
+        "crates/traverse-contracts/"
       ]
     }
   ]

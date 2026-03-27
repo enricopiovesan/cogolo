@@ -1,13 +1,13 @@
-# Feature Specification: Cogolo Spec-Alignment CI Gate
+# Feature Specification: Traverse Spec-Alignment CI Gate
 
 **Feature Branch**: `004-spec-alignment-gate`  
 **Created**: 2026-03-27  
 **Status**: Draft  
-**Input**: Existing Cogolo foundation specification, constitution, quality standards, and issue `#7` for deterministic spec-alignment enforcement.
+**Input**: Existing Traverse foundation specification, constitution, quality standards, and issue `#7` for deterministic spec-alignment enforcement.
 
 ## Purpose
 
-This specification defines the first deterministic spec-alignment gate for Cogolo pull requests.
+This specification defines the first deterministic spec-alignment gate for Traverse pull requests.
 
 The gate exists to make the governance rule enforceable:
 

@@ -1,11 +1,11 @@
-# Implementation Plan: Cogolo Foundation v0.1
+# Implementation Plan: Traverse Foundation v0.1
 
 **Branch**: `001-foundation-v0-1` | **Date**: 2026-03-26 | **Spec**: [spec.md](/Users/piovese/Documents/cogolo/specs/001-foundation-v0-1/spec.md)
 **Input**: Feature specification from `/specs/001-foundation-v0-1/spec.md`
 
 ## Summary
 
-Build the first production-grade Cogolo foundation as a Rust-first, WASM-centered portable capability runtime. The implementation will establish capability contracts, event contracts, initial registries, deterministic graph-based workflows, a local-only placement abstraction, structured traces, and a runtime state machine, plus a React browser demo that subscribes to runtime events and state transitions.
+Build the first production-grade Traverse foundation as a Rust-first, WASM-centered portable capability runtime. The implementation will establish capability contracts, event contracts, initial registries, deterministic graph-based workflows, a local-only placement abstraction, structured traces, and a runtime state machine, plus a React browser demo that subscribes to runtime events and state transitions.
 
 The plan keeps `Foundation v0.1` intentionally narrow: one runtime model, one local executor, one browser demo, five real capabilities, and no real AI agents yet. The architecture must still remain agent-ready, placement-ready, and portable for future browser, edge, cloud, Android, macOS, and MCP expansion. Approved specs are versioned, immutable implementation-governing artifacts, so the delivery plan must also include spec-alignment validation in the normal build and review flow.
 
@@ -53,22 +53,22 @@ specs/001-foundation-v0-1/
 
 ```text
 crates/
-├── cogolo-contracts/
+├── traverse-contracts/
 │   ├── src/
 │   └── tests/
-├── cogolo-registry/
+├── traverse-registry/
 │   ├── src/
 │   └── tests/
-├── cogolo-runtime/
+├── traverse-runtime/
 │   ├── src/
 │   └── tests/
-├── cogolo-mcp/
+├── traverse-mcp/
 │   ├── src/
 │   └── tests/
-├── cogolo-cli/
+├── traverse-cli/
 │   ├── src/
 │   └── tests/
-└── cogolo-capabilities/
+└── traverse-capabilities/
     ├── comment-draft/
     ├── permissions/
     ├── text-improve/
@@ -185,7 +185,7 @@ Outputs:
 
 ## Module Responsibilities
 
-### `cogolo-contracts`
+### `traverse-contracts`
 
 Responsible for:
 
@@ -197,7 +197,7 @@ Responsible for:
 
 Must have full coverage because it is core logic.
 
-### `cogolo-registry`
+### `traverse-registry`
 
 Responsible for:
 
@@ -208,7 +208,7 @@ Responsible for:
 
 Must have full coverage for registry behavior and duplicate handling.
 
-### `cogolo-runtime`
+### `traverse-runtime`
 
 Responsible for:
 
@@ -224,7 +224,7 @@ Responsible for:
 
 Must have full coverage for decision, state, workflow traversal, and trace behavior.
 
-### `cogolo-mcp`
+### `traverse-mcp`
 
 Responsible for:
 
@@ -233,7 +233,7 @@ Responsible for:
 
 Must remain narrow in `v0.1`, but stable enough to semver and validate.
 
-### `cogolo-cli`
+### `traverse-cli`
 
 Responsible for:
 
@@ -245,7 +245,7 @@ Responsible for:
 
 CLI glue should be well tested, with full coverage where logic is nontrivial.
 
-### `cogolo-capabilities`
+### `traverse-capabilities`
 
 Responsible for:
 

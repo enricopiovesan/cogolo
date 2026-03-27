@@ -5,7 +5,7 @@
 
 ## Context
 
-Cogolo is intended to be a portable runtime for business capabilities that can evolve across browser, edge, cloud, and device environments.
+Traverse is intended to be a portable runtime for business capabilities that can evolve across browser, edge, cloud, and device environments.
 
 The project needs an implementation foundation that:
 
@@ -17,7 +17,7 @@ The project needs an implementation foundation that:
 
 ## Decision
 
-Cogolo `Foundation v0.1` will use:
+Traverse `Foundation v0.1` will use:
 
 - Rust as the default implementation language
 - WASM as the default capability binary format
@@ -53,7 +53,7 @@ Rejected because it weakens the portability model too early.
 
 ### Script or local-command execution first
 
-Rejected because it is too weak for validating the real Cogolo architecture.
+Rejected because it is too weak for validating the real Traverse architecture.
 
 ### Polyglot capability model from day one
 

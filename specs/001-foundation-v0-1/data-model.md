@@ -1,4 +1,4 @@
-# Data Model: Cogolo Foundation v0.1
+# Data Model: Traverse Foundation v0.1
 
 ## Purpose
 

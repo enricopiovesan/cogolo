@@ -1,22 +1,22 @@
-use cogolo_contracts::{
+use serde_json::{Value, json};
+use traverse_contracts::{
     BinaryFormat as ContractBinaryFormat, Condition, DependencyReference, Entrypoint,
     EntrypointKind, EventReference, Execution, ExecutionConstraints, ExecutionTarget,
     FilesystemAccess, HostApiAccess, IdReference, Lifecycle, NetworkAccess, Owner, Provenance,
     ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind,
 };
-use cogolo_registry::{
+use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, ImplementationKind, RegistryProvenance, RegistryScope, SourceKind,
     SourceReference,
 };
-use cogolo_runtime::{
+use traverse_runtime::{
     CandidateReason, ExecutionFailureReason, ExecutionStatus, LocalExecutionFailure,
     LocalExecutionFailureCode, LocalExecutor, PlacementTarget, Runtime, RuntimeContext,
     RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest, RuntimeResultStatus,
     RuntimeState, SelectionFailureReason, SelectionStatus, parse_runtime_request,
 };
-use serde_json::{Value, json};
 
 #[test]
 fn parses_runtime_request_from_json() {
@@ -97,7 +97,7 @@ fn exact_lookup_uses_private_overlay_before_public() {
 
     assert_eq!(
         outcome.trace.candidate_collection.candidates[0].scope,
-        cogolo_runtime::RuntimeRegistryScope::Private
+        traverse_runtime::RuntimeRegistryScope::Private
     );
 }
 
@@ -239,7 +239,7 @@ fn rejects_non_runtime_lifecycle_candidates() {
     );
     assert_eq!(
         outcome.trace.candidate_collection.rejected_candidates[0].reason,
-        cogolo_runtime::RejectedCandidateReason::LifecycleNotRunnable
+        traverse_runtime::RejectedCandidateReason::LifecycleNotRunnable
     );
 }
 
@@ -348,11 +348,11 @@ fn uses_public_only_scope_when_requested() {
     );
     assert_eq!(
         outcome.trace.candidate_collection.candidates[0].scope,
-        cogolo_runtime::RuntimeRegistryScope::Public
+        traverse_runtime::RuntimeRegistryScope::Public
     );
 }
 
-fn states(events: &[cogolo_runtime::RuntimeStateEvent]) -> Vec<RuntimeState> {
+fn states(events: &[traverse_runtime::RuntimeStateEvent]) -> Vec<RuntimeState> {
     events.iter().map(|event| event.state).collect()
 }
 
@@ -388,7 +388,7 @@ fn base_request_exact() -> RuntimeRequest {
         kind: "runtime_request".to_string(),
         schema_version: "1.0.0".to_string(),
         request_id: "req-123".to_string(),
-        intent: cogolo_runtime::RuntimeIntent {
+        intent: traverse_runtime::RuntimeIntent {
             capability_id: Some("content.comments.create-comment-draft".to_string()),
             capability_version: Some("1.0.0".to_string()),
             intent_key: Some("content.comments.create-comment-draft".to_string()),
@@ -448,8 +448,8 @@ fn capability_contract(
     id: &str,
     version: &str,
     lifecycle: Lifecycle,
-) -> cogolo_contracts::CapabilityContract {
-    cogolo_contracts::CapabilityContract {
+) -> traverse_contracts::CapabilityContract {
+    traverse_contracts::CapabilityContract {
         kind: "capability_contract".to_string(),
         schema_version: "1.0.0".to_string(),
         id: id.to_string(),
@@ -520,7 +520,7 @@ fn capability_contract(
             id: "policy.comments.default".to_string(),
         }],
         dependencies: vec![DependencyReference {
-            artifact_type: cogolo_contracts::DependencyArtifactType::Event,
+            artifact_type: traverse_contracts::DependencyArtifactType::Event,
             id: "content.comments.draft-created".to_string(),
             version: "1.0.0".to_string(),
         }],
@@ -566,7 +566,7 @@ struct EchoExecutor;
 impl LocalExecutor for EchoExecutor {
     fn execute(
         &self,
-        _capability: &cogolo_registry::ResolvedCapability,
+        _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
     ) -> Result<Value, LocalExecutionFailure> {
         Ok(json!({"draft_id": "draft-001"}))
@@ -578,7 +578,7 @@ struct FailingExecutor;
 impl LocalExecutor for FailingExecutor {
     fn execute(
         &self,
-        _capability: &cogolo_registry::ResolvedCapability,
+        _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
     ) -> Result<Value, LocalExecutionFailure> {
         Err(LocalExecutionFailure {
@@ -593,7 +593,7 @@ struct WrongOutputExecutor;
 impl LocalExecutor for WrongOutputExecutor {
     fn execute(
         &self,
-        _capability: &cogolo_registry::ResolvedCapability,
+        _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
     ) -> Result<Value, LocalExecutionFailure> {
         Ok(json!({"missing": "draft_id"}))

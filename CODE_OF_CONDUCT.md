@@ -2,7 +2,7 @@
 
 ## Our Standard
 
-Cogolo aims to be a respectful, constructive, and technically rigorous open-source project.
+Traverse aims to be a respectful, constructive, and technically rigorous open-source project.
 
 Participants are expected to:
 

@@ -4,7 +4,7 @@
 
 This document defines the implementation-tight runtime artifacts for the `006-runtime-request-execution` slice.
 
-It focuses on the single-capability local execution path for `cogolo-runtime`.
+It focuses on the single-capability local execution path for `traverse-runtime`.
 
 ## 1. Runtime Request
 

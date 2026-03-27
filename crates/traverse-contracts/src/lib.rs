@@ -1,4 +1,4 @@
-//! Capability contract parsing and validation for Cogolo.
+//! Capability contract parsing and validation for Traverse.
 
 use semver::Version;
 use serde::{Deserialize, Serialize};

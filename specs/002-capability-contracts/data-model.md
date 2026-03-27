@@ -1,10 +1,10 @@
-# Data Model: Cogolo Capability Contracts
+# Data Model: Traverse Capability Contracts
 
 ## Purpose
 
 This document defines the exact `v0.1` capability contract data model and validation rules required by `002-capability-contracts`.
 
-It is intentionally implementation-tight so the first `cogolo-contracts` code can be written without inventing contract semantics during implementation.
+It is intentionally implementation-tight so the first `traverse-contracts` code can be written without inventing contract semantics during implementation.
 
 ## Artifact Identity
 
@@ -54,7 +54,7 @@ Examples:
   "version": "0.1.0",
   "lifecycle": "draft",
   "owner": {
-    "team": "cogolo-core",
+    "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
   },
   "summary": "Create a draft comment from validated request input.",

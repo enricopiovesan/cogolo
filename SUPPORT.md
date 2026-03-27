@@ -2,7 +2,7 @@
 
 ## Project Status
 
-Cogolo is in early foundation setup.
+Traverse is in early foundation setup.
 
 This is personal research and development work by Enrico Piovesan, done on personal time and not related to Autodesk.
 

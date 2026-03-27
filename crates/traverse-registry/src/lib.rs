@@ -1,16 +1,16 @@
-//! Capability registry support for Cogolo.
+//! Capability registry support for Traverse.
 
 mod workflows;
 pub use workflows::*;
 
-use cogolo_contracts::{
+use semver::Version;
+use std::cmp::Ordering;
+use std::collections::{BTreeMap, BTreeSet};
+use traverse_contracts::{
     CapabilityContract, ErrorSeverity, EventReference, IdReference, Lifecycle, Owner,
     PublishedContractRecord, ValidationContext, ValidationFailure, governed_content_digest,
     validate_contract,
 };
-use semver::Version;
-use std::cmp::Ordering;
-use std::collections::{BTreeMap, BTreeSet};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum RegistryScope {
@@ -1059,7 +1059,7 @@ fn id_keys(ids: &[IdReference]) -> BTreeSet<String> {
     ids.iter().map(|item| item.id.clone()).collect()
 }
 
-fn dependency_keys(dependencies: &[cogolo_contracts::DependencyReference]) -> BTreeSet<String> {
+fn dependency_keys(dependencies: &[traverse_contracts::DependencyReference]) -> BTreeSet<String> {
     dependencies
         .iter()
         .map(|dependency| {
@@ -1106,14 +1106,14 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
-    use cogolo_contracts::{
+    use serde_json::json;
+    use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, Condition, DependencyArtifactType,
         DependencyReference, Entrypoint, EntrypointKind, EvidenceStatus, EvidenceType, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, NetworkAccess,
         Provenance, ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind,
         ValidationEvidence,
     };
-    use serde_json::json;
 
     #[test]
     fn find_exact_and_discover_cover_lookup_paths() {
@@ -1665,7 +1665,7 @@ mod tests {
             version: version.to_string(),
             lifecycle: Lifecycle::Active,
             owner: Owner {
-                team: "cogolo-core".to_string(),
+                team: "traverse-core".to_string(),
                 contact: "enrico.piovesan10@gmail.com".to_string(),
             },
             summary: "Create a validated comment draft for downstream composition.".to_string(),

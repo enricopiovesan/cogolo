@@ -2,10 +2,10 @@ use crate::{
     CapabilityArtifactRecord, CapabilityRegistry, ImplementationKind, LookupScope, RegistryScope,
     WorkflowReference,
 };
-use cogolo_contracts::{ErrorSeverity, EventReference, Lifecycle, Owner, SchemaContainer};
 use semver::Version;
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
+use traverse_contracts::{ErrorSeverity, EventReference, Lifecycle, Owner, SchemaContainer};
 
 const WORKFLOW_KIND: &str = "workflow_definition";
 const WORKFLOW_SCHEMA_VERSION: &str = "1.0.0";
@@ -331,7 +331,7 @@ pub fn workflow_artifact_record(
         },
         provenance: crate::RegistryProvenance {
             source: "workflow-registry".to_string(),
-            author: "cogolo".to_string(),
+            author: "traverse".to_string(),
             created_at: "2026-01-01T00:00:00Z".to_string(),
         },
     }
@@ -851,19 +851,21 @@ fn lookup_order(lookup_scope: LookupScope) -> &'static [RegistryScope] {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used)]
+
     use super::*;
     use crate::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityRegistration,
         ComposabilityMetadata, CompositionKind, CompositionPattern, RegistryProvenance, SourceKind,
         SourceReference,
     };
-    use cogolo_contracts::{
+    use serde_json::json;
+    use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, Condition, Entrypoint, EntrypointKind,
         EvidenceStatus, EvidenceType, Execution, ExecutionConstraints, ExecutionTarget,
         FilesystemAccess, HostApiAccess, NetworkAccess, Provenance, ProvenanceSource, SideEffect,
         SideEffectKind, ValidationEvidence,
     };
-    use serde_json::json;
 
     #[test]
     fn registers_valid_workflow_and_supports_private_overlay_lookup() {
@@ -1432,7 +1434,7 @@ mod tests {
     ) -> CapabilityRegistration {
         CapabilityRegistration {
             scope: RegistryScope::Public,
-            contract: cogolo_contracts::CapabilityContract {
+            contract: traverse_contracts::CapabilityContract {
                 kind: "capability_contract".to_string(),
                 schema_version: "1.0.0".to_string(),
                 id: capability_id.to_string(),
@@ -1652,10 +1654,9 @@ mod tests {
         capabilities: &CapabilityRegistry,
         request: WorkflowRegistration,
     ) -> WorkflowRegistrationOutcome {
-        match registry.register(capabilities, request) {
-            Ok(outcome) => outcome,
-            Err(error) => unreachable!("{error:?}"),
-        }
+        registry
+            .register(capabilities, request)
+            .expect("workflow registration should succeed")
     }
 
     fn register_workflow_err(
@@ -1663,10 +1664,9 @@ mod tests {
         capabilities: &CapabilityRegistry,
         request: WorkflowRegistration,
     ) -> WorkflowFailure {
-        match registry.register(capabilities, request) {
-            Ok(_) => unreachable!("workflow registration unexpectedly succeeded"),
-            Err(error) => error,
-        }
+        registry
+            .register(capabilities, request)
+            .expect_err("workflow registration should fail")
     }
 
     fn find_workflow_exact(
@@ -1675,16 +1675,14 @@ mod tests {
         id: &str,
         version: &str,
     ) -> ResolvedWorkflow {
-        match registry.find_exact(scope, id, version) {
-            Some(workflow) => workflow,
-            None => unreachable!("workflow was not found"),
-        }
+        registry
+            .find_exact(scope, id, version)
+            .expect("workflow should be present")
     }
 
     fn register_capability_ok(registry: &mut CapabilityRegistry, request: CapabilityRegistration) {
-        match registry.register(request) {
-            Ok(_) => {}
-            Err(error) => unreachable!("{error:?}"),
-        }
+        registry
+            .register(request)
+            .expect("capability registration should succeed");
     }
 }

@@ -1,6 +1,6 @@
 # Exception Process
 
-This document defines how Cogolo handles exceptions to its normal engineering and governance rules.
+This document defines how Traverse handles exceptions to its normal engineering and governance rules.
 
 ## Purpose
 

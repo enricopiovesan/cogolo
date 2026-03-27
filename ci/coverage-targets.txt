@@ -4,7 +4,7 @@
 # must hold the project's non-negotiable 100% line coverage standard.
 #
 # Example:
-# cogolo-runtime 100
-cogolo-contracts 100
-cogolo-registry 100
-cogolo-runtime 100
+# traverse-runtime 100
+traverse-contracts 100
+traverse-registry 100
+traverse-runtime 100

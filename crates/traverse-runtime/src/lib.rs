@@ -1,17 +1,17 @@
-//! Runtime control-plane support for Cogolo.
+//! Runtime control-plane support for Traverse.
 
 mod workflows;
 pub use workflows::*;
 
-use cogolo_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
-use cogolo_registry::{
-    CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope, RegistryScope,
-    ResolvedCapability, WorkflowRegistry,
-};
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::fmt;
+use traverse_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
+use traverse_registry::{
+    CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope, RegistryScope,
+    ResolvedCapability, WorkflowRegistry,
+};
 
 const RUNTIME_REQUEST_KIND: &str = "runtime_request";
 const RUNTIME_RESULT_KIND: &str = "runtime_result";
@@ -448,8 +448,8 @@ where
             .filter(|entry| entry.id == target)
             .filter_map(|entry| {
                 let scope = match entry.scope {
-                    cogolo_registry::RegistryScope::Public => LookupScope::PublicOnly,
-                    cogolo_registry::RegistryScope::Private => LookupScope::PreferPrivate,
+                    traverse_registry::RegistryScope::Public => LookupScope::PublicOnly,
+                    traverse_registry::RegistryScope::Private => LookupScope::PreferPrivate,
                 };
                 self.registry.find_exact(scope, &entry.id, &entry.version)
             })
@@ -1305,19 +1305,19 @@ mod tests {
         parse_runtime_request, runtime_candidate, validate_payload_against_contract,
         validate_request,
     };
-    use cogolo_contracts::{
+    use serde_json::json;
+    use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, Entrypoint, EntrypointKind, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
         NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer,
     };
-    use cogolo_registry::{
+    use traverse_registry::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
         CapabilityRegistration, CapabilityRegistry, CapabilityRegistryRecord,
         ComposabilityMetadata, CompositionKind, CompositionPattern, DiscoveryIndexEntry,
         ImplementationKind, RegistryProvenance, RegistryScope, ResolvedCapability, SourceKind,
         SourceReference,
     };
-    use serde_json::json;
 
     #[test]
     fn missing_binary_metadata_is_rejected_as_artifact_missing() {
@@ -1406,8 +1406,8 @@ mod tests {
     #[test]
     fn candidate_evaluation_covers_local_runnability_branches() {
         let mut capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Active,
@@ -1417,7 +1417,7 @@ mod tests {
             evaluate_candidate(capability.clone()),
             CandidateEvaluation::Rejected(_, RejectedCandidateReason::ArtifactMissing)
         ));
-        capability.artifact.workflow_ref = Some(cogolo_registry::WorkflowReference {
+        capability.artifact.workflow_ref = Some(traverse_registry::WorkflowReference {
             workflow_id: "workflow".to_string(),
             workflow_version: "1.0.0".to_string(),
         });
@@ -1427,8 +1427,8 @@ mod tests {
         ));
 
         let capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: String::new(),
             }),
             Lifecycle::Active,
@@ -1439,8 +1439,8 @@ mod tests {
         ));
 
         let mut capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Active,
@@ -1452,8 +1452,8 @@ mod tests {
         ));
 
         let mut capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Active,
@@ -1466,8 +1466,8 @@ mod tests {
         ));
 
         let mut capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Active,
@@ -1479,8 +1479,8 @@ mod tests {
         ));
 
         let capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Active,
@@ -1616,8 +1616,8 @@ mod tests {
     #[test]
     fn runtime_candidate_helper_copies_registry_shape() {
         let capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Deprecated,
@@ -1643,8 +1643,8 @@ mod tests {
             trace_id: "trace_exec_1".to_string(),
         };
         let capability = resolved_capability(
-            Some(cogolo_registry::BinaryReference {
-                format: cogolo_registry::BinaryFormat::Wasm,
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
                 location: "artifact.wasm".to_string(),
             }),
             Lifecycle::Active,
@@ -1772,7 +1772,7 @@ mod tests {
     }
 
     fn resolved_capability(
-        binary: Option<cogolo_registry::BinaryReference>,
+        binary: Option<traverse_registry::BinaryReference>,
         lifecycle: Lifecycle,
     ) -> ResolvedCapability {
         ResolvedCapability {
@@ -1783,8 +1783,8 @@ mod tests {
         }
     }
 
-    fn test_contract(lifecycle: Lifecycle) -> cogolo_contracts::CapabilityContract {
-        cogolo_contracts::CapabilityContract {
+    fn test_contract(lifecycle: Lifecycle) -> traverse_contracts::CapabilityContract {
+        traverse_contracts::CapabilityContract {
             kind: "capability_contract".to_string(),
             schema_version: "1.0.0".to_string(),
             id: "content.comments.create-comment-draft".to_string(),
@@ -1807,8 +1807,8 @@ mod tests {
             },
             preconditions: Vec::new(),
             postconditions: Vec::new(),
-            side_effects: vec![cogolo_contracts::SideEffect {
-                kind: cogolo_contracts::SideEffectKind::MemoryOnly,
+            side_effects: vec![traverse_contracts::SideEffect {
+                kind: traverse_contracts::SideEffectKind::MemoryOnly,
                 description: "Produces a draft representation in memory.".to_string(),
             }],
             emits: Vec::new(),
@@ -1861,7 +1861,7 @@ mod tests {
                 author: "Enrico Piovesan".to_string(),
                 created_at: "2026-03-27T00:00:00Z".to_string(),
             },
-            evidence: cogolo_registry::RegistrationEvidence {
+            evidence: traverse_registry::RegistrationEvidence {
                 evidence_id: "evidence".to_string(),
                 artifact_ref: "artifact:content.comments.create-comment-draft:1.0.0".to_string(),
                 capability_id: "content.comments.create-comment-draft".to_string(),
@@ -1870,12 +1870,14 @@ mod tests {
                 governing_spec: "005-capability-registry".to_string(),
                 validator_version: "0.1.0".to_string(),
                 produced_at: "2026-03-27T00:00:00Z".to_string(),
-                result: cogolo_registry::RegistrationResult::Passed,
+                result: traverse_registry::RegistrationResult::Passed,
             },
         }
     }
 
-    fn test_artifact(binary: Option<cogolo_registry::BinaryReference>) -> CapabilityArtifactRecord {
+    fn test_artifact(
+        binary: Option<traverse_registry::BinaryReference>,
+    ) -> CapabilityArtifactRecord {
         CapabilityArtifactRecord {
             artifact_ref: "artifact:content.comments.create-comment-draft:1.0.0".to_string(),
             implementation_kind: ImplementationKind::Executable,
@@ -1913,9 +1915,9 @@ mod tests {
             emits: Vec::new(),
             consumes: Vec::new(),
             implementation_kind: ImplementationKind::Executable,
-            composability: cogolo_registry::ComposabilityMetadata {
-                kind: cogolo_registry::CompositionKind::Atomic,
-                patterns: vec![cogolo_registry::CompositionPattern::Sequential],
+            composability: traverse_registry::ComposabilityMetadata {
+                kind: traverse_registry::CompositionKind::Atomic,
+                patterns: vec![traverse_registry::CompositionPattern::Sequential],
                 provides: vec!["draft".to_string()],
                 requires: vec!["authenticated-user".to_string()],
             },

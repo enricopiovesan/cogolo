@@ -1,4 +1,4 @@
-# Cogolo Brainstorming Decisions
+# Traverse Brainstorming Decisions
 
 This document captures the outcome of the initial product and architecture brainstorming used to shape the first formal specifications.
 
@@ -6,7 +6,7 @@ It is not the final spec. It is the working decision record that narrows the MVP
 
 ## Scope Strategy
 
-Cogolo will be delivered in two stages:
+Traverse will be delivered in two stages:
 
 - `Foundation v0.1`
 - `MVP v0.2`

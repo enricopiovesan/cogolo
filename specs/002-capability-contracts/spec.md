@@ -1,20 +1,20 @@
-# Feature Specification: Cogolo Capability Contracts
+# Feature Specification: Traverse Capability Contracts
 
 **Feature Branch**: `002-capability-contracts`  
 **Created**: 2026-03-26  
 **Status**: Draft  
-**Input**: Existing Cogolo foundation specification, data model, constitution, and project source material derived from UMA, ECCA, and C-DAD.
+**Input**: Existing Traverse foundation specification, data model, constitution, and project source material derived from UMA, ECCA, and C-DAD.
 
 ## Purpose
 
-This specification defines the first implementation-tight contract slice for Cogolo:
+This specification defines the first implementation-tight contract slice for Traverse:
 
 - the capability contract artifact
 - capability contract validation behavior
 - capability contract lifecycle and versioning rules
 - capability contract validation evidence and error behavior
 
-This spec governs work in `cogolo-contracts` before broader runtime, registry, or workflow implementation proceeds.
+This spec governs work in `traverse-contracts` before broader runtime, registry, or workflow implementation proceeds.
 
 ## User Scenarios & Testing
 
@@ -22,7 +22,7 @@ This spec governs work in `cogolo-contracts` before broader runtime, registry, o
 
 As a platform developer, I want to author a machine-readable capability contract that fully describes a portable business capability so that the contract can become the governing source of truth for validation, registration, runtime execution, and AI-assisted development.
 
-**Why this priority**: Cogolo depends on contracts as the primary boundary. If the capability contract is underspecified or ambiguous, registries, runtime behavior, and validation all drift.
+**Why this priority**: Traverse depends on contracts as the primary boundary. If the capability contract is underspecified or ambiguous, registries, runtime behavior, and validation all drift.
 
 **Independent Test**: A developer can create a `contract.json`, validate it through the contracts crate or CLI, and receive a canonical parsed contract object plus no validation errors.
 
@@ -197,4 +197,4 @@ This specification is governed by:
 
 This specification, once approved, is intended to govern the first real implementation slice in:
 
-- `crates/cogolo-contracts`
+- `crates/traverse-contracts`

@@ -1,13 +1,13 @@
-# Feature Specification: Cogolo Event Contracts
+# Feature Specification: Traverse Event Contracts
 
 **Feature Branch**: `003-event-contracts`  
 **Created**: 2026-03-26  
 **Status**: Draft  
-**Input**: Existing Cogolo foundation specification, constitution, planning artifacts, and source material already reviewed from ECCA, C-DAD, UMA, and UMA Chapter 13.
+**Input**: Existing Traverse foundation specification, constitution, planning artifacts, and source material already reviewed from ECCA, C-DAD, UMA, and UMA Chapter 13.
 
 ## Purpose
 
-This specification defines the first implementation-tight event contract slice for Cogolo:
+This specification defines the first implementation-tight event contract slice for Traverse:
 
 - the event contract artifact
 - event contract validation behavior
@@ -191,4 +191,4 @@ This specification is governed by:
 
 This specification, once approved, is intended to govern the event-contract implementation slice in:
 
-- `crates/cogolo-contracts`
+- `crates/traverse-contracts`
