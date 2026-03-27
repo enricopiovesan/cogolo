@@ -37,19 +37,42 @@ for entry in "${targets[@]}"; do
   fi
 
   echo "Measuring line coverage for ${crate_name} with threshold ${minimum_percent}%"
-  coverage_output="$(cargo llvm-cov --package "${crate_name}" --summary-only)"
-  line_percent="$(
-    awk '/^TOTAL/ {gsub(/%/, "", $(NF-3)); print $(NF-3)}' <<<"${coverage_output}" | tail -n 1
+  coverage_output="$(cargo llvm-cov --package "${crate_name}" --lcov)"
+  line_counts="$(
+    awk -F '[:,]' '
+      /^DA:/ { counts[$2] += $3 }
+      END {
+        total = 0
+        hit = 0
+        for (line in counts) {
+          total += 1
+          if (counts[line] > 0) {
+            hit += 1
+          }
+        }
+        if (total > 0) {
+          printf "%s %s", hit, total
+        }
+      }
+    ' <<<"${coverage_output}"
   )"
 
-  if [[ -z "${line_percent}" ]]; then
+  if [[ -z "${line_counts}" ]]; then
     echo "Unable to parse line coverage for ${crate_name}" >&2
     echo "${coverage_output}" >&2
     failed=1
     continue
   fi
 
-  printf 'Line coverage for %s: %s%%\n' "${crate_name}" "${line_percent}"
+  hit_lines="$(awk '{print $1}' <<<"${line_counts}")"
+  total_lines="$(awk '{print $2}' <<<"${line_counts}")"
+  line_percent="$(
+    awk -v hit="${hit_lines}" -v total="${total_lines}" \
+      'BEGIN { printf "%.2f", (hit / total) * 100 }'
+  )"
+
+  printf 'Line coverage for %s: %s%% (%s/%s lines)\n' \
+    "${crate_name}" "${line_percent}" "${hit_lines}" "${total_lines}"
 
   if ! awk -v actual="${line_percent}" -v required="${minimum_percent}" \
     'BEGIN { exit (actual + 0 >= required + 0) ? 0 : 1 }'; then
