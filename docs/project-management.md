@@ -14,6 +14,10 @@ All meaningful work must be traceable through all three of these artifacts:
 
 This is the default Traverse operating rule for spec slices, implementation slices, governance work, and material documentation changes.
 
+Ticket quality rules are defined in:
+
+- [docs/ticket-standard.md](/Users/piovese/Documents/cogolo/docs/ticket-standard.md)
+
 ## Preferred Flow
 
 1. Start from the governing spec or approved design discussion.
@@ -30,6 +34,9 @@ Issues should describe:
 - affected spec or capability/workflow area
 - expected outcome
 - any compatibility or governance concerns
+- explicit definition of done
+- explicit validation steps
+- explicit blocker note when blocked
 
 ## Pull Request Guidance
 
@@ -56,6 +63,15 @@ The expected day-to-day rule is:
 Exceptions should be rare and should be called out explicitly in the PR notes.
 
 ## Board Discipline
+
+Recommended workflow labels:
+
+- `ready`
+- `blocked`
+- `needs-spec`
+- `needs-enrico`
+- `future`
+- `no-spec-needed`
 
 Recommended categories for task tracking:
 

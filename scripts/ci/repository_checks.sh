@@ -17,9 +17,12 @@ required_files=(
   "docs/contract-publication-policy.md"
   "docs/exception-process.md"
   "docs/project-management.md"
+  "docs/ticket-standard.md"
+  "docs/planning-board.md"
   "docs/ai-review-process.md"
   "docs/adr/README.md"
   "docs/adr/0001-rust-wasm-foundation.md"
+  ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
   "specs/001-foundation-v0-1/research.md"
@@ -42,6 +45,12 @@ fi
 grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
+grep -q "Definition of Done" docs/ticket-standard.md
+grep -q "Validation" docs/ticket-standard.md
+grep -q "future" docs/project-management.md
+grep -q "Blocked" docs/planning-board.md
+grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
+grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md
 grep -q "Non-Functional Requirements" .specify/memory/constitution.md
 grep -q "Enterprise Quality Standards" .specify/memory/constitution.md

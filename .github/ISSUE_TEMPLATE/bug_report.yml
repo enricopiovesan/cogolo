@@ -47,3 +47,24 @@ body:
       description: Include trace ids, logs, screenshots, or failing checks if available.
     validations:
       required: false
+  - type: textarea
+    id: blocked_by
+    attributes:
+      label: Blocked by
+      description: If work on this bug is blocked, explain why. Otherwise write `not blocked`.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      description: State the exact fix outcome and completion criteria.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: List the exact commands, checks, or observations that prove the fix.
+    validations:
+      required: true

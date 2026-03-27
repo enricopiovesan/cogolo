@@ -43,3 +43,31 @@ body:
       description: Mention versioning, compatibility, or policy concerns.
     validations:
       required: false
+  - type: textarea
+    id: depends_on
+    attributes:
+      label: Depends on
+      description: List dependent issues, specs, or PRs, or write `none`.
+    validations:
+      required: true
+  - type: textarea
+    id: blocked_by
+    attributes:
+      label: Blocked by
+      description: If blocked, explain exactly why. Otherwise write `not blocked`.
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      description: State the exact done criteria with no room for interpretation.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: List the exact commands, checks, or artifacts that prove completion.
+    validations:
+      required: true
