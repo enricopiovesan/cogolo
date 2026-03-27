@@ -56,6 +56,13 @@ Status meanings:
 
 ## Product and Architecture Backlog
 
+### `Ready`
+
+- Expedition example capability set and canonical workflow spec
+  - issue: [#30](https://github.com/enricopiovesan/Traverse/issues/30)
+  - target area: `specs/008-expedition-example-domain`
+  - outcome: implementation-governing example domain for the first five capabilities, canonical workflow, and event/output shapes
+
 ### `Needs Spec`
 
 - Metadata graph model
