@@ -87,6 +87,18 @@
         "crates/cogolo-runtime/",
         "crates/traverse-runtime/"
       ]
+    },
+    {
+      "id": "008-expedition-example-domain",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/008-expedition-example-domain/spec.md",
+      "governs": [
+        "examples/",
+        "contracts/examples/",
+        "workflows/examples/"
+      ]
     }
   ]
 }
