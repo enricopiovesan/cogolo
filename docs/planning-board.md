@@ -17,6 +17,16 @@ Status meanings:
   - status: merged in PR [#5](https://github.com/enricopiovesan/cogolo/pull/5)
   - notes: protected at `100%` line coverage
 
+- `006-runtime-request-execution`
+  - scope: runtime request parsing, deterministic local execution, ambiguity handling, state events, and runtime trace output
+  - status: merged in PR [#20](https://github.com/enricopiovesan/cogolo/pull/20)
+  - notes: protected at `100%` line coverage
+
+- `005-capability-registry`
+  - scope: capability registry storage, immutable publication, overlay lookup, compatibility checks, and discovery index
+  - status: merged in PR [#18](https://github.com/enricopiovesan/cogolo/pull/18)
+  - notes: protected at `100%` line coverage
+
 ## Next Core Tasks
 
 ### `Ready`
@@ -25,27 +35,20 @@ Status meanings:
   - issue: [#6](https://github.com/enricopiovesan/cogolo/issues/6)
   - suggested id: `003-event-contracts`
   - outcome: event artifact shape, lifecycle, ownership, versioning, publisher/subscriber metadata, validation rules
+  - status: merged in PR [#15](https://github.com/enricopiovesan/cogolo/pull/15)
 
 - Spec-alignment CI gate design
   - issue: [#7](https://github.com/enricopiovesan/cogolo/issues/7)
   - outcome: first deterministic check that maps implementation slices to governing spec ids and fails when required spec artifacts are missing or unapproved
-
-### `Needs Spec`
-
-- Capability registry implementation
-  - issue: [#8](https://github.com/enricopiovesan/cogolo/issues/8)
-  - target area: `crates/cogolo-registry`
-  - missing first: dedicated registry slice for file layout, duplicate rules, indexing behavior, and evidence handling
-
-- Runtime request and execution model
-  - issue: [#9](https://github.com/enricopiovesan/cogolo/issues/9)
-  - target area: `crates/cogolo-runtime`
-  - missing first: dedicated runtime execution slice covering request schema, local WASM execution boundary, ambiguity behavior, and trace shape
+  - status: merged in PR [#16](https://github.com/enricopiovesan/cogolo/pull/16)
 
 - Workflow registry and deterministic traversal
   - issue: [#10](https://github.com/enricopiovesan/cogolo/issues/10)
   - target area: `crates/cogolo-registry`, `crates/cogolo-runtime`
-  - missing first: dedicated workflow spec slice
+  - status: spec drafting in progress under `007-workflow-registry-traversal`
+  - outcome: deterministic workflow artifact shape, workflow registry metadata, traversal rules, workflow-backed composed capability semantics
+
+### `Needs Spec`
 
 - Event-driven composition
   - target area: `crates/cogolo-runtime`
@@ -85,12 +88,12 @@ Status meanings:
 
 ## Recommended Sequence
 
-1. Review and merge `003-event-contracts`
-2. Design the spec-alignment CI gate
-3. Write registry slice for capability and event registration
-4. Implement `cogolo-registry`
-5. Write runtime request/execution slice
-6. Implement local runtime execution and trace skeleton
+1. Review and merge `007-workflow-registry-traversal`
+2. Implement workflow registry storage and deterministic traversal
+3. Write the event-driven composition slice for runtime event flow
+4. Implement event-driven workflow execution on top of the workflow slice
+5. Lock the first five capabilities and the first canonical workflow
+6. Move into browser-facing runtime subscription work
 
 ## Project 1 Sync
 
