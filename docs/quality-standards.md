@@ -38,6 +38,12 @@ The default validation flow should include:
 - coverage checks for core logic
 - dependency/security checks
 
+Spec-alignment gate implementation:
+
+- approved spec registry: `specs/governance/approved-specs.json`
+- workflow job: `spec-alignment`
+- script: `scripts/ci/spec_alignment_check.sh`
+
 ## Coverage Standard
 
 Required:

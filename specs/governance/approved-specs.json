@@ -1,0 +1,51 @@
+{
+  "schema_version": "1.0.0",
+  "specs": [
+    {
+      "id": "001-foundation-v0-1",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/001-foundation-v0-1/spec.md",
+      "governs": [
+        "README.md",
+        ".specify/memory/constitution.md",
+        "docs/quality-standards.md",
+        "docs/compatibility-policy.md",
+        "docs/exception-process.md"
+      ]
+    },
+    {
+      "id": "002-capability-contracts",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/002-capability-contracts/spec.md",
+      "governs": [
+        "crates/cogolo-contracts/"
+      ]
+    },
+    {
+      "id": "003-event-contracts",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/003-event-contracts/spec.md",
+      "governs": [
+        "crates/cogolo-contracts/"
+      ]
+    },
+    {
+      "id": "004-spec-alignment-gate",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/004-spec-alignment-gate/spec.md",
+      "governs": [
+        ".github/workflows/ci.yml",
+        "scripts/ci/",
+        "specs/governance/"
+      ]
+    }
+  ]
+}

@@ -67,3 +67,25 @@ jobs:
 
       - name: Validate PR body sections
         run: bash scripts/ci/pr_body_check.sh /tmp/pr-body.md
+
+  spec-alignment:
+    if: github.event_name == 'pull_request'
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Save PR body
+        run: |
+          cat <<'EOF' > /tmp/pr-body.md
+          ${{ github.event.pull_request.body }}
+          EOF
+
+      - name: Run spec alignment check
+        env:
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: bash scripts/ci/spec_alignment_check.sh /tmp/pr-body.md
