@@ -65,26 +65,23 @@ Status meanings:
 - MCP surface spec
 - Browser runtime subscription surface
 
-### `Needs Enrico`
+### `Resolved`
 
 - Prioritized first five real capabilities for `v0.1`
-  - issue: [#11](https://github.com/enricopiovesan/cogolo/issues/11)
-  - we have examples and direction, but not a final approved set
+  - issue: [#11](https://github.com/enricopiovesan/Traverse/issues/11)
+  - resolved direction: expedition-planning example domain
 
 - First canonical demo workflow
-  - issue: [#12](https://github.com/enricopiovesan/cogolo/issues/12)
-  - recommended target: one comment-flow style workflow using at least three capabilities
+  - issue: [#12](https://github.com/enricopiovesan/Traverse/issues/12)
+  - resolved direction: `plan-expedition`
 
 - Contract lifecycle publication policy
-  - issue: [#13](https://github.com/enricopiovesan/cogolo/issues/13)
-  - we have lifecycle states, but not yet a full approval/publication workflow decision for when `draft` becomes publishable
+  - issue: [#13](https://github.com/enricopiovesan/Traverse/issues/13)
+  - resolved direction: CI-gated plus manual approval before publication
 
 - Project-management policy
-  - issue: [#14](https://github.com/enricopiovesan/cogolo/issues/14)
-  - decide whether every spec slice becomes:
-    - a GitHub issue
-    - a project item only
-    - both
+  - issue: [#14](https://github.com/enricopiovesan/Traverse/issues/14)
+  - resolved direction: issue + project item + PR for all meaningful slices
 
 ## Recommended Sequence
 

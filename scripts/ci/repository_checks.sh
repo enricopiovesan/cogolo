@@ -14,6 +14,7 @@ required_files=(
   ".specify/memory/constitution.md"
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
+  "docs/contract-publication-policy.md"
   "docs/exception-process.md"
   "docs/project-management.md"
   "docs/ai-review-process.md"
