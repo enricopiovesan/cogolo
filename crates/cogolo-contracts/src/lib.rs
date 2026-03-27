@@ -6,6 +6,7 @@ use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
 const CAPABILITY_CONTRACT_KIND: &str = "capability_contract";
+const EVENT_CONTRACT_KIND: &str = "event_contract";
 const SUPPORTED_SCHEMA_VERSION: &str = "1.0.0";
 const GOVERNED_CONTENT_VERSION: &str = "0.1.0";
 
@@ -34,6 +35,86 @@ pub struct CapabilityContract {
     pub dependencies: Vec<DependencyReference>,
     pub provenance: Provenance,
     pub evidence: Vec<ValidationEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventContract {
+    pub kind: String,
+    pub schema_version: String,
+    pub id: String,
+    pub namespace: String,
+    pub name: String,
+    pub version: String,
+    pub lifecycle: Lifecycle,
+    pub owner: Owner,
+    pub summary: String,
+    pub description: String,
+    pub payload: EventPayload,
+    pub classification: EventClassification,
+    pub publishers: Vec<CapabilityReference>,
+    pub subscribers: Vec<CapabilityReference>,
+    pub policies: Vec<IdReference>,
+    pub tags: Vec<String>,
+    pub provenance: EventProvenance,
+    pub evidence: Vec<EventValidationEvidence>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventPayload {
+    pub schema: Value,
+    pub compatibility: PayloadCompatibility,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum PayloadCompatibility {
+    BackwardCompatible,
+    ForwardCompatible,
+    Breaking,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventClassification {
+    pub domain: String,
+    pub bounded_context: String,
+    pub event_type: EventType,
+    pub tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventType {
+    Domain,
+    Integration,
+    System,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CapabilityReference {
+    pub capability_id: String,
+    pub version: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventProvenance {
+    pub source: EventProvenanceSource,
+    pub author: String,
+    pub created_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum EventProvenanceSource {
+    Greenfield,
+    Brownfield,
+    AiGenerated,
+    Extracted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventValidationEvidence {
+    pub kind: String,
+    pub r#ref: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -232,6 +313,14 @@ pub struct PublishedContractRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct PublishedEventRecord {
+    pub id: String,
+    pub version: String,
+    pub governed_content_digest: String,
+    pub lifecycle: Lifecycle,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationContext<'a> {
     pub governing_spec: &'a str,
     pub validator_version: &'a str,
@@ -239,8 +328,21 @@ pub struct ValidationContext<'a> {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventValidationContext<'a> {
+    pub governing_spec: &'a str,
+    pub validator_version: &'a str,
+    pub existing_published: Option<&'a PublishedEventRecord>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ValidationResult {
     pub normalized: CapabilityContract,
+    pub evidence: ProducedValidationEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventValidationResult {
+    pub normalized: EventContract,
     pub evidence: ProducedValidationEvidence,
 }
 
@@ -275,6 +377,7 @@ pub enum ValidationErrorCode {
     InconsistentIdentity,
     DuplicateItem,
     InvalidCapabilityBoundary,
+    InvalidEventBoundary,
     UnsupportedBinaryFormat,
     UnsupportedEntrypoint,
     PortabilityExceptionRequired,
@@ -295,6 +398,23 @@ pub enum ErrorSeverity {
 /// into the capability contract model.
 pub fn parse_contract(json: &str) -> Result<CapabilityContract, ValidationFailure> {
     serde_json::from_str::<CapabilityContract>(json).map_err(|error| ValidationFailure {
+        errors: vec![ValidationError {
+            code: ValidationErrorCode::InvalidFormat,
+            message: error.to_string(),
+            path: "$".to_string(),
+            severity: ErrorSeverity::Error,
+        }],
+    })
+}
+
+/// Parses an event contract from raw JSON text.
+///
+/// # Errors
+///
+/// Returns [`ValidationFailure`] when the JSON payload cannot be deserialized
+/// into the event contract model.
+pub fn parse_event_contract(json: &str) -> Result<EventContract, ValidationFailure> {
+    serde_json::from_str::<EventContract>(json).map_err(|error| ValidationFailure {
         errors: vec![ValidationError {
             code: ValidationErrorCode::InvalidFormat,
             message: error.to_string(),
@@ -356,8 +476,68 @@ pub fn validate_contract(
     })
 }
 
+/// Validates a parsed event contract against the governed `v0.1` rules.
+///
+/// # Errors
+///
+/// Returns [`ValidationFailure`] when structural or semantic validation fails.
+pub fn validate_event_contract(
+    mut contract: EventContract,
+    context: &EventValidationContext<'_>,
+) -> Result<EventValidationResult, ValidationFailure> {
+    let mut errors = Vec::new();
+
+    validate_event_kind(&contract, &mut errors);
+    validate_event_schema_version(&contract, &mut errors);
+    validate_event_identity(&contract, &mut errors);
+    validate_semver(&contract.version, "$.version", &mut errors);
+    validate_owner(&contract.owner, &mut errors);
+    validate_summary(&contract.summary, "$.summary", &mut errors);
+    validate_description(&contract.description, "$.description", &mut errors);
+    validate_event_payload(&contract.payload, &mut errors);
+    validate_event_classification(&contract.classification, &mut errors);
+    validate_capability_references(&contract.publishers, "$.publishers", true, &mut errors);
+    validate_capability_references(&contract.subscribers, "$.subscribers", false, &mut errors);
+    validate_id_references(&contract.policies, "$.policies", &mut errors);
+    validate_tags(&contract.tags, "$.tags", true, &mut errors);
+    validate_event_provenance(&contract.provenance, &mut errors);
+    validate_event_evidence(&contract.evidence, &mut errors);
+    validate_event_boundary(&contract, &mut errors);
+    validate_published_event_record(&contract, context.existing_published, &mut errors);
+
+    if !errors.is_empty() {
+        return Err(ValidationFailure { errors });
+    }
+
+    contract.evidence.clear();
+
+    Ok(EventValidationResult {
+        evidence: ProducedValidationEvidence {
+            artifact_id: contract.id.clone(),
+            artifact_version: contract.version.clone(),
+            governing_spec: context.governing_spec.to_string(),
+            validator_version: context.validator_version.to_string(),
+            status: EvidenceStatus::Passed,
+        },
+        normalized: contract,
+    })
+}
+
 #[must_use]
 pub fn governed_content_digest(contract: &CapabilityContract) -> String {
+    let mut clone = contract.clone();
+    clone.evidence.clear();
+    let json = format!("{clone:?}");
+    let mut hash: u64 = 0xcbf2_9ce4_8422_2325;
+    for byte in json.as_bytes() {
+        hash ^= u64::from(*byte);
+        hash = hash.wrapping_mul(0x0000_0001_0000_01b3);
+    }
+    format!("{GOVERNED_CONTENT_VERSION}:{hash:016x}")
+}
+
+#[must_use]
+pub fn governed_event_content_digest(contract: &EventContract) -> String {
     let mut clone = contract.clone();
     clone.evidence.clear();
     let json = format!("{clone:?}");
@@ -379,6 +559,16 @@ fn validate_kind(contract: &CapabilityContract, errors: &mut Vec<ValidationError
     }
 }
 
+fn validate_event_kind(contract: &EventContract, errors: &mut Vec<ValidationError>) {
+    if contract.kind != EVENT_CONTRACT_KIND {
+        errors.push(error(
+            ValidationErrorCode::InvalidLiteral,
+            "$.kind",
+            "kind must equal event_contract",
+        ));
+    }
+}
+
 fn validate_schema_version(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
     if contract.schema_version != SUPPORTED_SCHEMA_VERSION {
         errors.push(error(
@@ -389,7 +579,44 @@ fn validate_schema_version(contract: &CapabilityContract, errors: &mut Vec<Valid
     }
 }
 
+fn validate_event_schema_version(contract: &EventContract, errors: &mut Vec<ValidationError>) {
+    if contract.schema_version != SUPPORTED_SCHEMA_VERSION {
+        errors.push(error(
+            ValidationErrorCode::InvalidLiteral,
+            "$.schema_version",
+            "schema_version must equal 1.0.0",
+        ));
+    }
+}
+
 fn validate_identity(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+    if !is_valid_namespace(&contract.namespace) {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            "$.namespace",
+            "namespace must be dot-separated lowercase kebab-case segments",
+        ));
+    }
+
+    if !is_valid_name(&contract.name) {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            "$.name",
+            "name must be lowercase kebab-case",
+        ));
+    }
+
+    let expected_id = format!("{}.{}", contract.namespace, contract.name);
+    if contract.id != expected_id {
+        errors.push(error(
+            ValidationErrorCode::InconsistentIdentity,
+            "$.id",
+            "id must equal namespace.name",
+        ));
+    }
+}
+
+fn validate_event_identity(contract: &EventContract, errors: &mut Vec<ValidationError>) {
     if !is_valid_namespace(&contract.namespace) {
         errors.push(error(
             ValidationErrorCode::InvalidFormat,
@@ -462,6 +689,111 @@ fn validate_schema_container(
             path,
             "schema must be a JSON object",
         ));
+    }
+}
+
+fn validate_event_payload(payload: &EventPayload, errors: &mut Vec<ValidationError>) {
+    if !payload.schema.is_object() {
+        errors.push(error(
+            ValidationErrorCode::InvalidFormat,
+            "$.payload.schema",
+            "schema must be a JSON object",
+        ));
+    }
+}
+
+fn validate_event_classification(
+    classification: &EventClassification,
+    errors: &mut Vec<ValidationError>,
+) {
+    validate_min_length(
+        &classification.domain,
+        "$.classification.domain",
+        2,
+        "domain must be at least 2 characters",
+        errors,
+    );
+    validate_min_length(
+        &classification.bounded_context,
+        "$.classification.bounded_context",
+        2,
+        "bounded_context must be at least 2 characters",
+        errors,
+    );
+    validate_tags(&classification.tags, "$.classification.tags", true, errors);
+}
+
+fn validate_capability_references(
+    references: &[CapabilityReference],
+    path: &str,
+    require_one: bool,
+    errors: &mut Vec<ValidationError>,
+) {
+    if require_one && references.is_empty() {
+        errors.push(error(
+            ValidationErrorCode::MissingRequiredField,
+            path,
+            "array must contain at least one item",
+        ));
+    }
+
+    let mut seen = HashSet::new();
+    for (index, item) in references.iter().enumerate() {
+        let id_path = format!("{path}[{index}].capability_id");
+        let version_path = format!("{path}[{index}].version");
+        validate_non_empty(&item.capability_id, &id_path, errors);
+        validate_semver(&item.version, &version_path, errors);
+        if !seen.insert((item.capability_id.clone(), item.version.clone())) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &id_path,
+                "capability references must be unique by id and version",
+            ));
+        }
+    }
+}
+
+fn validate_tags(
+    tags: &[String],
+    path: &str,
+    require_one: bool,
+    errors: &mut Vec<ValidationError>,
+) {
+    if require_one && tags.is_empty() {
+        errors.push(error(
+            ValidationErrorCode::MissingRequiredField,
+            path,
+            "array must contain at least one item",
+        ));
+    }
+    for (index, tag) in tags.iter().enumerate() {
+        validate_non_empty(tag, &format!("{path}[{index}]"), errors);
+    }
+    validate_unique_strings(tags, path, "values must be unique", errors);
+}
+
+fn validate_event_provenance(provenance: &EventProvenance, errors: &mut Vec<ValidationError>) {
+    validate_non_empty(&provenance.author, "$.provenance.author", errors);
+    validate_non_empty(&provenance.created_at, "$.provenance.created_at", errors);
+}
+
+fn validate_event_evidence(
+    evidence: &[EventValidationEvidence],
+    errors: &mut Vec<ValidationError>,
+) {
+    let mut seen = HashSet::new();
+    for (index, item) in evidence.iter().enumerate() {
+        let kind_path = format!("$.evidence[{index}].kind");
+        let ref_path = format!("$.evidence[{index}].ref");
+        validate_non_empty(&item.kind, &kind_path, errors);
+        validate_non_empty(&item.r#ref, &ref_path, errors);
+        if !seen.insert((item.kind.clone(), item.r#ref.clone())) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &kind_path,
+                "evidence entries must be unique by kind and ref",
+            ));
+        }
     }
 }
 
@@ -666,6 +998,28 @@ fn validate_boundary(contract: &CapabilityContract, errors: &mut Vec<ValidationE
     }
 }
 
+fn validate_event_boundary(contract: &EventContract, errors: &mut Vec<ValidationError>) {
+    let summary = contract.summary.to_ascii_lowercase();
+    let description = contract.description.to_ascii_lowercase();
+    let combined = format!("{summary} {description}");
+    let banned_terms = [
+        "kafka topic",
+        "transport topic",
+        "websocket channel",
+        "queue binding",
+        "broker partition",
+        "payload wrapper",
+    ];
+
+    if banned_terms.iter().any(|term| combined.contains(term)) {
+        errors.push(error(
+            ValidationErrorCode::InvalidEventBoundary,
+            "$.summary",
+            "event must describe one governed business event boundary",
+        ));
+    }
+}
+
 fn validate_published_record(
     contract: &CapabilityContract,
     published: Option<&PublishedContractRecord>,
@@ -689,6 +1043,29 @@ fn validate_published_record(
     }
 }
 
+fn validate_published_event_record(
+    contract: &EventContract,
+    published: Option<&PublishedEventRecord>,
+    errors: &mut Vec<ValidationError>,
+) {
+    let Some(published) = published else {
+        return;
+    };
+
+    if published.id != contract.id || published.version != contract.version {
+        return;
+    }
+
+    let digest = governed_event_content_digest(contract);
+    if published.governed_content_digest != digest {
+        errors.push(error(
+            ValidationErrorCode::ImmutableVersionConflict,
+            "$.version",
+            "published contract versions are immutable",
+        ));
+    }
+}
+
 fn validate_non_empty(value: &str, path: &str, errors: &mut Vec<ValidationError>) {
     if value.trim().is_empty() {
         errors.push(error(
@@ -696,6 +1073,18 @@ fn validate_non_empty(value: &str, path: &str, errors: &mut Vec<ValidationError>
             path,
             "value must be non-empty",
         ));
+    }
+}
+
+fn validate_min_length(
+    value: &str,
+    path: &str,
+    min_length: usize,
+    message: &str,
+    errors: &mut Vec<ValidationError>,
+) {
+    if value.trim().len() < min_length {
+        errors.push(error(ValidationErrorCode::InvalidFormat, path, message));
     }
 }
 
