@@ -7,3 +7,4 @@
 # cogolo-runtime 100
 cogolo-contracts 100
 cogolo-registry 100
+cogolo-runtime 100
