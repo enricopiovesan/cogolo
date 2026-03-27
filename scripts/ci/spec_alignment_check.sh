@@ -198,7 +198,10 @@ for raw_line in pr_body.splitlines():
         if not stripped:
             continue
         if stripped.startswith("- "):
-            declared_spec_ids.append(stripped[2:].strip())
+            spec_id = stripped[2:].strip()
+            if len(spec_id) >= 2 and spec_id.startswith("`") and spec_id.endswith("`"):
+                spec_id = spec_id[1:-1].strip()
+            declared_spec_ids.append(spec_id)
 
 if not in_section:
     failures.append(
