@@ -1,14 +1,18 @@
 use cogolo_contracts::{
-    BinaryFormat, CapabilityContract, Condition, DependencyArtifactType, DependencyReference,
-    Entrypoint, EntrypointKind, EventReference, EvidenceStatus, EvidenceType, Execution,
+    BinaryFormat, CapabilityContract, CapabilityReference, Condition, DependencyArtifactType,
+    DependencyReference, Entrypoint, EntrypointKind, EventClassification, EventContract,
+    EventPayload, EventProvenance, EventProvenanceSource, EventReference, EventType,
+    EventValidationContext, EventValidationEvidence, EvidenceStatus, EvidenceType, Execution,
     ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference, Lifecycle,
-    NetworkAccess, Owner, ProducedValidationEvidence, Provenance, ProvenanceSource,
-    PublishedContractRecord, SchemaContainer, SideEffect, SideEffectKind, ValidationContext,
-    ValidationErrorCode, ValidationEvidence, ValidationFailure, ValidationResult,
-    governed_content_digest, parse_contract, validate_contract,
+    NetworkAccess, Owner, PayloadCompatibility, ProducedValidationEvidence, Provenance,
+    ProvenanceSource, PublishedContractRecord, PublishedEventRecord, SchemaContainer, SideEffect,
+    SideEffectKind, ValidationContext, ValidationErrorCode, ValidationEvidence, ValidationFailure,
+    ValidationResult, governed_content_digest, governed_event_content_digest, parse_contract,
+    parse_event_contract, validate_contract, validate_event_contract,
 };
 
 const GOVERNING_SPEC: &str = "002-capability-contracts@0.1.0";
+const EVENT_GOVERNING_SPEC: &str = "003-event-contracts@1.0.0";
 const VALIDATOR_VERSION: &str = "0.1.0";
 
 #[test]
@@ -481,8 +485,8 @@ fn valid_contract_json() -> String {
     serde_json::to_string(&valid_contract()).unwrap_or_default()
 }
 
-fn expect_validation_failure(
-    result: Result<ValidationResult, ValidationFailure>,
+fn expect_validation_failure<T>(
+    result: Result<T, ValidationFailure>,
 ) -> Result<ValidationFailure, String> {
     match result {
         Ok(_) => Err("validation unexpectedly succeeded".to_string()),
@@ -556,6 +560,304 @@ fn valid_contract() -> CapabilityContract {
             spec_ref: Some(GOVERNING_SPEC.to_string()),
             adr_refs: vec!["0001-rust-wasm-foundation".to_string()],
             exception_refs: Vec::new(),
+        },
+        evidence: Vec::new(),
+    }
+}
+
+#[test]
+fn parses_and_validates_an_event_contract() -> Result<(), String> {
+    let parsed =
+        parse_event_contract(&valid_event_contract_json()).map_err(|error| format!("{error:?}"))?;
+    let result = validate_event_contract(
+        parsed.clone(),
+        &EventValidationContext {
+            governing_spec: EVENT_GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    )
+    .map_err(|error| format!("{error:?}"))?;
+
+    assert_eq!(result.normalized.id, "content.comments.comment-created");
+    assert_eq!(
+        result.normalized.payload.compatibility,
+        PayloadCompatibility::BackwardCompatible
+    );
+    assert_eq!(result.evidence.governing_spec, EVENT_GOVERNING_SPEC);
+    assert_eq!(result.evidence.status, EvidenceStatus::Passed);
+    assert_eq!(parsed.lifecycle, Lifecycle::Draft);
+    Ok(())
+}
+
+#[test]
+fn rejects_invalid_event_identity_and_metadata() {
+    let mut contract = valid_event_contract();
+    contract.kind = "wrong".to_string();
+    contract.schema_version = "9.9.9".to_string();
+    contract.id = "wrong.id".to_string();
+    contract.namespace = "Content.Comments".to_string();
+    contract.name = "Invalid Name".to_string();
+    contract.version = "bad".to_string();
+    contract.owner.team.clear();
+    contract.owner.contact.clear();
+    contract.summary = "short".to_string();
+    contract.description = "too short".to_string();
+    contract.payload.schema = serde_json::json!(["bad"]);
+    contract.classification.domain = "x".to_string();
+    contract.classification.bounded_context = "y".to_string();
+    contract.classification.tags.clear();
+    contract.tags.clear();
+    contract.publishers.clear();
+    contract.provenance.author.clear();
+    contract.provenance.created_at.clear();
+
+    let errors: Vec<_> = expect_validation_failure(validate_event_contract(
+        contract,
+        &EventValidationContext {
+            governing_spec: EVENT_GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    ))
+    .into_iter()
+    .collect();
+    let error = errors[0].clone();
+
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.code == ValidationErrorCode::InvalidLiteral)
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.code == ValidationErrorCode::InconsistentIdentity)
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.code == ValidationErrorCode::InvalidSemver)
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.payload.schema")
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.classification.tags")
+    );
+}
+
+#[test]
+fn rejects_duplicate_event_references_and_evidence() {
+    let mut contract = valid_event_contract();
+    contract.publishers.push(CapabilityReference {
+        capability_id: "content.comments.persist-comment".to_string(),
+        version: "0.1.0".to_string(),
+    });
+    contract.subscribers.push(CapabilityReference {
+        capability_id: "content.comments.send-notification".to_string(),
+        version: "0.1.0".to_string(),
+    });
+    contract.policies.push(IdReference {
+        id: "default-comment-publication".to_string(),
+    });
+    contract.tags.push("created".to_string());
+    contract
+        .classification
+        .tags
+        .push("notifications".to_string());
+    contract.evidence.push(EventValidationEvidence {
+        kind: "contract_validation".to_string(),
+        r#ref: "ref-1".to_string(),
+    });
+    contract.evidence.push(EventValidationEvidence {
+        kind: "contract_validation".to_string(),
+        r#ref: "ref-1".to_string(),
+    });
+
+    let errors: Vec<_> = expect_validation_failure(validate_event_contract(
+        contract,
+        &EventValidationContext {
+            governing_spec: EVENT_GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    ))
+    .into_iter()
+    .collect();
+    let error = errors[0].clone();
+
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.publishers[1].capability_id")
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.subscribers[1].capability_id")
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.policies[1].id")
+    );
+    assert!(error.errors.iter().any(|item| item.path == "$.tags"));
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.classification.tags")
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.path == "$.evidence[1].kind")
+    );
+}
+
+#[test]
+fn rejects_invalid_event_boundary_and_published_conflicts() {
+    let mut contract = valid_event_contract();
+    contract.summary = "Kafka topic for comment created transport".to_string();
+
+    let published = PublishedEventRecord {
+        id: contract.id.clone(),
+        version: contract.version.clone(),
+        governed_content_digest: "0.1.0:deadbeefdeadbeef".to_string(),
+        lifecycle: Lifecycle::Active,
+    };
+
+    let errors: Vec<_> = expect_validation_failure(validate_event_contract(
+        contract,
+        &EventValidationContext {
+            governing_spec: EVENT_GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: Some(&published),
+        },
+    ))
+    .into_iter()
+    .collect();
+    let error = errors[0].clone();
+
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.code == ValidationErrorCode::InvalidEventBoundary)
+    );
+    assert!(
+        error
+            .errors
+            .iter()
+            .any(|item| item.code == ValidationErrorCode::ImmutableVersionConflict)
+    );
+}
+
+#[test]
+fn governed_event_content_digest_ignores_evidence() {
+    let contract = valid_event_contract();
+    let mut with_evidence = contract.clone();
+    with_evidence.evidence.push(EventValidationEvidence {
+        kind: "contract_validation".to_string(),
+        r#ref: "ref-1".to_string(),
+    });
+
+    assert_eq!(
+        governed_event_content_digest(&contract),
+        governed_event_content_digest(&with_evidence)
+    );
+}
+
+#[test]
+fn rejects_invalid_event_json() {
+    let errors: Vec<_> = parse_event_contract("{").err().into_iter().collect();
+    assert_eq!(errors.len(), 1);
+    assert_eq!(errors[0].errors[0].code, ValidationErrorCode::InvalidFormat);
+}
+
+#[test]
+fn allows_published_event_records_for_other_versions() {
+    let contract = valid_event_contract();
+    let published = PublishedEventRecord {
+        id: contract.id.clone(),
+        version: "9.9.9".to_string(),
+        governed_content_digest: "different".to_string(),
+        lifecycle: Lifecycle::Active,
+    };
+
+    let result = validate_event_contract(
+        contract,
+        &EventValidationContext {
+            governing_spec: EVENT_GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: Some(&published),
+        },
+    );
+
+    assert!(result.is_ok());
+}
+
+fn valid_event_contract_json() -> String {
+    serde_json::to_string(&valid_event_contract()).unwrap_or_default()
+}
+
+fn valid_event_contract() -> EventContract {
+    EventContract {
+        kind: "event_contract".to_string(),
+        schema_version: "1.0.0".to_string(),
+        id: "content.comments.comment-created".to_string(),
+        namespace: "content.comments".to_string(),
+        name: "comment-created".to_string(),
+        version: "0.1.0".to_string(),
+        lifecycle: Lifecycle::Draft,
+        owner: Owner {
+            team: "cogolo-core".to_string(),
+            contact: "enrico.piovesan10@gmail.com".to_string(),
+        },
+        summary: "A comment has been created and is ready for downstream processing.".to_string(),
+        description:
+            "Governed event contract for newly created comments within the comments domain."
+                .to_string(),
+        payload: EventPayload {
+            schema: serde_json::json!({ "type": "object" }),
+            compatibility: PayloadCompatibility::BackwardCompatible,
+        },
+        classification: EventClassification {
+            domain: "content".to_string(),
+            bounded_context: "comments".to_string(),
+            event_type: EventType::Domain,
+            tags: vec!["comments".to_string(), "notifications".to_string()],
+        },
+        publishers: vec![CapabilityReference {
+            capability_id: "content.comments.persist-comment".to_string(),
+            version: "0.1.0".to_string(),
+        }],
+        subscribers: vec![CapabilityReference {
+            capability_id: "content.comments.send-notification".to_string(),
+            version: "0.1.0".to_string(),
+        }],
+        policies: vec![IdReference {
+            id: "default-comment-publication".to_string(),
+        }],
+        tags: vec!["comments".to_string(), "created".to_string()],
+        provenance: EventProvenance {
+            source: EventProvenanceSource::Greenfield,
+            author: "enricopiovesan".to_string(),
+            created_at: "2026-03-26T00:00:00Z".to_string(),
         },
         evidence: Vec::new(),
     }
