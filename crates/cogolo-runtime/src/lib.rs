@@ -1,9 +1,12 @@
 //! Runtime control-plane support for Cogolo.
 
+mod workflows;
+pub use workflows::*;
+
 use cogolo_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
 use cogolo_registry::{
     CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope, RegistryScope,
-    ResolvedCapability,
+    ResolvedCapability, WorkflowRegistry,
 };
 use semver::Version;
 use serde::{Deserialize, Serialize};
@@ -22,13 +25,24 @@ const TRACE_PREFIX: &str = "trace_";
 #[derive(Debug)]
 pub struct Runtime<E> {
     registry: CapabilityRegistry,
+    workflow_registry: WorkflowRegistry,
     executor: E,
 }
 
 impl<E> Runtime<E> {
     #[must_use]
     pub fn new(registry: CapabilityRegistry, executor: E) -> Self {
-        Self { registry, executor }
+        Self {
+            registry,
+            workflow_registry: WorkflowRegistry::new(),
+            executor,
+        }
+    }
+
+    #[must_use]
+    pub fn with_workflow_registry(mut self, workflow_registry: WorkflowRegistry) -> Self {
+        self.workflow_registry = workflow_registry;
+        self
     }
 }
 
@@ -524,6 +538,16 @@ where
             );
         }
 
+        if selected.record.implementation_kind == ImplementationKind::Workflow {
+            return self.execute_workflow_capability(
+                attempt,
+                emitter,
+                candidate_collection,
+                selection,
+                selected,
+            );
+        }
+
         let started_at = emitter.next_timestamp();
         emitter.push(
             RuntimeState::Executing,
@@ -998,11 +1022,11 @@ fn evaluate_candidate(candidate: ResolvedCapability) -> CandidateEvaluation {
             RejectedCandidateReason::LifecycleNotRunnable,
         );
     }
-    if candidate.record.implementation_kind != ImplementationKind::Executable {
-        return CandidateEvaluation::Rejected(
-            candidate,
-            RejectedCandidateReason::NotRunnableLocally,
-        );
+    if candidate.record.implementation_kind == ImplementationKind::Workflow {
+        if candidate.artifact.workflow_ref.is_some() {
+            return CandidateEvaluation::Eligible(candidate);
+        }
+        return CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing);
     }
 
     let Some(binary) = candidate.artifact.binary.as_ref() else {
@@ -1390,8 +1414,16 @@ mod tests {
         );
         capability.record.implementation_kind = ImplementationKind::Workflow;
         assert!(matches!(
+            evaluate_candidate(capability.clone()),
+            CandidateEvaluation::Rejected(_, RejectedCandidateReason::ArtifactMissing)
+        ));
+        capability.artifact.workflow_ref = Some(cogolo_registry::WorkflowReference {
+            workflow_id: "workflow".to_string(),
+            workflow_version: "1.0.0".to_string(),
+        });
+        assert!(matches!(
             evaluate_candidate(capability),
-            CandidateEvaluation::Rejected(_, RejectedCandidateReason::NotRunnableLocally)
+            CandidateEvaluation::Eligible(_)
         ));
 
         let capability = resolved_capability(

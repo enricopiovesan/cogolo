@@ -1,5 +1,8 @@
 //! Capability registry support for Cogolo.
 
+mod workflows;
+pub use workflows::*;
+
 use cogolo_contracts::{
     CapabilityContract, ErrorSeverity, EventReference, IdReference, Lifecycle, Owner,
     PublishedContractRecord, ValidationContext, ValidationFailure, governed_content_digest,

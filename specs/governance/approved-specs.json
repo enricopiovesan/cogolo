@@ -66,6 +66,17 @@
       "governs": [
         "crates/cogolo-runtime/"
       ]
+    },
+    {
+      "id": "007-workflow-registry-traversal",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/007-workflow-registry-traversal/spec.md",
+      "governs": [
+        "crates/cogolo-registry/",
+        "crates/cogolo-runtime/"
+      ]
     }
   ]
 }
