@@ -37,6 +37,7 @@ The default validation flow should include:
 - tests
 - coverage checks for core logic
 - dependency/security checks
+- required work-traceability through issue, project item, and pull request linkage where applicable
 
 Spec-alignment gate implementation:
 
@@ -101,3 +102,4 @@ A change must not merge when any of the following are true:
 - required coverage for core logic fails
 - an unreviewed portability exception exists
 - a material architecture change lacks a required ADR
+- the change lacks the required traceability artifacts under the project-management policy

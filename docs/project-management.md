@@ -6,20 +6,20 @@ Traverse uses this GitHub Project as the canonical task board:
 
 ## Working Rule
 
-All meaningful work should be traceable to a project item.
+All meaningful work must be traceable through all three of these artifacts:
 
-That can be:
-
-- an issue
+- a GitHub issue
+- a Project 1 item
 - a pull request
-- a draft item on the project board
+
+This is the default Traverse operating rule for spec slices, implementation slices, governance work, and material documentation changes.
 
 ## Preferred Flow
 
 1. Start from the governing spec or approved design discussion.
-2. Create or link an issue.
-3. Ensure the issue is represented on the project board.
-4. Reference the project item in the pull request.
+2. Create or link the GitHub issue.
+3. Ensure the issue is represented on Project 1.
+4. Open a pull request that links the issue or project item.
 5. Keep implementation, contracts, and tests aligned with the governing spec.
 
 ## Issue Guidance
@@ -41,9 +41,19 @@ Pull requests should include:
 - validation evidence
 - ADR reference, if required
 
-Implementation pull requests must declare their governing specs in the PR body under a `## Governing Spec` section. Those declarations are validated against:
+Implementation and spec pull requests must declare their governing specs in the PR body under a `## Governing Spec` section. Those declarations are validated against:
 
 - `specs/governance/approved-specs.json`
+
+## Required Traceability
+
+The expected day-to-day rule is:
+
+- one issue per meaningful slice of work
+- that issue represented on Project 1
+- one pull request implementing or codifying that slice
+
+Exceptions should be rare and should be called out explicitly in the PR notes.
 
 ## Board Discipline
 
@@ -56,4 +66,4 @@ Recommended categories for task tracking:
 - browser demo
 - quality and CI
 
-The exact board columns can evolve, but the project board should remain the primary planning surface.
+The exact board columns can evolve, but the project board should remain the primary planning surface and the issue should remain the durable record of intent.

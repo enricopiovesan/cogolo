@@ -8,6 +8,8 @@ Every feature MUST be modeled as one or more business capabilities, not as UI fl
 ### II. Contracts Are the Source of Truth
 Every capability and event MUST be defined by an explicit contract before implementation begins. Contracts MUST describe identity, versioning, lifecycle state, inputs, outputs, preconditions, postconditions, side effects, dependencies, ownership, permissions, execution constraints, emitted events, consumed events, and policy-relevant metadata. Code, generated artifacts, and runtime behavior MUST conform to the contract; when code and contract disagree, the contract wins until formally amended. Published contracts SHOULD be treated as immutable records with provenance and validation evidence.
 
+Contracts MUST NOT become publishable by automation alone in `v0.1`. Publication candidates MUST pass required automated validation and MUST also receive explicit manual approval before publication.
+
 ### III. Specs Are Versioned, Immutable, and Merge-Gating
 Formal specs MUST be versioned artifacts and MUST be treated as immutable sources of truth once approved for implementation. Code generation, manual implementation, and test design MUST align with the approved spec version. Pull requests MUST fail validation when implementation, contracts, tests, or generated artifacts drift from the governing spec. No code change may be merged if it is not validated against the relevant approved spec.
 
@@ -120,6 +122,14 @@ Every spec, plan, and task list MUST explicitly state:
 - Whether the change is in or out of `v0.1` scope
 - How the behavior will be verified from the CLI or other stable runtime entry points
 - What trace or validation evidence should exist after execution
+
+All meaningful work MUST be tracked through:
+
+- a GitHub issue
+- a Project 1 item
+- a pull request
+
+These three artifacts are the required minimum traceability model unless an approved exception is documented.
 
 ## Governance
 
