@@ -63,6 +63,11 @@ Status meanings:
   - target area: `specs/008-expedition-example-domain`
   - outcome: implementation-governing example domain for the first five capabilities, canonical workflow, and event/output shapes
 
+- Expedition example contracts and workflow artifact spec
+  - issue: [#33](https://github.com/enricopiovesan/Traverse/issues/33)
+  - target area: `specs/009-expedition-example-artifacts`
+  - outcome: concrete example capability ids, event ids, workflow artifact shape, and workflow-backed composed capability relationship
+
 ### `Needs Spec`
 
 - Metadata graph model
