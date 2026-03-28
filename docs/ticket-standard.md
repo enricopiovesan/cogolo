@@ -33,9 +33,11 @@ Use `no-spec-needed` when the work can proceed under existing approved specs or 
 Use status labels this way:
 
 - `ready`: approved and not started yet
-- `in-progress`: currently being worked on
+- `in-progress`: currently being worked on right now
 - `blocked`: started or selected, but cannot continue until the blocker is removed
 - `future`: valid backlog work that is intentionally not active now
+
+Do not move work to `in-progress` just because it is a candidate for parallel execution. Use `in-progress` only when there is real active execution, typically with an active branch, PR, or an explicitly assigned developer currently working the ticket.
 
 ## Required Ticket Sections
 

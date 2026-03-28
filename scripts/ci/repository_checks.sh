@@ -47,12 +47,15 @@ grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
 grep -q "Definition of Done" docs/ticket-standard.md
 grep -q "in-progress" docs/ticket-standard.md
+grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-standard.md
 grep -q "Validation" docs/ticket-standard.md
 grep -q "future" docs/project-management.md
 grep -q "in-progress" docs/project-management.md
+grep -q 'Potential parallel candidates should stay `Ready`' docs/project-management.md
 grep -q "Note" docs/project-management.md
 grep -q "Blocked" docs/planning-board.md
 grep -q "In Progress" docs/planning-board.md
+grep -q "Only tickets with real active execution" docs/planning-board.md
 grep -q "Note" docs/ticket-standard.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml

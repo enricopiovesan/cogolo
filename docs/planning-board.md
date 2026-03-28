@@ -21,6 +21,8 @@ Status meanings:
   - status: active in PR [#67](https://github.com/enricopiovesan/Traverse/pull/67)
   - done when: the backlog standards, templates, planning board, and repo checks land on `main`
 
+Only tickets with real active execution should appear in this section.
+
 ### `Ready` + `No Spec Needed`
 
 - [#42](https://github.com/enricopiovesan/Traverse/issues/42) `Author expedition event contract files`
