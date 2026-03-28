@@ -1,0 +1,218 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.assess-conditions-summary",
+  "namespace": "expedition.planning",
+  "name": "assess-conditions-summary",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Assess expedition conditions and produce a deterministic planning summary.",
+  "description": "Portable deterministic capability for combining the normalized expedition objective with interpreted planning intent context to produce a governed conditions summary covering overall rating, key findings, and blocking concerns.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective",
+        "interpreted_intent"
+      ],
+      "properties": {
+        "objective": {
+          "type": "object",
+          "required": [
+            "objective_id",
+            "destination",
+            "target_window",
+            "preferences",
+            "notes"
+          ],
+          "properties": {
+            "objective_id": {
+              "type": "string"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            },
+            "preferences": {
+              "type": "object",
+              "required": [
+                "style",
+                "risk_tolerance",
+                "priority"
+              ],
+              "properties": {
+                "style": {
+                  "type": "string"
+                },
+                "risk_tolerance": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "string"
+                }
+              }
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        },
+        "interpreted_intent": {
+          "type": "object",
+          "required": [
+            "intent_id",
+            "objective_id",
+            "route_preferences",
+            "constraints",
+            "assumptions",
+            "confidence"
+          ],
+          "properties": {
+            "intent_id": {
+              "type": "string"
+            },
+            "objective_id": {
+              "type": "string"
+            },
+            "route_preferences": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "assumptions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "type": "number"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "conditions_summary_id",
+        "objective_id",
+        "overall_rating",
+        "key_findings",
+        "blocking_concerns"
+      ],
+      "properties": {
+        "conditions_summary_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "overall_rating": {
+          "type": "string"
+        },
+        "key_findings": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "blocking_concerns": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [
+    {
+      "id": "objective-and-intent-aligned",
+      "description": "The normalized expedition objective and interpreted intent refer to the same planning objective."
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "conditions-summary-produced",
+      "description": "A deterministic conditions summary is returned for downstream readiness validation."
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "event_emission",
+      "description": "Emits the conditions-summary-assessed domain event after the summary is produced."
+    }
+  ],
+  "emits": [
+    {
+      "event_id": "expedition.planning.conditions-summary-assessed",
+      "version": "1.0.0"
+    }
+  ],
+  "consumes": [],
+  "permissions": [],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "dependencies": [
+    {
+      "artifact_type": "event",
+      "id": "expedition.planning.conditions-summary-assessed",
+      "version": "1.0.0"
+    }
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z",
+    "spec_ref": "009-expedition-example-artifacts"
+  },
+  "evidence": []
+}

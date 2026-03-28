@@ -1,0 +1,99 @@
+{
+  "kind": "event_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.expedition-plan-assembled",
+  "namespace": "expedition.planning",
+  "name": "expedition-plan-assembled",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "A final expedition plan has been assembled and is ready for downstream consumption.",
+  "description": "Governed event contract for the final expedition plan emitted after assemble-expedition-plan combines objective, interpreted intent, conditions, and readiness into one composed planning artifact.",
+  "payload": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "plan_id",
+        "objective_id",
+        "status",
+        "recommended_route_style",
+        "key_steps",
+        "constraints",
+        "readiness_notes",
+        "summary"
+      ],
+      "properties": {
+        "plan_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "recommended_route_style": {
+          "type": "string"
+        },
+        "key_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "readiness_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    },
+    "compatibility": "backward-compatible"
+  },
+  "classification": {
+    "domain": "expedition",
+    "bounded_context": "planning",
+    "event_type": "domain",
+    "tags": [
+      "expedition",
+      "plan",
+      "planning"
+    ]
+  },
+  "publishers": [
+    {
+      "capability_id": "expedition.planning.assemble-expedition-plan",
+      "version": "1.0.0"
+    }
+  ],
+  "subscribers": [],
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "tags": [
+    "example-domain",
+    "expedition",
+    "expedition-plan-assembled"
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z"
+  },
+  "evidence": []
+}
