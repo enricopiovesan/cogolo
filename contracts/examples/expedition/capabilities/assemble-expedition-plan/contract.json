@@ -10,8 +10,8 @@
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
   },
-  "summary": "Assemble the normalized expedition planning outputs into one final plan artifact.",
-  "description": "Portable deterministic capability for combining the normalized expedition objective, interpreted intent, conditions summary, and readiness result into one governed expedition plan artifact suitable for downstream consumption.",
+  "summary": "Assemble the final expedition plan from objective, interpreted intent, conditions, and readiness inputs.",
+  "description": "Portable capability for composing the normalized expedition planning outputs into one governed expedition plan artifact with route guidance, constraints, readiness notes, and planning summary.",
   "inputs": {
     "schema": {
       "type": "object",
@@ -25,56 +25,10 @@
         "objective": {
           "type": "object",
           "required": [
-            "objective_id",
-            "destination",
-            "target_window",
-            "preferences",
-            "notes"
+            "objective_id"
           ],
           "properties": {
             "objective_id": {
-              "type": "string"
-            },
-            "destination": {
-              "type": "string"
-            },
-            "target_window": {
-              "type": "object",
-              "required": [
-                "start",
-                "end"
-              ],
-              "properties": {
-                "start": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "end": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              }
-            },
-            "preferences": {
-              "type": "object",
-              "required": [
-                "style",
-                "risk_tolerance",
-                "priority"
-              ],
-              "properties": {
-                "style": {
-                  "type": "string"
-                },
-                "risk_tolerance": {
-                  "type": "string"
-                },
-                "priority": {
-                  "type": "string"
-                }
-              }
-            },
-            "notes": {
               "type": "string"
             }
           }
@@ -83,11 +37,7 @@
           "type": "object",
           "required": [
             "intent_id",
-            "objective_id",
-            "route_preferences",
-            "constraints",
-            "assumptions",
-            "confidence"
+            "objective_id"
           ],
           "properties": {
             "intent_id": {
@@ -95,27 +45,6 @@
             },
             "objective_id": {
               "type": "string"
-            },
-            "route_preferences": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "constraints": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "assumptions": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "confidence": {
-              "type": "number"
             }
           }
         },
@@ -124,9 +53,7 @@
           "required": [
             "conditions_summary_id",
             "objective_id",
-            "overall_rating",
-            "key_findings",
-            "blocking_concerns"
+            "overall_rating"
           ],
           "properties": {
             "conditions_summary_id": {
@@ -137,18 +64,6 @@
             },
             "overall_rating": {
               "type": "string"
-            },
-            "key_findings": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
-            },
-            "blocking_concerns": {
-              "type": "array",
-              "items": {
-                "type": "string"
-              }
             }
           }
         },
@@ -240,20 +155,20 @@
   },
   "preconditions": [
     {
-      "id": "all-upstream-planning-artifacts-available",
-      "description": "The normalized objective, interpreted intent, conditions summary, and readiness result are all available and refer to the same expedition objective."
+      "id": "planning-artifacts-available",
+      "description": "Objective, interpreted intent, conditions summary, and readiness result are all available for plan assembly."
     }
   ],
   "postconditions": [
     {
-      "id": "plan-assembled",
-      "description": "One final expedition plan artifact is returned for downstream consumption."
+      "id": "expedition-plan-assembled",
+      "description": "A final expedition plan artifact is returned with planning steps, constraints, and readiness notes."
     }
   ],
   "side_effects": [
     {
       "kind": "event_emission",
-      "description": "Emits the expedition-plan-assembled domain event after the final plan is assembled."
+      "description": "Emits the expedition-plan-assembled event after final plan assembly completes."
     }
   ],
   "emits": [
@@ -262,8 +177,17 @@
       "version": "1.0.0"
     }
   ],
-  "consumes": [],
-  "permissions": [],
+  "consumes": [
+    {
+      "event_id": "expedition.planning.team-readiness-validated",
+      "version": "1.0.0"
+    }
+  ],
+  "permissions": [
+    {
+      "id": "expedition.plan.assemble-plan"
+    }
+  ],
   "execution": {
     "binary_format": "wasm",
     "entrypoint": {
@@ -287,6 +211,11 @@
   "dependencies": [
     {
       "artifact_type": "event",
+      "id": "expedition.planning.team-readiness-validated",
+      "version": "1.0.0"
+    },
+    {
+      "artifact_type": "event",
       "id": "expedition.planning.expedition-plan-assembled",
       "version": "1.0.0"
     }
@@ -295,7 +224,11 @@
     "source": "greenfield",
     "author": "enricopiovesan",
     "created_at": "2026-03-27T00:00:00Z",
-    "spec_ref": "009-expedition-example-artifacts"
+    "spec_ref": "009-expedition-example-artifacts@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
   },
   "evidence": []
 }
