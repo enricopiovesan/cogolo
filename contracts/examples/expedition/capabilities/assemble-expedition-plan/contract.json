@@ -1,0 +1,301 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.assemble-expedition-plan",
+  "namespace": "expedition.planning",
+  "name": "assemble-expedition-plan",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Assemble the normalized expedition planning outputs into one final plan artifact.",
+  "description": "Portable deterministic capability for combining the normalized expedition objective, interpreted intent, conditions summary, and readiness result into one governed expedition plan artifact suitable for downstream consumption.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective",
+        "interpreted_intent",
+        "conditions_summary",
+        "readiness_result"
+      ],
+      "properties": {
+        "objective": {
+          "type": "object",
+          "required": [
+            "objective_id",
+            "destination",
+            "target_window",
+            "preferences",
+            "notes"
+          ],
+          "properties": {
+            "objective_id": {
+              "type": "string"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            },
+            "preferences": {
+              "type": "object",
+              "required": [
+                "style",
+                "risk_tolerance",
+                "priority"
+              ],
+              "properties": {
+                "style": {
+                  "type": "string"
+                },
+                "risk_tolerance": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "string"
+                }
+              }
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        },
+        "interpreted_intent": {
+          "type": "object",
+          "required": [
+            "intent_id",
+            "objective_id",
+            "route_preferences",
+            "constraints",
+            "assumptions",
+            "confidence"
+          ],
+          "properties": {
+            "intent_id": {
+              "type": "string"
+            },
+            "objective_id": {
+              "type": "string"
+            },
+            "route_preferences": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "constraints": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "assumptions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "confidence": {
+              "type": "number"
+            }
+          }
+        },
+        "conditions_summary": {
+          "type": "object",
+          "required": [
+            "conditions_summary_id",
+            "objective_id",
+            "overall_rating",
+            "key_findings",
+            "blocking_concerns"
+          ],
+          "properties": {
+            "conditions_summary_id": {
+              "type": "string"
+            },
+            "objective_id": {
+              "type": "string"
+            },
+            "overall_rating": {
+              "type": "string"
+            },
+            "key_findings": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "blocking_concerns": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "readiness_result": {
+          "type": "object",
+          "required": [
+            "readiness_result_id",
+            "objective_id",
+            "status",
+            "reasons",
+            "required_actions"
+          ],
+          "properties": {
+            "readiness_result_id": {
+              "type": "string"
+            },
+            "objective_id": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "reasons": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            },
+            "required_actions": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "plan_id",
+        "objective_id",
+        "status",
+        "recommended_route_style",
+        "key_steps",
+        "constraints",
+        "readiness_notes",
+        "summary"
+      ],
+      "properties": {
+        "plan_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "recommended_route_style": {
+          "type": "string"
+        },
+        "key_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "readiness_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "preconditions": [
+    {
+      "id": "all-upstream-planning-artifacts-available",
+      "description": "The normalized objective, interpreted intent, conditions summary, and readiness result are all available and refer to the same expedition objective."
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "plan-assembled",
+      "description": "One final expedition plan artifact is returned for downstream consumption."
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "event_emission",
+      "description": "Emits the expedition-plan-assembled domain event after the final plan is assembled."
+    }
+  ],
+  "emits": [
+    {
+      "event_id": "expedition.planning.expedition-plan-assembled",
+      "version": "1.0.0"
+    }
+  ],
+  "consumes": [],
+  "permissions": [],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "dependencies": [
+    {
+      "artifact_type": "event",
+      "id": "expedition.planning.expedition-plan-assembled",
+      "version": "1.0.0"
+    }
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z",
+    "spec_ref": "009-expedition-example-artifacts"
+  },
+  "evidence": []
+}
