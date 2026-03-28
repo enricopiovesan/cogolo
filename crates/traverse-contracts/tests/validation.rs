@@ -1,3 +1,5 @@
+use std::{fs, path::Path};
+
 use traverse_contracts::{
     BinaryFormat, CapabilityContract, CapabilityReference, Condition, DependencyArtifactType,
     DependencyReference, Entrypoint, EntrypointKind, EventClassification, EventContract,
@@ -587,6 +589,33 @@ fn parses_and_validates_an_event_contract() -> Result<(), String> {
     assert_eq!(result.evidence.governing_spec, EVENT_GOVERNING_SPEC);
     assert_eq!(result.evidence.status, EvidenceStatus::Passed);
     assert_eq!(parsed.lifecycle, Lifecycle::Draft);
+    Ok(())
+}
+
+#[test]
+fn validates_checked_in_expedition_capability_contract_examples() -> Result<(), String> {
+    let examples_dir = Path::new(env!("CARGO_MANIFEST_DIR"))
+        .join("../../contracts/examples/expedition/capabilities");
+
+    for entry in fs::read_dir(&examples_dir).map_err(|error| format!("{error}"))? {
+        let entry = entry.map_err(|error| format!("{error}"))?;
+        let contract_path = entry.path().join("contract.json");
+        let contract_json = fs::read_to_string(&contract_path)
+            .map_err(|error| format!("{}: {error}", contract_path.display()))?;
+        let parsed = parse_contract(&contract_json)
+            .map_err(|error| format!("{}: {error:?}", contract_path.display()))?;
+
+        validate_contract(
+            parsed,
+            &ValidationContext {
+                governing_spec: "009-expedition-example-artifacts@1.0.0",
+                validator_version: VALIDATOR_VERSION,
+                existing_published: None,
+            },
+        )
+        .map_err(|error| format!("{}: {error:?}", contract_path.display()))?;
+    }
+
     Ok(())
 }
 
