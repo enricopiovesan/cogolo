@@ -1,0 +1,206 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.interpret-expedition-intent",
+  "namespace": "expedition.planning",
+  "name": "interpret-expedition-intent",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Interpret free-form expedition planning intent into structured route preferences, constraints, and assumptions.",
+  "description": "Portable capability for AI-assisted interpretation of expedition intent so downstream deterministic planning steps receive structured planning context without treating interpretation as the final safety or readiness truth.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective",
+        "planning_intent"
+      ],
+      "properties": {
+        "objective": {
+          "type": "object",
+          "required": [
+            "objective_id",
+            "destination",
+            "target_window",
+            "preferences",
+            "notes"
+          ],
+          "properties": {
+            "objective_id": {
+              "type": "string"
+            },
+            "destination": {
+              "type": "string"
+            },
+            "target_window": {
+              "type": "object",
+              "required": [
+                "start",
+                "end"
+              ],
+              "properties": {
+                "start": {
+                  "type": "string",
+                  "format": "date-time"
+                },
+                "end": {
+                  "type": "string",
+                  "format": "date-time"
+                }
+              }
+            },
+            "preferences": {
+              "type": "object",
+              "required": [
+                "style",
+                "risk_tolerance",
+                "priority"
+              ],
+              "properties": {
+                "style": {
+                  "type": "string"
+                },
+                "risk_tolerance": {
+                  "type": "string"
+                },
+                "priority": {
+                  "type": "string"
+                }
+              }
+            },
+            "notes": {
+              "type": "string"
+            }
+          }
+        },
+        "planning_intent": {
+          "type": "string"
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "intent_id",
+        "objective_id",
+        "route_preferences",
+        "constraints",
+        "assumptions",
+        "confidence"
+      ],
+      "properties": {
+        "intent_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "route_preferences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "number"
+        }
+      }
+    }
+  },
+  "preconditions": [
+    {
+      "id": "objective-and-intent-provided",
+      "description": "A normalized expedition objective and free-form planning intent are available for interpretation."
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "intent-interpretation-produced",
+      "description": "A structured interpreted intent record is returned for deterministic downstream capabilities."
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "event_emission",
+      "description": "Emits the expedition-intent-interpreted event after AI-assisted interpretation succeeds."
+    }
+  ],
+  "emits": [
+    {
+      "event_id": "expedition.planning.expedition-intent-interpreted",
+      "version": "1.0.0"
+    }
+  ],
+  "consumes": [
+    {
+      "event_id": "expedition.planning.expedition-objective-captured",
+      "version": "1.0.0"
+    }
+  ],
+  "permissions": [
+    {
+      "id": "expedition.plan.interpret-intent"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "dependencies": [
+    {
+      "artifact_type": "event",
+      "id": "expedition.planning.expedition-objective-captured",
+      "version": "1.0.0"
+    },
+    {
+      "artifact_type": "event",
+      "id": "expedition.planning.expedition-intent-interpreted",
+      "version": "1.0.0"
+    }
+  ],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z",
+    "spec_ref": "009-expedition-example-artifacts@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
+  },
+  "evidence": []
+}
