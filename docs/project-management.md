@@ -90,3 +90,5 @@ Status intent should stay simple:
 - `ready` means the ticket can be started now
 - `in-progress` means someone is actively working it
 - `blocked` means work cannot continue until the blocker named in the ticket is cleared
+
+When a Project 1 item is marked `Blocked`, the project `Note` field should summarize the blocker in one short sentence so the reason is visible on the board without opening the issue.

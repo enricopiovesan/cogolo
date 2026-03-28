@@ -50,8 +50,10 @@ grep -q "in-progress" docs/ticket-standard.md
 grep -q "Validation" docs/ticket-standard.md
 grep -q "future" docs/project-management.md
 grep -q "in-progress" docs/project-management.md
+grep -q "Note" docs/project-management.md
 grep -q "Blocked" docs/planning-board.md
 grep -q "In Progress" docs/planning-board.md
+grep -q "Note" docs/ticket-standard.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md

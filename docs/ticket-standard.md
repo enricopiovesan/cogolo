@@ -97,6 +97,8 @@ The `Blocked by` section should name the missing dependency clearly, for example
 - depends on issue `#NN`
 - depends on merged PR `#NN`
 
+When the ticket is on Project 1 with status `Blocked`, the project `Note` field should also contain a short blocker summary so the reason is visible directly on the board.
+
 ## Must-Fix vs Future Rule
 
 When a real problem is found during active work:
