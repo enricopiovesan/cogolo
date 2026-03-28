@@ -17,6 +17,7 @@ required_files=(
   "docs/contract-publication-policy.md"
   "docs/exception-process.md"
   "docs/project-management.md"
+  "docs/multi-thread-workflow.md"
   "docs/ticket-standard.md"
   "docs/planning-board.md"
   "docs/ai-review-process.md"
@@ -53,10 +54,13 @@ grep -q "future" docs/project-management.md
 grep -q "in-progress" docs/project-management.md
 grep -q 'Potential parallel candidates should stay `Ready`' docs/project-management.md
 grep -q "Note" docs/project-management.md
+grep -q "separate Codex threads" docs/project-management.md
 grep -q "Blocked" docs/planning-board.md
 grep -q "In Progress" docs/planning-board.md
 grep -q "Only tickets with real active execution" docs/planning-board.md
 grep -q "Note" docs/ticket-standard.md
+grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
+grep -q "Starter Prompts" docs/multi-thread-workflow.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md

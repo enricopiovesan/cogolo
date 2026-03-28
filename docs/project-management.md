@@ -17,6 +17,7 @@ This is the default Traverse operating rule for spec slices, implementation slic
 Ticket quality rules are defined in:
 
 - [docs/ticket-standard.md](/Users/piovese/Documents/cogolo/docs/ticket-standard.md)
+- [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
 
 ## Preferred Flow
 
@@ -94,3 +95,7 @@ Status intent should stay simple:
 When a Project 1 item is marked `Blocked`, the project `Note` field should summarize the blocker in one short sentence so the reason is visible on the board without opening the issue.
 
 Potential parallel candidates should stay `Ready` until they are actually picked up. We should not use `In Progress` as a placeholder for work that is merely available to start.
+
+For true parallel execution, use separate Codex threads with separate issues, branches, and PRs. The operating model is documented in:
+
+- [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
