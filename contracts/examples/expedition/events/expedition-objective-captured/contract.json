@@ -1,0 +1,108 @@
+{
+  "kind": "event_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.expedition-objective-captured",
+  "namespace": "expedition.planning",
+  "name": "expedition-objective-captured",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "A normalized expedition objective has been captured and is ready for downstream planning.",
+  "description": "Governed event contract for the structured expedition objective emitted after capture-expedition-objective normalizes destination, timing, and planning preferences.",
+  "payload": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "objective_id",
+        "destination",
+        "target_window",
+        "preferences",
+        "notes"
+      ],
+      "properties": {
+        "objective_id": {
+          "type": "string"
+        },
+        "destination": {
+          "type": "string"
+        },
+        "target_window": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "preferences": {
+          "type": "object",
+          "required": [
+            "style",
+            "risk_tolerance",
+            "priority"
+          ],
+          "properties": {
+            "style": {
+              "type": "string"
+            },
+            "risk_tolerance": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        }
+      }
+    },
+    "compatibility": "backward-compatible"
+  },
+  "classification": {
+    "domain": "expedition",
+    "bounded_context": "planning",
+    "event_type": "domain",
+    "tags": [
+      "expedition",
+      "objective",
+      "planning"
+    ]
+  },
+  "publishers": [
+    {
+      "capability_id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0"
+    }
+  ],
+  "subscribers": [],
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "tags": [
+    "expedition",
+    "objective-captured",
+    "example-domain"
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z"
+  },
+  "evidence": []
+}
