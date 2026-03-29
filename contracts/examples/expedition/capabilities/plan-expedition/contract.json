@@ -161,7 +161,7 @@
   ],
   "side_effects": [
     {
-      "kind": "workflow_execution",
+      "kind": "state_change",
       "description": "Executes the approved expedition planning workflow across the five atomic planning capabilities."
     },
     {
@@ -190,11 +190,10 @@
     }
   },
   "execution": {
-    "binary_format": "workflow",
+    "binary_format": "wasm",
     "entrypoint": {
-      "kind": "workflow",
-      "workflow_id": "expedition.planning.plan-expedition",
-      "workflow_version": "1.0.0"
+      "kind": "wasi-command",
+      "command": "run"
     },
     "preferred_targets": [
       "local"
@@ -211,11 +210,6 @@
     }
   ],
   "dependencies": [
-    {
-      "artifact_type": "workflow",
-      "id": "expedition.planning.plan-expedition",
-      "version": "1.0.0"
-    },
     {
       "artifact_type": "event",
       "id": "expedition.planning.expedition-plan-assembled",
