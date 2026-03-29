@@ -99,6 +99,17 @@
         "contracts/examples/",
         "workflows/examples/"
       ]
+    },
+    {
+      "id": "009-expedition-example-artifacts",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/009-expedition-example-artifacts/spec.md",
+      "governs": [
+        "contracts/examples/",
+        "workflows/examples/"
+      ]
     }
   ]
 }
