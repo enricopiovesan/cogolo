@@ -1,0 +1,230 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.plan-expedition",
+  "namespace": "expedition.planning",
+  "name": "plan-expedition",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Compose the canonical expedition planning workflow into one first-class governed capability.",
+  "description": "Portable workflow-backed capability for capturing the expedition objective, interpreting planning intent, assessing conditions, validating readiness, and assembling the final expedition plan through the approved deterministic workflow artifact.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "destination",
+        "target_window",
+        "preferences",
+        "notes",
+        "planning_intent",
+        "team_profile"
+      ],
+      "properties": {
+        "destination": {
+          "type": "string"
+        },
+        "target_window": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "preferences": {
+          "type": "object",
+          "required": [
+            "style",
+            "risk_tolerance",
+            "priority"
+          ],
+          "properties": {
+            "style": {
+              "type": "string"
+            },
+            "risk_tolerance": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "planning_intent": {
+          "type": "string"
+        },
+        "team_profile": {
+          "type": "object",
+          "required": [
+            "team_id",
+            "member_count",
+            "experience_level",
+            "equipment_ready"
+          ],
+          "properties": {
+            "team_id": {
+              "type": "string"
+            },
+            "member_count": {
+              "type": "integer"
+            },
+            "experience_level": {
+              "type": "string"
+            },
+            "equipment_ready": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "plan_id",
+        "objective_id",
+        "status",
+        "recommended_route_style",
+        "key_steps",
+        "constraints",
+        "readiness_notes",
+        "summary"
+      ],
+      "properties": {
+        "plan_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "recommended_route_style": {
+          "type": "string"
+        },
+        "key_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "readiness_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "preconditions": [
+    {
+      "id": "workflow-input-available",
+      "description": "The full expedition planning input required by the canonical workflow is available."
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "workflow-plan-produced",
+      "description": "A final expedition plan artifact is returned through the approved workflow-backed capability boundary."
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "state_change",
+      "description": "Executes the approved expedition planning workflow across the five atomic planning capabilities."
+    },
+    {
+      "kind": "event_emission",
+      "description": "Emits the expedition-plan-assembled event through the terminal workflow step."
+    }
+  ],
+  "emits": [
+    {
+      "event_id": "expedition.planning.expedition-plan-assembled",
+      "version": "1.0.0"
+    }
+  ],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "expedition.plan.plan-expedition"
+    }
+  ],
+  "composability": {
+    "kind": "composite",
+    "implementation_kind": "workflow",
+    "workflow_ref": {
+      "workflow_id": "expedition.planning.plan-expedition",
+      "workflow_version": "1.0.0"
+    }
+  },
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "dependencies": [
+    {
+      "artifact_type": "event",
+      "id": "expedition.planning.expedition-plan-assembled",
+      "version": "1.0.0"
+    }
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-28T00:00:00Z",
+    "spec_ref": "009-expedition-example-artifacts@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
+  },
+  "evidence": []
+}

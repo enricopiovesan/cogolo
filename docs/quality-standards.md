@@ -38,6 +38,7 @@ The default validation flow should include:
 - coverage checks for core logic
 - dependency/security checks
 - required work-traceability through issue, project item, and pull request linkage where applicable
+- ticket-level definition of done and validation instructions for meaningful work
 
 Spec-alignment gate implementation:
 
@@ -103,3 +104,10 @@ A change must not merge when any of the following are true:
 - an unreviewed portability exception exists
 - a material architecture change lacks a required ADR
 - the change lacks the required traceability artifacts under the project-management policy
+
+## Problem Handling Rule
+
+When active work reveals a problem:
+
+- must-fix issues must be resolved in the current PR when they are required for correctness, mergeability, governance, or stated acceptance criteria
+- nice-to-have improvements and non-blocking follow-ups must be captured as `future` tickets instead of being left implicit

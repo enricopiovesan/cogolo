@@ -1,0 +1,60 @@
+name: Task
+description: Internal spec, implementation, quality, or documentation task with explicit done criteria.
+title: "[Task]: "
+labels:
+  - enhancement
+projects:
+  - "enricopiovesan/1"
+body:
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: Describe exactly what work needs to happen.
+    validations:
+      required: true
+  - type: input
+    id: governing_spec
+    attributes:
+      label: Governing spec
+      description: Reference the approved governing spec, planned spec, or say `no-spec-needed`.
+      placeholder: specs/001-foundation-v0-1/spec.md or no-spec-needed
+    validations:
+      required: true
+  - type: textarea
+    id: why
+    attributes:
+      label: Why
+      description: Explain why this matters now.
+    validations:
+      required: true
+  - type: textarea
+    id: depends_on
+    attributes:
+      label: Depends on
+      description: List dependent issues, PRs, specs, or say `none`.
+      placeholder: "#34, specs/009-expedition-example-artifacts/spec.md"
+    validations:
+      required: true
+  - type: textarea
+    id: blocked_by
+    attributes:
+      label: Blocked by
+      description: If blocked, say exactly why. If not blocked, write `not blocked`.
+      placeholder: "not blocked"
+    validations:
+      required: true
+  - type: textarea
+    id: done
+    attributes:
+      label: Definition of done
+      description: List exact completion criteria with no ambiguity.
+    validations:
+      required: true
+  - type: textarea
+    id: validation
+    attributes:
+      label: Validation
+      description: List exact commands, checks, or artifacts that prove completion.
+    validations:
+      required: true
