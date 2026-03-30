@@ -3,16 +3,19 @@
 use serde_json::json;
 use traverse_contracts::{
     BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, DependencyArtifactType,
-    DependencyReference, Entrypoint, EntrypointKind, EventReference, EvidenceStatus, EvidenceType,
-    Execution, ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference,
-    Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, SideEffect,
+    DependencyReference, Entrypoint, EntrypointKind, EventClassification, EventContract,
+    EventPayload, EventProvenance, EventProvenanceSource, EventReference, EventType,
+    EvidenceStatus, EvidenceType, Execution, ExecutionConstraints, ExecutionTarget,
+    FilesystemAccess, HostApiAccess, IdReference, Lifecycle, NetworkAccess, Owner,
+    PayloadCompatibility, Provenance, ProvenanceSource, SchemaContainer, SideEffect,
     SideEffectKind, ValidationEvidence,
 };
 use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
-    CompositionPattern, DiscoveryQuery, ImplementationKind, LookupScope, RegistryErrorCode,
-    RegistryProvenance, RegistryScope, SourceKind, SourceReference, WorkflowReference,
+    CompositionPattern, DiscoveryQuery, EventRegistration, EventRegistry, EventRegistryErrorCode,
+    ImplementationKind, LookupScope, RegistryErrorCode, RegistryProvenance, RegistryScope,
+    SourceKind, SourceReference, WorkflowReference,
 };
 
 #[test]
@@ -304,6 +307,208 @@ fn rejects_artifact_conflicts_for_reused_artifact_refs() {
     assert_eq!(failure.errors[0].code, RegistryErrorCode::ArtifactConflict);
 }
 
+#[test]
+fn registers_and_finds_public_event_contract() {
+    let mut registry = EventRegistry::new();
+    let request = event_registration(
+        RegistryScope::Public,
+        base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+    );
+
+    let outcome = registry
+        .register(request)
+        .expect("event registration should pass");
+    let resolved = registry
+        .find_exact(
+            LookupScope::PublicOnly,
+            "content.comments.comment-draft-created",
+            "1.0.0",
+        )
+        .expect("event should resolve");
+
+    assert_eq!(resolved.record, outcome.record);
+    assert_eq!(resolved.index_record, outcome.index_record);
+    assert_eq!(resolved.record.scope, RegistryScope::Public);
+}
+
+#[test]
+fn duplicate_identical_event_registration_is_idempotent() {
+    let mut registry = EventRegistry::new();
+    let request = event_registration(
+        RegistryScope::Public,
+        base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+    );
+
+    let first = registry
+        .register(request.clone())
+        .expect("first event registration should pass");
+    let second = registry
+        .register(request)
+        .expect("duplicate event registration should be idempotent");
+
+    assert_eq!(first.record, second.record);
+    assert_eq!(first.index_record, second.index_record);
+}
+
+#[test]
+fn rejects_immutable_version_conflict_for_changed_event_contract() {
+    let mut registry = EventRegistry::new();
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        ))
+        .expect("seed event registration should pass");
+
+    let mut changed = base_event_contract("content.comments.comment-draft-created", "1.0.0");
+    changed.summary = "A materially different governed event summary.".to_string();
+
+    let failure = registry
+        .register(event_registration(RegistryScope::Public, changed))
+        .expect_err("changed event content must fail");
+
+    assert_eq!(
+        failure.errors[0].code,
+        EventRegistryErrorCode::ImmutableVersionConflict
+    );
+}
+
+#[test]
+fn private_event_overlay_takes_precedence_over_public() {
+    let mut registry = EventRegistry::new();
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        ))
+        .expect("public event should register");
+
+    let mut private = base_event_contract("content.comments.comment-draft-created", "1.0.0");
+    private.summary = "Private overlay for comment draft creation.".to_string();
+    registry
+        .register(event_registration(RegistryScope::Private, private))
+        .expect("private event should register");
+
+    let resolved = registry
+        .find_exact(
+            LookupScope::PreferPrivate,
+            "content.comments.comment-draft-created",
+            "1.0.0",
+        )
+        .expect("event should resolve");
+
+    assert_eq!(resolved.record.scope, RegistryScope::Private);
+}
+
+#[test]
+fn event_lineage_orders_versions_ascending() {
+    let mut registry = EventRegistry::new();
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        ))
+        .expect("seed event should register");
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            additive_event_contract("content.comments.comment-draft-created", "1.1.0"),
+        ))
+        .expect("additive event should register");
+
+    let lineage = registry
+        .lineage(
+            RegistryScope::Public,
+            "content.comments.comment-draft-created",
+        )
+        .expect("lineage should exist");
+
+    assert_eq!(lineage.versions.len(), 2);
+    assert_eq!(lineage.versions[0].version, "1.0.0");
+    assert_eq!(lineage.versions[1].version, "1.1.0");
+}
+
+#[test]
+fn additive_event_payload_changes_require_minor_version() {
+    let mut registry = EventRegistry::new();
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        ))
+        .expect("seed event should register");
+
+    let failure = registry
+        .register(event_registration(
+            RegistryScope::Public,
+            additive_event_contract("content.comments.comment-draft-created", "1.0.1"),
+        ))
+        .expect_err("patch bump should be too small");
+
+    assert_eq!(
+        failure.errors[0].code,
+        EventRegistryErrorCode::SemverTooSmall
+    );
+
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            additive_event_contract("content.comments.comment-draft-created", "1.1.0"),
+        ))
+        .expect("minor bump should pass");
+
+    assert_eq!(registry.compatibility_records().len(), 1);
+}
+
+#[test]
+fn breaking_event_payload_changes_require_major_version() {
+    let mut registry = EventRegistry::new();
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        ))
+        .expect("seed event should register");
+
+    let failure = registry
+        .register(event_registration(
+            RegistryScope::Public,
+            breaking_event_contract("content.comments.comment-draft-created", "1.1.0"),
+        ))
+        .expect_err("minor bump should be too small");
+
+    assert_eq!(
+        failure.errors[0].code,
+        EventRegistryErrorCode::SemverTooSmall
+    );
+
+    registry
+        .register(event_registration(
+            RegistryScope::Public,
+            breaking_event_contract("content.comments.comment-draft-created", "2.0.0"),
+        ))
+        .expect("major bump should pass");
+}
+
+#[test]
+fn rejects_invalid_event_registration_metadata() {
+    let mut registry = EventRegistry::new();
+    let mut request = event_registration(
+        RegistryScope::Public,
+        base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+    );
+    request.contract_path.clear();
+
+    let failure = registry
+        .register(request)
+        .expect_err("invalid event registration metadata should fail");
+
+    assert_eq!(
+        failure.errors[0].code,
+        EventRegistryErrorCode::MissingRequiredField
+    );
+}
+
 fn executable_registration(
     scope: RegistryScope,
     contract: CapabilityContract,
@@ -356,6 +561,22 @@ fn executable_registration(
             requires: vec!["validated-request".to_string()],
         },
         governing_spec: "005-capability-registry".to_string(),
+        validator_version: "registry-test".to_string(),
+        contract,
+    }
+}
+
+fn event_registration(scope: RegistryScope, contract: EventContract) -> EventRegistration {
+    EventRegistration {
+        scope,
+        contract_path: format!(
+            "registry/{}/{}/{}/contract.json",
+            scope_name(scope),
+            contract.id,
+            contract.version
+        ),
+        registered_at: "2026-03-30T00:00:00Z".to_string(),
+        governing_spec: "011-event-registry".to_string(),
         validator_version: "registry-test".to_string(),
         contract,
     }
@@ -501,6 +722,89 @@ fn schema_changed_contract(id: &str, version: &str) -> CapabilityContract {
     contract.inputs = SchemaContainer {
         schema: json!({"type": "object", "required": ["comment_text", "resource_id"]}),
     };
+    contract
+}
+
+fn base_event_contract(id: &str, version: &str) -> EventContract {
+    let (namespace, name) = split_id(id);
+    EventContract {
+        kind: "event_contract".to_string(),
+        schema_version: "1.0.0".to_string(),
+        id: id.to_string(),
+        namespace,
+        name: name.to_string(),
+        version: version.to_string(),
+        lifecycle: Lifecycle::Active,
+        owner: Owner {
+            team: "traverse-core".to_string(),
+            contact: "enrico.piovesan10@gmail.com".to_string(),
+        },
+        summary: "Published when a comment draft has been created.".to_string(),
+        description:
+            "Governed event contract for comment draft creation used by comment workflows."
+                .to_string(),
+        payload: EventPayload {
+            schema: json!({
+                "type": "object",
+                "required": ["draft_id"],
+                "properties": {
+                    "draft_id": {"type": "string"}
+                }
+            }),
+            compatibility: PayloadCompatibility::BackwardCompatible,
+        },
+        classification: EventClassification {
+            domain: "content.comments".to_string(),
+            bounded_context: "comments".to_string(),
+            event_type: EventType::Domain,
+            tags: vec!["comments".to_string(), "draft".to_string()],
+        },
+        publishers: vec![traverse_contracts::CapabilityReference {
+            capability_id: "content.comments.create-comment-draft".to_string(),
+            version: "1.0.0".to_string(),
+        }],
+        subscribers: vec![traverse_contracts::CapabilityReference {
+            capability_id: "content.comments.publish-comment".to_string(),
+            version: "1.0.0".to_string(),
+        }],
+        policies: vec![IdReference {
+            id: "default-comment-safety".to_string(),
+        }],
+        tags: vec!["comments".to_string(), "draft".to_string()],
+        provenance: EventProvenance {
+            source: EventProvenanceSource::Greenfield,
+            author: "enricopiovesan".to_string(),
+            created_at: "2026-03-30T00:00:00Z".to_string(),
+        },
+        evidence: vec![],
+    }
+}
+
+fn additive_event_contract(id: &str, version: &str) -> EventContract {
+    let mut contract = base_event_contract(id, version);
+    contract.payload.schema = json!({
+        "type": "object",
+        "required": ["draft_id"],
+        "properties": {
+            "draft_id": {"type": "string"},
+            "moderation_hint": {"type": "string"}
+        }
+    });
+    contract.payload.compatibility = PayloadCompatibility::BackwardCompatible;
+    contract
+}
+
+fn breaking_event_contract(id: &str, version: &str) -> EventContract {
+    let mut contract = base_event_contract(id, version);
+    contract.payload.schema = json!({
+        "type": "object",
+        "required": ["draft_id", "author_id"],
+        "properties": {
+            "draft_id": {"type": "string"},
+            "author_id": {"type": "string"}
+        }
+    });
+    contract.payload.compatibility = PayloadCompatibility::Breaking;
     contract
 }
 

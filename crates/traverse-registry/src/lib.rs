@@ -1,6 +1,8 @@
-//! Capability registry support for Traverse.
+//! Registry support for Traverse.
 
+mod events;
 mod workflows;
+pub use events::*;
 pub use workflows::*;
 
 use semver::Version;
