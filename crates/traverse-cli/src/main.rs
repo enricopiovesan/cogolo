@@ -1,6 +1,7 @@
 use serde_json::Value;
 use std::env;
 use std::fs;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use traverse_contracts::{
@@ -13,11 +14,16 @@ use traverse_registry::{
     RegistryProvenance, SourceKind, SourceReference, WorkflowDefinition, WorkflowReference,
     WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
 };
+use traverse_runtime::{
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, Runtime,
+    RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus, parse_runtime_request,
+};
 
 #[derive(Debug)]
 enum Command {
     BundleInspect { manifest_path: PathBuf },
     BundleRegister { manifest_path: PathBuf },
+    ExpeditionExecute { request_path: PathBuf },
     Event { contract_path: PathBuf },
     Workflow { workflow_path: PathBuf },
 }
@@ -40,6 +46,7 @@ fn run(args: &[String]) -> Result<String, String> {
     match parse_command(args)? {
         Command::BundleInspect { manifest_path } => inspect_bundle(&manifest_path),
         Command::BundleRegister { manifest_path } => register_bundle(&manifest_path),
+        Command::ExpeditionExecute { request_path } => execute_expedition(&request_path),
         Command::Event { contract_path } => inspect_event(&contract_path),
         Command::Workflow { workflow_path } => inspect_workflow(&workflow_path),
     }
@@ -56,6 +63,9 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         }),
         ("bundle", "register") => Ok(Command::BundleRegister {
             manifest_path: PathBuf::from(&args[3]),
+        }),
+        ("expedition", "execute") => Ok(Command::ExpeditionExecute {
+            request_path: PathBuf::from(&args[3]),
         }),
         ("event", "inspect") => Ok(Command::Event {
             contract_path: PathBuf::from(&args[3]),
@@ -74,65 +84,27 @@ fn inspect_bundle(manifest_path: &Path) -> Result<String, String> {
 }
 
 fn register_bundle(manifest_path: &Path) -> Result<String, String> {
-    let bundle =
-        load_registry_bundle(manifest_path).map_err(|failure| failure.errors[0].message.clone())?;
-
-    let mut capability_registry = CapabilityRegistry::new();
-    let mut event_registry = EventRegistry::new();
-    let mut workflow_registry = WorkflowRegistry::new();
-
-    let mut capability_records = Vec::new();
-    let mut event_records = Vec::new();
-    let mut workflow_records = Vec::new();
-
-    for capability in &bundle.capabilities {
-        let request = build_capability_registration(&bundle, capability)?;
-        let outcome = capability_registry
-            .register(request)
-            .map_err(render_registry_failure)?;
-        capability_records.push(format_capability_record(
-            &outcome.record.id,
-            &outcome.record.version,
-            outcome.record.implementation_kind,
-        ));
-    }
-
-    for event in &bundle.events {
-        let outcome = event_registry
-            .register(EventRegistration {
-                scope: bundle.scope,
-                contract: event.contract.clone(),
-                contract_path: event.path.display().to_string(),
-                registered_at: bundle_registered_at(&bundle),
-                governing_spec: "011-event-registry".to_string(),
-                validator_version: env!("CARGO_PKG_VERSION").to_string(),
-            })
-            .map_err(render_event_registry_failure)?;
-        event_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
-    }
-
-    for workflow in &bundle.workflows {
-        let outcome = workflow_registry
-            .register(
-                &capability_registry,
-                WorkflowRegistration {
-                    scope: bundle.scope,
-                    definition: workflow.definition.clone(),
-                    workflow_path: workflow.path.display().to_string(),
-                    registered_at: bundle_registered_at(&bundle),
-                    validator_version: env!("CARGO_PKG_VERSION").to_string(),
-                },
-            )
-            .map_err(render_workflow_failure)?;
-        workflow_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
-    }
-
+    let registered = load_registered_bundle(manifest_path)?;
     Ok(render_bundle_registration_summary(
-        &bundle,
-        &capability_records,
-        &event_records,
-        &workflow_records,
+        &registered.bundle,
+        &registered.capability_records,
+        &registered.event_records,
+        &registered.workflow_records,
     ))
+}
+
+fn execute_expedition(request_path: &Path) -> Result<String, String> {
+    let request = load_runtime_request(request_path)?;
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
+    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
+        .with_workflow_registry(registered.workflow_registry);
+    let outcome = runtime.execute(request);
+
+    if outcome.result.status == RuntimeResultStatus::Error {
+        return Err(render_runtime_execution_failure(&outcome));
+    }
+
+    Ok(render_runtime_execution_summary(&outcome))
 }
 
 fn inspect_event(contract_path: &Path) -> Result<String, String> {
@@ -325,8 +297,78 @@ fn render_workflow_summary(path: &Path, definition: &WorkflowDefinition) -> Stri
     lines.join("\n")
 }
 
+fn render_runtime_execution_summary(outcome: &RuntimeExecutionOutcome) -> String {
+    let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
+    let mut lines = vec![
+        format!("request_id: {}", outcome.result.request_id),
+        format!("execution_id: {}", outcome.result.execution_id),
+        "capability_id: expedition.planning.plan-expedition".to_string(),
+        "capability_version: 1.0.0".to_string(),
+        "status: completed".to_string(),
+        format!("trace_ref: {}", outcome.result.trace_ref),
+    ];
+
+    if let Some(plan_id) = output.get("plan_id").and_then(Value::as_str) {
+        lines.push(format!("plan_id: {plan_id}"));
+    }
+    if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
+        lines.push(format!("objective_id: {objective_id}"));
+    }
+    if let Some(route_style) = output
+        .get("recommended_route_style")
+        .and_then(Value::as_str)
+    {
+        lines.push(format!("recommended_route_style: {route_style}"));
+    }
+    if let Some(summary) = output.get("summary").and_then(Value::as_str) {
+        lines.push(format!("summary: {summary}"));
+    }
+
+    lines.join("\n")
+}
+
 fn usage() -> String {
-    "usage: traverse-cli <bundle|event|workflow> <inspect|register> <artifact-path>".to_string()
+    "usage: traverse-cli <bundle|event|workflow|expedition> <inspect|register|execute> <artifact-path>".to_string()
+}
+
+#[derive(Debug)]
+struct RegisteredBundle {
+    bundle: RegistryBundle,
+    capability_registry: CapabilityRegistry,
+    workflow_registry: WorkflowRegistry,
+    capability_records: Vec<String>,
+    event_records: Vec<String>,
+    workflow_records: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct ExpeditionExampleExecutor;
+
+impl LocalExecutor for ExpeditionExampleExecutor {
+    fn execute(
+        &self,
+        capability: &traverse_registry::ResolvedCapability,
+        input: &Value,
+    ) -> Result<Value, LocalExecutionFailure> {
+        match capability.contract.id.as_str() {
+            "expedition.planning.capture-expedition-objective" => {
+                execute_capture_expedition_objective(input)
+            }
+            "expedition.planning.interpret-expedition-intent" => {
+                execute_interpret_expedition_intent(input)
+            }
+            "expedition.planning.assess-conditions-summary" => {
+                execute_assess_conditions_summary(input)
+            }
+            "expedition.planning.validate-team-readiness" => execute_validate_team_readiness(input),
+            "expedition.planning.assemble-expedition-plan" => {
+                execute_assemble_expedition_plan(input)
+            }
+            other => Err(executor_failure(&format!(
+                "unsupported expedition example capability: {other}"
+            ))),
+        }
+    }
 }
 
 fn build_capability_registration(
@@ -352,6 +394,79 @@ fn build_capability_registration(
         composability,
         governing_spec: "005-capability-registry".to_string(),
         validator_version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, String> {
+    let bundle =
+        load_registry_bundle(manifest_path).map_err(|failure| failure.errors[0].message.clone())?;
+
+    let mut capability_registry = CapabilityRegistry::new();
+    let mut event_registry = EventRegistry::new();
+    let mut workflow_registry = WorkflowRegistry::new();
+    let mut capability_records = Vec::new();
+    let mut event_records = Vec::new();
+    let mut workflow_records = Vec::new();
+
+    for capability in &bundle.capabilities {
+        let request = build_capability_registration(&bundle, capability)?;
+        let outcome = capability_registry
+            .register(request)
+            .map_err(render_registry_failure)?;
+        capability_records.push(format_capability_record(
+            &outcome.record.id,
+            &outcome.record.version,
+            outcome.record.implementation_kind,
+        ));
+    }
+
+    for event in &bundle.events {
+        let outcome = event_registry
+            .register(EventRegistration {
+                scope: bundle.scope,
+                contract: event.contract.clone(),
+                contract_path: event.path.display().to_string(),
+                registered_at: bundle_registered_at(&bundle),
+                governing_spec: "011-event-registry".to_string(),
+                validator_version: env!("CARGO_PKG_VERSION").to_string(),
+            })
+            .map_err(render_event_registry_failure)?;
+        event_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
+    }
+
+    for workflow in &bundle.workflows {
+        let outcome = workflow_registry
+            .register(
+                &capability_registry,
+                WorkflowRegistration {
+                    scope: bundle.scope,
+                    definition: workflow.definition.clone(),
+                    workflow_path: workflow.path.display().to_string(),
+                    registered_at: bundle_registered_at(&bundle),
+                    validator_version: env!("CARGO_PKG_VERSION").to_string(),
+                },
+            )
+            .map_err(render_workflow_failure)?;
+        workflow_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
+    }
+
+    Ok(RegisteredBundle {
+        bundle,
+        capability_registry,
+        workflow_registry,
+        capability_records,
+        event_records,
+        workflow_records,
+    })
+}
+
+fn load_runtime_request(request_path: &Path) -> Result<RuntimeRequest, String> {
+    let contents = read_text_file(request_path, "runtime request")?;
+    parse_runtime_request(&contents).map_err(|error| {
+        format!(
+            "failed to parse runtime request {}: {error}",
+            request_path.display()
+        )
     })
 }
 
@@ -499,6 +614,14 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
     .to_string()
 }
 
+fn canonical_expedition_bundle_path() -> PathBuf {
+    repo_root().join("examples/expedition/registry-bundle/manifest.json")
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
 fn format_capability_record(
     id: &str,
     version: &str,
@@ -538,11 +661,266 @@ fn render_workflow_failure(failure: traverse_registry::WorkflowFailure) -> Strin
         .join("; ")
 }
 
+fn render_runtime_execution_failure(outcome: &RuntimeExecutionOutcome) -> String {
+    match &outcome.result.error {
+        Some(error) => format!("runtime execution failed: {}", error.message),
+        None => "runtime execution failed".to_string(),
+    }
+}
+
+fn execute_capture_expedition_objective(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let destination = required_value(map, "destination")?;
+    let target_window = required_value(map, "target_window")?;
+    let preferences = required_value(map, "preferences")?;
+    let notes = required_value(map, "notes")?;
+    let objective_id = format!("objective-{}", slug(required_string(map, "destination")?));
+    let objective = serde_json::json!({
+        "objective_id": objective_id,
+        "destination": destination.clone(),
+        "target_window": target_window.clone(),
+        "preferences": preferences.clone(),
+        "notes": notes.clone()
+    });
+
+    Ok(serde_json::json!({
+        "objective_id": objective_id,
+        "destination": destination.clone(),
+        "target_window": target_window.clone(),
+        "preferences": preferences.clone(),
+        "notes": notes.clone(),
+        "objective": objective,
+        "emitted_events": [event_ref("expedition.planning.expedition-objective-captured")]
+    }))
+}
+
+fn execute_interpret_expedition_intent(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let preferences = required_object(objective, "preferences")?;
+    let style = required_string(preferences, "style")?;
+    let priority = required_string(preferences, "priority")?;
+    let planning_intent = required_string(map, "planning_intent")?;
+    let interpreted_intent = serde_json::json!({
+        "intent_id": format!("intent-{objective_id}"),
+        "objective_id": objective_id,
+        "route_preferences": [style, priority],
+        "constraints": [format!("priority:{priority}")],
+        "assumptions": [planning_intent],
+        "confidence": 0.87
+    });
+
+    Ok(serde_json::json!({
+        "intent_id": format!("intent-{objective_id}"),
+        "objective_id": objective_id,
+        "route_preferences": [style, priority],
+        "constraints": [format!("priority:{priority}")],
+        "assumptions": [planning_intent],
+        "confidence": 0.87,
+        "interpreted_intent": interpreted_intent,
+        "emitted_events": [event_ref("expedition.planning.expedition-intent-interpreted")]
+    }))
+}
+
+fn execute_assess_conditions_summary(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let destination = required_string(objective, "destination")?;
+    let interpreted = required_object(map, "interpreted_intent")?;
+    let route_preferences = required_string_array(interpreted, "route_preferences")?;
+    let conditions_summary = serde_json::json!({
+        "conditions_summary_id": format!("conditions-{objective_id}"),
+        "objective_id": objective_id,
+        "overall_rating": "watchful",
+        "key_findings": [format!("stable morning window for {destination}"), format!("preferred style: {}", route_preferences.first().cloned().unwrap_or_else(|| "conservative".to_string()))],
+        "blocking_concerns": []
+    });
+
+    Ok(serde_json::json!({
+        "conditions_summary_id": format!("conditions-{objective_id}"),
+        "objective_id": objective_id,
+        "overall_rating": "watchful",
+        "key_findings": [format!("stable morning window for {destination}"), format!("preferred style: {}", route_preferences.first().cloned().unwrap_or_else(|| "conservative".to_string()))],
+        "blocking_concerns": [],
+        "conditions_summary": conditions_summary,
+        "emitted_events": [event_ref("expedition.planning.conditions-summary-assessed")]
+    }))
+}
+
+fn execute_validate_team_readiness(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let team_profile = required_object(map, "team_profile")?;
+    let equipment_ready = required_bool(team_profile, "equipment_ready")?;
+    let status = if equipment_ready {
+        "ready"
+    } else {
+        "needs_action"
+    };
+    let required_actions = if equipment_ready {
+        Vec::<String>::new()
+    } else {
+        vec!["complete equipment verification".to_string()]
+    };
+    let readiness_result = serde_json::json!({
+        "readiness_result_id": format!("readiness-{objective_id}"),
+        "objective_id": objective_id,
+        "status": status,
+        "reasons": ["team profile satisfies baseline expedition requirements"],
+        "required_actions": required_actions.clone()
+    });
+
+    Ok(serde_json::json!({
+        "readiness_result_id": format!("readiness-{objective_id}"),
+        "objective_id": objective_id,
+        "status": status,
+        "reasons": ["team profile satisfies baseline expedition requirements"],
+        "required_actions": required_actions,
+        "readiness_result": readiness_result,
+        "emitted_events": [event_ref("expedition.planning.team-readiness-validated")]
+    }))
+}
+
+fn execute_assemble_expedition_plan(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let interpreted = required_object(map, "interpreted_intent")?;
+    let route_preferences = required_string_array(interpreted, "route_preferences")?;
+    let constraints = required_string_array(interpreted, "constraints")?;
+    let readiness = required_object(map, "readiness_result")?;
+    let readiness_status = required_string(readiness, "status")?;
+    let readiness_reasons = required_string_array(readiness, "reasons")?;
+    let required_actions = required_string_array(readiness, "required_actions")?;
+    let route_style = route_preferences
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "conservative-alpine-push".to_string());
+
+    let mut readiness_notes = readiness_reasons;
+    readiness_notes.extend(required_actions);
+
+    Ok(serde_json::json!({
+        "plan_id": format!("plan-{objective_id}"),
+        "objective_id": objective_id,
+        "status": if readiness_status == "ready" { "ready" } else { "requires_attention" },
+        "recommended_route_style": route_style,
+        "key_steps": [
+            "depart before sunrise",
+            "reassess winds at mid-route checkpoint",
+            "apply conservative turnaround time"
+        ],
+        "constraints": constraints,
+        "readiness_notes": readiness_notes,
+        "summary": "Proceed with a conservative same-day ascent plan under a limited morning weather window.",
+        "emitted_events": [event_ref("expedition.planning.expedition-plan-assembled")]
+    }))
+}
+
+fn event_ref(event_id: &str) -> Value {
+    serde_json::json!({
+        "event_id": event_id,
+        "version": "1.0.0"
+    })
+}
+
+fn input_object(value: &Value) -> Result<&serde_json::Map<String, Value>, LocalExecutionFailure> {
+    value
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))
+}
+
+fn required_object<'a>(
+    map: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a serde_json::Map<String, Value>, LocalExecutionFailure> {
+    map.get(key)
+        .and_then(Value::as_object)
+        .ok_or_else(|| executor_failure(&format!("missing object field: {key}")))
+}
+
+fn required_value<'a>(
+    map: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a Value, LocalExecutionFailure> {
+    map.get(key)
+        .ok_or_else(|| executor_failure(&format!("missing field: {key}")))
+}
+
+fn required_string<'a>(
+    map: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a str, LocalExecutionFailure> {
+    map.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| executor_failure(&format!("missing string field: {key}")))
+}
+
+fn required_bool(
+    map: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<bool, LocalExecutionFailure> {
+    map.get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| executor_failure(&format!("missing boolean field: {key}")))
+}
+
+fn required_string_array(
+    map: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Vec<String>, LocalExecutionFailure> {
+    let items = map
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| executor_failure(&format!("missing string array field: {key}")))?;
+
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(ToString::to_string)
+                .ok_or_else(|| executor_failure(&format!("invalid string array field: {key}")))
+        })
+        .collect()
+}
+
+fn executor_failure(message: &str) -> LocalExecutionFailure {
+    LocalExecutionFailure {
+        code: LocalExecutionFailureCode::ExecutionFailed,
+        message: message.to_string(),
+    }
+}
+
+fn slug(value: &str) -> String {
+    let mut slug = String::new();
+    for component in Path::new(value).components() {
+        if let Component::Normal(part) = component {
+            let part = part.to_string_lossy();
+            for ch in part.chars() {
+                if ch.is_ascii_alphanumeric() {
+                    slug.push(ch.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    if slug.is_empty() {
+        "expedition".to_string()
+    } else {
+        slug
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
 
-    use super::{inspect_bundle, inspect_event, inspect_workflow, parse_command, register_bundle};
+    use super::{
+        execute_expedition, inspect_bundle, inspect_event, inspect_workflow, parse_command,
+        register_bundle,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -561,6 +939,12 @@ mod tests {
             "register".to_string(),
             "examples/expedition/registry-bundle/manifest.json".to_string(),
         ];
+        let expedition_execute = vec![
+            "traverse-cli".to_string(),
+            "expedition".to_string(),
+            "execute".to_string(),
+            "examples/expedition/runtime-requests/plan-expedition.json".to_string(),
+        ];
         let event = vec![
             "traverse-cli".to_string(),
             "event".to_string(),
@@ -577,6 +961,7 @@ mod tests {
 
         assert!(parse_command(&bundle).is_ok());
         assert!(parse_command(&bundle_register).is_ok());
+        assert!(parse_command(&expedition_execute).is_ok());
         assert!(parse_command(&event).is_ok());
         assert!(parse_command(&workflow).is_ok());
     }
@@ -672,6 +1057,71 @@ mod tests {
             register_bundle(&manifest_path).expect_err("duplicate bundle entries should fail");
 
         assert!(error.contains("duplicate capability artifact entry"));
+    }
+
+    #[test]
+    fn execute_expedition_runs_canonical_plan_request() {
+        let request_path =
+            repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
+
+        let output =
+            execute_expedition(&request_path).expect("expedition execution should succeed");
+
+        assert!(output.contains("capability_id: expedition.planning.plan-expedition"));
+        assert!(output.contains("status: completed"));
+        assert!(output.contains("recommended_route_style: conservative-alpine-push"));
+    }
+
+    #[test]
+    fn execute_expedition_rejects_invalid_request_input() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.join("invalid-runtime-request.json");
+        fs::write(
+            &path,
+            r#"{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "invalid-expedition-plan-request",
+  "intent": {
+    "capability_id": "expedition.planning.plan-expedition",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "destination": "Sky Pilot",
+    "target_window": {
+      "start": "2026-07-20T04:30:00Z",
+      "end": "2026-07-20T16:00:00Z"
+    },
+    "preferences": {
+      "style": "conservative-alpine-push",
+      "risk_tolerance": "moderate",
+      "priority": "same-day-return"
+    },
+    "notes": "Missing planning intent on purpose.",
+    "team_profile": {
+      "team_id": "team-alpine-01",
+      "member_count": 3,
+      "experience_level": "advanced",
+      "equipment_ready": true
+    }
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}"#,
+        )
+        .expect("runtime request should write");
+
+        let error =
+            execute_expedition(&path).expect_err("invalid expedition execution should fail");
+
+        assert!(error.contains("runtime execution failed"));
+        assert!(error.contains("runtime request input does not satisfy"));
     }
 
     #[test]

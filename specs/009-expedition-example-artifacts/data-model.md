@@ -265,7 +265,7 @@ Produces:
   "id": "expedition.planning.plan-expedition",
   "name": "plan-expedition",
   "version": "1.0.0",
-  "lifecycle": "draft",
+  "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
