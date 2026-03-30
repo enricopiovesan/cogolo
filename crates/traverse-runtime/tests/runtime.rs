@@ -324,6 +324,79 @@ fn rejects_invalid_executor_output_against_contract() {
 }
 
 #[test]
+fn records_local_placement_decision_for_successful_execution() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+
+    let outcome = runtime.execute(base_request_exact());
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+    assert_eq!(outcome.trace.execution.placement.requested_target, PlacementTarget::Local);
+    assert_eq!(
+        outcome.trace.execution.placement.selected_target,
+        Some(PlacementTarget::Local)
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.status,
+        traverse_runtime::PlacementDecisionStatus::Selected
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.reason,
+        traverse_runtime::PlacementDecisionReason::RequestedTargetSelected
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.supported_executor_targets,
+        vec![PlacementTarget::Local]
+    );
+}
+
+#[test]
+fn rejects_unsupported_non_local_placement_requests() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let mut request = base_request_exact();
+    request.context.requested_target = PlacementTarget::Cloud;
+
+    let outcome = runtime.execute(request);
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
+    assert_eq!(
+        outcome.result.error.as_ref().map(|error| error.code),
+        Some(RuntimeErrorCode::PlacementUnsupported)
+    );
+    assert_eq!(
+        outcome.trace.execution.failure_reason,
+        Some(ExecutionFailureReason::PlacementUnsupported)
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.status,
+        traverse_runtime::PlacementDecisionStatus::NotAttempted
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.reason,
+        traverse_runtime::PlacementDecisionReason::RequestedTargetUnsupported
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.supported_executor_targets,
+        vec![PlacementTarget::Local]
+    );
+}
+
+#[test]
 fn uses_public_only_scope_when_requested() {
     let runtime = Runtime::new(
         registry_with(vec![

@@ -1,7 +1,8 @@
 use crate::{
-    ExecutionFailureReason, ExecutionFailureState, LocalExecutor, Runtime, RuntimeError,
-    RuntimeErrorCode, RuntimeExecutionOutcome, SelectionRecord, execution_failure_outcome,
-    runtime_error, successful_execution_outcome, validate_payload_against_contract,
+    ExecutionFailureReason, ExecutionFailureState, LocalExecutor, PlacementDecisionRecord,
+    Runtime, RuntimeError, RuntimeErrorCode, RuntimeExecutionOutcome, SelectionRecord,
+    execution_failure_outcome, runtime_error, successful_execution_outcome,
+    validate_payload_against_contract,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -197,6 +198,7 @@ where
         selection: SelectionRecord,
         selected: &ResolvedCapability,
         started_at: String,
+        placement: PlacementDecisionRecord,
     ) -> RuntimeExecutionOutcome {
         let Some(workflow_ref) = selected.artifact.workflow_ref.as_ref() else {
             let error = runtime_error(
@@ -212,6 +214,7 @@ where
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
                     started_at,
+                    placement: placement.clone(),
                     failure_reason: ExecutionFailureReason::ArtifactMissing,
                 },
                 error,
@@ -243,6 +246,7 @@ where
                     selection,
                     selected,
                     started_at,
+                    placement.clone(),
                     output,
                 )
             }
@@ -254,6 +258,7 @@ where
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
                     started_at,
+                    placement,
                     failure_reason: ExecutionFailureReason::ExecutionFailed,
                 },
                 workflow.result.error.unwrap_or(runtime_error(
@@ -1204,6 +1209,8 @@ mod tests {
             selection,
             &selected,
             started_at,
+            crate::resolve_placement(crate::PlacementTarget::Local)
+                .unwrap_or_else(|_| unreachable!("local placement should resolve")),
         );
         assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
 
@@ -1265,6 +1272,8 @@ mod tests {
             },
             &selected,
             started_at,
+            crate::resolve_placement(crate::PlacementTarget::Local)
+                .unwrap_or_else(|_| unreachable!("local placement should resolve")),
         );
         assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
 

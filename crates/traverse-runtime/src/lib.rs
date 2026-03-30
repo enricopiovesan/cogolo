@@ -123,6 +123,37 @@ pub struct RuntimeContext {
 #[serde(rename_all = "snake_case")]
 pub enum PlacementTarget {
     Local,
+    Browser,
+    Edge,
+    Cloud,
+    Worker,
+    Device,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacementDecisionRecord {
+    pub requested_target: PlacementTarget,
+    #[serde(default)]
+    pub selected_target: Option<PlacementTarget>,
+    pub status: PlacementDecisionStatus,
+    pub reason: PlacementDecisionReason,
+    pub supported_executor_targets: Vec<PlacementTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementDecisionStatus {
+    NotAttempted,
+    Selected,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementDecisionReason {
+    SelectionNotReached,
+    RequestedTargetSelected,
+    RequestedTargetUnsupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -301,6 +332,7 @@ pub enum SelectionFailureReason {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionRecord {
+    pub placement: PlacementDecisionRecord,
     pub placement_target: PlacementTarget,
     pub status: ExecutionStatus,
     #[serde(default)]
@@ -329,6 +361,7 @@ pub enum ExecutionFailureReason {
     ContractInputInvalid,
     ArtifactMissing,
     ArtifactNotRunnable,
+    PlacementUnsupported,
     ExecutionFailed,
     ContractOutputInvalid,
 }
@@ -375,6 +408,7 @@ pub enum RuntimeErrorCode {
     CapabilityNotFound,
     CapabilityAmbiguous,
     CapabilityNotRunnable,
+    PlacementUnsupported,
     ArtifactMissing,
     ExecutionFailed,
     OutputValidationFailed,
@@ -591,6 +625,23 @@ where
         selection: SelectionRecord,
         selected: &ResolvedCapability,
     ) -> RuntimeExecutionOutcome {
+        let requested_target = attempt.request.context.requested_target;
+        let placement = match resolve_placement(requested_target) {
+            Ok(placement) => placement,
+            Err(error) => {
+                return pre_execution_failure_outcome(
+                    attempt,
+                    emitter,
+                    candidate_collection,
+                    selection,
+                    Some(selected.record.artifact_ref.clone()),
+                    ExecutionFailureReason::PlacementUnsupported,
+                    placement_not_attempted(requested_target, PlacementDecisionReason::RequestedTargetUnsupported),
+                    error,
+                );
+            }
+        };
+
         if let Err(error) = validate_payload_against_contract(
             &attempt.request.input,
             &selected.contract.inputs.schema,
@@ -604,6 +655,7 @@ where
                 selection,
                 Some(selected.record.artifact_ref.clone()),
                 ExecutionFailureReason::ContractInputInvalid,
+                placement.clone(),
                 error,
             );
         }
@@ -616,6 +668,10 @@ where
                 "capability_id": selected.record.id,
                 "capability_version": selected.record.version,
                 "artifact_ref": selected.record.artifact_ref,
+                "requested_target": placement.requested_target,
+                "selected_target": placement.selected_target,
+                "placement_status": placement.status,
+                "placement_reason": placement.reason,
             }),
         );
 
@@ -627,6 +683,7 @@ where
                 selection,
                 selected,
                 started_at,
+                placement,
             );
         }
 
@@ -646,6 +703,7 @@ where
                     ExecutionFailureState {
                         artifact_ref: selected.record.artifact_ref.clone(),
                         started_at,
+                        placement: placement.clone(),
                         failure_reason: ExecutionFailureReason::ExecutionFailed,
                     },
                     error,
@@ -667,6 +725,7 @@ where
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
                     started_at,
+                    placement: placement.clone(),
                     failure_reason: ExecutionFailureReason::ContractOutputInvalid,
                 },
                 error,
@@ -680,6 +739,7 @@ where
             selection,
             selected,
             started_at,
+            placement,
             execution_output,
         )
     }
@@ -723,6 +783,46 @@ fn terminal_failure(context: FailureContext) -> RuntimeExecutionOutcome {
     }
 }
 
+fn supported_executor_targets() -> Vec<PlacementTarget> {
+    vec![PlacementTarget::Local]
+}
+
+fn placement_not_attempted(
+    requested_target: PlacementTarget,
+    reason: PlacementDecisionReason,
+) -> PlacementDecisionRecord {
+    PlacementDecisionRecord {
+        requested_target,
+        selected_target: None,
+        status: PlacementDecisionStatus::NotAttempted,
+        reason,
+        supported_executor_targets: supported_executor_targets(),
+    }
+}
+
+fn resolve_placement(
+    requested_target: PlacementTarget,
+) -> Result<PlacementDecisionRecord, RuntimeError> {
+    if requested_target == PlacementTarget::Local {
+        return Ok(PlacementDecisionRecord {
+            requested_target,
+            selected_target: Some(PlacementTarget::Local),
+            status: PlacementDecisionStatus::Selected,
+            reason: PlacementDecisionReason::RequestedTargetSelected,
+            supported_executor_targets: supported_executor_targets(),
+        });
+    }
+
+    Err(runtime_error(
+        RuntimeErrorCode::PlacementUnsupported,
+        "requested placement target is not supported by the available executor set",
+        json!({
+            "requested_target": requested_target,
+            "supported_executor_targets": supported_executor_targets(),
+        }),
+    ))
+}
+
 fn begin_attempt(request: RuntimeRequest) -> (AttemptContext, StateEmitter) {
     let request_id = request.request_id.clone();
     let execution_id = format!("{EXECUTION_PREFIX}{request_id}");
@@ -754,6 +854,10 @@ fn invalid_request_outcome(
     mut emitter: StateEmitter,
     error: RuntimeError,
 ) -> RuntimeExecutionOutcome {
+    let placement = placement_not_attempted(
+        attempt.request.context.requested_target,
+        PlacementDecisionReason::SelectionNotReached,
+    );
     emitter.push(
         RuntimeState::EvaluatingConstraints,
         RuntimeTransitionReasonCode::CandidatesCollected,
@@ -788,7 +892,8 @@ fn invalid_request_outcome(
             remaining_candidates: Vec::new(),
         },
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement.requested_target,
             status: ExecutionStatus::NotStarted,
             artifact_ref: None,
             started_at: None,
@@ -805,6 +910,10 @@ fn no_eligible_outcome(
     mut emitter: StateEmitter,
     candidate_collection: CandidateCollectionRecord,
 ) -> RuntimeExecutionOutcome {
+    let placement = placement_not_attempted(
+        attempt.request.context.requested_target,
+        PlacementDecisionReason::SelectionNotReached,
+    );
     let error = if candidate_collection.rejected_candidates.is_empty() {
         runtime_error(
             RuntimeErrorCode::CapabilityNotFound,
@@ -850,7 +959,8 @@ fn no_eligible_outcome(
             remaining_candidates: Vec::new(),
         },
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement.requested_target,
             status: ExecutionStatus::NotStarted,
             artifact_ref: None,
             started_at: None,
@@ -867,6 +977,10 @@ fn ambiguous_outcome(
     mut emitter: StateEmitter,
     resolution: CandidateResolution,
 ) -> RuntimeExecutionOutcome {
+    let placement = placement_not_attempted(
+        attempt.request.context.requested_target,
+        PlacementDecisionReason::SelectionNotReached,
+    );
     let remaining_candidates = resolution
         .eligible
         .iter()
@@ -903,7 +1017,8 @@ fn ambiguous_outcome(
             remaining_candidates,
         },
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement.requested_target,
             status: ExecutionStatus::NotStarted,
             artifact_ref: None,
             started_at: None,
@@ -922,6 +1037,7 @@ fn pre_execution_failure_outcome(
     selection: SelectionRecord,
     artifact_ref: Option<String>,
     failure_reason: ExecutionFailureReason,
+    placement: PlacementDecisionRecord,
     error: RuntimeError,
 ) -> RuntimeExecutionOutcome {
     let reason = if emitter.current_state == RuntimeState::Selecting {
@@ -929,7 +1045,11 @@ fn pre_execution_failure_outcome(
     } else {
         RuntimeTransitionReasonCode::ConstraintValidationFailed
     };
-    emitter.push(RuntimeState::Error, reason, json!({"code": error.code}));
+    emitter.push(
+        RuntimeState::Error,
+        reason,
+        json!({"code": error.code, "details": error.details}),
+    );
     emitter.push(
         RuntimeState::Ready,
         RuntimeTransitionReasonCode::ExecutionClosed,
@@ -944,7 +1064,10 @@ fn pre_execution_failure_outcome(
         candidate_collection,
         selection,
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement
+                .selected_target
+                .unwrap_or(placement.requested_target),
             status: ExecutionStatus::NotStarted,
             artifact_ref,
             started_at: None,
@@ -967,7 +1090,7 @@ fn execution_failure_outcome(
     emitter.push(
         RuntimeState::Error,
         RuntimeTransitionReasonCode::ExecutionFailed,
-        json!({"code": error.code}),
+        json!({"code": error.code, "details": error.details}),
     );
     let completed_at = emitter.next_timestamp();
     emitter.push(
@@ -985,7 +1108,11 @@ fn execution_failure_outcome(
         candidate_collection,
         selection,
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: failure.placement.clone(),
+            placement_target: failure
+                .placement
+                .selected_target
+                .unwrap_or(failure.placement.requested_target),
             status: ExecutionStatus::Failed,
             artifact_ref: Some(failure.artifact_ref),
             started_at: Some(failure.started_at),
@@ -1004,6 +1131,7 @@ fn successful_execution_outcome(
     selection: SelectionRecord,
     selected: &ResolvedCapability,
     started_at: String,
+    placement: PlacementDecisionRecord,
     execution_output: Value,
 ) -> RuntimeExecutionOutcome {
     let completed_at = emitter.next_timestamp();
@@ -1045,7 +1173,8 @@ fn successful_execution_outcome(
     let finished = emitter.finish();
 
     let execution = ExecutionRecord {
-        placement_target: PlacementTarget::Local,
+        placement: placement.clone(),
+        placement_target: placement.selected_target.unwrap_or(placement.requested_target),
         status: ExecutionStatus::Succeeded,
         artifact_ref: Some(selected.record.artifact_ref.clone()),
         started_at: Some(started_at),
@@ -1420,6 +1549,7 @@ struct FailureContext {
 struct ExecutionFailureState {
     artifact_ref: String,
     started_at: String,
+    placement: PlacementDecisionRecord,
     failure_reason: ExecutionFailureReason,
 }
 
@@ -2069,6 +2199,8 @@ mod tests {
             },
             &capability,
             "1970-01-01T00:00:00Z".to_string(),
+            super::resolve_placement(PlacementTarget::Local)
+                .unwrap_or_else(|_| unreachable!("local placement should resolve")),
             json!({"draft_id": "draft-1"}),
         );
 
@@ -2154,6 +2286,10 @@ mod tests {
             },
             None,
             super::ExecutionFailureReason::ArtifactMissing,
+            super::placement_not_attempted(
+                PlacementTarget::Local,
+                super::PlacementDecisionReason::SelectionNotReached,
+            ),
             super::runtime_error(
                 super::RuntimeErrorCode::CapabilityNotRunnable,
                 "not runnable",
