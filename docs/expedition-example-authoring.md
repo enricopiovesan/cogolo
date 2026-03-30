@@ -71,6 +71,19 @@ Expedition execution:
 cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json
 ```
 
+Expedition execution with persisted trace:
+
+```bash
+tmpdir="$(mktemp -d)"
+cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json --trace-out "$tmpdir/plan-expedition-trace.json"
+```
+
+Trace inspection:
+
+```bash
+cargo run -p traverse-cli -- trace inspect "$tmpdir/plan-expedition-trace.json"
+```
+
 Event contract inspection:
 
 ```bash
@@ -116,6 +129,13 @@ The expedition execution output must include:
 - `capability_id: expedition.planning.plan-expedition`
 - `status: completed`
 - `recommended_route_style: conservative-alpine-push`
+- `trace_ref: trace_exec_expedition-plan-request-001`
+
+The trace inspection output must include:
+
+- `trace_id: trace_exec_expedition-plan-request-001`
+- `result_status: completed`
+- `selected_capability_id: expedition.planning.plan-expedition`
 
 The event inspection output must include:
 

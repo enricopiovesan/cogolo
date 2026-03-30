@@ -20,6 +20,9 @@ jobs:
       - name: Run expedition execution smoke path
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_execution_smoke.sh
 
+      - name: Run expedition trace smoke path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_trace_smoke.sh
+
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
 
