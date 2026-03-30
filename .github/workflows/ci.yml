@@ -15,7 +15,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Run expedition artifact smoke path
-        run: bash scripts/ci/expedition_artifact_smoke.sh
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_artifact_smoke.sh
 
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
