@@ -60,7 +60,9 @@ fn executes_one_exact_registered_capability_locally() {
             RuntimeState::EvaluatingConstraints,
             RuntimeState::Selecting,
             RuntimeState::Executing,
+            RuntimeState::EmittingEvents,
             RuntimeState::Completed,
+            RuntimeState::Ready,
         ]
     );
     assert_eq!(outcome.trace.selection.status, SelectionStatus::Selected);
@@ -179,7 +181,10 @@ fn rejects_invalid_request_before_discovery() {
         vec![
             RuntimeState::LoadingRegistry,
             RuntimeState::Ready,
-            RuntimeState::Error
+            RuntimeState::Discovering,
+            RuntimeState::EvaluatingConstraints,
+            RuntimeState::Error,
+            RuntimeState::Ready
         ]
     );
     assert_eq!(
