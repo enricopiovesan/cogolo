@@ -67,10 +67,12 @@ grep -q "Starter Prompts" docs/multi-thread-workflow.md
 grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- trace inspect" docs/expedition-example-authoring.md
+grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
