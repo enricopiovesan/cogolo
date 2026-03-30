@@ -292,7 +292,7 @@ Produces:
     "planning",
     "example-domain"
   ],
-  "governing_spec": "009-expedition-example-artifacts"
+  "governing_spec": "007-workflow-registry-traversal"
 }
 ```
 

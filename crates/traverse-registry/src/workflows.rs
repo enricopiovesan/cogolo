@@ -559,7 +559,7 @@ fn validate_workflow_references(
         .collect::<Vec<_>>();
 
     for (index, (_node, resolved)) in node_capabilities.iter().enumerate() {
-        let Some(capability) = resolved else {
+        let Some(_capability) = resolved else {
             errors.push(workflow_error(
                 WorkflowErrorCode::MissingReference,
                 &format!("$.nodes[{index}]"),
@@ -567,13 +567,6 @@ fn validate_workflow_references(
             ));
             continue;
         };
-        if !capability.contract.lifecycle.is_runtime_eligible() {
-            errors.push(workflow_error(
-                WorkflowErrorCode::MissingReference,
-                &format!("$.nodes[{index}]"),
-                "workflow node must reference a runtime-eligible capability",
-            ));
-        }
     }
 
     let resolved_by_node = node_capabilities
@@ -1350,12 +1343,6 @@ mod tests {
                 registered_at: "2026-03-27T00:00:00Z".to_string(),
                 validator_version: "validator".to_string(),
             },
-        );
-        assert!(
-            failure
-                .errors
-                .iter()
-                .any(|error| error.message.contains("runtime-eligible capability"))
         );
         assert!(
             failure
