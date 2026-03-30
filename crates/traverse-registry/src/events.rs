@@ -326,6 +326,42 @@ impl EventRegistry {
     }
 
     #[must_use]
+    pub fn discover(&self, lookup_scope: LookupScope) -> Vec<EventRegistryIndexRecord> {
+        let mut results = Vec::new();
+        let mut shadowed = std::collections::BTreeSet::new();
+
+        for &scope in lookup_order(lookup_scope) {
+            let entries = self
+                .index
+                .iter()
+                .filter(|((entry_scope, _, _), _)| *entry_scope == scope);
+
+            for ((_, id, version), entry) in entries {
+                if lookup_scope == LookupScope::PreferPrivate
+                    && scope == RegistryScope::Public
+                    && shadowed.contains(&(id.clone(), version.clone()))
+                {
+                    continue;
+                }
+
+                if scope == RegistryScope::Private {
+                    shadowed.insert((id.clone(), version.clone()));
+                }
+
+                results.push(entry.clone());
+            }
+        }
+
+        results.sort_by(|left, right| {
+            left.id
+                .cmp(&right.id)
+                .then_with(|| compare_versions(&right.version, &left.version))
+                .then_with(|| left.scope.cmp(&right.scope))
+        });
+        results
+    }
+
+    #[must_use]
     pub fn lineage(&self, scope: RegistryScope, id: &str) -> Option<EventLineageRecord> {
         let mut versions = self
             .records
@@ -928,6 +964,37 @@ mod tests {
             )
             .expect("a prior version should be found");
         assert_eq!(prior.record.version, "1.0.0");
+    }
+
+    #[test]
+    fn discover_covers_public_only_and_private_overlay_paths() {
+        let mut registry = EventRegistry::new();
+        insert_event_fixture(
+            &mut registry,
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        );
+        insert_event_fixture(
+            &mut registry,
+            RegistryScope::Private,
+            base_event_contract("content.comments.comment-draft-created", "1.0.0"),
+        );
+        insert_event_fixture(
+            &mut registry,
+            RegistryScope::Public,
+            base_event_contract("content.comments.comment-published", "1.1.0"),
+        );
+
+        let public_only = registry.discover(LookupScope::PublicOnly);
+        let prefer_private = registry.discover(LookupScope::PreferPrivate);
+
+        assert_eq!(public_only.len(), 2);
+        assert_eq!(prefer_private.len(), 2);
+        assert_eq!(
+            prefer_private[0].id,
+            "content.comments.comment-draft-created"
+        );
+        assert_eq!(prefer_private[0].scope, RegistryScope::Private);
     }
 
     #[test]

@@ -332,6 +332,46 @@ impl WorkflowRegistry {
             })
             .collect()
     }
+
+    #[must_use]
+    pub fn discover(&self, lookup_scope: LookupScope) -> Vec<WorkflowDiscoveryIndexEntry> {
+        let mut results = Vec::new();
+        let mut shadowed = BTreeSet::new();
+
+        for &scope in lookup_order(lookup_scope) {
+            let entries = self
+                .index
+                .iter()
+                .filter(|((entry_scope, _, _), _)| *entry_scope == scope);
+
+            for ((_, id, version), entry) in entries {
+                if lookup_scope == LookupScope::PreferPrivate
+                    && scope == RegistryScope::Public
+                    && shadowed.contains(&(id.clone(), version.clone()))
+                {
+                    continue;
+                }
+
+                if scope == RegistryScope::Private {
+                    shadowed.insert((id.clone(), version.clone()));
+                }
+
+                results.push(entry.clone());
+            }
+        }
+
+        results.sort_by(|left, right| {
+            left.id.cmp(&right.id).then_with(|| {
+                let left_version = Version::parse(&left.version).ok();
+                let right_version = Version::parse(&right.version).ok();
+                match (left_version, right_version) {
+                    (Some(left_version), Some(right_version)) => right_version.cmp(&left_version),
+                    _ => right.version.cmp(&left.version),
+                }
+            })
+        });
+        results
+    }
 }
 
 #[must_use]
@@ -944,6 +984,95 @@ mod tests {
         assert_eq!(resolved.record.scope, RegistryScope::Private);
         assert_eq!(resolved.record.workflow_path, "workflows/private.json");
         assert_eq!(private.index_entry.summary, "private summary");
+    }
+
+    #[test]
+    fn discover_covers_public_only_and_private_overlay_paths() {
+        let capabilities = capability_registry();
+        let mut registry = WorkflowRegistry::new();
+
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: valid_workflow_definition(),
+                workflow_path: "workflows/public.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Private,
+                definition: WorkflowDefinition {
+                    summary: "private summary".to_string(),
+                    ..valid_workflow_definition()
+                },
+                workflow_path: "workflows/private.json".to_string(),
+                registered_at: "2026-03-27T00:01:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: WorkflowDefinition {
+                    version: "1.1.0".to_string(),
+                    ..valid_workflow_definition()
+                },
+                workflow_path: "workflows/public-v1-1-0.json".to_string(),
+                registered_at: "2026-03-27T00:02:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+        registry.index.insert(
+            (
+                RegistryScope::Public,
+                "content.comments.publish-comment".to_string(),
+                "invalid".to_string(),
+            ),
+            WorkflowDiscoveryIndexEntry {
+                scope: RegistryScope::Public,
+                id: "content.comments.publish-comment".to_string(),
+                version: "invalid".to_string(),
+                lifecycle: Lifecycle::Active,
+                owner: Owner {
+                    team: "comments".to_string(),
+                    contact: "comments@example.com".to_string(),
+                },
+                summary: "invalid semver workflow".to_string(),
+                tags: vec!["comments".to_string()],
+                participating_capabilities: vec![
+                    "content.comments.create-comment-draft".to_string(),
+                ],
+                events_used: vec!["content.comments.draft-created".to_string()],
+                start_node: "create_draft".to_string(),
+                terminal_nodes: vec!["persist_comment".to_string()],
+                registered_at: "2026-03-27T00:03:00Z".to_string(),
+            },
+        );
+
+        let public_only = registry.discover(LookupScope::PublicOnly);
+        let prefer_private = registry.discover(LookupScope::PreferPrivate);
+
+        assert_eq!(public_only.len(), 3);
+        assert_eq!(public_only[0].version, "invalid");
+        assert_eq!(public_only[1].version, "1.1.0");
+        assert_eq!(prefer_private.len(), 3);
+        assert!(prefer_private.iter().any(|entry| {
+            entry.scope == RegistryScope::Private && entry.summary == "private summary"
+        }));
+        assert!(
+            prefer_private
+                .iter()
+                .any(|entry| entry.version == "invalid")
+        );
+        assert!(prefer_private.iter().any(|entry| entry.version == "1.1.0"));
     }
 
     #[test]
