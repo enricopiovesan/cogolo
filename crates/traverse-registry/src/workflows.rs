@@ -3,6 +3,7 @@ use crate::{
     WorkflowReference,
 };
 use semver::Version;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use traverse_contracts::{ErrorSeverity, EventReference, Lifecycle, Owner, SchemaContainer};
@@ -11,7 +12,7 @@ const WORKFLOW_KIND: &str = "workflow_definition";
 const WORKFLOW_SCHEMA_VERSION: &str = "1.0.0";
 const WORKFLOW_GOVERNING_SPEC: &str = "007-workflow-registry-traversal";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowDefinition {
     pub kind: String,
     pub schema_version: String,
@@ -31,7 +32,7 @@ pub struct WorkflowDefinition {
     pub governing_spec: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowNode {
     pub node_id: String,
     pub capability_id: String,
@@ -40,17 +41,17 @@ pub struct WorkflowNode {
     pub output: WorkflowNodeOutput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowNodeInput {
     pub from_workflow_input: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowNodeOutput {
     pub to_workflow_state: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowEdge {
     pub edge_id: String,
     pub from: String,
@@ -59,7 +60,8 @@ pub struct WorkflowEdge {
     pub event: Option<EventReference>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WorkflowEdgeTrigger {
     Direct,
     Event,
