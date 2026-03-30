@@ -59,6 +59,18 @@ Registry bundle inspection:
 cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json
 ```
 
+Event contract inspection:
+
+```bash
+cargo run -p traverse-cli -- event inspect contracts/examples/expedition/events/expedition-objective-captured/contract.json
+```
+
+Workflow artifact inspection:
+
+```bash
+cargo run -p traverse-cli -- workflow inspect workflows/examples/expedition/plan-expedition/workflow.json
+```
+
 Repository checks:
 
 ```bash
@@ -79,3 +91,15 @@ The bundle inspection output must include:
 And the workflow section must include:
 
 - `expedition.planning.plan-expedition@1.0.0`
+
+The event inspection output must include:
+
+- `id: expedition.planning.expedition-objective-captured`
+- `event_type: domain`
+- `publisher_ids:`
+
+The workflow inspection output must include:
+
+- `id: expedition.planning.plan-expedition`
+- `start_node: capture_objective`
+- `node_capabilities:`
