@@ -47,3 +47,16 @@ What it validates:
 - the expedition execution path can persist a governed runtime trace artifact
 - the trace inspection command renders deterministic trace metadata for the canonical request
 - malformed trace input fails deterministically
+
+Run the expedition golden-path validation with:
+
+```bash
+bash scripts/ci/expedition_golden_path.sh
+```
+
+What it validates:
+
+- the canonical expedition bundle registers successfully
+- the canonical expedition request executes successfully and produces a trace artifact
+- the trace inspection command renders the generated trace deterministically
+- the validation fails deterministically when the bundle is incomplete
