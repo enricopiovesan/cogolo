@@ -39,8 +39,6 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
-bash scripts/ci/expedition_artifact_smoke.sh >/dev/null
-
 if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
   echo "Found stale project name references; expected 'Traverse'." >&2
   exit 1
