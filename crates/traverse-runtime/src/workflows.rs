@@ -215,6 +215,8 @@ where
                     failure_reason: ExecutionFailureReason::ArtifactMissing,
                 },
                 error,
+                Vec::new(),
+                None,
             );
         };
 
@@ -236,6 +238,8 @@ where
         match workflow.result.status {
             WorkflowTraversalStatus::Completed => {
                 let output = workflow.result.output.unwrap_or(Value::Object(Map::new()));
+                let workflow_evidence = workflow.evidence;
+                let emitted_events = workflow_evidence.emitted_events.clone();
                 successful_execution_outcome(
                     attempt,
                     emitter,
@@ -244,24 +248,32 @@ where
                     selected,
                     started_at,
                     output,
+                    emitted_events,
+                    Some(workflow_evidence),
                 )
             }
-            WorkflowTraversalStatus::Error => execution_failure_outcome(
-                attempt,
-                emitter,
-                candidate_collection,
-                selection,
-                ExecutionFailureState {
-                    artifact_ref: selected.record.artifact_ref.clone(),
-                    started_at,
-                    failure_reason: ExecutionFailureReason::ExecutionFailed,
-                },
-                workflow.result.error.unwrap_or(runtime_error(
-                    RuntimeErrorCode::ExecutionFailed,
-                    "workflow-backed capability execution failed",
-                    json!({}),
-                )),
-            ),
+            WorkflowTraversalStatus::Error => {
+                let workflow_evidence = workflow.evidence;
+                let emitted_events = workflow_evidence.emitted_events.clone();
+                execution_failure_outcome(
+                    attempt,
+                    emitter,
+                    candidate_collection,
+                    selection,
+                    ExecutionFailureState {
+                        artifact_ref: selected.record.artifact_ref.clone(),
+                        started_at,
+                        failure_reason: ExecutionFailureReason::ExecutionFailed,
+                    },
+                    workflow.result.error.unwrap_or(runtime_error(
+                        RuntimeErrorCode::ExecutionFailed,
+                        "workflow-backed capability execution failed",
+                        json!({}),
+                    )),
+                    emitted_events,
+                    Some(workflow_evidence),
+                )
+            }
         }
     }
 

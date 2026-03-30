@@ -215,12 +215,41 @@ pub struct RuntimeTrace {
     pub request_id: String,
     pub governing_spec: String,
     pub request: RuntimeRequest,
+    pub decision_evidence: TraceDecisionEvidence,
+    pub state_progression: TraceStateProgression,
+    pub terminal_outcome: TraceTerminalOutcome,
+    pub emitted_events: Vec<traverse_contracts::EventReference>,
+    #[serde(default)]
+    pub workflow_evidence: Option<WorkflowTraversalEvidence>,
     pub state_transitions: Vec<RuntimeTransitionRecord>,
     pub state_machine_validation: RuntimeStateMachineValidationEvidence,
     pub candidate_collection: CandidateCollectionRecord,
     pub selection: SelectionRecord,
     pub execution: ExecutionRecord,
     pub result: TraceResultRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceDecisionEvidence {
+    pub candidate_collection: CandidateCollectionRecord,
+    pub selection: SelectionRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceStateProgression {
+    pub state_events: Vec<RuntimeStateEvent>,
+    pub transitions: Vec<RuntimeTransitionRecord>,
+    pub validation: RuntimeStateMachineValidationEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceTerminalOutcome {
+    pub runtime_status: RuntimeResultStatus,
+    pub execution_status: ExecutionStatus,
+    #[serde(default)]
+    pub failure_reason: Option<ExecutionFailureReason>,
+    #[serde(default)]
+    pub error: Option<RuntimeError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -649,6 +678,8 @@ where
                         failure_reason: ExecutionFailureReason::ExecutionFailed,
                     },
                     error,
+                    Vec::new(),
+                    None,
                 );
             }
         };
@@ -670,6 +701,8 @@ where
                     failure_reason: ExecutionFailureReason::ContractOutputInvalid,
                 },
                 error,
+                Vec::new(),
+                None,
             );
         }
 
@@ -681,6 +714,8 @@ where
             selected,
             started_at,
             execution_output,
+            selected.contract.emits.clone(),
+            None,
         )
     }
 }
@@ -694,6 +729,23 @@ fn terminal_failure(context: FailureContext) -> RuntimeExecutionOutcome {
         request_id: context.attempt.request.request_id.clone(),
         governing_spec: GOVERNING_SPEC.to_string(),
         request: context.attempt.request.clone(),
+        decision_evidence: TraceDecisionEvidence {
+            candidate_collection: context.candidate_collection.clone(),
+            selection: context.selection.clone(),
+        },
+        state_progression: TraceStateProgression {
+            state_events: context.state_events.clone(),
+            transitions: context.state_transitions.clone(),
+            validation: context.state_machine_validation.clone(),
+        },
+        terminal_outcome: TraceTerminalOutcome {
+            runtime_status: RuntimeResultStatus::Error,
+            execution_status: context.execution.status,
+            failure_reason: context.execution.failure_reason,
+            error: Some(context.error.clone()),
+        },
+        emitted_events: context.emitted_events,
+        workflow_evidence: context.workflow_evidence,
         state_transitions: context.state_transitions,
         state_machine_validation: context.state_machine_validation,
         candidate_collection: context.candidate_collection,
@@ -797,6 +849,8 @@ fn invalid_request_outcome(
             failure_reason: Some(ExecutionFailureReason::ContractInputInvalid),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
@@ -859,6 +913,8 @@ fn no_eligible_outcome(
             failure_reason: Some(ExecutionFailureReason::ArtifactNotRunnable),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
@@ -912,6 +968,8 @@ fn ambiguous_outcome(
             failure_reason: Some(ExecutionFailureReason::ArtifactNotRunnable),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
@@ -953,9 +1011,12 @@ fn pre_execution_failure_outcome(
             failure_reason: Some(failure_reason),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execution_failure_outcome(
     attempt: AttemptContext,
     mut emitter: StateEmitter,
@@ -963,6 +1024,8 @@ fn execution_failure_outcome(
     selection: SelectionRecord,
     failure: ExecutionFailureState,
     error: RuntimeError,
+    emitted_events: Vec<traverse_contracts::EventReference>,
+    workflow_evidence: Option<WorkflowTraversalEvidence>,
 ) -> RuntimeExecutionOutcome {
     emitter.push(
         RuntimeState::Error,
@@ -994,9 +1057,12 @@ fn execution_failure_outcome(
             failure_reason: Some(failure.failure_reason),
         },
         error,
+        emitted_events,
+        workflow_evidence,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn successful_execution_outcome(
     attempt: AttemptContext,
     mut emitter: StateEmitter,
@@ -1005,6 +1071,8 @@ fn successful_execution_outcome(
     selected: &ResolvedCapability,
     started_at: String,
     execution_output: Value,
+    emitted_events: Vec<traverse_contracts::EventReference>,
+    workflow_evidence: Option<WorkflowTraversalEvidence>,
 ) -> RuntimeExecutionOutcome {
     let completed_at = emitter.next_timestamp();
     let emits_events = selected.record.implementation_kind == ImplementationKind::Workflow
@@ -1062,6 +1130,23 @@ fn successful_execution_outcome(
         request_id: attempt.request.request_id.clone(),
         governing_spec: GOVERNING_SPEC.to_string(),
         request: attempt.request.clone(),
+        decision_evidence: TraceDecisionEvidence {
+            candidate_collection: candidate_collection.clone(),
+            selection: selection.clone(),
+        },
+        state_progression: TraceStateProgression {
+            state_events: finished.events.clone(),
+            transitions: finished.transitions.clone(),
+            validation: finished.validation.clone(),
+        },
+        terminal_outcome: TraceTerminalOutcome {
+            runtime_status: RuntimeResultStatus::Completed,
+            execution_status: execution.status,
+            failure_reason: None,
+            error: None,
+        },
+        emitted_events,
+        workflow_evidence,
         state_transitions: finished.transitions.clone(),
         state_machine_validation: finished.validation.clone(),
         candidate_collection,
@@ -1415,6 +1500,8 @@ struct FailureContext {
     selection: SelectionRecord,
     execution: ExecutionRecord,
     error: RuntimeError,
+    emitted_events: Vec<traverse_contracts::EventReference>,
+    workflow_evidence: Option<WorkflowTraversalEvidence>,
 }
 
 struct ExecutionFailureState {
@@ -2070,6 +2157,8 @@ mod tests {
             &capability,
             "1970-01-01T00:00:00Z".to_string(),
             json!({"draft_id": "draft-1"}),
+            capability.contract.emits.clone(),
+            None,
         );
 
         assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
@@ -2077,6 +2166,19 @@ mod tests {
             outcome.state_events.last().map(|event| event.state),
             Some(RuntimeState::Ready)
         );
+        assert_eq!(
+            outcome.trace.decision_evidence.selection.status,
+            super::SelectionStatus::Selected
+        );
+        assert_eq!(
+            outcome.trace.state_progression.state_events,
+            outcome.state_events
+        );
+        assert_eq!(
+            outcome.trace.terminal_outcome.runtime_status,
+            RuntimeResultStatus::Completed
+        );
+        assert_eq!(outcome.trace.emitted_events, capability.contract.emits);
         assert_eq!(
             outcome.trace.state_machine_validation.status,
             super::RuntimeStateMachineValidationStatus::Passed
