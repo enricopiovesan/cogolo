@@ -1,6 +1,9 @@
 #![allow(clippy::expect_used)]
 
 use serde_json::json;
+use std::fs;
+use std::path::PathBuf;
+use std::time::{SystemTime, UNIX_EPOCH};
 use traverse_contracts::{
     BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, DependencyArtifactType,
     DependencyReference, Entrypoint, EntrypointKind, EventClassification, EventContract,
@@ -11,11 +14,11 @@ use traverse_contracts::{
     SideEffectKind, ValidationEvidence,
 };
 use traverse_registry::{
-    ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
+    ArtifactDigests, BinaryFormat, BinaryReference, BundleLoadErrorCode, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, DiscoveryQuery, EventRegistration, EventRegistry, EventRegistryErrorCode,
     ImplementationKind, LookupScope, RegistryErrorCode, RegistryProvenance, RegistryScope,
-    SourceKind, SourceReference, WorkflowReference,
+    SourceKind, SourceReference, WorkflowReference, load_registry_bundle,
 };
 
 #[test]
@@ -820,4 +823,585 @@ fn scope_name(scope: RegistryScope) -> &'static str {
         RegistryScope::Public => "public",
         RegistryScope::Private => "private",
     }
+}
+
+#[test]
+fn loads_canonical_registry_bundle_from_manifest() {
+    let manifest_path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../../examples/expedition/registry-bundle/manifest.json");
+    let bundle = load_registry_bundle(manifest_path.as_path()).expect("canonical bundle loads");
+
+    assert_eq!(bundle.bundle_id, "expedition.planning.seed-bundle");
+    assert_eq!(bundle.scope, RegistryScope::Public);
+    assert_eq!(bundle.capabilities.len(), 6);
+    assert_eq!(bundle.events.len(), 5);
+    assert_eq!(bundle.workflows.len(), 1);
+    assert_eq!(
+        bundle.capabilities[0].contract.id,
+        "expedition.planning.capture-expedition-objective"
+    );
+    assert_eq!(
+        bundle.workflows[0].definition.id,
+        "expedition.planning.plan-expedition"
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_duplicate_manifest_entries() {
+    let temp_dir = unique_temp_dir();
+    assert!(fs::create_dir_all(&temp_dir).is_ok());
+
+    let manifest_path = temp_dir.join("manifest.json");
+    assert!(
+        fs::write(
+            &manifest_path,
+            r#"{
+  "bundle_id": "expedition.planning.seed-bundle",
+  "version": "1.0.0",
+  "scope": "public",
+  "capabilities": [
+    {
+      "id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "contract-a.json"
+    },
+    {
+      "id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "contract-b.json"
+    }
+  ],
+  "events": [],
+  "workflows": []
+}"#,
+        )
+        .is_ok()
+    );
+
+    let failure = load_registry_bundle(&manifest_path).expect_err("duplicate ids must fail");
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::DuplicateArtifactId
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_missing_artifact_files() {
+    let temp_dir = unique_temp_dir();
+    assert!(fs::create_dir_all(&temp_dir).is_ok());
+
+    let manifest_path = temp_dir.join("manifest.json");
+    assert!(
+        fs::write(
+            &manifest_path,
+            r#"{
+  "bundle_id": "expedition.planning.seed-bundle",
+  "version": "1.0.0",
+  "scope": "public",
+  "capabilities": [
+    {
+      "id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "missing.json"
+    }
+  ],
+  "events": [],
+  "workflows": []
+}"#,
+        )
+        .is_ok()
+    );
+
+    let failure = load_registry_bundle(&manifest_path).expect_err("missing file must fail");
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::MissingArtifactFile
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_artifact_identity_mismatch() {
+    let temp_dir = unique_temp_dir();
+    assert!(fs::create_dir_all(&temp_dir).is_ok());
+
+    let contract_path = temp_dir.join("contract.json");
+    let contract_json = serde_json::to_string_pretty(&base_contract(
+        "expedition.planning.capture-expedition-objective",
+        "1.0.0",
+    ))
+    .expect("contract should serialize");
+    assert!(fs::write(&contract_path, contract_json).is_ok());
+
+    let manifest_path = temp_dir.join("manifest.json");
+    assert!(
+        fs::write(
+            &manifest_path,
+            r#"{
+  "bundle_id": "expedition.planning.seed-bundle",
+  "version": "1.0.0",
+  "scope": "public",
+  "capabilities": [
+    {
+      "id": "expedition.planning.wrong-id",
+      "version": "1.0.0",
+      "path": "contract.json"
+    }
+  ],
+  "events": [],
+  "workflows": []
+}"#,
+        )
+        .is_ok()
+    );
+
+    let failure = load_registry_bundle(&manifest_path).expect_err("id mismatch must fail");
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::ArtifactIdMismatch
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_invalid_scope() {
+    let temp_dir = unique_temp_dir();
+    assert!(fs::create_dir_all(&temp_dir).is_ok());
+
+    let manifest_path = temp_dir.join("manifest.json");
+    assert!(
+        fs::write(
+            &manifest_path,
+            r#"{
+  "bundle_id": "expedition.planning.seed-bundle",
+  "version": "1.0.0",
+  "scope": "shared",
+  "capabilities": [],
+  "events": [],
+  "workflows": []
+}"#,
+        )
+        .is_ok()
+    );
+
+    let failure = load_registry_bundle(&manifest_path).expect_err("invalid scope must fail");
+    assert_eq!(failure.errors[0].code, BundleLoadErrorCode::InvalidScope);
+}
+
+#[test]
+fn bundle_loader_rejects_missing_manifest_file() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("missing-manifest.json");
+
+    let failure = load_registry_bundle(&manifest_path)
+        .expect_err("missing manifest file should fail to load");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::ManifestReadFailed
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_manifest_path_without_parent_directory() {
+    let failure = load_registry_bundle(PathBuf::new().as_path())
+        .expect_err("empty manifest path should fail before reading");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::ManifestParentMissing
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_invalid_manifest_json() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("manifest.json");
+    fs::write(&manifest_path, "{ not valid json ").expect("manifest should write");
+
+    let failure =
+        load_registry_bundle(&manifest_path).expect_err("invalid manifest json should fail");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::ManifestParseFailed
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_invalid_capability_contract_artifact() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("manifest.json");
+    let capability_path = temp_dir.join("capability.json");
+    let event_path = temp_dir.join("event.json");
+    let workflow_path = temp_dir.join("workflow.json");
+
+    fs::write(&capability_path, "{\"kind\":\"capability_contract\"}")
+        .expect("capability artifact should write");
+    write_json(&event_path, &canonical_event_contract_json());
+    write_json(&workflow_path, &canonical_workflow_json());
+    write_bundle_manifest(
+        &manifest_path,
+        &bundle_manifest_json(
+            "private",
+            &[artifact_manifest_json(
+                "expedition.planning.capture-expedition-objective",
+                "1.0.0",
+                "capability.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.expedition-objective-captured",
+                "1.0.0",
+                "event.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.plan-expedition",
+                "1.0.0",
+                "workflow.json",
+            )],
+        ),
+    );
+
+    let failure = load_registry_bundle(&manifest_path)
+        .expect_err("invalid capability artifact should fail to load");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::CapabilityParseFailed
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_invalid_event_contract_artifact() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("manifest.json");
+    let capability_path = temp_dir.join("capability.json");
+    let event_path = temp_dir.join("event.json");
+    let workflow_path = temp_dir.join("workflow.json");
+
+    copy_example_json(
+        "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        &capability_path,
+    );
+    fs::write(&event_path, "{\"kind\":\"event_contract\"}").expect("event artifact should write");
+    copy_example_json(
+        "workflows/examples/expedition/plan-expedition/workflow.json",
+        &workflow_path,
+    );
+    write_bundle_manifest(
+        &manifest_path,
+        &bundle_manifest_json(
+            "private",
+            &[artifact_manifest_json(
+                "expedition.planning.capture-expedition-objective",
+                "1.0.0",
+                "capability.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.expedition-objective-captured",
+                "1.0.0",
+                "event.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.plan-expedition",
+                "1.0.0",
+                "workflow.json",
+            )],
+        ),
+    );
+
+    let failure =
+        load_registry_bundle(&manifest_path).expect_err("invalid event artifact should fail");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::EventParseFailed
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_invalid_workflow_artifact() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("manifest.json");
+    let capability_path = temp_dir.join("capability.json");
+    let event_path = temp_dir.join("event.json");
+    let workflow_path = temp_dir.join("workflow.json");
+
+    copy_example_json(
+        "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        &capability_path,
+    );
+    copy_example_json(
+        "contracts/examples/expedition/events/expedition-objective-captured/contract.json",
+        &event_path,
+    );
+    fs::write(&workflow_path, "{\"id\":true}").expect("workflow artifact should write");
+    write_bundle_manifest(
+        &manifest_path,
+        &bundle_manifest_json(
+            "private",
+            &[artifact_manifest_json(
+                "expedition.planning.capture-expedition-objective",
+                "1.0.0",
+                "capability.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.expedition-objective-captured",
+                "1.0.0",
+                "event.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.plan-expedition",
+                "1.0.0",
+                "workflow.json",
+            )],
+        ),
+    );
+
+    let failure =
+        load_registry_bundle(&manifest_path).expect_err("invalid workflow artifact should fail");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::WorkflowParseFailed
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_unreadable_artifact_contents() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("manifest.json");
+    let capability_path = temp_dir.join("capability.json");
+    let event_path = temp_dir.join("event.json");
+    let workflow_path = temp_dir.join("workflow.json");
+
+    fs::write(&capability_path, vec![0xFF, 0xFE, 0xFD]).expect("artifact bytes should write");
+    write_json(&event_path, &canonical_event_contract_json());
+    write_json(&workflow_path, &canonical_workflow_json());
+    write_bundle_manifest(
+        &manifest_path,
+        &bundle_manifest_json(
+            "private",
+            &[artifact_manifest_json(
+                "expedition.planning.capture-expedition-objective",
+                "1.0.0",
+                "capability.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.expedition-objective-captured",
+                "1.0.0",
+                "event.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.plan-expedition",
+                "1.0.0",
+                "workflow.json",
+            )],
+        ),
+    );
+
+    let failure = load_registry_bundle(&manifest_path)
+        .expect_err("invalid utf-8 artifact contents should fail to load");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::MissingArtifactFile
+    );
+}
+
+#[test]
+fn bundle_loader_rejects_artifact_version_mismatch() {
+    let temp_dir = unique_temp_dir();
+    let manifest_path = temp_dir.join("manifest.json");
+    let capability_path = temp_dir.join("capability.json");
+    let event_path = temp_dir.join("event.json");
+    let workflow_path = temp_dir.join("workflow.json");
+
+    let mut capability = load_example_json(
+        "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+    );
+    capability["version"] = json!("2.0.0");
+
+    write_json(&capability_path, &capability);
+    copy_example_json(
+        "contracts/examples/expedition/events/expedition-objective-captured/contract.json",
+        &event_path,
+    );
+    copy_example_json(
+        "workflows/examples/expedition/plan-expedition/workflow.json",
+        &workflow_path,
+    );
+    write_bundle_manifest(
+        &manifest_path,
+        &bundle_manifest_json(
+            "private",
+            &[artifact_manifest_json(
+                "expedition.planning.capture-expedition-objective",
+                "1.0.0",
+                "capability.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.expedition-objective-captured",
+                "1.0.0",
+                "event.json",
+            )],
+            &[artifact_manifest_json(
+                "expedition.planning.plan-expedition",
+                "1.0.0",
+                "workflow.json",
+            )],
+        ),
+    );
+
+    let failure = load_registry_bundle(&manifest_path)
+        .expect_err("artifact version mismatch should fail to load");
+
+    assert_eq!(
+        failure.errors[0].code,
+        BundleLoadErrorCode::ArtifactVersionMismatch
+    );
+}
+
+fn write_bundle_manifest(path: &PathBuf, value: &serde_json::Value) {
+    write_json(path, value);
+}
+
+fn write_json(path: &PathBuf, value: &serde_json::Value) {
+    fs::write(
+        path,
+        serde_json::to_string_pretty(value).expect("json should serialize"),
+    )
+    .expect("json file should write");
+}
+
+fn bundle_manifest_json(
+    scope: &str,
+    capabilities: &[serde_json::Value],
+    events: &[serde_json::Value],
+    workflows: &[serde_json::Value],
+) -> serde_json::Value {
+    json!({
+        "bundle_id": "expedition.planning.registry-bundle",
+        "version": "1.0.0",
+        "scope": scope,
+        "capabilities": capabilities,
+        "events": events,
+        "workflows": workflows,
+    })
+}
+
+fn artifact_manifest_json(id: &str, version: &str, path: &str) -> serde_json::Value {
+    json!({
+        "id": id,
+        "version": version,
+        "path": path,
+    })
+}
+
+fn canonical_event_contract_json() -> serde_json::Value {
+    json!({
+        "kind": "event_contract",
+        "schema_version": "1.0.0",
+        "id": "expedition.planning.expedition-objective-captured",
+        "namespace": "expedition.planning",
+        "name": "expedition-objective-captured",
+        "version": "1.0.0",
+        "lifecycle": "active",
+        "classification": "domain",
+        "event_type": "notification",
+        "owner": {
+            "team": "Traverse",
+            "contact": "team@traverse.dev"
+        },
+        "summary": "Objective capture completed.",
+        "description": "Emitted when the expedition objective has been captured.",
+        "payload": {
+            "schema": {
+                "type": "object"
+            },
+            "compatibility": "backward_compatible"
+        },
+        "publishers": [
+            {
+                "capability_id": "expedition.planning.capture-expedition-objective",
+                "version": "1.0.0"
+            }
+        ],
+        "subscribers": [],
+        "policies": [
+            {
+                "id": "policy.expedition"
+            }
+        ],
+        "provenance": {
+            "source": "greenfield",
+            "author": "Traverse",
+            "created_at": "2026-03-30T00:00:00Z",
+            "updated_at": "2026-03-30T00:00:00Z",
+            "spec_ref": "009-expedition-example-artifacts",
+            "adr_refs": ["0001-rust-wasm-foundation"],
+            "exception_refs": []
+        },
+        "validation_evidence": [
+            {
+                "evidence_id": "evidence.expedition-objective-captured",
+                "evidence_type": "test_suite",
+                "status": "satisfied",
+                "details": "Validated against the canonical expedition example."
+            }
+        ]
+    })
+}
+
+fn canonical_workflow_json() -> serde_json::Value {
+    json!({
+        "kind": "workflow_definition",
+        "id": "expedition.planning.plan-expedition",
+        "version": "1.0.0",
+        "summary": "Compose the expedition planning path.",
+        "start_node": "capture_objective",
+        "nodes": [
+            {
+                "id": "capture_objective",
+                "capability_id": "expedition.planning.capture-expedition-objective",
+                "version": "1.0.0",
+                "inputs": [
+                    {
+                        "key": "request",
+                        "from": "$request"
+                    }
+                ],
+                "outputs": [
+                    {
+                        "key": "objective",
+                        "to": "$workflow.objective"
+                    }
+                ]
+            }
+        ],
+        "edges": []
+    })
+}
+
+fn copy_example_json(relative_path: &str, destination: &PathBuf) {
+    let value = load_example_json(relative_path);
+    write_json(destination, &value);
+}
+
+fn load_example_json(relative_path: &str) -> serde_json::Value {
+    let path = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join(relative_path);
+    serde_json::from_str(
+        &fs::read_to_string(path).expect("example artifact should read from the repository"),
+    )
+    .expect("example artifact should contain valid json")
+}
+
+fn unique_temp_dir() -> PathBuf {
+    let nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .unwrap_or_default()
+        .as_nanos();
+    let path = std::env::temp_dir().join(format!("traverse-registry-bundle-test-{nanos}"));
+    fs::create_dir_all(&path).expect("temporary directory should create");
+    path
 }

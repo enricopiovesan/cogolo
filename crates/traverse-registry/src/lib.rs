@@ -1,7 +1,9 @@
 //! Registry support for Traverse.
 
+mod bundle;
 mod events;
 mod workflows;
+pub use bundle::*;
 pub use events::*;
 pub use workflows::*;
 
