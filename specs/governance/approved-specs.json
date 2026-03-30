@@ -110,6 +110,17 @@
         "contracts/examples/",
         "workflows/examples/"
       ]
+    },
+    {
+      "id": "010-runtime-state-machine",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/010-runtime-state-machine/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/"
+      ]
     }
   ]
 }
