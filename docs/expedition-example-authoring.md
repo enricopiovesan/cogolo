@@ -59,6 +59,12 @@ Registry bundle inspection:
 cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json
 ```
 
+Registry bundle registration:
+
+```bash
+cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json
+```
+
 Event contract inspection:
 
 ```bash
@@ -91,6 +97,13 @@ The bundle inspection output must include:
 And the workflow section must include:
 
 - `expedition.planning.plan-expedition@1.0.0`
+
+The bundle registration output must include:
+
+- `registered_capabilities: 6`
+- `registered_events: 5`
+- `registered_workflows: 1`
+- `expedition.planning.plan-expedition@1.0.0 (workflow)`
 
 The event inspection output must include:
 
