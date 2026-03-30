@@ -23,3 +23,15 @@ TRAVERSE_REPO_ROOT="$tmpdir" bash scripts/ci/expedition_artifact_smoke.sh
 ```
 
 The command should fail with a missing-artifact message.
+
+Run the expedition execution smoke path with:
+
+```bash
+bash scripts/ci/expedition_execution_smoke.sh
+```
+
+What it validates:
+
+- the canonical expedition runtime request can execute `expedition.planning.plan-expedition`
+- the output includes a completed workflow-backed planning result
+- invalid expedition execution input fails deterministically

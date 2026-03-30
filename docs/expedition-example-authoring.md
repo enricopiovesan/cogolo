@@ -65,6 +65,12 @@ Registry bundle registration:
 cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json
 ```
 
+Expedition execution:
+
+```bash
+cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json
+```
+
 Event contract inspection:
 
 ```bash
@@ -104,6 +110,12 @@ The bundle registration output must include:
 - `registered_events: 5`
 - `registered_workflows: 1`
 - `expedition.planning.plan-expedition@1.0.0 (workflow)`
+
+The expedition execution output must include:
+
+- `capability_id: expedition.planning.plan-expedition`
+- `status: completed`
+- `recommended_route_style: conservative-alpine-push`
 
 The event inspection output must include:
 
