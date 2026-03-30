@@ -15,6 +15,7 @@ required_files=(
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
   "docs/contract-publication-policy.md"
+  "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
   "docs/exception-process.md"
   "docs/project-management.md"
@@ -64,6 +65,8 @@ grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
 grep -q "Starter Prompts" docs/multi-thread-workflow.md
 grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
+grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
+grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md
