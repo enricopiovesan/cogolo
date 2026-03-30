@@ -1,0 +1,71 @@
+{
+  "bundle_id": "expedition.planning.seed-bundle",
+  "version": "1.0.0",
+  "scope": "public",
+  "capabilities": [
+    {
+      "id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
+    },
+    {
+      "id": "expedition.planning.interpret-expedition-intent",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json"
+    },
+    {
+      "id": "expedition.planning.assess-conditions-summary",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/assess-conditions-summary/contract.json"
+    },
+    {
+      "id": "expedition.planning.validate-team-readiness",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/validate-team-readiness/contract.json"
+    },
+    {
+      "id": "expedition.planning.assemble-expedition-plan",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/assemble-expedition-plan/contract.json"
+    },
+    {
+      "id": "expedition.planning.plan-expedition",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/plan-expedition/contract.json"
+    }
+  ],
+  "events": [
+    {
+      "id": "expedition.planning.expedition-objective-captured",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/events/expedition-objective-captured/contract.json"
+    },
+    {
+      "id": "expedition.planning.expedition-intent-interpreted",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/events/expedition-intent-interpreted/contract.json"
+    },
+    {
+      "id": "expedition.planning.conditions-summary-assessed",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/events/conditions-summary-assessed/contract.json"
+    },
+    {
+      "id": "expedition.planning.team-readiness-validated",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/events/team-readiness-validated/contract.json"
+    },
+    {
+      "id": "expedition.planning.expedition-plan-assembled",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/events/expedition-plan-assembled/contract.json"
+    }
+  ],
+  "workflows": [
+    {
+      "id": "expedition.planning.plan-expedition",
+      "version": "1.0.0",
+      "path": "../../../workflows/examples/expedition/plan-expedition/workflow.json"
+    }
+  ]
+}
