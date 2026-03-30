@@ -102,6 +102,12 @@ Repository checks:
 bash scripts/ci/repository_checks.sh
 ```
 
+Golden path proof:
+
+```bash
+bash scripts/ci/expedition_golden_path.sh
+```
+
 ## What Good Output Looks Like
 
 The bundle inspection output must include:
@@ -136,6 +142,13 @@ The trace inspection output must include:
 - `trace_id: trace_exec_expedition-plan-request-001`
 - `result_status: completed`
 - `selected_capability_id: expedition.planning.plan-expedition`
+
+The golden path validation must prove all of these in one run:
+
+- bundle registration succeeds for the canonical manifest
+- execution succeeds for the canonical runtime request
+- trace inspection succeeds for the generated runtime trace
+- a missing required bundle artifact fails deterministically
 
 The event inspection output must include:
 
