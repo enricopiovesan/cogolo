@@ -12,10 +12,12 @@ use traverse_registry::{
     SourceReference,
 };
 use traverse_runtime::{
-    CandidateReason, ExecutionFailureReason, ExecutionStatus, LocalExecutionFailure,
-    LocalExecutionFailureCode, LocalExecutor, PlacementTarget, Runtime, RuntimeContext,
-    RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest, RuntimeResultStatus,
-    RuntimeState, SelectionFailureReason, SelectionStatus, parse_runtime_request,
+    BrowserRuntimeSubscriptionLifecycleStatus, BrowserRuntimeSubscriptionMessage,
+    BrowserRuntimeSubscriptionRequest, CandidateReason, ExecutionFailureReason, ExecutionStatus,
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, PlacementTarget, Runtime,
+    RuntimeContext, RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
+    RuntimeResultStatus, RuntimeState, SelectionFailureReason, SelectionStatus,
+    browser_subscription_messages, parse_runtime_request,
 };
 
 #[test]
@@ -469,6 +471,115 @@ fn uses_public_only_scope_when_requested() {
         outcome.trace.candidate_collection.candidates[0].scope,
         traverse_runtime::RuntimeRegistryScope::Public
     );
+}
+
+#[test]
+fn browser_subscription_by_request_id_emits_ordered_messages() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let outcome = runtime.execute(base_request_exact());
+
+    let messages = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: Some("req-123".to_string()),
+            execution_id: None,
+        },
+        &outcome,
+    );
+
+    assert!(matches!(
+        messages.first(),
+        Some(BrowserRuntimeSubscriptionMessage::Lifecycle(message))
+            if message.status == BrowserRuntimeSubscriptionLifecycleStatus::SubscriptionEstablished
+    ));
+    assert!(matches!(
+        messages.get(messages.len() - 2),
+        Some(BrowserRuntimeSubscriptionMessage::StreamTerminal(_))
+    ));
+    assert!(matches!(
+        messages.last(),
+        Some(BrowserRuntimeSubscriptionMessage::Lifecycle(message))
+            if message.status == BrowserRuntimeSubscriptionLifecycleStatus::StreamCompleted
+    ));
+}
+
+#[test]
+fn browser_subscription_by_execution_id_emits_trace_artifact() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let outcome = runtime.execute(base_request_exact());
+
+    let messages = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: None,
+            execution_id: Some(outcome.result.execution_id.clone()),
+        },
+        &outcome,
+    );
+
+    assert!(messages.iter().any(|message| {
+        matches!(
+            message,
+            BrowserRuntimeSubscriptionMessage::TraceArtifact(trace)
+                if trace.trace.trace_id == outcome.trace.trace_id
+        )
+    }));
+}
+
+#[test]
+fn browser_subscription_rejects_invalid_targeting_requests() {
+    let runtime = Runtime::new(registry_with(vec![]), EchoExecutor);
+    let outcome = runtime.execute(base_request_exact());
+
+    let both = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: Some("req-123".to_string()),
+            execution_id: Some("exec_req-123".to_string()),
+        },
+        &outcome,
+    );
+    let none = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: None,
+            execution_id: None,
+        },
+        &outcome,
+    );
+
+    assert!(matches!(
+        both.first(),
+        Some(BrowserRuntimeSubscriptionMessage::Error(_))
+    ));
+    assert!(matches!(
+        none.first(),
+        Some(BrowserRuntimeSubscriptionMessage::Error(_))
+    ));
 }
 
 fn states(events: &[traverse_runtime::RuntimeStateEvent]) -> Vec<RuntimeState> {

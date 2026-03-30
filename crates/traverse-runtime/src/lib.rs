@@ -18,9 +18,16 @@ const RUNTIME_RESULT_KIND: &str = "runtime_result";
 const RUNTIME_STATE_EVENT_KIND: &str = "runtime_state_event";
 const RUNTIME_TRACE_KIND: &str = "runtime_trace";
 const RUNTIME_STATE_MACHINE_VALIDATION_KIND: &str = "runtime_state_machine_validation";
+const BROWSER_SUBSCRIPTION_REQUEST_KIND: &str = "browser_runtime_subscription_request";
+const BROWSER_SUBSCRIPTION_ERROR_KIND: &str = "browser_runtime_subscription_error";
+const BROWSER_SUBSCRIPTION_LIFECYCLE_KIND: &str = "browser_runtime_subscription_lifecycle";
+const BROWSER_SUBSCRIPTION_STATE_KIND: &str = "browser_runtime_subscription_state";
+const BROWSER_SUBSCRIPTION_TRACE_KIND: &str = "browser_runtime_subscription_trace_artifact";
+const BROWSER_SUBSCRIPTION_TERMINAL_KIND: &str = "browser_runtime_subscription_terminal";
 const SUPPORTED_SCHEMA_VERSION: &str = "1.0.0";
 const GOVERNING_SPEC: &str = "006-runtime-request-execution";
 const STATE_MACHINE_GOVERNING_SPEC: &str = "010-runtime-state-machine";
+const BROWSER_SUBSCRIPTION_GOVERNING_SPEC: &str = "013-browser-runtime-subscription";
 const EXECUTION_PREFIX: &str = "exec_";
 const TRACE_PREFIX: &str = "trace_";
 
@@ -450,6 +457,84 @@ pub struct RuntimeExecutionOutcome {
     pub state_events: Vec<RuntimeStateEvent>,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionRequest {
+    pub kind: String,
+    pub schema_version: String,
+    pub governing_spec: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionErrorMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub code: BrowserRuntimeSubscriptionErrorCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserRuntimeSubscriptionErrorCode {
+    InvalidRequest,
+    NotFound,
+    UnsupportedOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionLifecycleMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub request_id: String,
+    pub execution_id: String,
+    pub status: BrowserRuntimeSubscriptionLifecycleStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserRuntimeSubscriptionLifecycleStatus {
+    SubscriptionEstablished,
+    StreamCompleted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionStateMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub state_event: RuntimeStateEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionTraceArtifactMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub trace: RuntimeTrace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionTerminalMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub result: RuntimeResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserRuntimeSubscriptionMessage {
+    Error(BrowserRuntimeSubscriptionErrorMessage),
+    Lifecycle(Box<BrowserRuntimeSubscriptionLifecycleMessage>),
+    State(Box<BrowserRuntimeSubscriptionStateMessage>),
+    TraceArtifact(Box<BrowserRuntimeSubscriptionTraceArtifactMessage>),
+    StreamTerminal(Box<BrowserRuntimeSubscriptionTerminalMessage>),
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeRegistryScope {
@@ -497,6 +582,148 @@ pub fn parse_runtime_request(json: &str) -> Result<RuntimeRequest, RequestParseF
     serde_json::from_str::<RuntimeRequest>(json).map_err(|error| RequestParseFailure {
         message: error.to_string(),
     })
+}
+
+#[must_use]
+pub fn browser_subscription_messages(
+    request: &BrowserRuntimeSubscriptionRequest,
+    outcome: &RuntimeExecutionOutcome,
+) -> Vec<BrowserRuntimeSubscriptionMessage> {
+    if let Some(error) = validate_browser_subscription_request(request) {
+        return vec![BrowserRuntimeSubscriptionMessage::Error(error)];
+    }
+
+    if !subscription_targets_outcome(request, outcome) {
+        return vec![BrowserRuntimeSubscriptionMessage::Error(
+            BrowserRuntimeSubscriptionErrorMessage {
+                kind: BROWSER_SUBSCRIPTION_ERROR_KIND.to_string(),
+                schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+                sequence: 0,
+                code: BrowserRuntimeSubscriptionErrorCode::NotFound,
+                message: "subscription target did not match the supplied execution outcome"
+                    .to_string(),
+            },
+        )];
+    }
+
+    let mut sequence = 0_u64;
+    let mut messages = Vec::new();
+    messages.push(BrowserRuntimeSubscriptionMessage::Lifecycle(Box::new(
+        BrowserRuntimeSubscriptionLifecycleMessage {
+            kind: BROWSER_SUBSCRIPTION_LIFECYCLE_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            request_id: outcome.result.request_id.clone(),
+            execution_id: outcome.result.execution_id.clone(),
+            status: BrowserRuntimeSubscriptionLifecycleStatus::SubscriptionEstablished,
+        },
+    )));
+    sequence += 1;
+
+    for state_event in &outcome.state_events {
+        messages.push(BrowserRuntimeSubscriptionMessage::State(Box::new(
+            BrowserRuntimeSubscriptionStateMessage {
+                kind: BROWSER_SUBSCRIPTION_STATE_KIND.to_string(),
+                schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+                sequence,
+                state_event: state_event.clone(),
+            },
+        )));
+        sequence += 1;
+    }
+
+    messages.push(BrowserRuntimeSubscriptionMessage::TraceArtifact(Box::new(
+        BrowserRuntimeSubscriptionTraceArtifactMessage {
+            kind: BROWSER_SUBSCRIPTION_TRACE_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            trace: outcome.trace.clone(),
+        },
+    )));
+    sequence += 1;
+
+    messages.push(BrowserRuntimeSubscriptionMessage::StreamTerminal(Box::new(
+        BrowserRuntimeSubscriptionTerminalMessage {
+            kind: BROWSER_SUBSCRIPTION_TERMINAL_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            result: outcome.result.clone(),
+        },
+    )));
+    sequence += 1;
+
+    messages.push(BrowserRuntimeSubscriptionMessage::Lifecycle(Box::new(
+        BrowserRuntimeSubscriptionLifecycleMessage {
+            kind: BROWSER_SUBSCRIPTION_LIFECYCLE_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            request_id: outcome.result.request_id.clone(),
+            execution_id: outcome.result.execution_id.clone(),
+            status: BrowserRuntimeSubscriptionLifecycleStatus::StreamCompleted,
+        },
+    )));
+
+    messages
+}
+
+fn validate_browser_subscription_request(
+    request: &BrowserRuntimeSubscriptionRequest,
+) -> Option<BrowserRuntimeSubscriptionErrorMessage> {
+    if request.kind != BROWSER_SUBSCRIPTION_REQUEST_KIND {
+        return Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "kind must equal browser_runtime_subscription_request",
+        ));
+    }
+    if request.schema_version != SUPPORTED_SCHEMA_VERSION {
+        return Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "schema_version must equal 1.0.0",
+        ));
+    }
+    if request.governing_spec != BROWSER_SUBSCRIPTION_GOVERNING_SPEC {
+        return Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "governing_spec must equal 013-browser-runtime-subscription",
+        ));
+    }
+
+    match (&request.request_id, &request.execution_id) {
+        (Some(request_id), None) if non_empty(request_id) => None,
+        (None, Some(execution_id)) if non_empty(execution_id) => None,
+        (Some(_), Some(_)) => Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "exactly one target selector must be supplied",
+        )),
+        _ => Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "subscription request must include request_id or execution_id",
+        )),
+    }
+}
+
+fn subscription_targets_outcome(
+    request: &BrowserRuntimeSubscriptionRequest,
+    outcome: &RuntimeExecutionOutcome,
+) -> bool {
+    match (&request.request_id, &request.execution_id) {
+        (Some(request_id), None) => request_id == &outcome.result.request_id,
+        (None, Some(execution_id)) => execution_id == &outcome.result.execution_id,
+        _ => false,
+    }
+}
+
+fn browser_subscription_error(
+    code: BrowserRuntimeSubscriptionErrorCode,
+    message: &str,
+) -> BrowserRuntimeSubscriptionErrorMessage {
+    BrowserRuntimeSubscriptionErrorMessage {
+        kind: BROWSER_SUBSCRIPTION_ERROR_KIND.to_string(),
+        schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+        sequence: 0,
+        code,
+        message: message.to_string(),
+    }
 }
 
 impl<E> Runtime<E>
@@ -1928,12 +2155,14 @@ fn runtime_state_name(state: RuntimeState) -> &'static str {
 #[cfg(test)]
 mod tests {
     use super::{
-        CandidateEvaluation, CandidateReason, LocalExecutor, PlacementTarget,
-        RejectedCandidateReason, RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope,
-        RuntimeLookupScope::*, RuntimeRequest, RuntimeResultStatus, RuntimeState,
-        RuntimeTransitionReasonCode, evaluate_candidate, map_implementation_kind, map_lifecycle,
-        map_registry_scope, parse_runtime_request, runtime_candidate,
-        validate_payload_against_contract, validate_request,
+        BrowserRuntimeSubscriptionErrorCode, BrowserRuntimeSubscriptionMessage,
+        BrowserRuntimeSubscriptionRequest, CandidateEvaluation, CandidateReason, LocalExecutor,
+        PlacementTarget, RejectedCandidateReason, Runtime, RuntimeContext, RuntimeIntent,
+        RuntimeLookup, RuntimeLookupScope, RuntimeLookupScope::*, RuntimeRequest,
+        RuntimeResultStatus, RuntimeState, RuntimeTransitionReasonCode,
+        browser_subscription_messages, evaluate_candidate, map_implementation_kind, map_lifecycle,
+        map_registry_scope, parse_runtime_request, runtime_candidate, subscription_targets_outcome,
+        validate_browser_subscription_request, validate_payload_against_contract, validate_request,
     };
     use serde_json::json;
     use traverse_contracts::{
@@ -2507,6 +2736,68 @@ mod tests {
         assert_eq!(result, Ok(json!({"draft_id": "draft"})));
     }
 
+    #[test]
+    fn browser_subscription_validation_covers_guard_branches() {
+        let mut request = valid_browser_subscription_request();
+        request.kind = "wrong".to_string();
+        assert_eq!(
+            validate_browser_subscription_request(&request).map(|error| error.code),
+            Some(BrowserRuntimeSubscriptionErrorCode::InvalidRequest)
+        );
+
+        let mut request = valid_browser_subscription_request();
+        request.schema_version = "9.9.9".to_string();
+        assert_eq!(
+            validate_browser_subscription_request(&request).map(|error| error.code),
+            Some(BrowserRuntimeSubscriptionErrorCode::InvalidRequest)
+        );
+
+        let mut request = valid_browser_subscription_request();
+        request.governing_spec = "wrong-spec".to_string();
+        assert_eq!(
+            validate_browser_subscription_request(&request).map(|error| error.code),
+            Some(BrowserRuntimeSubscriptionErrorCode::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn browser_subscription_reports_not_found_for_mismatched_target() {
+        let outcome = runtime_outcome_for_browser_subscription();
+        let request = BrowserRuntimeSubscriptionRequest {
+            request_id: Some("req_other".to_string()),
+            execution_id: None,
+            ..valid_browser_subscription_request()
+        };
+
+        let messages = browser_subscription_messages(&request, &outcome);
+        assert_eq!(
+            messages,
+            vec![BrowserRuntimeSubscriptionMessage::Error(
+                super::BrowserRuntimeSubscriptionErrorMessage {
+                    kind: "browser_runtime_subscription_error".to_string(),
+                    schema_version: "1.0.0".to_string(),
+                    sequence: 0,
+                    code: BrowserRuntimeSubscriptionErrorCode::NotFound,
+                    message:
+                        "subscription target did not match the supplied execution outcome"
+                            .to_string(),
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn browser_subscription_target_helper_covers_fallback_branch() {
+        let outcome = runtime_outcome_for_browser_subscription();
+        let invalid_request = BrowserRuntimeSubscriptionRequest {
+            request_id: Some("req_123".to_string()),
+            execution_id: Some(outcome.result.execution_id.clone()),
+            ..valid_browser_subscription_request()
+        };
+
+        assert!(!subscription_targets_outcome(&invalid_request, &outcome));
+    }
+
     fn valid_request() -> RuntimeRequest {
         RuntimeRequest {
             kind: "runtime_request".to_string(),
@@ -2530,6 +2821,23 @@ mod tests {
             },
             governing_spec: "006-runtime-request-execution".to_string(),
         }
+    }
+
+    fn valid_browser_subscription_request() -> BrowserRuntimeSubscriptionRequest {
+        BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: Some("req_123".to_string()),
+            execution_id: None,
+        }
+    }
+
+    fn runtime_outcome_for_browser_subscription() -> super::RuntimeExecutionOutcome {
+        let mut registry = CapabilityRegistry::new();
+        assert!(registry.register(public_registration()).is_ok());
+        let runtime = Runtime::new(registry, NoopExecutor);
+        runtime.execute(valid_request())
     }
 
     fn public_registration() -> CapabilityRegistration {
