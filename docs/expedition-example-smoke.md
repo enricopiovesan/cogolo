@@ -35,3 +35,15 @@ What it validates:
 - the canonical expedition runtime request can execute `expedition.planning.plan-expedition`
 - the output includes a completed workflow-backed planning result
 - invalid expedition execution input fails deterministically
+
+Run the expedition trace smoke path with:
+
+```bash
+bash scripts/ci/expedition_trace_smoke.sh
+```
+
+What it validates:
+
+- the expedition execution path can persist a governed runtime trace artifact
+- the trace inspection command renders deterministic trace metadata for the canonical request
+- malformed trace input fails deterministically
