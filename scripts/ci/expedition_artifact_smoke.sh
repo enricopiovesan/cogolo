@@ -5,6 +5,19 @@ set -euo pipefail
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 default_repo_root="$(cd "${script_dir}/../.." && pwd)"
 repo_root="${TRAVERSE_REPO_ROOT:-${default_repo_root}}"
+summary_file="${GITHUB_STEP_SUMMARY:-}"
+
+write_summary() {
+  if [[ -n "${summary_file}" ]]; then
+    printf '%s\n' "$1" >> "${summary_file}"
+  fi
+}
+
+fail() {
+  echo "$1" >&2
+  write_summary "$1"
+  exit 1
+}
 
 capability_files=(
   "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
@@ -43,8 +56,7 @@ expected_ids=(
 
 for relative_path in "${capability_files[@]}" "${event_files[@]}" "${workflow_files[@]}"; do
   if [[ ! -f "${repo_root}/${relative_path}" ]]; then
-    echo "Missing required expedition artifact: ${relative_path}" >&2
-    exit 1
+    fail "Missing required expedition artifact: ${relative_path}"
   fi
 done
 
@@ -52,8 +64,7 @@ for expected_id in "${expected_ids[@]}"; do
   if ! rg -F "\"id\": \"${expected_id}\"" \
     "${repo_root}/contracts/examples/expedition" \
     "${repo_root}/workflows/examples/expedition" >/dev/null; then
-    echo "Missing governed expedition id: ${expected_id}" >&2
-    exit 1
+    fail "Missing governed expedition id: ${expected_id}"
   fi
 done
 
@@ -62,18 +73,16 @@ event_count="$(find "${repo_root}/contracts/examples/expedition/events" -name co
 workflow_count="$(find "${repo_root}/workflows/examples/expedition" -name workflow.json | wc -l | tr -d ' ')"
 
 if [[ "${capability_count}" != "6" ]]; then
-  echo "Expected 6 expedition capability contracts, found ${capability_count}" >&2
-  exit 1
+  fail "Expected 6 expedition capability contracts, found ${capability_count}"
 fi
 
 if [[ "${event_count}" != "5" ]]; then
-  echo "Expected 5 expedition event contracts, found ${event_count}" >&2
-  exit 1
+  fail "Expected 5 expedition event contracts, found ${event_count}"
 fi
 
 if [[ "${workflow_count}" != "1" ]]; then
-  echo "Expected 1 expedition workflow artifact, found ${workflow_count}" >&2
-  exit 1
+  fail "Expected 1 expedition workflow artifact, found ${workflow_count}"
 fi
 
+write_summary "Expedition artifact smoke check passed."
 echo "Expedition artifact smoke check passed."
