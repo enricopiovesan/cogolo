@@ -15,6 +15,9 @@ write_summary() {
 
 fail() {
   echo "$1" >&2
+  if [[ -n "${GITHUB_ACTIONS:-}" ]]; then
+    printf '::error::%s\n' "$1"
+  fi
   write_summary "$1"
   exit 1
 }
