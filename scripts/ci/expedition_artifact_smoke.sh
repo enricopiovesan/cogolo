@@ -2,7 +2,9 @@
 
 set -euo pipefail
 
-repo_root="${TRAVERSE_REPO_ROOT:-$(git rev-parse --show-toplevel)}"
+script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+default_repo_root="$(cd "${script_dir}/../.." && pwd)"
+repo_root="${TRAVERSE_REPO_ROOT:-${default_repo_root}}"
 
 capability_files=(
   "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
