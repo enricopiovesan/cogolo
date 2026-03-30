@@ -121,6 +121,19 @@
         "crates/cogolo-runtime/",
         "crates/traverse-runtime/"
       ]
+    },
+    {
+      "id": "018-event-driven-composition",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/018-event-driven-composition/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/",
+        "crates/cogolo-registry/",
+        "crates/traverse-registry/"
+      ]
     }
   ]
 }
