@@ -15,6 +15,7 @@ required_files=(
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
   "docs/contract-publication-policy.md"
+  "docs/expedition-example-smoke.md"
   "docs/exception-process.md"
   "docs/project-management.md"
   "docs/multi-thread-workflow.md"
@@ -37,6 +38,8 @@ for file in "${required_files[@]}"; do
   test -f "$file"
   test -s "$file"
 done
+
+bash scripts/ci/expedition_artifact_smoke.sh >/dev/null
 
 if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
   echo "Found stale project name references; expected 'Traverse'." >&2
@@ -61,6 +64,8 @@ grep -q "Only tickets with real active execution" docs/planning-board.md
 grep -q "Note" docs/ticket-standard.md
 grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
 grep -q "Starter Prompts" docs/multi-thread-workflow.md
+grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
+grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md
