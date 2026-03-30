@@ -1,8 +1,7 @@
 use crate::{
     ExecutionFailureReason, ExecutionFailureState, LocalExecutor, Runtime, RuntimeError,
     RuntimeErrorCode, RuntimeExecutionOutcome, SelectionRecord, execution_failure_outcome,
-    pre_execution_failure_outcome, runtime_error, successful_execution_outcome,
-    validate_payload_against_contract,
+    runtime_error, successful_execution_outcome, validate_payload_against_contract,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -197,6 +196,7 @@ where
         candidate_collection: crate::CandidateCollectionRecord,
         selection: SelectionRecord,
         selected: &ResolvedCapability,
+        started_at: String,
     ) -> RuntimeExecutionOutcome {
         let Some(workflow_ref) = selected.artifact.workflow_ref.as_ref() else {
             let error = runtime_error(
@@ -204,13 +204,16 @@ where
                 "workflow-backed capability is missing its workflow reference",
                 json!({"artifact_ref": selected.record.artifact_ref}),
             );
-            return pre_execution_failure_outcome(
+            return execution_failure_outcome(
                 attempt,
                 emitter,
                 candidate_collection,
                 selection,
-                Some(selected.record.artifact_ref.clone()),
-                ExecutionFailureReason::ArtifactMissing,
+                ExecutionFailureState {
+                    artifact_ref: selected.record.artifact_ref.clone(),
+                    started_at,
+                    failure_reason: ExecutionFailureReason::ArtifactMissing,
+                },
                 error,
             );
         };
@@ -239,7 +242,7 @@ where
                     candidate_collection,
                     selection,
                     selected,
-                    "2026-01-01T00:00:00Z".to_string(),
+                    started_at,
                     output,
                 )
             }
@@ -250,7 +253,7 @@ where
                 selection,
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
-                    started_at: "2026-01-01T00:00:00Z".to_string(),
+                    started_at,
                     failure_reason: ExecutionFailureReason::ExecutionFailed,
                 },
                 workflow.result.error.unwrap_or(runtime_error(
@@ -1147,7 +1150,7 @@ mod tests {
             )
             .unwrap_or_else(|| unreachable!("fixture capability missing"));
         selected.record.implementation_kind = ImplementationKind::Workflow;
-        let (attempt, emitter) = super::super::begin_attempt(RuntimeRequest {
+        let (attempt, mut emitter) = super::super::begin_attempt(RuntimeRequest {
             kind: "runtime_request".to_string(),
             schema_version: "1.0.0".to_string(),
             request_id: "workflow-capability".to_string(),
@@ -1169,6 +1172,27 @@ mod tests {
             },
             governing_spec: "006-runtime-request-execution".to_string(),
         });
+        emitter.push(
+            crate::RuntimeState::Discovering,
+            crate::RuntimeTransitionReasonCode::RequestStarted,
+            json!({"lookup_scope": RuntimeLookupScope::PublicOnly}),
+        );
+        emitter.push(
+            crate::RuntimeState::EvaluatingConstraints,
+            crate::RuntimeTransitionReasonCode::CandidatesCollected,
+            json!({"candidate_count": 1}),
+        );
+        emitter.push(
+            crate::RuntimeState::Selecting,
+            crate::RuntimeTransitionReasonCode::ConstraintsEvaluated,
+            json!({"eligible_candidates": 1, "rejected_candidates": 0}),
+        );
+        let started_at = emitter.next_timestamp();
+        emitter.push(
+            crate::RuntimeState::Executing,
+            crate::RuntimeTransitionReasonCode::CandidateSelected,
+            json!({"capability_id": selected.record.id, "capability_version": selected.record.version}),
+        );
         let outcome = runtime.execute_workflow_capability(
             attempt,
             emitter,
@@ -1179,6 +1203,7 @@ mod tests {
             },
             selection,
             &selected,
+            started_at,
         );
         assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
 
@@ -1196,10 +1221,31 @@ mod tests {
             workflow_id: "content.comments.publish-comment".to_string(),
             workflow_version: "1.0.0".to_string(),
         });
-        let (attempt, emitter) = super::super::begin_attempt(RuntimeRequest {
+        let (attempt, mut emitter) = super::super::begin_attempt(RuntimeRequest {
             request_id: "workflow-private".to_string(),
             ..valid_runtime_request()
         });
+        emitter.push(
+            crate::RuntimeState::Discovering,
+            crate::RuntimeTransitionReasonCode::RequestStarted,
+            json!({"lookup_scope": RuntimeLookupScope::PreferPrivate}),
+        );
+        emitter.push(
+            crate::RuntimeState::EvaluatingConstraints,
+            crate::RuntimeTransitionReasonCode::CandidatesCollected,
+            json!({"candidate_count": 1}),
+        );
+        emitter.push(
+            crate::RuntimeState::Selecting,
+            crate::RuntimeTransitionReasonCode::ConstraintsEvaluated,
+            json!({"eligible_candidates": 1, "rejected_candidates": 0}),
+        );
+        let started_at = emitter.next_timestamp();
+        emitter.push(
+            crate::RuntimeState::Executing,
+            crate::RuntimeTransitionReasonCode::CandidateSelected,
+            json!({"capability_id": selected.record.id, "capability_version": selected.record.version}),
+        );
         let failing_runtime = Runtime::new(capability_registry_fixture(), FailingWorkflowExecutor)
             .with_workflow_registry(workflow_registry_fixture());
         let outcome = failing_runtime.execute_workflow_capability(
@@ -1218,6 +1264,7 @@ mod tests {
                 remaining_candidates: Vec::new(),
             },
             &selected,
+            started_at,
         );
         assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
 
