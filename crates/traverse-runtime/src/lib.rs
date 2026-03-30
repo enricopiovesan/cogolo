@@ -636,7 +636,10 @@ where
                     selection,
                     Some(selected.record.artifact_ref.clone()),
                     ExecutionFailureReason::PlacementUnsupported,
-                    placement_not_attempted(requested_target, PlacementDecisionReason::RequestedTargetUnsupported),
+                    placement_not_attempted(
+                        requested_target,
+                        PlacementDecisionReason::RequestedTargetUnsupported,
+                    ),
                     error,
                 );
             }
@@ -1174,7 +1177,9 @@ fn successful_execution_outcome(
 
     let execution = ExecutionRecord {
         placement: placement.clone(),
-        placement_target: placement.selected_target.unwrap_or(placement.requested_target),
+        placement_target: placement
+            .selected_target
+            .unwrap_or(placement.requested_target),
         status: ExecutionStatus::Succeeded,
         artifact_ref: Some(selected.record.artifact_ref.clone()),
         started_at: Some(started_at),

@@ -338,7 +338,10 @@ fn records_local_placement_decision_for_successful_execution() {
     let outcome = runtime.execute(base_request_exact());
 
     assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
-    assert_eq!(outcome.trace.execution.placement.requested_target, PlacementTarget::Local);
+    assert_eq!(
+        outcome.trace.execution.placement.requested_target,
+        PlacementTarget::Local
+    );
     assert_eq!(
         outcome.trace.execution.placement.selected_target,
         Some(PlacementTarget::Local)

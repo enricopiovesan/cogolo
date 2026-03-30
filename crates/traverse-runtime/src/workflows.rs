@@ -1,6 +1,6 @@
 use crate::{
-    ExecutionFailureReason, ExecutionFailureState, LocalExecutor, PlacementDecisionRecord,
-    Runtime, RuntimeError, RuntimeErrorCode, RuntimeExecutionOutcome, SelectionRecord,
+    ExecutionFailureReason, ExecutionFailureState, LocalExecutor, PlacementDecisionRecord, Runtime,
+    RuntimeError, RuntimeErrorCode, RuntimeExecutionOutcome, SelectionRecord,
     execution_failure_outcome, runtime_error, successful_execution_outcome,
     validate_payload_against_contract,
 };
