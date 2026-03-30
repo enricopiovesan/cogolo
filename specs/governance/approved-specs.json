@@ -123,6 +123,17 @@
       ]
     },
     {
+      "id": "011-event-registry",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/011-event-registry/spec.md",
+      "governs": [
+        "crates/cogolo-registry/",
+        "crates/traverse-registry/"
+      ]
+    },
+    {
       "id": "018-event-driven-composition",
       "version": "1.0.0",
       "status": "approved",
