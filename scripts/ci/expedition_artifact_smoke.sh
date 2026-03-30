@@ -64,7 +64,8 @@ for relative_path in "${capability_files[@]}" "${event_files[@]}" "${workflow_fi
 done
 
 for expected_id in "${expected_ids[@]}"; do
-  if ! rg -F "\"id\": \"${expected_id}\"" \
+  if ! grep -R -F \
+    "\"id\": \"${expected_id}\"" \
     "${repo_root}/contracts/examples/expedition" \
     "${repo_root}/workflows/examples/expedition" >/dev/null; then
     fail "Missing governed expedition id: ${expected_id}"
