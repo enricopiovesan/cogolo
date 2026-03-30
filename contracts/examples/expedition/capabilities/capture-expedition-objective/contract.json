@@ -10,8 +10,8 @@
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
   },
-  "summary": "Capture a structured expedition goal and normalize it into one governed objective record.",
-  "description": "Portable capability for accepting structured expedition goal input, normalizing destination, timing, and planning preferences, and producing the canonical expedition objective boundary without interpreting intent or validating readiness.",
+  "summary": "Capture a structured expedition objective from destination, timing, and planning preference inputs.",
+  "description": "Portable capability for normalizing expedition goal details into one governed objective record that downstream planning capabilities can consume without reinterpreting raw intake fields.",
   "inputs": {
     "schema": {
       "type": "object",
@@ -129,19 +129,19 @@
   "preconditions": [
     {
       "id": "objective-input-provided",
-      "description": "The caller provides structured expedition goal input with destination, target window, preferences, and notes."
+      "description": "Destination, timing, preference, and notes fields are present for intake normalization."
     }
   ],
   "postconditions": [
     {
-      "id": "objective-normalized",
-      "description": "A normalized expedition objective record is returned for downstream planning steps."
+      "id": "objective-record-normalized",
+      "description": "A stable expedition objective record is returned for downstream planning."
     }
   ],
   "side_effects": [
     {
       "kind": "event_emission",
-      "description": "Emits the expedition-objective-captured domain event after normalization succeeds."
+      "description": "Emits the expedition-objective-captured event after normalization succeeds."
     }
   ],
   "emits": [
@@ -151,7 +151,11 @@
     }
   ],
   "consumes": [],
-  "permissions": [],
+  "permissions": [
+    {
+      "id": "expedition.plan.capture-objective"
+    }
+  ],
   "execution": {
     "binary_format": "wasm",
     "entrypoint": {
@@ -183,7 +187,11 @@
     "source": "greenfield",
     "author": "enricopiovesan",
     "created_at": "2026-03-27T00:00:00Z",
-    "spec_ref": "009-expedition-example-artifacts"
+    "spec_ref": "009-expedition-example-artifacts@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
   },
   "evidence": []
 }
