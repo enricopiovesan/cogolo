@@ -356,6 +356,23 @@ impl EventRegistry {
         &self.compatibility
     }
 
+    #[must_use]
+    pub(crate) fn graph_entries(&self) -> Vec<ResolvedEvent> {
+        self.records
+            .iter()
+            .filter_map(|((scope, id, version), record)| {
+                let key = (*scope, id.clone(), version.clone());
+                let contract = self.contracts.get(&key)?.clone();
+                let index_record = self.index.get(&key)?.clone();
+                Some(ResolvedEvent {
+                    contract,
+                    record: record.clone(),
+                    index_record,
+                })
+            })
+            .collect()
+    }
+
     fn latest_prior_record(
         &self,
         scope: RegistryScope,
