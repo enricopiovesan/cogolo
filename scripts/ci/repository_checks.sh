@@ -68,6 +68,7 @@ grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-s
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json" docs/expedition-example-authoring.md
