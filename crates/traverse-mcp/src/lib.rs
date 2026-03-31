@@ -353,9 +353,9 @@ fn map_runtime_error(code: RuntimeErrorCode, message: &str) -> McpError {
             McpErrorCode::NotFound
         }
         RuntimeErrorCode::CapabilityAmbiguous => McpErrorCode::AmbiguousMatch,
-        RuntimeErrorCode::CapabilityNotRunnable | RuntimeErrorCode::OutputValidationFailed => {
-            McpErrorCode::ValidationFailed
-        }
+        RuntimeErrorCode::CapabilityNotRunnable
+        | RuntimeErrorCode::PlacementUnsupported
+        | RuntimeErrorCode::OutputValidationFailed => McpErrorCode::ValidationFailed,
         RuntimeErrorCode::ExecutionFailed => McpErrorCode::ExecutionFailed,
     };
     McpError {
@@ -506,10 +506,7 @@ mod tests {
                 ..
             }))
         ));
-        assert_eq!(
-            response.trace.terminal_outcome.runtime_status,
-            RuntimeResultStatus::Completed
-        );
+        assert_eq!(response.trace.result.status, RuntimeResultStatus::Completed);
     }
 
     #[test]
