@@ -66,6 +66,30 @@ fn executes_one_exact_registered_capability_locally() {
         ]
     );
     assert_eq!(outcome.trace.selection.status, SelectionStatus::Selected);
+    assert_eq!(
+        outcome.trace.decision_evidence.candidate_collection,
+        outcome.trace.candidate_collection
+    );
+    assert_eq!(
+        outcome.trace.decision_evidence.selection,
+        outcome.trace.selection
+    );
+    assert_eq!(
+        outcome.trace.state_progression.state_events,
+        outcome.state_events
+    );
+    assert_eq!(
+        outcome.trace.state_progression.transitions,
+        outcome.trace.state_transitions
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.runtime_status,
+        RuntimeResultStatus::Completed
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.execution_status,
+        ExecutionStatus::Succeeded
+    );
     assert_eq!(outcome.trace.candidate_collection.candidates.len(), 1);
     assert_eq!(
         outcome.trace.candidate_collection.candidates[0].reason,
@@ -73,6 +97,8 @@ fn executes_one_exact_registered_capability_locally() {
     );
     assert_eq!(outcome.trace.execution.status, ExecutionStatus::Succeeded);
     assert!(outcome.trace.execution.output_digest.is_some());
+    assert!(outcome.trace.emitted_events.is_empty());
+    assert!(outcome.trace.workflow_evidence.is_none());
 }
 
 #[test]
@@ -295,6 +321,18 @@ fn surfaces_executor_failures() {
     assert_eq!(outcome.trace.execution.status, ExecutionStatus::Failed);
     assert_eq!(
         outcome.trace.execution.failure_reason,
+        Some(ExecutionFailureReason::ExecutionFailed)
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.runtime_status,
+        RuntimeResultStatus::Error
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.execution_status,
+        ExecutionStatus::Failed
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.failure_reason,
         Some(ExecutionFailureReason::ExecutionFailed)
     );
 }
