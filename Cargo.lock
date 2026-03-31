@@ -99,6 +99,7 @@ dependencies = [
  "serde_json",
  "traverse-contracts",
  "traverse-registry",
+ "traverse-runtime",
 ]
 
 [[package]]

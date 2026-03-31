@@ -4,7 +4,7 @@
   "id": "expedition.planning.plan-expedition",
   "name": "plan-expedition",
   "version": "1.0.0",
-  "lifecycle": "draft",
+  "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
@@ -227,7 +227,14 @@
       },
       "output": {
         "to_workflow_state": [
-          "plan"
+          "plan_id",
+          "objective_id",
+          "status",
+          "recommended_route_style",
+          "key_steps",
+          "constraints",
+          "readiness_notes",
+          "summary"
         ]
       }
     }
@@ -267,5 +274,5 @@
     "planning",
     "example-domain"
   ],
-  "governing_spec": "009-expedition-example-artifacts"
+  "governing_spec": "007-workflow-registry-traversal"
 }

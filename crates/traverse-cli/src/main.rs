@@ -1,17 +1,46 @@
+use serde_json::Value;
 use std::env;
 use std::fs;
+use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use traverse_contracts::{
     EventContract, EventValidationContext, parse_event_contract, validate_event_contract,
 };
-use traverse_registry::{RegistryBundle, WorkflowDefinition, load_registry_bundle};
+use traverse_registry::{
+    ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
+    CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
+    CompositionPattern, EventRegistration, EventRegistry, ImplementationKind, RegistryBundle,
+    RegistryProvenance, SourceKind, SourceReference, WorkflowDefinition, WorkflowReference,
+    WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
+};
+use traverse_runtime::{
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, Runtime,
+    RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus, RuntimeTrace,
+    parse_runtime_request,
+};
 
 #[derive(Debug)]
 enum Command {
-    Bundle { manifest_path: PathBuf },
-    Event { contract_path: PathBuf },
-    Workflow { workflow_path: PathBuf },
+    BundleInspect {
+        manifest_path: PathBuf,
+    },
+    BundleRegister {
+        manifest_path: PathBuf,
+    },
+    ExpeditionExecute {
+        request_path: PathBuf,
+        trace_output_path: Option<PathBuf>,
+    },
+    Event {
+        contract_path: PathBuf,
+    },
+    TraceInspect {
+        trace_path: PathBuf,
+    },
+    Workflow {
+        workflow_path: PathBuf,
+    },
 }
 
 fn main() -> ExitCode {
@@ -30,23 +59,45 @@ fn main() -> ExitCode {
 
 fn run(args: &[String]) -> Result<String, String> {
     match parse_command(args)? {
-        Command::Bundle { manifest_path } => inspect_bundle(&manifest_path),
+        Command::BundleInspect { manifest_path } => inspect_bundle(&manifest_path),
+        Command::BundleRegister { manifest_path } => register_bundle(&manifest_path),
+        Command::ExpeditionExecute {
+            request_path,
+            trace_output_path,
+        } => execute_expedition(&request_path, trace_output_path.as_deref()),
         Command::Event { contract_path } => inspect_event(&contract_path),
+        Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::Workflow { workflow_path } => inspect_workflow(&workflow_path),
     }
 }
 
 fn parse_command(args: &[String]) -> Result<Command, String> {
+    match (
+        args.get(1).map(String::as_str),
+        args.get(2).map(String::as_str),
+    ) {
+        (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
+        _ => parse_fixed_arity_command(args),
+    }
+}
+
+fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
     if args.len() != 4 {
         return Err(usage());
     }
 
     match (args[1].as_str(), args[2].as_str()) {
-        ("bundle", "inspect") => Ok(Command::Bundle {
+        ("bundle", "inspect") => Ok(Command::BundleInspect {
+            manifest_path: PathBuf::from(&args[3]),
+        }),
+        ("bundle", "register") => Ok(Command::BundleRegister {
             manifest_path: PathBuf::from(&args[3]),
         }),
         ("event", "inspect") => Ok(Command::Event {
             contract_path: PathBuf::from(&args[3]),
+        }),
+        ("trace", "inspect") => Ok(Command::TraceInspect {
+            trace_path: PathBuf::from(&args[3]),
         }),
         ("workflow", "inspect") => Ok(Command::Workflow {
             workflow_path: PathBuf::from(&args[3]),
@@ -55,10 +106,60 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
     }
 }
 
+fn parse_expedition_execute_command(args: &[String]) -> Result<Command, String> {
+    match args {
+        [_, _, _, request_path] => Ok(Command::ExpeditionExecute {
+            request_path: PathBuf::from(request_path),
+            trace_output_path: None,
+        }),
+        [_, _, _, request_path, flag, trace_output_path] if flag == "--trace-out" => {
+            Ok(Command::ExpeditionExecute {
+                request_path: PathBuf::from(request_path),
+                trace_output_path: Some(PathBuf::from(trace_output_path)),
+            })
+        }
+        _ => Err(usage()),
+    }
+}
+
 fn inspect_bundle(manifest_path: &Path) -> Result<String, String> {
     let bundle =
         load_registry_bundle(manifest_path).map_err(|failure| failure.errors[0].message.clone())?;
     Ok(render_bundle_summary(&bundle))
+}
+
+fn register_bundle(manifest_path: &Path) -> Result<String, String> {
+    let registered = load_registered_bundle(manifest_path)?;
+    Ok(render_bundle_registration_summary(
+        &registered.bundle,
+        &registered.capability_records,
+        &registered.event_records,
+        &registered.workflow_records,
+    ))
+}
+
+fn execute_expedition(
+    request_path: &Path,
+    trace_output_path: Option<&Path>,
+) -> Result<String, String> {
+    let request = load_runtime_request(request_path)?;
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
+    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
+        .with_workflow_registry(registered.workflow_registry);
+    let outcome = runtime.execute(request);
+
+    if outcome.result.status == RuntimeResultStatus::Error {
+        return Err(render_runtime_execution_failure(&outcome));
+    }
+
+    if let Some(path) = trace_output_path {
+        write_trace_artifact(path, &outcome.trace)?;
+    }
+
+    Ok(render_runtime_execution_summary(
+        &outcome,
+        trace_output_path,
+    ))
 }
 
 fn inspect_event(contract_path: &Path) -> Result<String, String> {
@@ -88,6 +189,18 @@ fn inspect_workflow(workflow_path: &Path) -> Result<String, String> {
     })?;
 
     Ok(render_workflow_summary(workflow_path, &definition))
+}
+
+fn inspect_trace(trace_path: &Path) -> Result<String, String> {
+    let contents = read_text_file(trace_path, "runtime trace")?;
+    let trace = serde_json::from_str::<RuntimeTrace>(&contents).map_err(|error| {
+        format!(
+            "failed to parse runtime trace {}: {error}",
+            trace_path.display()
+        )
+    })?;
+
+    Ok(render_trace_summary(trace_path, &trace))
 }
 
 fn read_text_file(path: &Path, artifact_kind: &str) -> Result<String, String> {
@@ -145,6 +258,39 @@ fn render_bundle_summary(bundle: &RegistryBundle) -> String {
             "  - {}@{}",
             workflow.manifest.id, workflow.manifest.version
         ));
+    }
+
+    lines.join("\n")
+}
+
+fn render_bundle_registration_summary(
+    bundle: &RegistryBundle,
+    capability_records: &[String],
+    event_records: &[String],
+    workflow_records: &[String],
+) -> String {
+    let mut lines = vec![
+        format!("bundle_id: {}", bundle.bundle_id),
+        format!("version: {}", bundle.version),
+        format!("scope: {:?}", bundle.scope).to_lowercase(),
+        format!("registered_capabilities: {}", capability_records.len()),
+        format!("registered_events: {}", event_records.len()),
+        format!("registered_workflows: {}", workflow_records.len()),
+        "capability_records:".to_string(),
+    ];
+
+    for record in capability_records {
+        lines.push(format!("  - {record}"));
+    }
+
+    lines.push("event_records:".to_string());
+    for record in event_records {
+        lines.push(format!("  - {record}"));
+    }
+
+    lines.push("workflow_records:".to_string());
+    for record in workflow_records {
+        lines.push(format!("  - {record}"));
     }
 
     lines.join("\n")
@@ -218,15 +364,723 @@ fn render_workflow_summary(path: &Path, definition: &WorkflowDefinition) -> Stri
     lines.join("\n")
 }
 
+fn render_runtime_execution_summary(
+    outcome: &RuntimeExecutionOutcome,
+    trace_output_path: Option<&Path>,
+) -> String {
+    let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
+    let mut lines = vec![
+        format!("request_id: {}", outcome.result.request_id),
+        format!("execution_id: {}", outcome.result.execution_id),
+        "capability_id: expedition.planning.plan-expedition".to_string(),
+        "capability_version: 1.0.0".to_string(),
+        "status: completed".to_string(),
+        format!("trace_ref: {}", outcome.result.trace_ref),
+    ];
+
+    if let Some(path) = trace_output_path {
+        lines.push(format!("trace_path: {}", path.display()));
+    }
+
+    if let Some(plan_id) = output.get("plan_id").and_then(Value::as_str) {
+        lines.push(format!("plan_id: {plan_id}"));
+    }
+    if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
+        lines.push(format!("objective_id: {objective_id}"));
+    }
+    if let Some(route_style) = output
+        .get("recommended_route_style")
+        .and_then(Value::as_str)
+    {
+        lines.push(format!("recommended_route_style: {route_style}"));
+    }
+    if let Some(summary) = output.get("summary").and_then(Value::as_str) {
+        lines.push(format!("summary: {summary}"));
+    }
+
+    lines.join("\n")
+}
+
+fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
+    let final_transition = trace.state_transitions.last();
+    let mut lines = vec![
+        format!("path: {}", trace_path.display()),
+        format!("trace_id: {}", trace.trace_id),
+        format!("execution_id: {}", trace.execution_id),
+        format!("request_id: {}", trace.request_id),
+        format!("governing_spec: {}", trace.governing_spec),
+        format!("result_status: {:?}", trace.result.status).to_lowercase(),
+        format!(
+            "state_machine_validation: {:?}",
+            trace.state_machine_validation.status
+        )
+        .to_lowercase(),
+        format!("state_transition_count: {}", trace.state_transitions.len()),
+        format!(
+            "candidate_count: {}",
+            trace.candidate_collection.candidates.len()
+        ),
+        format!(
+            "rejected_candidate_count: {}",
+            trace.candidate_collection.rejected_candidates.len()
+        ),
+        format!("execution_status: {:?}", trace.execution.status).to_lowercase(),
+    ];
+
+    if let Some(selected) = &trace.selection.selected_capability_id {
+        lines.push(format!("selected_capability_id: {selected}"));
+    }
+    if let Some(version) = &trace.selection.selected_capability_version {
+        lines.push(format!("selected_capability_version: {version}"));
+    }
+    if let Some(artifact_ref) = &trace.execution.artifact_ref {
+        lines.push(format!("artifact_ref: {artifact_ref}"));
+    }
+    if let Some(transition) = final_transition {
+        lines.push(format!(
+            "terminal_transition: {} -> {} ({})",
+            format!("{:?}", transition.from_state).to_lowercase(),
+            format!("{:?}", transition.to_state).to_lowercase(),
+            debug_enum_to_snake_case(&format!("{:?}", transition.reason_code))
+        ));
+    }
+    if let Some(error) = &trace.result.error {
+        lines.push(format!("error_code: {:?}", error.code).to_lowercase());
+        lines.push(format!("error_message: {}", error.message));
+    }
+
+    lines.join("\n")
+}
+
 fn usage() -> String {
-    "usage: traverse-cli <bundle|event|workflow> inspect <artifact-path>".to_string()
+    "usage: traverse-cli <bundle|event|trace|workflow|expedition> <inspect|register|execute> <artifact-path> [--trace-out <trace-path>]".to_string()
+}
+
+fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), String> {
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            format!(
+                "failed to create trace artifact directory {}: {error}",
+                parent.display()
+            )
+        })?;
+    }
+
+    let serialized = serde_json::to_string_pretty(trace).map_err(|error| {
+        format!(
+            "failed to serialize runtime trace {}: {error}",
+            path.display()
+        )
+    })?;
+    fs::write(path, format!("{serialized}\n"))
+        .map_err(|error| format!("failed to write runtime trace {}: {error}", path.display()))
+}
+
+fn debug_enum_to_snake_case(value: &str) -> String {
+    let mut output = String::with_capacity(value.len() + 4);
+    for (index, ch) in value.chars().enumerate() {
+        if ch.is_ascii_uppercase() {
+            if index > 0 {
+                output.push('_');
+            }
+            output.push(ch.to_ascii_lowercase());
+        } else {
+            output.push(ch);
+        }
+    }
+    output
+}
+
+#[derive(Debug)]
+struct RegisteredBundle {
+    bundle: RegistryBundle,
+    capability_registry: CapabilityRegistry,
+    workflow_registry: WorkflowRegistry,
+    capability_records: Vec<String>,
+    event_records: Vec<String>,
+    workflow_records: Vec<String>,
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct ExpeditionExampleExecutor;
+
+impl LocalExecutor for ExpeditionExampleExecutor {
+    fn execute(
+        &self,
+        capability: &traverse_registry::ResolvedCapability,
+        input: &Value,
+    ) -> Result<Value, LocalExecutionFailure> {
+        match capability.contract.id.as_str() {
+            "expedition.planning.capture-expedition-objective" => {
+                execute_capture_expedition_objective(input)
+            }
+            "expedition.planning.interpret-expedition-intent" => {
+                execute_interpret_expedition_intent(input)
+            }
+            "expedition.planning.assess-conditions-summary" => {
+                execute_assess_conditions_summary(input)
+            }
+            "expedition.planning.validate-team-readiness" => execute_validate_team_readiness(input),
+            "expedition.planning.assemble-expedition-plan" => {
+                execute_assemble_expedition_plan(input)
+            }
+            other => Err(executor_failure(&format!(
+                "unsupported expedition example capability: {other}"
+            ))),
+        }
+    }
+}
+
+fn build_capability_registration(
+    bundle: &RegistryBundle,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+) -> Result<CapabilityRegistration, String> {
+    let raw_contract = read_text_file(&capability.path, "capability contract")?;
+    let envelope =
+        parse_capability_registration_envelope(&raw_contract, capability.path.as_path())?;
+    let implementation_kind = derive_implementation_kind(envelope.get("composability"));
+    let workflow_ref = derive_workflow_ref(envelope.get("composability"))?;
+    let composability =
+        derive_composability_metadata(implementation_kind, workflow_ref.as_ref(), capability)?;
+    let artifact = build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
+
+    Ok(CapabilityRegistration {
+        scope: bundle.scope,
+        contract: capability.contract.clone(),
+        contract_path: capability.path.display().to_string(),
+        artifact,
+        registered_at: bundle_registered_at(bundle),
+        tags: Vec::new(),
+        composability,
+        governing_spec: "005-capability-registry".to_string(),
+        validator_version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, String> {
+    let bundle =
+        load_registry_bundle(manifest_path).map_err(|failure| failure.errors[0].message.clone())?;
+
+    let mut capability_registry = CapabilityRegistry::new();
+    let mut event_registry = EventRegistry::new();
+    let mut workflow_registry = WorkflowRegistry::new();
+    let mut capability_records = Vec::new();
+    let mut event_records = Vec::new();
+    let mut workflow_records = Vec::new();
+
+    for capability in &bundle.capabilities {
+        let request = build_capability_registration(&bundle, capability)?;
+        let outcome = capability_registry
+            .register(request)
+            .map_err(render_registry_failure)?;
+        capability_records.push(format_capability_record(
+            &outcome.record.id,
+            &outcome.record.version,
+            outcome.record.implementation_kind,
+        ));
+    }
+
+    for event in &bundle.events {
+        let outcome = event_registry
+            .register(EventRegistration {
+                scope: bundle.scope,
+                contract: event.contract.clone(),
+                contract_path: event.path.display().to_string(),
+                registered_at: bundle_registered_at(&bundle),
+                governing_spec: "011-event-registry".to_string(),
+                validator_version: env!("CARGO_PKG_VERSION").to_string(),
+            })
+            .map_err(render_event_registry_failure)?;
+        event_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
+    }
+
+    for workflow in &bundle.workflows {
+        let outcome = workflow_registry
+            .register(
+                &capability_registry,
+                WorkflowRegistration {
+                    scope: bundle.scope,
+                    definition: workflow.definition.clone(),
+                    workflow_path: workflow.path.display().to_string(),
+                    registered_at: bundle_registered_at(&bundle),
+                    validator_version: env!("CARGO_PKG_VERSION").to_string(),
+                },
+            )
+            .map_err(render_workflow_failure)?;
+        workflow_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
+    }
+
+    Ok(RegisteredBundle {
+        bundle,
+        capability_registry,
+        workflow_registry,
+        capability_records,
+        event_records,
+        workflow_records,
+    })
+}
+
+fn load_runtime_request(request_path: &Path) -> Result<RuntimeRequest, String> {
+    let contents = read_text_file(request_path, "runtime request")?;
+    parse_runtime_request(&contents).map_err(|error| {
+        format!(
+            "failed to parse runtime request {}: {error}",
+            request_path.display()
+        )
+    })
+}
+
+fn parse_capability_registration_envelope(
+    raw_contract: &str,
+    path: &Path,
+) -> Result<Value, String> {
+    serde_json::from_str::<Value>(raw_contract).map_err(|error| {
+        format!(
+            "failed to parse capability registration metadata {}: {error}",
+            path.display()
+        )
+    })
+}
+
+fn derive_implementation_kind(composability_value: Option<&Value>) -> ImplementationKind {
+    match composability_value
+        .and_then(|composability| composability.get("implementation_kind"))
+        .and_then(Value::as_str)
+    {
+        Some("workflow") => ImplementationKind::Workflow,
+        _ => ImplementationKind::Executable,
+    }
+}
+
+fn derive_workflow_ref(
+    composability_value: Option<&Value>,
+) -> Result<Option<WorkflowReference>, String> {
+    composability_value
+        .and_then(|composability| composability.get("workflow_ref"))
+        .map(parse_workflow_ref)
+        .transpose()
+}
+
+fn derive_composability_metadata(
+    implementation_kind: ImplementationKind,
+    workflow_ref: Option<&WorkflowReference>,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+) -> Result<ComposabilityMetadata, String> {
+    let requires = capability
+        .contract
+        .consumes
+        .iter()
+        .map(|event| event.event_id.clone())
+        .collect();
+
+    match implementation_kind {
+        ImplementationKind::Workflow => {
+            if workflow_ref.is_none() {
+                return Err(format!(
+                    "workflow-backed capability {} must declare workflow_ref",
+                    capability.contract.id
+                ));
+            }
+            Ok(ComposabilityMetadata {
+                kind: CompositionKind::Composite,
+                patterns: vec![CompositionPattern::Sequential],
+                provides: vec![capability.contract.id.clone()],
+                requires,
+            })
+        }
+        ImplementationKind::Executable => Ok(ComposabilityMetadata {
+            kind: CompositionKind::Atomic,
+            patterns: vec![CompositionPattern::Sequential],
+            provides: vec![capability.contract.id.clone()],
+            requires,
+        }),
+    }
+}
+
+fn build_capability_artifact(
+    bundle: &RegistryBundle,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+    implementation_kind: ImplementationKind,
+    workflow_ref: Option<WorkflowReference>,
+) -> CapabilityArtifactRecord {
+    CapabilityArtifactRecord {
+        artifact_ref: format!(
+            "bundle:{}:{}:{}",
+            bundle.bundle_id, capability.contract.id, capability.contract.version
+        ),
+        implementation_kind,
+        source: SourceReference {
+            kind: SourceKind::Local,
+            location: capability.path.display().to_string(),
+        },
+        binary: match implementation_kind {
+            ImplementationKind::Executable => Some(BinaryReference {
+                format: BinaryFormat::Wasm,
+                location: format!(
+                    "bundled://{}/{}/module.wasm",
+                    capability.contract.id, capability.contract.version
+                ),
+            }),
+            ImplementationKind::Workflow => None,
+        },
+        workflow_ref,
+        digests: ArtifactDigests {
+            source_digest: format!(
+                "source:{}:{}",
+                capability.contract.id, capability.contract.version
+            ),
+            binary_digest: match implementation_kind {
+                ImplementationKind::Executable => Some(format!(
+                    "binary:{}:{}",
+                    capability.contract.id, capability.contract.version
+                )),
+                ImplementationKind::Workflow => None,
+            },
+        },
+        provenance: RegistryProvenance {
+            source: provenance_source_label(&capability.contract.provenance.source),
+            author: capability.contract.provenance.author.clone(),
+            created_at: capability.contract.provenance.created_at.clone(),
+        },
+    }
+}
+
+fn bundle_registered_at(bundle: &RegistryBundle) -> String {
+    format!("bundle:{}@{}", bundle.bundle_id, bundle.version)
+}
+
+fn parse_workflow_ref(value: &Value) -> Result<WorkflowReference, String> {
+    let workflow_id = value
+        .get("workflow_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "workflow_ref.workflow_id must be a string".to_string())?;
+    let workflow_version = value
+        .get("workflow_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| "workflow_ref.workflow_version must be a string".to_string())?;
+    Ok(WorkflowReference {
+        workflow_id: workflow_id.to_string(),
+        workflow_version: workflow_version.to_string(),
+    })
+}
+
+fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> String {
+    match source {
+        traverse_contracts::ProvenanceSource::Greenfield => "greenfield",
+        traverse_contracts::ProvenanceSource::BrownfieldExtracted => "brownfield-extracted",
+        traverse_contracts::ProvenanceSource::AiGenerated => "ai-generated",
+        traverse_contracts::ProvenanceSource::AiAssisted => "ai-assisted",
+    }
+    .to_string()
+}
+
+fn canonical_expedition_bundle_path() -> PathBuf {
+    repo_root().join("examples/expedition/registry-bundle/manifest.json")
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn format_capability_record(
+    id: &str,
+    version: &str,
+    implementation_kind: ImplementationKind,
+) -> String {
+    let kind = match implementation_kind {
+        ImplementationKind::Executable => "executable",
+        ImplementationKind::Workflow => "workflow",
+    };
+    format!("{id}@{version} ({kind})")
+}
+
+fn render_registry_failure(failure: traverse_registry::RegistryFailure) -> String {
+    failure
+        .errors
+        .into_iter()
+        .map(|error| format!("{} at {}", error.message, error.target))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn render_event_registry_failure(failure: traverse_registry::EventRegistryFailure) -> String {
+    failure
+        .errors
+        .into_iter()
+        .map(|error| format!("{} at {}", error.message, error.target))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn render_workflow_failure(failure: traverse_registry::WorkflowFailure) -> String {
+    failure
+        .errors
+        .into_iter()
+        .map(|error| format!("{} at {}", error.message, error.path))
+        .collect::<Vec<_>>()
+        .join("; ")
+}
+
+fn render_runtime_execution_failure(outcome: &RuntimeExecutionOutcome) -> String {
+    match &outcome.result.error {
+        Some(error) => format!("runtime execution failed: {}", error.message),
+        None => "runtime execution failed".to_string(),
+    }
+}
+
+fn execute_capture_expedition_objective(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let destination = required_value(map, "destination")?;
+    let target_window = required_value(map, "target_window")?;
+    let preferences = required_value(map, "preferences")?;
+    let notes = required_value(map, "notes")?;
+    let objective_id = format!("objective-{}", slug(required_string(map, "destination")?));
+    let objective = serde_json::json!({
+        "objective_id": objective_id,
+        "destination": destination.clone(),
+        "target_window": target_window.clone(),
+        "preferences": preferences.clone(),
+        "notes": notes.clone()
+    });
+
+    Ok(serde_json::json!({
+        "objective_id": objective_id,
+        "destination": destination.clone(),
+        "target_window": target_window.clone(),
+        "preferences": preferences.clone(),
+        "notes": notes.clone(),
+        "objective": objective,
+        "emitted_events": [event_ref("expedition.planning.expedition-objective-captured")]
+    }))
+}
+
+fn execute_interpret_expedition_intent(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let preferences = required_object(objective, "preferences")?;
+    let style = required_string(preferences, "style")?;
+    let priority = required_string(preferences, "priority")?;
+    let planning_intent = required_string(map, "planning_intent")?;
+    let interpreted_intent = serde_json::json!({
+        "intent_id": format!("intent-{objective_id}"),
+        "objective_id": objective_id,
+        "route_preferences": [style, priority],
+        "constraints": [format!("priority:{priority}")],
+        "assumptions": [planning_intent],
+        "confidence": 0.87
+    });
+
+    Ok(serde_json::json!({
+        "intent_id": format!("intent-{objective_id}"),
+        "objective_id": objective_id,
+        "route_preferences": [style, priority],
+        "constraints": [format!("priority:{priority}")],
+        "assumptions": [planning_intent],
+        "confidence": 0.87,
+        "interpreted_intent": interpreted_intent,
+        "emitted_events": [event_ref("expedition.planning.expedition-intent-interpreted")]
+    }))
+}
+
+fn execute_assess_conditions_summary(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let destination = required_string(objective, "destination")?;
+    let interpreted = required_object(map, "interpreted_intent")?;
+    let route_preferences = required_string_array(interpreted, "route_preferences")?;
+    let conditions_summary = serde_json::json!({
+        "conditions_summary_id": format!("conditions-{objective_id}"),
+        "objective_id": objective_id,
+        "overall_rating": "watchful",
+        "key_findings": [format!("stable morning window for {destination}"), format!("preferred style: {}", route_preferences.first().cloned().unwrap_or_else(|| "conservative".to_string()))],
+        "blocking_concerns": []
+    });
+
+    Ok(serde_json::json!({
+        "conditions_summary_id": format!("conditions-{objective_id}"),
+        "objective_id": objective_id,
+        "overall_rating": "watchful",
+        "key_findings": [format!("stable morning window for {destination}"), format!("preferred style: {}", route_preferences.first().cloned().unwrap_or_else(|| "conservative".to_string()))],
+        "blocking_concerns": [],
+        "conditions_summary": conditions_summary,
+        "emitted_events": [event_ref("expedition.planning.conditions-summary-assessed")]
+    }))
+}
+
+fn execute_validate_team_readiness(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let team_profile = required_object(map, "team_profile")?;
+    let equipment_ready = required_bool(team_profile, "equipment_ready")?;
+    let status = if equipment_ready {
+        "ready"
+    } else {
+        "needs_action"
+    };
+    let required_actions = if equipment_ready {
+        Vec::<String>::new()
+    } else {
+        vec!["complete equipment verification".to_string()]
+    };
+    let readiness_result = serde_json::json!({
+        "readiness_result_id": format!("readiness-{objective_id}"),
+        "objective_id": objective_id,
+        "status": status,
+        "reasons": ["team profile satisfies baseline expedition requirements"],
+        "required_actions": required_actions.clone()
+    });
+
+    Ok(serde_json::json!({
+        "readiness_result_id": format!("readiness-{objective_id}"),
+        "objective_id": objective_id,
+        "status": status,
+        "reasons": ["team profile satisfies baseline expedition requirements"],
+        "required_actions": required_actions,
+        "readiness_result": readiness_result,
+        "emitted_events": [event_ref("expedition.planning.team-readiness-validated")]
+    }))
+}
+
+fn execute_assemble_expedition_plan(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let objective = required_object(map, "objective")?;
+    let objective_id = required_string(objective, "objective_id")?;
+    let interpreted = required_object(map, "interpreted_intent")?;
+    let route_preferences = required_string_array(interpreted, "route_preferences")?;
+    let constraints = required_string_array(interpreted, "constraints")?;
+    let readiness = required_object(map, "readiness_result")?;
+    let readiness_status = required_string(readiness, "status")?;
+    let readiness_reasons = required_string_array(readiness, "reasons")?;
+    let required_actions = required_string_array(readiness, "required_actions")?;
+    let route_style = route_preferences
+        .first()
+        .cloned()
+        .unwrap_or_else(|| "conservative-alpine-push".to_string());
+
+    let mut readiness_notes = readiness_reasons;
+    readiness_notes.extend(required_actions);
+
+    Ok(serde_json::json!({
+        "plan_id": format!("plan-{objective_id}"),
+        "objective_id": objective_id,
+        "status": if readiness_status == "ready" { "ready" } else { "requires_attention" },
+        "recommended_route_style": route_style,
+        "key_steps": [
+            "depart before sunrise",
+            "reassess winds at mid-route checkpoint",
+            "apply conservative turnaround time"
+        ],
+        "constraints": constraints,
+        "readiness_notes": readiness_notes,
+        "summary": "Proceed with a conservative same-day ascent plan under a limited morning weather window.",
+        "emitted_events": [event_ref("expedition.planning.expedition-plan-assembled")]
+    }))
+}
+
+fn event_ref(event_id: &str) -> Value {
+    serde_json::json!({
+        "event_id": event_id,
+        "version": "1.0.0"
+    })
+}
+
+fn input_object(value: &Value) -> Result<&serde_json::Map<String, Value>, LocalExecutionFailure> {
+    value
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))
+}
+
+fn required_object<'a>(
+    map: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a serde_json::Map<String, Value>, LocalExecutionFailure> {
+    map.get(key)
+        .and_then(Value::as_object)
+        .ok_or_else(|| executor_failure(&format!("missing object field: {key}")))
+}
+
+fn required_value<'a>(
+    map: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a Value, LocalExecutionFailure> {
+    map.get(key)
+        .ok_or_else(|| executor_failure(&format!("missing field: {key}")))
+}
+
+fn required_string<'a>(
+    map: &'a serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<&'a str, LocalExecutionFailure> {
+    map.get(key)
+        .and_then(Value::as_str)
+        .ok_or_else(|| executor_failure(&format!("missing string field: {key}")))
+}
+
+fn required_bool(
+    map: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<bool, LocalExecutionFailure> {
+    map.get(key)
+        .and_then(Value::as_bool)
+        .ok_or_else(|| executor_failure(&format!("missing boolean field: {key}")))
+}
+
+fn required_string_array(
+    map: &serde_json::Map<String, Value>,
+    key: &str,
+) -> Result<Vec<String>, LocalExecutionFailure> {
+    let items = map
+        .get(key)
+        .and_then(Value::as_array)
+        .ok_or_else(|| executor_failure(&format!("missing string array field: {key}")))?;
+
+    items
+        .iter()
+        .map(|item| {
+            item.as_str()
+                .map(ToString::to_string)
+                .ok_or_else(|| executor_failure(&format!("invalid string array field: {key}")))
+        })
+        .collect()
+}
+
+fn executor_failure(message: &str) -> LocalExecutionFailure {
+    LocalExecutionFailure {
+        code: LocalExecutionFailureCode::ExecutionFailed,
+        message: message.to_string(),
+    }
+}
+
+fn slug(value: &str) -> String {
+    let mut slug = String::new();
+    for component in Path::new(value).components() {
+        if let Component::Normal(part) = component {
+            let part = part.to_string_lossy();
+            for ch in part.chars() {
+                if ch.is_ascii_alphanumeric() {
+                    slug.push(ch.to_ascii_lowercase());
+                }
+            }
+        }
+    }
+    if slug.is_empty() {
+        "expedition".to_string()
+    } else {
+        slug
+    }
 }
 
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
 
-    use super::{inspect_bundle, inspect_event, inspect_workflow, parse_command};
+    use super::{
+        execute_expedition, inspect_bundle, inspect_event, inspect_trace, inspect_workflow,
+        parse_command, register_bundle,
+    };
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -239,6 +1093,18 @@ mod tests {
             "inspect".to_string(),
             "examples/expedition/registry-bundle/manifest.json".to_string(),
         ];
+        let bundle_register = vec![
+            "traverse-cli".to_string(),
+            "bundle".to_string(),
+            "register".to_string(),
+            "examples/expedition/registry-bundle/manifest.json".to_string(),
+        ];
+        let expedition_execute = vec![
+            "traverse-cli".to_string(),
+            "expedition".to_string(),
+            "execute".to_string(),
+            "examples/expedition/runtime-requests/plan-expedition.json".to_string(),
+        ];
         let event = vec![
             "traverse-cli".to_string(),
             "event".to_string(),
@@ -246,15 +1112,33 @@ mod tests {
             "contracts/examples/expedition/events/expedition-objective-captured/contract.json"
                 .to_string(),
         ];
+        let trace = vec![
+            "traverse-cli".to_string(),
+            "trace".to_string(),
+            "inspect".to_string(),
+            "/tmp/plan-expedition-trace.json".to_string(),
+        ];
         let workflow = vec![
             "traverse-cli".to_string(),
             "workflow".to_string(),
             "inspect".to_string(),
             "workflows/examples/expedition/plan-expedition/workflow.json".to_string(),
         ];
+        let expedition_execute_with_trace = vec![
+            "traverse-cli".to_string(),
+            "expedition".to_string(),
+            "execute".to_string(),
+            "examples/expedition/runtime-requests/plan-expedition.json".to_string(),
+            "--trace-out".to_string(),
+            "/tmp/plan-expedition-trace.json".to_string(),
+        ];
 
         assert!(parse_command(&bundle).is_ok());
+        assert!(parse_command(&bundle_register).is_ok());
+        assert!(parse_command(&expedition_execute).is_ok());
+        assert!(parse_command(&expedition_execute_with_trace).is_ok());
         assert!(parse_command(&event).is_ok());
+        assert!(parse_command(&trace).is_ok());
         assert!(parse_command(&workflow).is_ok());
     }
 
@@ -303,6 +1187,161 @@ mod tests {
 
         let error = inspect_bundle(&manifest_path).expect_err("missing artifact path should fail");
         assert!(error.contains("missing artifact file"));
+    }
+
+    #[test]
+    fn register_bundle_registers_canonical_expedition_artifacts() {
+        let manifest_path = repo_root().join("examples/expedition/registry-bundle/manifest.json");
+
+        let output = register_bundle(&manifest_path).expect("bundle register should succeed");
+
+        assert!(output.contains("registered_capabilities: 6"));
+        assert!(output.contains("registered_events: 5"));
+        assert!(output.contains("registered_workflows: 1"));
+        assert!(output.contains("expedition.planning.plan-expedition@1.0.0 (workflow)"));
+    }
+
+    #[test]
+    fn register_bundle_rejects_duplicate_manifest_entries() {
+        let temp_dir = unique_temp_dir();
+        let manifest_path = temp_dir.join("manifest.json");
+        fs::write(
+            &manifest_path,
+            r#"{
+  "bundle_id": "expedition.planning.seed-bundle",
+  "version": "1.0.0",
+  "scope": "public",
+  "capabilities": [
+    {
+      "id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
+    },
+    {
+      "id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "../../../contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
+    }
+  ],
+  "events": [],
+  "workflows": []
+}"#,
+        )
+        .expect("manifest should write");
+
+        let error =
+            register_bundle(&manifest_path).expect_err("duplicate bundle entries should fail");
+
+        assert!(error.contains("duplicate capability artifact entry"));
+    }
+
+    #[test]
+    fn execute_expedition_runs_canonical_plan_request() {
+        let request_path =
+            repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
+
+        let output =
+            execute_expedition(&request_path, None).expect("expedition execution should succeed");
+
+        assert!(output.contains("capability_id: expedition.planning.plan-expedition"));
+        assert!(output.contains("status: completed"));
+        assert!(output.contains("recommended_route_style: conservative-alpine-push"));
+    }
+
+    #[test]
+    fn execute_expedition_writes_trace_artifact_when_requested() {
+        let request_path =
+            repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
+        let temp_dir = unique_temp_dir();
+        let trace_path = temp_dir.join("plan-expedition-trace.json");
+
+        let output = execute_expedition(&request_path, Some(&trace_path))
+            .expect("expedition execution with trace output should succeed");
+
+        assert!(output.contains(&format!("trace_path: {}", trace_path.display())));
+        let trace_contents = fs::read_to_string(&trace_path).expect("trace file should exist");
+        assert!(trace_contents.contains("\"kind\": \"runtime_trace\""));
+        assert!(trace_contents.contains("\"trace_id\":"));
+    }
+
+    #[test]
+    fn execute_expedition_rejects_invalid_request_input() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.join("invalid-runtime-request.json");
+        fs::write(
+            &path,
+            r#"{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "invalid-expedition-plan-request",
+  "intent": {
+    "capability_id": "expedition.planning.plan-expedition",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "destination": "Sky Pilot",
+    "target_window": {
+      "start": "2026-07-20T04:30:00Z",
+      "end": "2026-07-20T16:00:00Z"
+    },
+    "preferences": {
+      "style": "conservative-alpine-push",
+      "risk_tolerance": "moderate",
+      "priority": "same-day-return"
+    },
+    "notes": "Missing planning intent on purpose.",
+    "team_profile": {
+      "team_id": "team-alpine-01",
+      "member_count": 3,
+      "experience_level": "advanced",
+      "equipment_ready": true
+    }
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}"#,
+        )
+        .expect("runtime request should write");
+
+        let error =
+            execute_expedition(&path, None).expect_err("invalid expedition execution should fail");
+
+        assert!(error.contains("runtime execution failed"));
+        assert!(error.contains("runtime request input does not satisfy"));
+    }
+
+    #[test]
+    fn inspect_trace_renders_generated_expedition_trace() {
+        let request_path =
+            repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
+        let temp_dir = unique_temp_dir();
+        let trace_path = temp_dir.join("plan-expedition-trace.json");
+
+        execute_expedition(&request_path, Some(&trace_path))
+            .expect("expedition execution with trace output should succeed");
+
+        let output = inspect_trace(&trace_path).expect("trace inspect should succeed");
+
+        assert!(output.contains("trace_id: trace_exec_expedition-plan-request-001"));
+        assert!(output.contains("result_status: completed"));
+        assert!(output.contains("selected_capability_id: expedition.planning.plan-expedition"));
+    }
+
+    #[test]
+    fn inspect_trace_rejects_malformed_trace_artifact() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.join("trace.json");
+        fs::write(&path, "{\"trace_id\":true}").expect("trace file should write");
+
+        let error = inspect_trace(&path).expect_err("malformed trace should fail");
+
+        assert!(error.contains("failed to parse runtime trace"));
     }
 
     #[test]

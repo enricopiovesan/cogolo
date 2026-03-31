@@ -5,7 +5,7 @@
   "namespace": "expedition.planning",
   "name": "team-readiness-validated",
   "version": "1.0.0",
-  "lifecycle": "draft",
+  "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"

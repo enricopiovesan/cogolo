@@ -17,6 +17,15 @@ jobs:
       - name: Run expedition artifact smoke path
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_artifact_smoke.sh
 
+      - name: Run expedition execution smoke path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_execution_smoke.sh
+
+      - name: Run expedition trace smoke path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_trace_smoke.sh
+
+      - name: Run expedition golden path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_golden_path.sh
+
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
 

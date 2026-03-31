@@ -1,0 +1,39 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "expedition-plan-request-001",
+  "intent": {
+    "capability_id": "expedition.planning.plan-expedition",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "destination": "Sky Pilot",
+    "target_window": {
+      "start": "2026-07-20T04:30:00Z",
+      "end": "2026-07-20T16:00:00Z"
+    },
+    "preferences": {
+      "style": "conservative-alpine-push",
+      "risk_tolerance": "moderate",
+      "priority": "same-day-return"
+    },
+    "notes": "Prefer an early start and a conservative turnaround decision if winds build.",
+    "planning_intent": "Plan a same-day alpine push with a conservative turnaround point and clear readiness actions.",
+    "team_profile": {
+      "team_id": "team-alpine-01",
+      "member_count": 3,
+      "experience_level": "advanced",
+      "equipment_ready": true
+    }
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "correlation_id": "expedition-demo-correlation-001",
+    "caller": "expedition-demo-cli"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
