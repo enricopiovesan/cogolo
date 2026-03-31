@@ -83,7 +83,6 @@ Trace inspection:
 ```bash
 cargo run -p traverse-cli -- trace inspect "$tmpdir/plan-expedition-trace.json"
 ```
-
 Event contract inspection:
 
 ```bash
@@ -119,14 +118,16 @@ The bundle inspection output must include:
 - `expedition.planning.assemble-expedition-plan`
 - `expedition.planning.plan-expedition`
 
-And the workflow section must include:
-
-- `expedition.planning.plan-expedition@1.0.0`
-
 The bundle registration output must include:
 
 - `registered_capabilities: 6`
 - `registered_events: 5`
+- `registered_workflows: 1`
+- `expedition.planning.plan-expedition@1.0.0 (workflow)`
+
+And the workflow section must include:
+
+- `expedition.planning.plan-expedition@1.0.0`
 - `registered_workflows: 1`
 - `expedition.planning.plan-expedition@1.0.0 (workflow)`
 
