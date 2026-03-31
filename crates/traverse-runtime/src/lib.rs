@@ -2778,9 +2778,8 @@ mod tests {
                     schema_version: "1.0.0".to_string(),
                     sequence: 0,
                     code: BrowserRuntimeSubscriptionErrorCode::NotFound,
-                    message:
-                        "subscription target did not match the supplied execution outcome"
-                            .to_string(),
+                    message: "subscription target did not match the supplied execution outcome"
+                        .to_string(),
                 }
             )]
         );

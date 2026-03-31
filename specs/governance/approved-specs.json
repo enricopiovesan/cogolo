@@ -123,6 +123,17 @@
       ]
     },
     {
+      "id": "013-browser-runtime-subscription",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/013-browser-runtime-subscription/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
       "id": "011-event-registry",
       "version": "1.0.0",
       "status": "approved",
