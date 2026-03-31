@@ -41,6 +41,9 @@ jobs:
       - name: Run Rust checks
         run: bash scripts/ci/rust_checks.sh
 
+      - name: Run event-driven workflow smoke path
+        run: bash scripts/ci/event_driven_workflow_smoke.sh
+
   coverage-gate:
     runs-on: ubuntu-latest
 

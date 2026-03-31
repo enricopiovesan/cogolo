@@ -5,10 +5,11 @@ use crate::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
+use std::collections::BTreeSet;
 use traverse_contracts::EventReference;
 use traverse_registry::{
     LookupScope, RegistryScope, ResolvedCapability, ResolvedWorkflow, WorkflowEdge,
-    WorkflowEdgeTrigger, WorkflowNode,
+    WorkflowEdgePredicate, WorkflowEdgeTrigger, WorkflowNode,
 };
 
 const WORKFLOW_REQUEST_KIND: &str = "workflow_execution_request";
@@ -47,6 +48,14 @@ pub struct WorkflowTraversalEvidence {
     pub visited_nodes: Vec<WorkflowTraversalStepRecord>,
     pub traversed_edges: Vec<WorkflowTraversalEdgeRecord>,
     pub emitted_events: Vec<EventReference>,
+    #[serde(default)]
+    pub waiting_edges: Vec<WaitingWorkflowEdgeContext>,
+    #[serde(default)]
+    pub event_match_records: Vec<EventMatchRecord>,
+    #[serde(default)]
+    pub event_wake_decisions: Vec<EventWakeDecision>,
+    #[serde(default)]
+    pub event_consumptions: Vec<EventConsumptionRecord>,
     pub result: WorkflowTraversalResult,
 }
 
@@ -75,6 +84,72 @@ pub struct WorkflowTraversalEdgeRecord {
     pub trigger: WorkflowTraversalTrigger,
     #[serde(default)]
     pub event: Option<EventReference>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WaitingWorkflowEdgeContext {
+    pub workflow_execution_id: String,
+    pub edge_id: String,
+    pub from_node_id: String,
+    pub to_node_id: String,
+    pub event_ref: EventReference,
+    #[serde(default)]
+    pub predicate: Option<WorkflowEdgePredicate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventMatchRecord {
+    pub event_id: String,
+    pub event_version: String,
+    pub edge_id: String,
+    pub match_result: EventMatchResult,
+    #[serde(default)]
+    pub predicate_result: Option<EventPredicateResult>,
+    #[serde(default)]
+    pub rejection_reason: Option<String>,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventMatchResult {
+    Matched,
+    NotMatched,
+    AlreadyConsumed,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventPredicateResult {
+    Passed,
+    Failed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventWakeDecision {
+    pub decision_type: String,
+    pub event_id: String,
+    pub event_version: String,
+    pub edge_id: String,
+    pub workflow_execution_id: String,
+    pub wake_order: usize,
+    pub result: EventWakeDecisionResult,
+    pub recorded_at: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum EventWakeDecisionResult {
+    Taken,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct EventConsumptionRecord {
+    pub event_id: String,
+    pub event_version: String,
+    pub edge_id: String,
+    pub workflow_execution_id: String,
+    pub consumed_at: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -129,6 +204,27 @@ pub struct WorkflowExecutionOutcome {
     pub evidence: WorkflowTraversalEvidence,
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct EmittedEventRecord {
+    record_id: String,
+    event: EventReference,
+    payload: Option<Value>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct WorkflowEventEvidenceBundle {
+    waiting_edges: Vec<WaitingWorkflowEdgeContext>,
+    match_records: Vec<EventMatchRecord>,
+    wake_decisions: Vec<EventWakeDecision>,
+    consumptions: Vec<EventConsumptionRecord>,
+}
+
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+struct EventDrivenEvaluationOutcome {
+    taken_edge_ids: Vec<String>,
+    evidence: WorkflowEventEvidenceBundle,
+}
+
 impl<E> Runtime<E>
 where
     E: LocalExecutor,
@@ -144,6 +240,7 @@ where
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                WorkflowEventEvidenceBundle::default(),
             );
         }
 
@@ -164,6 +261,7 @@ where
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                WorkflowEventEvidenceBundle::default(),
             );
         };
 
@@ -180,6 +278,7 @@ where
                 Vec::new(),
                 Vec::new(),
                 Vec::new(),
+                WorkflowEventEvidenceBundle::default(),
             );
         }
 
@@ -277,6 +376,9 @@ where
         let mut visited = Vec::new();
         let mut traversed = Vec::new();
         let mut emitted = Vec::new();
+        let mut event_evidence = WorkflowEventEvidenceBundle::default();
+        let mut consumed_event_edges = BTreeSet::new();
+        let workflow_execution_id = format!("workflow_exec_{}", request.request_id);
 
         loop {
             let Some(node) = workflow
@@ -296,6 +398,7 @@ where
                     visited,
                     traversed,
                     emitted,
+                    event_evidence,
                 ));
             };
 
@@ -324,6 +427,7 @@ where
                     visited,
                     traversed,
                     emitted,
+                    event_evidence,
                 ));
             };
 
@@ -345,6 +449,7 @@ where
                     failed,
                     traversed,
                     emitted,
+                    event_evidence,
                 ));
             }
 
@@ -366,6 +471,7 @@ where
                         failed,
                         traversed,
                         emitted,
+                        event_evidence,
                     ));
                 }
             };
@@ -387,12 +493,13 @@ where
                     failed,
                     traversed,
                     emitted,
+                    event_evidence,
                 ));
             }
 
             update_state(&mut state, node, &output);
             let node_emitted = emitted_events(&output);
-            emitted.extend(node_emitted.clone());
+            emitted.extend(node_emitted.iter().map(|record| record.event.clone()));
             if let Some(last) = visited.last_mut() {
                 last.status = WorkflowTraversalStepStatus::Completed;
             }
@@ -421,6 +528,7 @@ where
                     visited,
                     traversed,
                     emitted,
+                    event_evidence,
                 ));
             }
             if let Some(edge) = direct.into_iter().next() {
@@ -430,15 +538,40 @@ where
                 continue;
             }
 
+            let waiting_edges = waiting_edge_contexts(
+                &workflow_execution_id,
+                outgoing
+                    .iter()
+                    .filter(|edge| edge.trigger == WorkflowEdgeTrigger::Event)
+                    .cloned()
+                    .collect::<Vec<_>>()
+                    .as_slice(),
+            );
+            if !waiting_edges.is_empty() {
+                event_evidence.waiting_edges.extend(waiting_edges.clone());
+            }
+            let evaluation = evaluate_event_driven_edges(
+                &waiting_edges,
+                &node_emitted,
+                &mut consumed_event_edges,
+                &format!("{}:step:{step_index}", request.request_id),
+            );
+            event_evidence
+                .match_records
+                .extend(evaluation.evidence.match_records.iter().cloned());
+            event_evidence
+                .wake_decisions
+                .extend(evaluation.evidence.wake_decisions.iter().cloned());
+            event_evidence
+                .consumptions
+                .extend(evaluation.evidence.consumptions.iter().cloned());
             let matched_event_edges = outgoing
                 .iter()
-                .filter(|edge| edge.trigger == WorkflowEdgeTrigger::Event)
                 .filter(|edge| {
-                    edge.event.as_ref().is_some_and(|required| {
-                        node_emitted
-                            .iter()
-                            .any(|emitted_event| emitted_event == required)
-                    })
+                    evaluation
+                        .taken_edge_ids
+                        .iter()
+                        .any(|edge_id| edge_id == &edge.edge_id)
                 })
                 .cloned()
                 .collect::<Vec<_>>();
@@ -454,6 +587,7 @@ where
                     visited,
                     traversed,
                     emitted,
+                    event_evidence,
                 ));
             }
             if let Some(edge) = matched_event_edges.into_iter().next() {
@@ -478,6 +612,7 @@ where
                         visited,
                         traversed,
                         emitted,
+                        event_evidence,
                     ));
                 }
 
@@ -492,6 +627,10 @@ where
                     visited_nodes: visited,
                     traversed_edges: traversed,
                     emitted_events: emitted,
+                    waiting_edges: event_evidence.waiting_edges,
+                    event_match_records: event_evidence.match_records,
+                    event_wake_decisions: event_evidence.wake_decisions,
+                    event_consumptions: event_evidence.consumptions,
                     result: WorkflowTraversalResult {
                         status: WorkflowTraversalStatus::Completed,
                         failure_reason: None,
@@ -533,6 +672,7 @@ where
                 visited,
                 traversed,
                 emitted,
+                event_evidence,
             ));
         }
     }
@@ -612,7 +752,7 @@ fn update_state(state: &mut Map<String, Value>, node: &WorkflowNode, output: &Va
     }
 }
 
-fn emitted_events(output: &Value) -> Vec<EventReference> {
+fn emitted_events(output: &Value) -> Vec<EmittedEventRecord> {
     let Value::Object(object) = output else {
         return Vec::new();
     };
@@ -621,16 +761,193 @@ fn emitted_events(output: &Value) -> Vec<EventReference> {
     };
     events
         .iter()
-        .filter_map(|event| {
+        .enumerate()
+        .filter_map(|(index, event)| {
             let Value::Object(event) = event else {
                 return None;
             };
-            Some(EventReference {
-                event_id: event.get("event_id")?.as_str()?.to_string(),
-                version: event.get("version")?.as_str()?.to_string(),
+            Some(EmittedEventRecord {
+                record_id: format!("event_record_{index}"),
+                event: EventReference {
+                    event_id: event.get("event_id")?.as_str()?.to_string(),
+                    version: event.get("version")?.as_str()?.to_string(),
+                },
+                payload: event.get("payload").cloned(),
             })
         })
         .collect()
+}
+
+fn waiting_edge_contexts(
+    workflow_execution_id: &str,
+    edges: &[WorkflowEdge],
+) -> Vec<WaitingWorkflowEdgeContext> {
+    edges
+        .iter()
+        .filter_map(|edge| {
+            Some(WaitingWorkflowEdgeContext {
+                workflow_execution_id: workflow_execution_id.to_string(),
+                edge_id: edge.edge_id.clone(),
+                from_node_id: edge.from.clone(),
+                to_node_id: edge.to.clone(),
+                event_ref: edge.event.clone()?,
+                predicate: edge.predicate.clone(),
+            })
+        })
+        .collect()
+}
+
+#[allow(clippy::too_many_lines)]
+fn evaluate_event_driven_edges(
+    waiting_edges: &[WaitingWorkflowEdgeContext],
+    emitted_events: &[EmittedEventRecord],
+    consumed_event_edges: &mut BTreeSet<String>,
+    record_prefix: &str,
+) -> EventDrivenEvaluationOutcome {
+    let mut ordered_waiting_edges = waiting_edges.to_vec();
+    ordered_waiting_edges.sort_by(|left, right| {
+        left.workflow_execution_id
+            .cmp(&right.workflow_execution_id)
+            .then_with(|| left.edge_id.cmp(&right.edge_id))
+    });
+
+    let mut outcome = EventDrivenEvaluationOutcome::default();
+    if emitted_events.is_empty() {
+        outcome
+            .evidence
+            .match_records
+            .extend(ordered_waiting_edges.iter().map(|edge| EventMatchRecord {
+                event_id: edge.event_ref.event_id.clone(),
+                event_version: edge.event_ref.version.clone(),
+                edge_id: edge.edge_id.clone(),
+                match_result: EventMatchResult::NotMatched,
+                predicate_result: None,
+                rejection_reason: Some("required event was not emitted".to_string()),
+                recorded_at: format!("{record_prefix}:no_event:{}", edge.edge_id),
+            }));
+        return outcome;
+    }
+
+    let mut wake_order = 1;
+    for (event_index, emitted_event) in emitted_events.iter().enumerate() {
+        for waiting_edge in &ordered_waiting_edges {
+            let match_recorded_at = format!(
+                "{record_prefix}:event:{event_index}:match:{}",
+                waiting_edge.edge_id
+            );
+            if emitted_event.event != waiting_edge.event_ref {
+                outcome.evidence.match_records.push(EventMatchRecord {
+                    event_id: emitted_event.event.event_id.clone(),
+                    event_version: emitted_event.event.version.clone(),
+                    edge_id: waiting_edge.edge_id.clone(),
+                    match_result: EventMatchResult::NotMatched,
+                    predicate_result: None,
+                    rejection_reason: Some(
+                        "event id/version did not match the waiting edge".to_string(),
+                    ),
+                    recorded_at: match_recorded_at,
+                });
+                continue;
+            }
+
+            if let Some(predicate) = waiting_edge.predicate.as_ref() {
+                let predicate_passed =
+                    event_payload_field(emitted_event.payload.as_ref(), &predicate.field)
+                        .is_some_and(|value| value == &predicate.equals);
+                if !predicate_passed {
+                    outcome.evidence.match_records.push(EventMatchRecord {
+                        event_id: emitted_event.event.event_id.clone(),
+                        event_version: emitted_event.event.version.clone(),
+                        edge_id: waiting_edge.edge_id.clone(),
+                        match_result: EventMatchResult::NotMatched,
+                        predicate_result: Some(EventPredicateResult::Failed),
+                        rejection_reason: Some(
+                            "event predicate did not match the emitted payload".to_string(),
+                        ),
+                        recorded_at: match_recorded_at,
+                    });
+                    continue;
+                }
+            }
+
+            let consumption_key = format!(
+                "{}|{}|{}",
+                emitted_event.record_id, waiting_edge.workflow_execution_id, waiting_edge.edge_id
+            );
+            if consumed_event_edges.contains(&consumption_key) {
+                outcome.evidence.match_records.push(EventMatchRecord {
+                    event_id: emitted_event.event.event_id.clone(),
+                    event_version: emitted_event.event.version.clone(),
+                    edge_id: waiting_edge.edge_id.clone(),
+                    match_result: EventMatchResult::AlreadyConsumed,
+                    predicate_result: waiting_edge
+                        .predicate
+                        .as_ref()
+                        .map(|_| EventPredicateResult::Passed),
+                    rejection_reason: Some(
+                        "event record was already consumed for this waiting edge".to_string(),
+                    ),
+                    recorded_at: match_recorded_at,
+                });
+                continue;
+            }
+
+            consumed_event_edges.insert(consumption_key);
+            outcome.evidence.match_records.push(EventMatchRecord {
+                event_id: emitted_event.event.event_id.clone(),
+                event_version: emitted_event.event.version.clone(),
+                edge_id: waiting_edge.edge_id.clone(),
+                match_result: EventMatchResult::Matched,
+                predicate_result: waiting_edge
+                    .predicate
+                    .as_ref()
+                    .map(|_| EventPredicateResult::Passed),
+                rejection_reason: None,
+                recorded_at: match_recorded_at.clone(),
+            });
+            outcome.taken_edge_ids.push(waiting_edge.edge_id.clone());
+            let wake_recorded_at = format!(
+                "{record_prefix}:event:{event_index}:wake:{}",
+                waiting_edge.edge_id
+            );
+            outcome.evidence.wake_decisions.push(EventWakeDecision {
+                decision_type: "event_wake".to_string(),
+                event_id: emitted_event.event.event_id.clone(),
+                event_version: emitted_event.event.version.clone(),
+                edge_id: waiting_edge.edge_id.clone(),
+                workflow_execution_id: waiting_edge.workflow_execution_id.clone(),
+                wake_order,
+                result: EventWakeDecisionResult::Taken,
+                recorded_at: wake_recorded_at.clone(),
+            });
+            outcome.evidence.consumptions.push(EventConsumptionRecord {
+                event_id: emitted_event.event.event_id.clone(),
+                event_version: emitted_event.event.version.clone(),
+                edge_id: waiting_edge.edge_id.clone(),
+                workflow_execution_id: waiting_edge.workflow_execution_id.clone(),
+                consumed_at: wake_recorded_at,
+            });
+            wake_order += 1;
+        }
+    }
+    outcome
+}
+
+fn event_payload_field<'a>(payload: Option<&'a Value>, field: &str) -> Option<&'a Value> {
+    let payload = payload?;
+    let path = field.strip_prefix("payload.").unwrap_or(field);
+    if path == "payload" || path.is_empty() {
+        return Some(payload);
+    }
+
+    let mut current = payload;
+    for segment in path.split('.') {
+        let Value::Object(map) = current else {
+            return None;
+        };
+        current = map.get(segment)?;
+    }
+    Some(current)
 }
 
 fn edge_record(edge: &WorkflowEdge) -> WorkflowTraversalEdgeRecord {
@@ -653,6 +970,7 @@ fn workflow_failure(
     visited_nodes: Vec<WorkflowTraversalStepRecord>,
     traversed_edges: Vec<WorkflowTraversalEdgeRecord>,
     emitted_events: Vec<EventReference>,
+    event_evidence: WorkflowEventEvidenceBundle,
 ) -> WorkflowExecutionOutcome {
     let evidence = WorkflowTraversalEvidence {
         kind: WORKFLOW_EVIDENCE_KIND.to_string(),
@@ -665,6 +983,10 @@ fn workflow_failure(
         visited_nodes,
         traversed_edges,
         emitted_events,
+        waiting_edges: event_evidence.waiting_edges,
+        event_match_records: event_evidence.match_records,
+        event_wake_decisions: event_evidence.wake_decisions,
+        event_consumptions: event_evidence.consumptions,
         result: WorkflowTraversalResult {
             status: WorkflowTraversalStatus::Error,
             failure_reason: Some(failure_reason),
@@ -769,13 +1091,21 @@ mod tests {
             emitted_events(&json!({
                 "emitted_events": [
                     "bad",
-                    {"event_id": "content.comments.draft-created", "version": "1.0.0"},
+                    {
+                        "event_id": "content.comments.draft-created",
+                        "version": "1.0.0",
+                        "payload": {"severity": "normal"}
+                    },
                     {"event_id": "bad"}
                 ]
             })),
-            vec![EventReference {
-                event_id: "content.comments.draft-created".to_string(),
-                version: "1.0.0".to_string(),
+            vec![EmittedEventRecord {
+                record_id: "event_record_1".to_string(),
+                event: EventReference {
+                    event_id: "content.comments.draft-created".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+                payload: Some(json!({"severity": "normal"})),
             }]
         );
 
@@ -788,11 +1118,24 @@ mod tests {
                 event_id: "content.comments.draft-created".to_string(),
                 version: "1.0.0".to_string(),
             }),
+            predicate: None,
         };
         assert_eq!(edge_record(&edge).trigger, WorkflowTraversalTrigger::Event);
         assert_eq!(
             map_workflow_lookup_scope(WorkflowLookupScope::PreferPrivate),
             LookupScope::PreferPrivate
+        );
+        assert_eq!(
+            event_payload_field(Some(&json!({"severity": "normal"})), "payload.severity"),
+            Some(&json!("normal"))
+        );
+        assert_eq!(
+            event_payload_field(Some(&json!({"severity": "normal"})), "payload"),
+            Some(&json!({"severity": "normal"}))
+        );
+        assert_eq!(
+            event_payload_field(Some(&json!("normal")), "payload.severity"),
+            None
         );
     }
 
@@ -812,6 +1155,16 @@ mod tests {
         );
         assert_eq!(workflow.evidence.visited_nodes.len(), 3);
         assert_eq!(workflow.evidence.traversed_edges.len(), 2);
+        assert_eq!(workflow.evidence.waiting_edges.len(), 2);
+        assert_eq!(workflow.evidence.event_wake_decisions.len(), 2);
+        assert_eq!(workflow.evidence.event_consumptions.len(), 2);
+        assert!(
+            workflow
+                .evidence
+                .event_match_records
+                .iter()
+                .all(|record| record.match_result == EventMatchResult::Matched)
+        );
 
         let mut composed_registry = capability_registry_fixture();
         register_capability_ok(
@@ -922,6 +1275,152 @@ mod tests {
     }
 
     #[test]
+    fn event_driven_helpers_are_deterministic_and_prevent_duplicate_consumption() {
+        let event = EmittedEventRecord {
+            record_id: "event_record_0".to_string(),
+            event: EventReference {
+                event_id: "content.comments.validated".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            payload: Some(json!({"severity": "normal"})),
+        };
+        let waiting_edges = vec![
+            WaitingWorkflowEdgeContext {
+                workflow_execution_id: "wf_exec_b".to_string(),
+                edge_id: "edge_b".to_string(),
+                from_node_id: "from".to_string(),
+                to_node_id: "to".to_string(),
+                event_ref: event.event.clone(),
+                predicate: Some(WorkflowEdgePredicate {
+                    field: "payload.severity".to_string(),
+                    equals: json!("normal"),
+                }),
+            },
+            WaitingWorkflowEdgeContext {
+                workflow_execution_id: "wf_exec_a".to_string(),
+                edge_id: "edge_a".to_string(),
+                from_node_id: "from".to_string(),
+                to_node_id: "to".to_string(),
+                event_ref: event.event.clone(),
+                predicate: None,
+            },
+        ];
+        let mut consumed = BTreeSet::new();
+        let first = evaluate_event_driven_edges(
+            &waiting_edges,
+            std::slice::from_ref(&event),
+            &mut consumed,
+            "trace",
+        );
+        assert_eq!(
+            first.taken_edge_ids,
+            vec!["edge_a".to_string(), "edge_b".to_string()]
+        );
+        assert_eq!(
+            first
+                .evidence
+                .wake_decisions
+                .iter()
+                .map(|decision| (&decision.workflow_execution_id, decision.wake_order))
+                .collect::<Vec<_>>(),
+            vec![(&"wf_exec_a".to_string(), 1), (&"wf_exec_b".to_string(), 2)]
+        );
+
+        let second = evaluate_event_driven_edges(&waiting_edges, &[event], &mut consumed, "trace");
+        assert!(second.taken_edge_ids.is_empty());
+        assert!(
+            second
+                .evidence
+                .match_records
+                .iter()
+                .all(|record| record.match_result == EventMatchResult::AlreadyConsumed)
+        );
+    }
+
+    #[test]
+    fn event_driven_helpers_reject_non_matching_predicates() {
+        let waiting_edges = vec![WaitingWorkflowEdgeContext {
+            workflow_execution_id: "wf_exec_1".to_string(),
+            edge_id: "edge_predicate".to_string(),
+            from_node_id: "assess".to_string(),
+            to_node_id: "validate".to_string(),
+            event_ref: EventReference {
+                event_id: "expedition.conditions.summary-assessed".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            predicate: Some(WorkflowEdgePredicate {
+                field: "payload.severity".to_string(),
+                equals: json!("high"),
+            }),
+        }];
+        let emitted = vec![EmittedEventRecord {
+            record_id: "event_record_0".to_string(),
+            event: EventReference {
+                event_id: "expedition.conditions.summary-assessed".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            payload: Some(json!({"severity": "normal"})),
+        }];
+        let outcome =
+            evaluate_event_driven_edges(&waiting_edges, &emitted, &mut BTreeSet::new(), "trace");
+        assert!(outcome.taken_edge_ids.is_empty());
+        assert_eq!(
+            outcome.evidence.match_records,
+            vec![EventMatchRecord {
+                event_id: "expedition.conditions.summary-assessed".to_string(),
+                event_version: "1.0.0".to_string(),
+                edge_id: "edge_predicate".to_string(),
+                match_result: EventMatchResult::NotMatched,
+                predicate_result: Some(EventPredicateResult::Failed),
+                rejection_reason: Some(
+                    "event predicate did not match the emitted payload".to_string()
+                ),
+                recorded_at: "trace:event:0:match:edge_predicate".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn event_driven_helpers_record_non_matching_event_identity() {
+        let waiting_edges = vec![WaitingWorkflowEdgeContext {
+            workflow_execution_id: "wf_exec_1".to_string(),
+            edge_id: "edge_identity".to_string(),
+            from_node_id: "create".to_string(),
+            to_node_id: "validate".to_string(),
+            event_ref: EventReference {
+                event_id: "content.comments.validated".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            predicate: None,
+        }];
+        let emitted = vec![EmittedEventRecord {
+            record_id: "event_record_0".to_string(),
+            event: EventReference {
+                event_id: "content.comments.other".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            payload: None,
+        }];
+        let outcome =
+            evaluate_event_driven_edges(&waiting_edges, &emitted, &mut BTreeSet::new(), "trace");
+        assert!(outcome.taken_edge_ids.is_empty());
+        assert_eq!(
+            outcome.evidence.match_records,
+            vec![EventMatchRecord {
+                event_id: "content.comments.other".to_string(),
+                event_version: "1.0.0".to_string(),
+                edge_id: "edge_identity".to_string(),
+                match_result: EventMatchResult::NotMatched,
+                predicate_result: None,
+                rejection_reason: Some(
+                    "event id/version did not match the waiting edge".to_string()
+                ),
+                recorded_at: "trace:event:0:match:edge_identity".to_string(),
+            }]
+        );
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)]
     fn workflow_runtime_covers_additional_failure_and_helper_branches() {
         let runtime = Runtime::new(capability_registry_fixture(), WorkflowExecutor)
@@ -1025,6 +1524,7 @@ mod tests {
                     to: "validate_comment".to_string(),
                     trigger: WorkflowEdgeTrigger::Direct,
                     event: None,
+                    predicate: None,
                 }),
             )),
         );
@@ -1040,6 +1540,7 @@ mod tests {
                         to: "validate_comment".to_string(),
                         trigger: WorkflowEdgeTrigger::Direct,
                         event: None,
+                        predicate: None,
                     },
                     WorkflowEdge {
                         edge_id: "direct-2".to_string(),
@@ -1047,6 +1548,7 @@ mod tests {
                         to: "persist_comment".to_string(),
                         trigger: WorkflowEdgeTrigger::Direct,
                         event: None,
+                        predicate: None,
                     },
                 ],
                 ..workflow_definition_fixture(
@@ -1073,6 +1575,7 @@ mod tests {
                             event_id: "content.comments.draft-created".to_string(),
                             version: "1.0.0".to_string(),
                         }),
+                        predicate: None,
                     },
                     WorkflowEdge {
                         edge_id: "draft_to_persist".to_string(),
@@ -1083,6 +1586,7 @@ mod tests {
                             event_id: "content.comments.draft-created".to_string(),
                             version: "1.0.0".to_string(),
                         }),
+                        predicate: None,
                     },
                 ],
                 ..workflow_definition_fixture(
@@ -1440,6 +1944,7 @@ mod tests {
                     event_id: "content.comments.draft-created".to_string(),
                     version: "1.0.0".to_string(),
                 }),
+                predicate: None,
             },
             WorkflowEdge {
                 edge_id: "validate_to_persist".to_string(),
@@ -1447,6 +1952,7 @@ mod tests {
                 to: "persist_comment".to_string(),
                 trigger: WorkflowEdgeTrigger::Event,
                 event: second_event,
+                predicate: None,
             },
         ];
         if let Some(edge) = direct_edge {
@@ -1780,6 +2286,7 @@ mod tests {
                             to: "validate_comment".to_string(),
                             trigger: WorkflowEdgeTrigger::Direct,
                             event: None,
+                            predicate: None,
                         }),
                     ),
                     workflow_path: String::new(),
