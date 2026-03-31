@@ -1012,6 +1012,7 @@ mod tests {
                     event_id: "content.comments.comment-draft-created".to_string(),
                     version: "1.0.0".to_string(),
                 }),
+                predicate: None,
             }],
             start_node: "create".to_string(),
             terminal_nodes: vec!["publish".to_string()],
@@ -1028,6 +1029,7 @@ mod tests {
             to: "publish".to_string(),
             trigger: WorkflowEdgeTrigger::Direct,
             event: None,
+            predicate: None,
         }];
         definition
     }
