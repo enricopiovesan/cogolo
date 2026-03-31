@@ -58,6 +58,14 @@ pub struct WorkflowEdge {
     pub to: String,
     pub trigger: WorkflowEdgeTrigger,
     pub event: Option<EventReference>,
+    #[serde(default)]
+    pub predicate: Option<WorkflowEdgePredicate>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowEdgePredicate {
+    pub field: String,
+    pub equals: Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -465,6 +473,13 @@ fn validate_workflow_fields(
                         "direct edges must not declare an event reference",
                     ));
                 }
+                if edge.predicate.is_some() {
+                    errors.push(workflow_error(
+                        WorkflowErrorCode::InvalidEventEdge,
+                        &format!("{base}.predicate"),
+                        "direct edges must not declare an event predicate",
+                    ));
+                }
             }
             WorkflowEdgeTrigger::Event => {
                 let Some(event) = edge.event.as_ref() else {
@@ -487,6 +502,15 @@ fn validate_workflow_fields(
                         WorkflowErrorCode::InvalidSemver,
                         &format!("{base}.event.version"),
                         "event version must be valid semantic versioning",
+                    ));
+                }
+                if let Some(predicate) = edge.predicate.as_ref()
+                    && predicate.field.trim().is_empty()
+                {
+                    errors.push(workflow_error(
+                        WorkflowErrorCode::InvalidEventEdge,
+                        &format!("{base}.predicate.field"),
+                        "event predicate field must be non-empty",
                     ));
                 }
             }
@@ -927,6 +951,7 @@ mod tests {
                 event_id: "content.comments.draft-created".to_string(),
                 version: "1.0.0".to_string(),
             }),
+            predicate: None,
         });
 
         let failure = register_workflow_err(
@@ -998,6 +1023,7 @@ mod tests {
                 event_id: "content.comments.validated".to_string(),
                 version: "1.0.0".to_string(),
             }),
+            predicate: None,
         });
 
         let failure = register_workflow_err(
@@ -1148,6 +1174,7 @@ mod tests {
                         to: "persist_comment".to_string(),
                         trigger: WorkflowEdgeTrigger::Direct,
                         event: None,
+                        predicate: None,
                     }],
                     ..valid_workflow_definition()
                 },
@@ -1168,6 +1195,7 @@ mod tests {
                         to: "persist_comment".to_string(),
                         trigger: WorkflowEdgeTrigger::Direct,
                         event: None,
+                        predicate: None,
                     }],
                     ..valid_workflow_definition()
                 },
@@ -1213,6 +1241,10 @@ mod tests {
                     event_id: "content.comments.draft-created".to_string(),
                     version: "1.0.0".to_string(),
                 }),
+                predicate: Some(WorkflowEdgePredicate {
+                    field: "payload.severity".to_string(),
+                    equals: json!("normal"),
+                }),
             },
             WorkflowEdge {
                 edge_id: "edge".to_string(),
@@ -1220,6 +1252,7 @@ mod tests {
                 to: String::new(),
                 trigger: WorkflowEdgeTrigger::Event,
                 event: None,
+                predicate: None,
             },
             WorkflowEdge {
                 edge_id: "edge-3".to_string(),
@@ -1229,6 +1262,10 @@ mod tests {
                 event: Some(EventReference {
                     event_id: String::new(),
                     version: "bad".to_string(),
+                }),
+                predicate: Some(WorkflowEdgePredicate {
+                    field: String::new(),
+                    equals: json!(true),
                 }),
             },
         ];
@@ -1270,6 +1307,11 @@ mod tests {
         assert!(failure.errors.iter().any(|error| {
             error
                 .message
+                .contains("direct edges must not declare an event predicate")
+        }));
+        assert!(failure.errors.iter().any(|error| {
+            error
+                .message
                 .contains("event edges must declare an event reference")
         }));
         assert!(
@@ -1278,6 +1320,11 @@ mod tests {
                 .iter()
                 .any(|error| error.message.contains("event_id must be non-empty"))
         );
+        assert!(failure.errors.iter().any(|error| {
+            error
+                .message
+                .contains("event predicate field must be non-empty")
+        }));
         assert!(failure.errors.iter().any(|error| {
             error
                 .message
@@ -1326,6 +1373,7 @@ mod tests {
                             to: "archived".to_string(),
                             trigger: WorkflowEdgeTrigger::Direct,
                             event: None,
+                            predicate: None,
                         },
                         WorkflowEdge {
                             edge_id: "d2".to_string(),
@@ -1333,6 +1381,7 @@ mod tests {
                             to: "archived".to_string(),
                             trigger: WorkflowEdgeTrigger::Direct,
                             event: None,
+                            predicate: None,
                         },
                     ],
                     start_node: "archived".to_string(),
@@ -1619,6 +1668,7 @@ mod tests {
                         event_id: "content.comments.draft-created".to_string(),
                         version: "1.0.0".to_string(),
                     }),
+                    predicate: None,
                 },
                 WorkflowEdge {
                     edge_id: "validate_to_persist".to_string(),
@@ -1629,6 +1679,7 @@ mod tests {
                         event_id: "content.comments.validated".to_string(),
                         version: "1.0.0".to_string(),
                     }),
+                    predicate: None,
                 },
             ],
             start_node: "create_draft".to_string(),

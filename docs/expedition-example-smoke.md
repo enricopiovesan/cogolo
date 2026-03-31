@@ -60,3 +60,16 @@ What it validates:
 - the canonical expedition request executes successfully and produces a trace artifact
 - the trace inspection command renders the generated trace deterministically
 - the validation fails deterministically when the bundle is incomplete
+
+Run the event-driven workflow smoke path with:
+
+```bash
+bash scripts/ci/event_driven_workflow_smoke.sh
+```
+
+What it validates:
+
+- event-driven workflow traversal still completes deterministically through governed event edges
+- the runtime records deterministic wake ordering and per-edge exact-once event consumption
+- simple event payload predicates reject mismatches deterministically
+- invalid event links are rejected deterministically by workflow registration validation
