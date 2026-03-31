@@ -70,6 +70,19 @@ Expedition execution:
 ```bash
 cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json
 ```
+
+Expedition execution with persisted trace:
+
+```bash
+tmpdir="$(mktemp -d)"
+cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json --trace-out "$tmpdir/plan-expedition-trace.json"
+```
+
+Trace inspection:
+
+```bash
+cargo run -p traverse-cli -- trace inspect "$tmpdir/plan-expedition-trace.json"
+```
 Event contract inspection:
 
 ```bash
@@ -86,6 +99,12 @@ Repository checks:
 
 ```bash
 bash scripts/ci/repository_checks.sh
+```
+
+Golden path proof:
+
+```bash
+bash scripts/ci/expedition_golden_path.sh
 ```
 
 ## What Good Output Looks Like
@@ -117,6 +136,20 @@ The expedition execution output must include:
 - `capability_id: expedition.planning.plan-expedition`
 - `status: completed`
 - `recommended_route_style: conservative-alpine-push`
+- `trace_ref: trace_exec_expedition-plan-request-001`
+
+The trace inspection output must include:
+
+- `trace_id: trace_exec_expedition-plan-request-001`
+- `result_status: completed`
+- `selected_capability_id: expedition.planning.plan-expedition`
+
+The golden path validation must prove all of these in one run:
+
+- bundle registration succeeds for the canonical manifest
+- execution succeeds for the canonical runtime request
+- trace inspection succeeds for the generated runtime trace
+- a missing required bundle artifact fails deterministically
 
 The event inspection output must include:
 
