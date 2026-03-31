@@ -1,8 +1,7 @@
 use crate::{
-    ExecutionFailureReason, ExecutionFailureState, LocalExecutor, PlacementDecisionRecord, Runtime,
-    RuntimeError, RuntimeErrorCode, RuntimeExecutionOutcome, SelectionRecord,
-    execution_failure_outcome, runtime_error, successful_execution_outcome,
-    validate_payload_against_contract,
+    ExecutionFailureReason, ExecutionFailureState, LocalExecutor, Runtime, RuntimeError,
+    RuntimeErrorCode, RuntimeExecutionOutcome, execution_failure_outcome, runtime_error,
+    successful_execution_outcome, validate_payload_against_contract,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
@@ -192,13 +191,9 @@ where
 
     pub(crate) fn execute_workflow_capability(
         &self,
-        attempt: crate::AttemptContext,
-        emitter: crate::StateEmitter,
-        candidate_collection: crate::CandidateCollectionRecord,
-        selection: SelectionRecord,
+        context: crate::ExecutionContext,
         selected: &ResolvedCapability,
-        started_at: String,
-        placement: PlacementDecisionRecord,
+        started_execution: crate::StartedExecution,
     ) -> RuntimeExecutionOutcome {
         let Some(workflow_ref) = selected.artifact.workflow_ref.as_ref() else {
             let error = runtime_error(
@@ -207,14 +202,11 @@ where
                 json!({"artifact_ref": selected.record.artifact_ref}),
             );
             return execution_failure_outcome(
-                attempt,
-                emitter,
-                candidate_collection,
-                selection,
+                context,
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
-                    started_at,
-                    placement: placement.clone(),
+                    started_at: started_execution.started_at,
+                    placement: started_execution.placement.clone(),
                     failure_reason: ExecutionFailureReason::ArtifactMissing,
                 },
                 error,
@@ -228,37 +220,25 @@ where
         let workflow = self.execute_workflow(WorkflowExecutionRequest {
             kind: WORKFLOW_REQUEST_KIND.to_string(),
             schema_version: WORKFLOW_SCHEMA_VERSION.to_string(),
-            request_id: attempt.request.request_id.clone(),
+            request_id: context.attempt.request.request_id.clone(),
             workflow_id: workflow_ref.workflow_id.clone(),
             workflow_version: workflow_ref.workflow_version.clone(),
             scope: workflow_scope,
-            input: attempt.request.input.clone(),
+            input: context.attempt.request.input.clone(),
             governing_spec: WORKFLOW_GOVERNING_SPEC.to_string(),
         });
 
         match workflow.result.status {
             WorkflowTraversalStatus::Completed => {
                 let output = workflow.result.output.unwrap_or(Value::Object(Map::new()));
-                successful_execution_outcome(
-                    attempt,
-                    emitter,
-                    candidate_collection,
-                    selection,
-                    selected,
-                    started_at,
-                    placement.clone(),
-                    output,
-                )
+                successful_execution_outcome(context, selected, started_execution, output)
             }
             WorkflowTraversalStatus::Error => execution_failure_outcome(
-                attempt,
-                emitter,
-                candidate_collection,
-                selection,
+                context,
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
-                    started_at,
-                    placement,
+                    started_at: started_execution.started_at,
+                    placement: started_execution.placement,
                     failure_reason: ExecutionFailureReason::ExecutionFailed,
                 },
                 workflow.result.error.unwrap_or(runtime_error(
@@ -697,7 +677,7 @@ mod tests {
     use crate::{
         CandidateCollectionRecord, LocalExecutionFailure, LocalExecutionFailureCode,
         RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
-        RuntimeResultStatus,
+        RuntimeResultStatus, SelectionRecord,
     };
     use serde_json::json;
     use traverse_contracts::{
@@ -1192,25 +1172,25 @@ mod tests {
             crate::RuntimeTransitionReasonCode::ConstraintsEvaluated,
             json!({"eligible_candidates": 1, "rejected_candidates": 0}),
         );
-        let started_at = emitter.next_timestamp();
-        emitter.push(
-            crate::RuntimeState::Executing,
-            crate::RuntimeTransitionReasonCode::CandidateSelected,
-            json!({"capability_id": selected.record.id, "capability_version": selected.record.version}),
-        );
-        let outcome = runtime.execute_workflow_capability(
-            attempt,
-            emitter,
-            CandidateCollectionRecord {
-                lookup_scope: RuntimeLookupScope::PublicOnly,
-                candidates: Vec::new(),
-                rejected_candidates: Vec::new(),
-            },
-            selection,
+        let started_execution = crate::start_selected_execution(
+            &mut emitter,
             &selected,
-            started_at,
             crate::resolve_placement(crate::PlacementTarget::Local)
                 .unwrap_or_else(|_| unreachable!("local placement should resolve")),
+        );
+        let outcome = runtime.execute_workflow_capability(
+            crate::ExecutionContext {
+                attempt,
+                emitter,
+                candidate_collection: CandidateCollectionRecord {
+                    lookup_scope: RuntimeLookupScope::PublicOnly,
+                    candidates: Vec::new(),
+                    rejected_candidates: Vec::new(),
+                },
+                selection,
+            },
+            &selected,
+            started_execution,
         );
         assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
 
@@ -1247,33 +1227,33 @@ mod tests {
             crate::RuntimeTransitionReasonCode::ConstraintsEvaluated,
             json!({"eligible_candidates": 1, "rejected_candidates": 0}),
         );
-        let started_at = emitter.next_timestamp();
-        emitter.push(
-            crate::RuntimeState::Executing,
-            crate::RuntimeTransitionReasonCode::CandidateSelected,
-            json!({"capability_id": selected.record.id, "capability_version": selected.record.version}),
+        let started_execution = crate::start_selected_execution(
+            &mut emitter,
+            &selected,
+            crate::resolve_placement(crate::PlacementTarget::Local)
+                .unwrap_or_else(|_| unreachable!("local placement should resolve")),
         );
         let failing_runtime = Runtime::new(capability_registry_fixture(), FailingWorkflowExecutor)
             .with_workflow_registry(workflow_registry_fixture());
         let outcome = failing_runtime.execute_workflow_capability(
-            attempt,
-            emitter,
-            CandidateCollectionRecord {
-                lookup_scope: RuntimeLookupScope::PreferPrivate,
-                candidates: Vec::new(),
-                rejected_candidates: Vec::new(),
-            },
-            SelectionRecord {
-                status: crate::SelectionStatus::Selected,
-                selected_capability_id: Some("content.comments.publish-comment".to_string()),
-                selected_capability_version: Some("1.0.0".to_string()),
-                failure_reason: None,
-                remaining_candidates: Vec::new(),
+            crate::ExecutionContext {
+                attempt,
+                emitter,
+                candidate_collection: CandidateCollectionRecord {
+                    lookup_scope: RuntimeLookupScope::PreferPrivate,
+                    candidates: Vec::new(),
+                    rejected_candidates: Vec::new(),
+                },
+                selection: SelectionRecord {
+                    status: crate::SelectionStatus::Selected,
+                    selected_capability_id: Some("content.comments.publish-comment".to_string()),
+                    selected_capability_version: Some("1.0.0".to_string()),
+                    failure_reason: None,
+                    remaining_candidates: Vec::new(),
+                },
             },
             &selected,
-            started_at,
-            crate::resolve_placement(crate::PlacementTarget::Local)
-                .unwrap_or_else(|_| unreachable!("local placement should resolve")),
+            started_execution,
         );
         assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
 
