@@ -334,11 +334,14 @@ where
                 let output = workflow.result.output.unwrap_or(Value::Object(Map::new()));
                 let workflow_evidence = workflow.evidence;
                 let emitted_events = workflow_evidence.emitted_events.clone();
-                let mut outcome =
-                    successful_execution_outcome(context, selected, started_execution, output);
-                outcome.trace.emitted_events = emitted_events;
-                outcome.trace.workflow_evidence = Some(workflow_evidence);
-                outcome
+                successful_execution_outcome(
+                    context,
+                    selected,
+                    started_execution,
+                    output,
+                    emitted_events,
+                    Some(workflow_evidence),
+                )
             }
             WorkflowTraversalStatus::Error => {
                 let workflow_evidence = workflow.evidence;

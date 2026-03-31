@@ -761,6 +761,8 @@ where
             selected,
             started_execution,
             execution_output,
+            Vec::new(),
+            None,
         )
     }
 }
@@ -1119,7 +1121,7 @@ fn pre_execution_failure_outcome(
             output_digest: None,
             failure_reason: Some(failure.failure_reason),
         },
-        error,
+        error: failure.error,
         emitted_events: Vec::new(),
         workflow_evidence: None,
     })
@@ -1178,7 +1180,7 @@ fn execution_failure_outcome(
     })
 }
 
-#[allow(clippy::too_many_arguments)]
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn successful_execution_outcome(
     context: ExecutionContext,
     selected: &ResolvedCapability,

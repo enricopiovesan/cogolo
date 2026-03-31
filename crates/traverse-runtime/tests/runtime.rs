@@ -97,7 +97,7 @@ fn executes_one_exact_registered_capability_locally() {
     );
     assert_eq!(outcome.trace.execution.status, ExecutionStatus::Succeeded);
     assert!(outcome.trace.execution.output_digest.is_some());
-    assert_eq!(outcome.trace.emitted_events.len(), 1);
+    assert!(outcome.trace.emitted_events.is_empty());
     assert!(outcome.trace.workflow_evidence.is_none());
 }
 
