@@ -315,6 +315,23 @@ impl WorkflowRegistry {
         }
         None
     }
+
+    #[must_use]
+    pub(crate) fn graph_entries(&self) -> Vec<ResolvedWorkflow> {
+        self.records
+            .iter()
+            .filter_map(|((scope, id, version), record)| {
+                let key = (*scope, id.clone(), version.clone());
+                let definition = self.definitions.get(&key)?.clone();
+                let index_entry = self.index.get(&key)?.clone();
+                Some(ResolvedWorkflow {
+                    definition,
+                    record: record.clone(),
+                    index_entry,
+                })
+            })
+            .collect()
+    }
 }
 
 #[must_use]
