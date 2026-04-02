@@ -1,0 +1,39 @@
+{
+  "kind": "agent_package",
+  "schema_version": "1.0.0",
+  "package_id": "example.domain.replace-me-agent",
+  "version": "0.1.0",
+  "summary": "Replace this summary with the governed executable capability package purpose.",
+  "capability_ref": {
+    "id": "example.domain.replace-me",
+    "version": "1.0.0",
+    "contract_path": "../../../contracts/examples/replace-me/contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "example.domain.replace-me-workflow",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/implementation.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/package.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:dffc31d6401c84d6"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": [
+    {
+      "interface": "replace-me-interface-v1",
+      "purpose": "Replace this text with the abstract model dependency purpose."
+    }
+  ]
+}
