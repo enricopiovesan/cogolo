@@ -18,6 +18,7 @@ required_files=(
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
   "docs/executable-package-template.md"
+  "docs/local-runtime-home.md"
   "examples/expedition/runtime-requests/plan-expedition.json"
   "docs/exception-process.md"
   "docs/project-management.md"
@@ -72,11 +73,14 @@ grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smok
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
+grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- trace inspect" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
+grep -q ".traverse/local/" docs/expedition-example-authoring.md
+grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md
