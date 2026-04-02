@@ -156,6 +156,22 @@
         "crates/cogolo-registry/",
         "crates/traverse-registry/"
       ]
+    },
+    {
+      "id": "017-ai-agent-packaging",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/017-ai-agent-packaging/spec.md",
+      "governs": [
+        "examples/agents/",
+        "crates/cogolo-cli/",
+        "crates/traverse-cli/",
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/",
+        "crates/cogolo-mcp/",
+        "crates/traverse-mcp/"
+      ]
     }
   ]
 }
