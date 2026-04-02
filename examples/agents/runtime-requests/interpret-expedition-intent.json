@@ -1,0 +1,35 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "agent-interpret-expedition-intent-001",
+  "intent": {
+    "capability_id": "expedition.planning.interpret-expedition-intent",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "objective": {
+      "objective_id": "objective-skypilot-001",
+      "destination": "Sky Pilot",
+      "target_window": {
+        "start": "2026-07-20T04:30:00Z",
+        "end": "2026-07-20T16:00:00Z"
+      },
+      "preferences": {
+        "style": "conservative-alpine-push",
+        "risk_tolerance": "moderate",
+        "priority": "same-day-return"
+      },
+      "notes": "Prefer an early start and a conservative turnaround decision if winds build."
+    },
+    "planning_intent": "Plan a same-day alpine push with a conservative turnaround point and clear readiness actions."
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "wasm-agent-example-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
