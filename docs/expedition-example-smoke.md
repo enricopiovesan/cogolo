@@ -73,3 +73,15 @@ What it validates:
 - the runtime records deterministic wake ordering and per-edge exact-once event consumption
 - simple event payload predicates reject mismatches deterministically
 - invalid event links are rejected deterministically by workflow registration validation
+
+Run the governed WASM AI agent smoke path with:
+
+```bash
+bash scripts/ci/wasm_agent_example_smoke.sh
+```
+
+What it validates:
+
+- the first governed WASM AI agent package can build its deterministic local WASM fixture
+- the package inspection command validates the approved capability, workflow linkage, and binary digest
+- the agent executes through the approved Traverse runtime request path without ad hoc private routes
