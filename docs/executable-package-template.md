@@ -53,6 +53,10 @@ The colocated build command should:
 
 The checked-in template uses a tiny deterministic WASM fixture so packaging, inspection, and smoke validation can stay runnable even when a full external WASM toolchain is not available.
 
+For the broader local runtime-owned layout around generated helper copies, fixture byproducts, and adapter overlays, see:
+
+- `docs/local-runtime-home.md`
+
 ## How to use the template
 
 1. Copy `examples/templates/executable-capability-package/` into a new package folder.

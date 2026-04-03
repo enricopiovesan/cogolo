@@ -8,6 +8,14 @@ workflows/examples/expedition/
 examples/expedition/registry-bundle/
 ```
 
+Local runtime-owned generated helpers, overlays, and copied execution byproducts belong under:
+
+```text
+.traverse/local/
+```
+
+See `docs/local-runtime-home.md` for the default layout and ownership boundary.
+
 ## Artifact Categories
 
 Atomic capability contracts:
