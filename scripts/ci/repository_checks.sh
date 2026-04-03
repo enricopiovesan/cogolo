@@ -14,6 +14,7 @@ required_files=(
   ".specify/memory/constitution.md"
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
+  "docs/adapter-boundaries.md"
   "docs/contract-publication-policy.md"
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
@@ -50,6 +51,7 @@ fi
 grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
+grep -q "docs/adapter-boundaries.md" README.md
 grep -q "Definition of Done" docs/ticket-standard.md
 grep -q "in-progress" docs/ticket-standard.md
 grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-standard.md
@@ -87,6 +89,11 @@ grep -q "Non-Negotiable Quality Standards" specs/001-foundation-v0-1/spec.md
 grep -q "AI Review Process" docs/ai-review-process.md
 grep -q '"schema_version": "1.0.0"' specs/governance/approved-specs.json
 grep -q "Spec-alignment gate implementation" docs/quality-standards.md
+grep -q "docs/adapter-boundaries.md" docs/compatibility-policy.md
+grep -q "specs/013-browser-runtime-subscription/spec.md" docs/adapter-boundaries.md
+grep -q "specs/014-mcp-surface/spec.md" docs/adapter-boundaries.md
+grep -q "mandatory sidecar topology" docs/adapter-boundaries.md
+grep -q "optional adapter choices" docs/adapter-boundaries.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."
