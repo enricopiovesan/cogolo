@@ -53,6 +53,7 @@ Code, generated artifacts, and tests must align with the approved governing spec
 - Compatibility policy: [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md)
 - Adapter boundaries: [docs/adapter-boundaries.md](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md)
 - Contract publication policy: [docs/contract-publication-policy.md](/Users/piovese/Documents/cogolo/docs/contract-publication-policy.md)
+- Local runtime home: [docs/local-runtime-home.md](/Users/piovese/Documents/cogolo/docs/local-runtime-home.md)
 - Exception process: [docs/exception-process.md](/Users/piovese/Documents/cogolo/docs/exception-process.md)
 - ADR guidance: [docs/adr/README.md](/Users/piovese/Documents/cogolo/docs/adr/README.md)
 
