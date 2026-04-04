@@ -1,3 +1,6 @@
+mod browser_adapter;
+
+use browser_adapter::serve_local_browser_adapter;
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -28,6 +31,9 @@ enum Command {
     BundleRegister {
         manifest_path: PathBuf,
     },
+    BrowserAdapterServe {
+        bind_address: String,
+    },
     ExpeditionExecute {
         request_path: PathBuf,
         trace_output_path: Option<PathBuf>,
@@ -45,11 +51,25 @@ enum Command {
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
-    match run(&args) {
-        Ok(output) => {
-            println!("{output}");
-            ExitCode::SUCCESS
+    match parse_command(&args) {
+        Ok(Command::BrowserAdapterServe { bind_address }) => {
+            if let Err(error) = serve_local_browser_adapter(&bind_address) {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
         }
+        Ok(command) => match run_command(command) {
+            Ok(output) => {
+                println!("{output}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        },
         Err(error) => {
             eprintln!("{error}");
             ExitCode::FAILURE
@@ -57,10 +77,11 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &[String]) -> Result<String, String> {
-    match parse_command(args)? {
+fn run_command(command: Command) -> Result<String, String> {
+    match command {
         Command::BundleInspect { manifest_path } => inspect_bundle(&manifest_path),
         Command::BundleRegister { manifest_path } => register_bundle(&manifest_path),
+        Command::BrowserAdapterServe { .. } => Err(usage()),
         Command::ExpeditionExecute {
             request_path,
             trace_output_path,
@@ -76,8 +97,21 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         args.get(1).map(String::as_str),
         args.get(2).map(String::as_str),
     ) {
+        (Some("browser-adapter"), Some("serve")) => parse_browser_adapter_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
         _ => parse_fixed_arity_command(args),
+    }
+}
+
+fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
+    match args.len() {
+        3 => Ok(Command::BrowserAdapterServe {
+            bind_address: "127.0.0.1:0".to_string(),
+        }),
+        5 if args[3] == "--bind" => Ok(Command::BrowserAdapterServe {
+            bind_address: args[4].clone(),
+        }),
+        _ => Err(usage()),
     }
 }
 
@@ -142,11 +176,7 @@ fn execute_expedition(
     request_path: &Path,
     trace_output_path: Option<&Path>,
 ) -> Result<String, String> {
-    let request = load_runtime_request(request_path)?;
-    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
-    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
-        .with_workflow_registry(registered.workflow_registry);
-    let outcome = runtime.execute(request);
+    let outcome = execute_expedition_outcome(request_path)?;
 
     if outcome.result.status == RuntimeResultStatus::Error {
         return Err(render_runtime_execution_failure(&outcome));
@@ -160,6 +190,10 @@ fn execute_expedition(
         &outcome,
         trace_output_path,
     ))
+}
+
+fn canonical_expedition_runtime_outcome() -> Result<RuntimeExecutionOutcome, String> {
+    execute_expedition_outcome(&canonical_expedition_request_path())
 }
 
 fn inspect_event(contract_path: &Path) -> Result<String, String> {
@@ -453,7 +487,7 @@ fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
 }
 
 fn usage() -> String {
-    "usage: traverse-cli <bundle|event|trace|workflow|expedition> <inspect|register|execute> <artifact-path> [--trace-out <trace-path>]".to_string()
+    "usage: traverse-cli <bundle|event|trace|workflow|expedition> <inspect|register|execute> <artifact-path> [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>]".to_string()
 }
 
 fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), String> {
@@ -776,6 +810,18 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
 
 fn canonical_expedition_bundle_path() -> PathBuf {
     repo_root().join("examples/expedition/registry-bundle/manifest.json")
+}
+
+fn canonical_expedition_request_path() -> PathBuf {
+    repo_root().join("examples/expedition/runtime-requests/plan-expedition.json")
+}
+
+fn execute_expedition_outcome(request_path: &Path) -> Result<RuntimeExecutionOutcome, String> {
+    let request = load_runtime_request(request_path)?;
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
+    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
+        .with_workflow_registry(registered.workflow_registry);
+    Ok(runtime.execute(request))
 }
 
 fn repo_root() -> PathBuf {

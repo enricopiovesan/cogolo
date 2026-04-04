@@ -61,6 +61,19 @@ What it validates:
 - the trace inspection command renders the generated trace deterministically
 - the validation fails deterministically when the bundle is incomplete
 
+Run the local browser adapter smoke path with:
+
+```bash
+bash scripts/ci/browser_adapter_smoke.sh
+```
+
+What it validates:
+
+- the local browser adapter serves the governed browser subscription transport on a local HTTP port
+- subscription creation returns the governed `local_browser_subscription_created` response for the canonical expedition request
+- the SSE stream emits the governed lifecycle, state, trace, and terminal messages for the canonical execution
+- invalid create requests and missing stream requests fail deterministically
+
 Run the event-driven workflow smoke path with:
 
 ```bash
