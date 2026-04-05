@@ -158,6 +158,18 @@
       ]
     },
     {
+      "id": "019-downstream-consumer-contract",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/019-downstream-consumer-contract/spec.md",
+      "governs": [
+        "docs/app-consumable-requirements-traceability.md",
+        "docs/planning-board.md",
+        "docs/project-management.md"
+      ]
+    },
+    {
       "id": "017-ai-agent-packaging",
       "version": "1.0.0",
       "status": "approved",
