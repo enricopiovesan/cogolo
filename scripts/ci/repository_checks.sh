@@ -29,6 +29,7 @@ required_files=(
   "docs/ai-review-process.md"
   "docs/adr/README.md"
   "docs/adr/0001-rust-wasm-foundation.md"
+  "scripts/ci/browser_adapter_smoke.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -72,6 +73,7 @@ grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-s
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
