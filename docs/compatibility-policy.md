@@ -60,6 +60,10 @@ Breaking examples:
 - incompatible invocation behavior
 - changed failure semantics without version change
 
+The boundary between governed core runtime responsibilities and optional adapters is documented in:
+
+- `docs/adapter-boundaries.md`
+
 ## Specs
 
 Approved specs are immutable once they govern implementation.
