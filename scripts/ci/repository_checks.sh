@@ -14,11 +14,13 @@ required_files=(
   ".specify/memory/constitution.md"
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
+  "docs/adapter-boundaries.md"
   "docs/contract-publication-policy.md"
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
   "docs/mcp-consumption-validation.md"
   "docs/executable-package-template.md"
+  "docs/local-runtime-home.md"
   "examples/expedition/runtime-requests/plan-expedition.json"
   "docs/exception-process.md"
   "docs/project-management.md"
@@ -28,6 +30,7 @@ required_files=(
   "docs/ai-review-process.md"
   "docs/adr/README.md"
   "docs/adr/0001-rust-wasm-foundation.md"
+  "scripts/ci/browser_adapter_smoke.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -51,6 +54,7 @@ fi
 grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
+grep -q "docs/adapter-boundaries.md" README.md
 grep -q "Definition of Done" docs/ticket-standard.md
 grep -q "in-progress" docs/ticket-standard.md
 grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-standard.md
@@ -70,15 +74,19 @@ grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-s
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
+grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- trace inspect" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
+grep -q ".traverse/local/" docs/expedition-example-authoring.md
+grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md
@@ -89,6 +97,11 @@ grep -q "Non-Negotiable Quality Standards" specs/001-foundation-v0-1/spec.md
 grep -q "AI Review Process" docs/ai-review-process.md
 grep -q '"schema_version": "1.0.0"' specs/governance/approved-specs.json
 grep -q "Spec-alignment gate implementation" docs/quality-standards.md
+grep -q "docs/adapter-boundaries.md" docs/compatibility-policy.md
+grep -q "specs/013-browser-runtime-subscription/spec.md" docs/adapter-boundaries.md
+grep -q "specs/014-mcp-surface/spec.md" docs/adapter-boundaries.md
+grep -q "mandatory sidecar topology" docs/adapter-boundaries.md
+grep -q "optional adapter choices" docs/adapter-boundaries.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."

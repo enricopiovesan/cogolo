@@ -1,0 +1,496 @@
+use serde::{Deserialize, Serialize};
+use serde_json::json;
+use std::collections::HashMap;
+use std::io::{Read, Write};
+use std::net::{TcpListener, TcpStream};
+use traverse_runtime::{
+    BrowserRuntimeSubscriptionErrorCode, BrowserRuntimeSubscriptionMessage,
+    BrowserRuntimeSubscriptionRequest, RuntimeExecutionOutcome, browser_subscription_messages,
+};
+
+const ADAPTER_KIND: &str = "local_browser_subscription_created";
+const ADAPTER_SCHEMA_VERSION: &str = "1.0.0";
+const ADAPTER_GOVERNING_SPEC: &str = "019-local-browser-adapter-transport";
+const SETUP_ERROR_KIND: &str = "local_browser_subscription_setup_error";
+const STREAM_ERROR_KIND: &str = "local_browser_subscription_stream_error";
+const LISTENING_PREFIX: &str = "local browser adapter listening on ";
+
+#[derive(Debug, Deserialize)]
+struct CreateSubscriptionRequest {
+    subscription_request: BrowserRuntimeSubscriptionRequest,
+}
+
+#[derive(Debug)]
+struct CreatedSubscription {
+    messages: Vec<BrowserRuntimeSubscriptionMessage>,
+}
+
+#[derive(Debug)]
+struct LocalBrowserAdapter {
+    outcome: RuntimeExecutionOutcome,
+    created_subscriptions: HashMap<String, CreatedSubscription>,
+    next_subscription_index: u64,
+}
+
+pub fn serve_local_browser_adapter(bind_address: &str) -> Result<(), String> {
+    let outcome = crate::canonical_expedition_runtime_outcome()?;
+    let listener = TcpListener::bind(bind_address).map_err(|error| {
+        format!("failed to bind local browser adapter at {bind_address}: {error}")
+    })?;
+    let local_address = listener
+        .local_addr()
+        .map_err(|error| format!("failed to read local browser adapter address: {error}"))?;
+
+    let mut adapter = LocalBrowserAdapter::new(outcome);
+    println!("{LISTENING_PREFIX}http://{local_address}");
+    let _ = std::io::stdout().flush();
+
+    for connection in listener.incoming() {
+        match connection {
+            Ok(mut stream) => {
+                if let Err(error) = adapter.handle_connection(&mut stream) {
+                    let _ = write_plain_response(
+                        &mut stream,
+                        500,
+                        "internal server error",
+                        &json_error(SETUP_ERROR_KIND, "internal_server_error", &error),
+                    );
+                }
+            }
+            Err(error) => {
+                return Err(format!("local browser adapter connection failed: {error}"));
+            }
+        }
+    }
+
+    Ok(())
+}
+
+impl LocalBrowserAdapter {
+    fn new(outcome: RuntimeExecutionOutcome) -> Self {
+        Self {
+            outcome,
+            created_subscriptions: HashMap::new(),
+            next_subscription_index: 0,
+        }
+    }
+
+    fn handle_connection(&mut self, stream: &mut TcpStream) -> Result<(), String> {
+        let request = read_http_request(stream)?;
+        match (request.method.as_str(), request.path.as_str()) {
+            ("POST", "/local/browser-subscriptions") => {
+                self.handle_create_subscription(stream, &request)
+            }
+            ("GET", path) if path.starts_with("/local/browser-subscriptions/") => {
+                self.handle_stream_request(stream, path, &request.headers)
+            }
+            _ => write_plain_response(
+                stream,
+                404,
+                "not found",
+                &json_error(
+                    STREAM_ERROR_KIND,
+                    "not_found",
+                    "requested browser adapter route was not found",
+                ),
+            ),
+        }
+    }
+
+    fn handle_create_subscription<W: Write>(
+        &mut self,
+        stream: &mut W,
+        request: &HttpRequest,
+    ) -> Result<(), String> {
+        if !request
+            .headers
+            .get("content-type")
+            .is_some_and(|value| value.contains("application/json"))
+        {
+            return write_plain_response(
+                stream,
+                400,
+                "bad request",
+                &json_error(
+                    SETUP_ERROR_KIND,
+                    "invalid_request",
+                    "content-type must equal application/json",
+                ),
+            );
+        }
+
+        let payload = match serde_json::from_slice::<CreateSubscriptionRequest>(&request.body) {
+            Ok(payload) => payload,
+            Err(error) => {
+                return write_plain_response(
+                    stream,
+                    400,
+                    "bad request",
+                    &json_error(
+                        SETUP_ERROR_KIND,
+                        "invalid_request",
+                        &format!("failed to parse create-subscription request: {error}"),
+                    ),
+                );
+            }
+        };
+
+        let messages = browser_subscription_messages(&payload.subscription_request, &self.outcome);
+
+        if let Some(error) = messages.iter().find_map(|message| match message {
+            BrowserRuntimeSubscriptionMessage::Error(error) => Some(error),
+            _ => None,
+        }) {
+            let (status, code) = match error.code {
+                BrowserRuntimeSubscriptionErrorCode::InvalidRequest => (400, "invalid_request"),
+                BrowserRuntimeSubscriptionErrorCode::NotFound => (404, "not_found"),
+                BrowserRuntimeSubscriptionErrorCode::UnsupportedOperation => {
+                    (400, "unsupported_operation")
+                }
+            };
+            let response = json_error(SETUP_ERROR_KIND, code, &error.message);
+            return write_plain_response(stream, status, "error", &response);
+        }
+
+        let subscription_id = self.next_subscription_id();
+        let request_id = self.outcome.result.request_id.clone();
+        let execution_id = self.outcome.result.execution_id.clone();
+        let stream_url = format!("/local/browser-subscriptions/{subscription_id}/stream");
+        self.created_subscriptions
+            .insert(subscription_id.clone(), CreatedSubscription { messages });
+
+        write_json_response(
+            stream,
+            201,
+            "created",
+            &json!({
+                "kind": ADAPTER_KIND,
+                "schema_version": ADAPTER_SCHEMA_VERSION,
+                "governing_spec": ADAPTER_GOVERNING_SPEC,
+                "subscription_id": subscription_id,
+                "stream_url": stream_url,
+                "request_id": request_id,
+                "execution_id": execution_id,
+            }),
+        )
+    }
+
+    fn handle_stream_request<W: Write>(
+        &mut self,
+        stream: &mut W,
+        path: &str,
+        headers: &HashMap<String, String>,
+    ) -> Result<(), String> {
+        if !headers
+            .get("accept")
+            .is_some_and(|value| value.contains("text/event-stream"))
+        {
+            return write_plain_response(
+                stream,
+                400,
+                "bad request",
+                &json_error(
+                    STREAM_ERROR_KIND,
+                    "invalid_request",
+                    "accept must include text/event-stream",
+                ),
+            );
+        }
+
+        let Some(subscription_id) = path
+            .strip_prefix("/local/browser-subscriptions/")
+            .and_then(|tail| tail.strip_suffix("/stream"))
+        else {
+            return write_plain_response(
+                stream,
+                404,
+                "not found",
+                &json_error(
+                    STREAM_ERROR_KIND,
+                    "not_found",
+                    "requested browser adapter stream was not found",
+                ),
+            );
+        };
+
+        let Some(created) = self.created_subscriptions.remove(subscription_id) else {
+            return write_plain_response(
+                stream,
+                404,
+                "not found",
+                &json_error(
+                    STREAM_ERROR_KIND,
+                    "not_found",
+                    &format!("subscription_id {subscription_id} was not found"),
+                ),
+            );
+        };
+
+        let mut body = String::new();
+        for message in created.messages {
+            let data = serde_json::to_string(&message).map_err(|error| {
+                format!("failed to encode browser subscription message: {error}")
+            })?;
+            body.push_str("event: traverse_message\n");
+            body.push_str("data: ");
+            body.push_str(&data);
+            body.push_str("\n\n");
+        }
+
+        write_response(stream, 200, "ok", "text/event-stream", body.as_bytes())
+    }
+
+    fn next_subscription_id(&mut self) -> String {
+        self.next_subscription_index += 1;
+        format!("lbs_{:04}", self.next_subscription_index)
+    }
+}
+
+fn read_http_request(stream: &mut TcpStream) -> Result<HttpRequest, String> {
+    let mut buffer = Vec::new();
+    let mut header_end = None;
+    loop {
+        let mut chunk = [0_u8; 1024];
+        let read = stream
+            .read(&mut chunk)
+            .map_err(|error| format!("failed to read browser adapter request: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        buffer.extend_from_slice(&chunk[..read]);
+        if let Some(index) = find_header_end(&buffer) {
+            header_end = Some(index);
+            break;
+        }
+        if buffer.len() > 64 * 1024 {
+            return Err("browser adapter request too large".to_string());
+        }
+    }
+
+    let Some(header_end) = header_end else {
+        return Err("browser adapter request missing header terminator".to_string());
+    };
+
+    let headers_text = String::from_utf8(buffer[..header_end].to_vec()).map_err(|error| {
+        format!("browser adapter request headers were not valid UTF-8: {error}")
+    })?;
+    let mut lines = headers_text.split("\r\n");
+    let request_line = lines
+        .next()
+        .ok_or_else(|| "browser adapter request missing request line".to_string())?;
+    let mut request_parts = request_line.split_whitespace();
+    let method = request_parts
+        .next()
+        .ok_or_else(|| "browser adapter request missing method".to_string())?
+        .to_string();
+    let path = request_parts
+        .next()
+        .ok_or_else(|| "browser adapter request missing path".to_string())?
+        .to_string();
+
+    let mut headers = HashMap::new();
+    for line in lines {
+        if let Some((name, value)) = line.split_once(':') {
+            headers.insert(name.trim().to_ascii_lowercase(), value.trim().to_string());
+        }
+    }
+
+    let content_length = headers
+        .get("content-length")
+        .and_then(|value| value.parse::<usize>().ok())
+        .unwrap_or(0);
+    let mut body = buffer[header_end + 4..].to_vec();
+    while body.len() < content_length {
+        let mut chunk = vec![0_u8; content_length - body.len()];
+        let read = stream
+            .read(&mut chunk)
+            .map_err(|error| format!("failed to read browser adapter request body: {error}"))?;
+        if read == 0 {
+            break;
+        }
+        body.extend_from_slice(&chunk[..read]);
+    }
+    body.truncate(content_length);
+
+    Ok(HttpRequest {
+        method,
+        path,
+        headers,
+        body,
+    })
+}
+
+fn find_header_end(bytes: &[u8]) -> Option<usize> {
+    bytes.windows(4).position(|window| window == b"\r\n\r\n")
+}
+
+fn write_json_response<T: Serialize, W: Write>(
+    stream: &mut W,
+    status: u16,
+    reason: &str,
+    body: &T,
+) -> Result<(), String> {
+    let bytes = serde_json::to_vec(body)
+        .map_err(|error| format!("failed to serialize browser adapter response: {error}"))?;
+    write_response(stream, status, reason, "application/json", &bytes)
+}
+
+fn write_plain_response<W: Write>(
+    stream: &mut W,
+    status: u16,
+    reason: &str,
+    body: &str,
+) -> Result<(), String> {
+    write_response(stream, status, reason, "application/json", body.as_bytes())
+}
+
+fn write_response<W: Write>(
+    stream: &mut W,
+    status: u16,
+    reason: &str,
+    content_type: &str,
+    body: &[u8],
+) -> Result<(), String> {
+    let response = format!(
+        "HTTP/1.1 {status} {reason}\r\nContent-Type: {content_type}\r\nContent-Length: {}\r\nConnection: close\r\n\r\n",
+        body.len()
+    );
+    stream
+        .write_all(response.as_bytes())
+        .map_err(|error| format!("failed to write browser adapter response: {error}"))?;
+    stream
+        .write_all(body)
+        .map_err(|error| format!("failed to write browser adapter response: {error}"))?;
+    stream
+        .flush()
+        .map_err(|error| format!("failed to write browser adapter response: {error}"))
+}
+
+fn json_error(kind: &str, code: &str, message: &str) -> String {
+    json!({
+        "kind": kind,
+        "schema_version": ADAPTER_SCHEMA_VERSION,
+        "governing_spec": ADAPTER_GOVERNING_SPEC,
+        "code": code,
+        "message": message
+    })
+    .to_string()
+}
+
+#[derive(Debug)]
+struct HttpRequest {
+    method: String,
+    path: String,
+    headers: HashMap<String, String>,
+    body: Vec<u8>,
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use serde_json::json;
+
+    #[test]
+    fn create_subscription_returns_created_response_for_exact_request_id() {
+        let mut adapter = LocalBrowserAdapter::new(canonical_outcome());
+        let request = HttpRequest {
+            method: "POST".to_string(),
+            path: "/local/browser-subscriptions".to_string(),
+            headers: HashMap::from([("content-type".to_string(), "application/json".to_string())]),
+            body: json!({
+                "subscription_request": {
+                    "kind": "browser_runtime_subscription_request",
+                    "schema_version": "1.0.0",
+                    "governing_spec": "013-browser-runtime-subscription",
+                    "request_id": "expedition-plan-request-001"
+                }
+            })
+            .to_string()
+            .into_bytes(),
+        };
+        let mut stream = TestStream::default();
+
+        adapter
+            .handle_create_subscription(&mut stream, &request)
+            .expect("create should succeed");
+
+        assert!(
+            stream
+                .response
+                .contains("local_browser_subscription_created")
+        );
+        assert!(
+            stream
+                .response
+                .contains("/local/browser-subscriptions/lbs_0001/stream")
+        );
+        assert!(stream.response.contains("expedition-plan-request-001"));
+    }
+
+    #[test]
+    fn create_subscription_rejects_invalid_request_shape() {
+        let mut adapter = LocalBrowserAdapter::new(canonical_outcome());
+        let request = HttpRequest {
+            method: "POST".to_string(),
+            path: "/local/browser-subscriptions".to_string(),
+            headers: HashMap::from([("content-type".to_string(), "application/json".to_string())]),
+            body: br#"{"wrong":"shape"}"#.to_vec(),
+        };
+        let mut stream = TestStream::default();
+
+        adapter
+            .handle_create_subscription(&mut stream, &request)
+            .expect("invalid request should still write a response");
+
+        assert!(
+            stream
+                .response
+                .contains("local_browser_subscription_setup_error")
+        );
+        assert!(stream.response.contains("invalid_request"));
+    }
+
+    #[test]
+    fn stream_request_rejects_missing_subscription() {
+        let mut adapter = LocalBrowserAdapter::new(canonical_outcome());
+        let mut stream = TestStream::default();
+        let headers = HashMap::from([("accept".to_string(), "text/event-stream".to_string())]);
+
+        adapter
+            .handle_stream_request(
+                &mut stream,
+                "/local/browser-subscriptions/lbs_0001/stream",
+                &headers,
+            )
+            .expect("missing stream should still write a response");
+
+        assert!(
+            stream
+                .response
+                .contains("local_browser_subscription_stream_error")
+        );
+        assert!(stream.response.contains("not_found"));
+    }
+
+    fn canonical_outcome() -> RuntimeExecutionOutcome {
+        crate::canonical_expedition_runtime_outcome().expect("canonical outcome should build")
+    }
+
+    #[derive(Default)]
+    struct TestStream {
+        response: String,
+    }
+
+    impl Write for TestStream {
+        fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+            self.response.push_str(&String::from_utf8_lossy(buf));
+            Ok(buf.len())
+        }
+
+        fn flush(&mut self) -> std::io::Result<()> {
+            Ok(())
+        }
+    }
+}

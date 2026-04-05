@@ -1,3 +1,8 @@
+mod agent_packages;
+mod browser_adapter;
+
+use agent_packages::load_agent_package;
+use browser_adapter::serve_local_browser_adapter;
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -28,6 +33,16 @@ enum Command {
     BundleRegister {
         manifest_path: PathBuf,
     },
+    BrowserAdapterServe {
+        bind_address: String,
+    },
+    AgentInspect {
+        manifest_path: PathBuf,
+    },
+    AgentExecute {
+        manifest_path: PathBuf,
+        request_path: PathBuf,
+    },
     ExpeditionExecute {
         request_path: PathBuf,
         trace_output_path: Option<PathBuf>,
@@ -45,11 +60,25 @@ enum Command {
 
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
-    match run(&args) {
-        Ok(output) => {
-            println!("{output}");
-            ExitCode::SUCCESS
+    match parse_command(&args) {
+        Ok(Command::BrowserAdapterServe { bind_address }) => {
+            if let Err(error) = serve_local_browser_adapter(&bind_address) {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
         }
+        Ok(command) => match run_command(command) {
+            Ok(output) => {
+                println!("{output}");
+                ExitCode::SUCCESS
+            }
+            Err(error) => {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            }
+        },
         Err(error) => {
             eprintln!("{error}");
             ExitCode::FAILURE
@@ -57,10 +86,16 @@ fn main() -> ExitCode {
     }
 }
 
-fn run(args: &[String]) -> Result<String, String> {
-    match parse_command(args)? {
+fn run_command(command: Command) -> Result<String, String> {
+    match command {
         Command::BundleInspect { manifest_path } => inspect_bundle(&manifest_path),
         Command::BundleRegister { manifest_path } => register_bundle(&manifest_path),
+        Command::BrowserAdapterServe { .. } => Err(usage()),
+        Command::AgentInspect { manifest_path } => inspect_agent(&manifest_path),
+        Command::AgentExecute {
+            manifest_path,
+            request_path,
+        } => execute_agent(&manifest_path, &request_path),
         Command::ExpeditionExecute {
             request_path,
             trace_output_path,
@@ -76,8 +111,22 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         args.get(1).map(String::as_str),
         args.get(2).map(String::as_str),
     ) {
+        (Some("browser-adapter"), Some("serve")) => parse_browser_adapter_command(args),
+        (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
         _ => parse_fixed_arity_command(args),
+    }
+}
+
+fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
+    match args.len() {
+        3 => Ok(Command::BrowserAdapterServe {
+            bind_address: "127.0.0.1:0".to_string(),
+        }),
+        5 if args[3] == "--bind" => Ok(Command::BrowserAdapterServe {
+            bind_address: args[4].clone(),
+        }),
+        _ => Err(usage()),
     }
 }
 
@@ -93,6 +142,9 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
         ("bundle", "register") => Ok(Command::BundleRegister {
             manifest_path: PathBuf::from(&args[3]),
         }),
+        ("agent", "inspect") => Ok(Command::AgentInspect {
+            manifest_path: PathBuf::from(&args[3]),
+        }),
         ("event", "inspect") => Ok(Command::Event {
             contract_path: PathBuf::from(&args[3]),
         }),
@@ -101,6 +153,16 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
         }),
         ("workflow", "inspect") => Ok(Command::Workflow {
             workflow_path: PathBuf::from(&args[3]),
+        }),
+        _ => Err(usage()),
+    }
+}
+
+fn parse_agent_execute_command(args: &[String]) -> Result<Command, String> {
+    match args {
+        [_, _, _, manifest_path, request_path] => Ok(Command::AgentExecute {
+            manifest_path: PathBuf::from(manifest_path),
+            request_path: PathBuf::from(request_path),
         }),
         _ => Err(usage()),
     }
@@ -138,15 +200,36 @@ fn register_bundle(manifest_path: &Path) -> Result<String, String> {
     ))
 }
 
+fn inspect_agent(manifest_path: &Path) -> Result<String, String> {
+    let package = load_agent_package(manifest_path)?;
+    Ok(package.render_summary())
+}
+
+fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, String> {
+    let package = load_agent_package(manifest_path)?;
+    let request = load_runtime_request(request_path)?;
+    let mut registry = CapabilityRegistry::new();
+    registry
+        .register(package.capability_registration())
+        .map_err(render_registry_failure)?;
+    let runtime = Runtime::new(registry, AgentPackageExampleExecutor);
+    let outcome = runtime.execute(request);
+
+    if outcome.result.status == RuntimeResultStatus::Error {
+        return Err(render_runtime_execution_failure(&outcome));
+    }
+
+    Ok(render_agent_execution_summary(
+        &package.manifest.package_id,
+        &outcome,
+    ))
+}
+
 fn execute_expedition(
     request_path: &Path,
     trace_output_path: Option<&Path>,
 ) -> Result<String, String> {
-    let request = load_runtime_request(request_path)?;
-    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
-    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
-        .with_workflow_registry(registered.workflow_registry);
-    let outcome = runtime.execute(request);
+    let outcome = execute_expedition_outcome(request_path)?;
 
     if outcome.result.status == RuntimeResultStatus::Error {
         return Err(render_runtime_execution_failure(&outcome));
@@ -160,6 +243,10 @@ fn execute_expedition(
         &outcome,
         trace_output_path,
     ))
+}
+
+fn canonical_expedition_runtime_outcome() -> Result<RuntimeExecutionOutcome, String> {
+    execute_expedition_outcome(&canonical_expedition_request_path())
 }
 
 fn inspect_event(contract_path: &Path) -> Result<String, String> {
@@ -401,6 +488,39 @@ fn render_runtime_execution_summary(
     lines.join("\n")
 }
 
+fn render_agent_execution_summary(package_id: &str, outcome: &RuntimeExecutionOutcome) -> String {
+    let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
+    let mut lines = vec![
+        format!("request_id: {}", outcome.result.request_id),
+        format!("execution_id: {}", outcome.result.execution_id),
+        format!("package_id: {package_id}"),
+        "capability_id: expedition.planning.interpret-expedition-intent".to_string(),
+        "capability_version: 1.0.0".to_string(),
+        "status: completed".to_string(),
+        format!("trace_ref: {}", outcome.result.trace_ref),
+    ];
+
+    if let Some(intent_id) = output.get("intent_id").and_then(Value::as_str) {
+        lines.push(format!("intent_id: {intent_id}"));
+    }
+    if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
+        lines.push(format!("objective_id: {objective_id}"));
+    }
+    if let Some(confidence) = output.get("confidence").and_then(Value::as_f64) {
+        lines.push(format!("confidence: {confidence:.2}"));
+    }
+    if let Some(route_preferences) = output.get("route_preferences").and_then(Value::as_array) {
+        let joined = route_preferences
+            .iter()
+            .filter_map(Value::as_str)
+            .collect::<Vec<_>>()
+            .join(", ");
+        lines.push(format!("route_preferences: {joined}"));
+    }
+
+    lines.join("\n")
+}
+
 fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
     let final_transition = trace.state_transitions.last();
     let mut lines = vec![
@@ -453,7 +573,7 @@ fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
 }
 
 fn usage() -> String {
-    "usage: traverse-cli <bundle|event|trace|workflow|expedition> <inspect|register|execute> <artifact-path> [--trace-out <trace-path>]".to_string()
+    "usage: traverse-cli <bundle|agent|event|trace|workflow|expedition> <inspect|register|execute> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>]".to_string()
 }
 
 fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), String> {
@@ -526,6 +646,26 @@ impl LocalExecutor for ExpeditionExampleExecutor {
             }
             other => Err(executor_failure(&format!(
                 "unsupported expedition example capability: {other}"
+            ))),
+        }
+    }
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct AgentPackageExampleExecutor;
+
+impl LocalExecutor for AgentPackageExampleExecutor {
+    fn execute(
+        &self,
+        capability: &traverse_registry::ResolvedCapability,
+        input: &Value,
+    ) -> Result<Value, LocalExecutionFailure> {
+        match capability.contract.id.as_str() {
+            "expedition.planning.interpret-expedition-intent" => {
+                execute_interpret_expedition_intent(input)
+            }
+            other => Err(executor_failure(&format!(
+                "unsupported AI agent capability: {other}"
             ))),
         }
     }
@@ -776,6 +916,18 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
 
 fn canonical_expedition_bundle_path() -> PathBuf {
     repo_root().join("examples/expedition/registry-bundle/manifest.json")
+}
+
+fn canonical_expedition_request_path() -> PathBuf {
+    repo_root().join("examples/expedition/runtime-requests/plan-expedition.json")
+}
+
+fn execute_expedition_outcome(request_path: &Path) -> Result<RuntimeExecutionOutcome, String> {
+    let request = load_runtime_request(request_path)?;
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
+    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
+        .with_workflow_registry(registered.workflow_registry);
+    Ok(runtime.execute(request))
 }
 
 fn repo_root() -> PathBuf {
@@ -1078,9 +1230,10 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::{
-        execute_expedition, inspect_bundle, inspect_event, inspect_trace, inspect_workflow,
-        parse_command, register_bundle,
+        execute_agent, execute_expedition, inspect_agent, inspect_bundle, inspect_event,
+        inspect_trace, inspect_workflow, parse_command, register_bundle,
     };
+    use crate::agent_packages::fnv1a64;
     use std::fs;
     use std::path::PathBuf;
     use std::time::{SystemTime, UNIX_EPOCH};
@@ -1098,6 +1251,19 @@ mod tests {
             "bundle".to_string(),
             "register".to_string(),
             "examples/expedition/registry-bundle/manifest.json".to_string(),
+        ];
+        let agent_inspect = vec![
+            "traverse-cli".to_string(),
+            "agent".to_string(),
+            "inspect".to_string(),
+            "examples/agents/expedition-intent-agent/manifest.json".to_string(),
+        ];
+        let agent_execute = vec![
+            "traverse-cli".to_string(),
+            "agent".to_string(),
+            "execute".to_string(),
+            "examples/agents/expedition-intent-agent/manifest.json".to_string(),
+            "examples/agents/runtime-requests/interpret-expedition-intent.json".to_string(),
         ];
         let expedition_execute = vec![
             "traverse-cli".to_string(),
@@ -1135,6 +1301,8 @@ mod tests {
 
         assert!(parse_command(&bundle).is_ok());
         assert!(parse_command(&bundle_register).is_ok());
+        assert!(parse_command(&agent_inspect).is_ok());
+        assert!(parse_command(&agent_execute).is_ok());
         assert!(parse_command(&expedition_execute).is_ok());
         assert!(parse_command(&expedition_execute_with_trace).is_ok());
         assert!(parse_command(&event).is_ok());
@@ -1246,6 +1414,37 @@ mod tests {
         assert!(output.contains("capability_id: expedition.planning.plan-expedition"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("recommended_route_style: conservative-alpine-push"));
+    }
+
+    #[test]
+    fn inspect_agent_renders_governed_wasm_agent_package() {
+        let fixture = create_agent_package_fixture();
+
+        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+
+        assert!(
+            output.contains("package_id: expedition.planning.interpret-expedition-intent-agent")
+        );
+        assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
+        assert!(output.contains("binary_digest: fnv1a64:"));
+        assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
+    }
+
+    #[test]
+    fn execute_agent_runs_governed_ai_agent_request() {
+        let fixture = create_agent_package_fixture();
+        let request_path =
+            repo_root().join("examples/agents/runtime-requests/interpret-expedition-intent.json");
+
+        let output = execute_agent(&fixture.manifest_path, &request_path)
+            .expect("agent execution should succeed");
+
+        assert!(
+            output.contains("package_id: expedition.planning.interpret-expedition-intent-agent")
+        );
+        assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
+        assert!(output.contains("status: completed"));
+        assert!(output.contains("route_preferences: conservative-alpine-push, same-day-return"));
     }
 
     #[test]
@@ -1402,5 +1601,91 @@ mod tests {
         let path = std::env::temp_dir().join(format!("traverse-cli-test-{nanos}"));
         fs::create_dir_all(&path).expect("temporary directory should create");
         path
+    }
+
+    struct AgentFixture {
+        manifest_path: PathBuf,
+    }
+
+    fn create_agent_package_fixture() -> AgentFixture {
+        let temp_dir = unique_temp_dir();
+        let package_dir = temp_dir.join("agent");
+        let artifact_dir = package_dir.join("artifacts");
+        let source_dir = package_dir.join("src");
+        fs::create_dir_all(&artifact_dir).expect("artifact directory should create");
+        fs::create_dir_all(&source_dir).expect("source directory should create");
+
+        let wasm_bytes = hex_to_bytes(
+            "0061736d0100000001040160000003020100070a01065f737461727400000a040102000b",
+        );
+        let binary_path = artifact_dir.join("interpret-expedition-intent-agent.wasm");
+        fs::write(&binary_path, &wasm_bytes).expect("wasm binary should write");
+        fs::write(
+            source_dir.join("agent.rs"),
+            "pub fn run() -> &'static str { \"interpret-expedition-intent\" }\n",
+        )
+        .expect("source file should write");
+
+        let repo_root = repo_root();
+        let manifest_path = package_dir.join("manifest.json");
+        let manifest = format!(
+            r#"{{
+  "kind": "agent_package",
+  "schema_version": "1.0.0",
+  "package_id": "expedition.planning.interpret-expedition-intent-agent",
+  "version": "1.0.0",
+  "summary": "Governed WASM AI agent example for expedition intent interpretation.",
+  "capability_ref": {{
+    "id": "expedition.planning.interpret-expedition-intent",
+    "version": "1.0.0",
+    "contract_path": "{}"
+  }},
+  "workflow_refs": [
+    {{
+      "workflow_id": "expedition.planning.plan-expedition",
+      "workflow_version": "1.0.0"
+    }}
+  ],
+  "source": {{
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  }},
+  "binary": {{
+    "path": "./artifacts/interpret-expedition-intent-agent.wasm",
+    "format": "wasm",
+    "expected_digest": "{}"
+  }},
+  "constraints": {{
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  }},
+  "model_dependencies": [
+    {{
+      "interface": "expedition-intent-interpretation-v1",
+      "purpose": "Interpret free-form expedition planning intent into governed route preferences and assumptions."
+    }}
+  ]
+}}"#,
+            repo_root
+                .join("contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json")
+                .display(),
+            fnv1a64(&wasm_bytes)
+        );
+        fs::write(&manifest_path, manifest).expect("manifest should write");
+
+        AgentFixture { manifest_path }
+    }
+
+    fn hex_to_bytes(value: &str) -> Vec<u8> {
+        value
+            .as_bytes()
+            .chunks(2)
+            .map(|pair| {
+                let pair = std::str::from_utf8(pair).expect("hex pair should be utf8");
+                u8::from_str_radix(pair, 16).expect("hex pair should parse")
+            })
+            .collect()
     }
 }
