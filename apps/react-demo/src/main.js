@@ -1,4 +1,7 @@
-const { createElement: h, useEffect, useState } = React;
+const { createElement: h, useState } = React;
+
+const DemoClient = window.TraverseReactDemoClient;
+const APPROVED_SESSION = DemoClient.APPROVED_BROWSER_DEMO_SESSION;
 
 function labeledCard(label, value) {
   return h(
@@ -31,7 +34,17 @@ function timelineItem(update) {
   );
 }
 
-function traceSection(session) {
+function liveTraceSection(trace, terminalResult) {
+  const summary = DemoClient.traceSummary(trace, terminalResult);
+
+  if (!summary) {
+    return h(
+      "div",
+      { className: "trace-placeholder" },
+      "Terminal trace is withheld until the ordered state stream reaches completion.",
+    );
+  }
+
   return [
     h(
       "div",
@@ -40,11 +53,11 @@ function traceSection(session) {
       h(
         "dl",
         { className: "trace-list" },
-        labeledCard("Capability", session.trace.selected_capability_id),
-        labeledCard("Version", session.trace.selected_capability_version),
+        labeledCard("Capability", summary.selection.capability),
+        labeledCard("Version", summary.selection.version),
         labeledCard(
           "Placement",
-          `${session.trace.placement.selected_target} · ${session.trace.placement.reason}`,
+          `${summary.selection.placementTarget} · ${summary.selection.placementReason}`,
         ),
       ),
     ),
@@ -55,7 +68,7 @@ function traceSection(session) {
       h(
         "ul",
         { className: "event-list" },
-        session.trace.emitted_events.map((eventId) => h("li", { key: eventId }, eventId)),
+        summary.emittedEvents.map((eventId) => h("li", { key: eventId }, eventId)),
       ),
     ),
     h(
@@ -65,60 +78,51 @@ function traceSection(session) {
       h(
         "dl",
         { className: "trace-list" },
-        labeledCard("Plan", session.trace.output.plan_id),
-        labeledCard("Route", session.trace.output.route),
-        labeledCard("Weather", session.trace.output.weather_summary),
-        labeledCard("Team Status", session.trace.output.team_status),
-        labeledCard("Next Action", session.trace.output.next_action),
+        labeledCard("Plan", summary.output.planId),
+        labeledCard("Route", summary.output.route),
+        labeledCard("Weather", summary.output.weatherSummary),
+        labeledCard("Team Status", summary.output.teamStatus),
+        labeledCard("Next Action", summary.output.nextAction),
       ),
     ),
   ];
 }
 
 function DemoApp() {
-  const [session, setSession] = useState(null);
+  const [sessionState, setSessionState] = useState(() => DemoClient.createLiveDemoState());
   const [error, setError] = useState("");
-  const [phase, setPhase] = useState("loading");
-  const [visibleCount, setVisibleCount] = useState(0);
 
-  useEffect(() => {
-    fetch("./public/expedition-runtime-session.json")
-      .then((response) => {
-        if (!response.ok) {
-          throw new Error(`failed to load fixture: ${response.status}`);
-        }
-        return response.json();
-      })
-      .then((loadedSession) => {
-        setSession(loadedSession);
-        setPhase("idle");
-      })
-      .catch((reason) => {
-        setError(String(reason));
+  async function handleSubmitRequest() {
+    if (sessionState.phase === "streaming") {
+      return;
+    }
+
+    setError("");
+    setSessionState(DemoClient.createLiveDemoState());
+
+    try {
+      await DemoClient.runLiveBrowserSubscription({
+        onMessage: (message, created) => {
+          setSessionState((current) => DemoClient.applyBrowserSubscriptionMessage(current, message, created));
+        },
       });
-  }, []);
-
-  useEffect(() => {
-    if (!session || phase !== "streaming") {
-      return undefined;
+    } catch (reason) {
+      const message = String(reason);
+      setError(message);
+      setSessionState((current) => ({
+        ...current,
+        phase: "error",
+        statusLabel: "error",
+        streamBanner: message,
+        error: message,
+      }));
     }
-
-    if (visibleCount >= session.state_updates.length) {
-      setPhase("completed");
-      return undefined;
-    }
-
-    const timer = window.setTimeout(() => {
-      setVisibleCount((current) => current + 1);
-    }, 450);
-
-    return () => window.clearTimeout(timer);
-  }, [phase, session, visibleCount]);
-
-  function handleSubmitRequest() {
-    setVisibleCount(0);
-    setPhase("streaming");
   }
+
+  const statusLabel = sessionState.statusLabel;
+  const hasTerminalTrace = sessionState.phase === "completed" && sessionState.liveTrace;
+  const isStreaming = sessionState.phase === "streaming";
+  const visibleUpdates = sessionState.stateUpdates;
 
   if (error) {
     return h(
@@ -131,52 +135,16 @@ function DemoApp() {
           "div",
           { className: "hero-copy" },
           h("p", { className: "eyebrow" }, "Traverse Browser Runtime"),
-          h("h1", null, "Fixture loading failed."),
+          h("h1", null, "Live adapter connection failed."),
           h("p", { className: "lede" }, error),
-        ),
-      ),
-    );
-  }
-
-  if (!session) {
-    return h(
-      "main",
-      { className: "page" },
-      h(
-        "section",
-        { className: "hero" },
-        h(
-          "div",
-          { className: "hero-copy" },
-          h("p", { className: "eyebrow" }, "Traverse Browser Runtime"),
-          h("h1", null, "Loading the governed expedition session..."),
           h(
             "p",
             { className: "lede" },
-            "Preparing ordered runtime state updates and the terminal trace artifact.",
+            "Run the local browser adapter proxy again, or use the documented fixture preview fallback.",
           ),
         ),
       ),
     );
-  }
-
-  const visibleUpdates = session.state_updates.slice(0, visibleCount);
-  const hasTerminalTrace = phase === "completed";
-  const isStreaming = phase === "streaming";
-  const statusLabel =
-    phase === "idle"
-      ? "ready"
-      : phase === "streaming"
-        ? "streaming"
-        : phase === "completed"
-          ? session.status
-          : "loading";
-
-  let streamBanner = "No subscription active yet. Submit the approved request to begin.";
-  if (phase === "streaming") {
-    streamBanner = "Subscription established. Streaming ordered runtime updates.";
-  } else if (phase === "completed") {
-    streamBanner = "Stream completed. Final trace artifact is now visible.";
   }
 
   return h(
@@ -189,14 +157,15 @@ function DemoApp() {
         "div",
         { className: "hero-copy" },
         h("p", { className: "eyebrow" }, "Traverse Browser Runtime"),
-        h("h1", null, session.title),
-        h("p", { className: "lede" }, session.summary),
+        h("h1", null, APPROVED_SESSION.title),
+        h("p", { className: "lede" }, APPROVED_SESSION.summary),
         h(
           "dl",
           { className: "request-meta" },
-          labeledCard("Goal", session.request.goal),
-          labeledCard("Target", session.request.requested_target),
-          labeledCard("Trace", session.trace_id),
+          labeledCard("Goal", APPROVED_SESSION.request.goal),
+          labeledCard("Target", APPROVED_SESSION.request.requested_target),
+          labeledCard("Trace", APPROVED_SESSION.trace_id),
+          labeledCard("Request", APPROVED_SESSION.request_id),
         ),
       ),
       h("div", { className: "status-pill" }, statusLabel),
@@ -224,8 +193,8 @@ function DemoApp() {
             "div",
             null,
             h("p", { className: "request-label" }, "Approved request"),
-            h("h3", null, session.title),
-            h("p", null, session.request.goal),
+            h("h3", null, APPROVED_SESSION.title),
+            h("p", null, APPROVED_SESSION.request.goal),
           ),
           h(
             "button",
@@ -238,7 +207,7 @@ function DemoApp() {
             isStreaming ? "Streaming approved request..." : "Submit approved request",
           ),
         ),
-        h("div", { className: "stream-banner" }, streamBanner),
+        h("div", { className: "stream-banner" }, sessionState.streamBanner),
         h("ol", { className: "timeline" }, visibleUpdates.map(timelineItem)),
       ),
       h(
@@ -251,7 +220,7 @@ function DemoApp() {
           h("p", null, "The final governed selection, placement, and output snapshot."),
         ),
         hasTerminalTrace
-          ? traceSection(session)
+          ? liveTraceSection(sessionState.liveTrace, sessionState.liveResult)
           : h(
               "div",
               { className: "trace-placeholder" },
