@@ -17,6 +17,7 @@ required_files=(
   "docs/contract-publication-policy.md"
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
+  "docs/mcp-consumption-validation.md"
   "docs/executable-package-template.md"
   "examples/expedition/runtime-requests/plan-expedition.json"
   "docs/exception-process.md"
@@ -71,6 +72,7 @@ grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smok
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json" docs/expedition-example-authoring.md
