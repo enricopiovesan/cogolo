@@ -50,6 +50,8 @@ required_files=(
   "specs/004-spec-alignment-gate/spec.md"
   "specs/004-spec-alignment-gate/data-model.md"
   "specs/governance/approved-specs.json"
+  "specs/022-mcp-wasm-server/spec.md"
+  "specs/022-mcp-wasm-server/checklists/requirements.md"
 )
 
 for file in "${required_files[@]}"; do
@@ -161,6 +163,9 @@ grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-v
 grep -q "bash scripts/ci/project_state_audit.sh" docs/project-management.md
 grep -q "Open PR-backed tickets" docs/project-management.md
 grep -q 'must be labeled `in-progress`' docs/multi-thread-workflow.md
+grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spec.md
+grep -q "Traverse runtime authority" specs/022-mcp-wasm-server/spec.md
+grep -q "MCP transport concerns" specs/022-mcp-wasm-server/spec.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."
