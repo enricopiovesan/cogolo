@@ -31,6 +31,9 @@ required_files=(
   "docs/adr/README.md"
   "docs/adr/0001-rust-wasm-foundation.md"
   "scripts/ci/browser_adapter_smoke.sh"
+  "apps/react-demo/server.mjs"
+  "apps/react-demo/src/browser-adapter-client.js"
+  "scripts/ci/react_demo_live_adapter_smoke.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -102,6 +105,15 @@ grep -q "specs/013-browser-runtime-subscription/spec.md" docs/adapter-boundaries
 grep -q "specs/014-mcp-surface/spec.md" docs/adapter-boundaries.md
 grep -q "mandatory sidecar topology" docs/adapter-boundaries.md
 grep -q "optional adapter choices" docs/adapter-boundaries.md
+grep -q "browser-adapter serve" apps/react-demo/README.md
+grep -q "react_demo_live_adapter_smoke.sh" apps/react-demo/README.md
+grep -q "same-origin local proxy" apps/react-demo/README.md
+grep -q "Run the local browser adapter proxy again" apps/react-demo/README.md
+grep -q "Traverse React demo serving on" apps/react-demo/server.mjs
+grep -q "runLiveBrowserSubscription" apps/react-demo/src/browser-adapter-client.js
+grep -q "applyBrowserSubscriptionMessage" apps/react-demo/src/browser-adapter-client.js
+grep -q "App" apps/react-demo/src/main.js
+grep -q "react_demo_live_adapter_smoke.sh" scripts/ci/react_demo_live_adapter_smoke.sh
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."
