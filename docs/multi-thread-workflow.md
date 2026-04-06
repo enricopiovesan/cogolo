@@ -50,6 +50,8 @@ Use statuses this way:
 
 Do not move work to `In Progress` merely because it is a candidate for parallel execution.
 
+If a ticket has an open PR, it must be labeled `in-progress` and its Project 1 item must also be `In Progress`. The PM thread should fix mismatches immediately.
+
 ## Required Parallel Work Rules
 
 For parallel work to be valid:
