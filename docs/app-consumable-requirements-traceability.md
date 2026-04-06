@@ -13,7 +13,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 | Release checklist and release-readiness evidence | [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#149](https://github.com/enricopiovesan/Traverse/issues/149) | `In Progress` / `In Progress` / `Ready` |
 | Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `Done` |
 | Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `Done` |
-| MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | `Ready` / `Blocked` |
+| MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | `Done` / `In Progress` / `Blocked` |
 
 ## Non-Functional Requirements
 
@@ -30,7 +30,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#142](https://github.com/enricopiovesan/Traverse/issues/142) `Refresh README for v0.1 release-candidate state` - `In Progress`
 - [#144](https://github.com/enricopiovesan/Traverse/issues/144) `Establish one canonical documentation entry path for humans and agents` - `Ready`
 - [#145](https://github.com/enricopiovesan/Traverse/issues/145) `Refresh release and requirements traceability docs for current v0.1 state` - `In Progress`
-- [#146](https://github.com/enricopiovesan/Traverse/issues/146) `Specify the first dedicated Traverse MCP WASM server model` - `Ready`
+- [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation` - `In Progress`
 - [#149](https://github.com/enricopiovesan/Traverse/issues/149) `Define Traverse v0.1 release artifact and publication bundle` - `Ready` but dependency-gated by `#127`
 - [#130](https://github.com/enricopiovesan/Traverse/issues/130) `Define first app-consumable performance baseline` - `Blocked`
 - [#131](https://github.com/enricopiovesan/Traverse/issues/131) `Define app-facing security and safety boundary for browser and MCP consumers` - `Blocked`
@@ -53,7 +53,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#142](https://github.com/enricopiovesan/Traverse/issues/142) README release-candidate refresh
 - [#144](https://github.com/enricopiovesan/Traverse/issues/144) canonical documentation entry path
 - [#145](https://github.com/enricopiovesan/Traverse/issues/145) requirements traceability refresh
-- [#146](https://github.com/enricopiovesan/Traverse/issues/146) dedicated MCP WASM server model
+- [#158](https://github.com/enricopiovesan/Traverse/issues/158) dedicated MCP stdio server package foundation
 - [#149](https://github.com/enricopiovesan/Traverse/issues/149) release artifact and publication bundle
 
 ### Later

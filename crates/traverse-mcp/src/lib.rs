@@ -1,5 +1,9 @@
 //! MCP-facing surfaces for Traverse.
 
+mod stdio_server;
+
+pub use stdio_server::*;
+
 use traverse_registry::{
     CapabilityRegistry, DiscoveryQuery, EventRegistry, LookupScope, RegistryScope,
     ResolvedCapability, ResolvedEvent, ResolvedWorkflow, WorkflowRegistry,
