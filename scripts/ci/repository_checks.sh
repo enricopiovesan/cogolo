@@ -41,7 +41,7 @@ required_files=(
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
-  "scripts/ci/project_state_audit.sh"
+  "scripts/ci/project_board_audit.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -57,9 +57,16 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
-if grep -R -n -E --exclude-dir=.git --exclude='repository_checks.sh' "Cogollo|Cogolo" .; then
-  echo "Found stale project name references; expected 'Traverse'." >&2
-  exit 1
+if command -v rg >/dev/null 2>&1; then
+  if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+    echo "Found stale project name references; expected 'Traverse'." >&2
+    exit 1
+  fi
+else
+  if grep -RInE --exclude='repository_checks.sh' --exclude-dir='.git' 'Cogollo|Cogolo' .; then
+    echo "Found stale project name references; expected 'Traverse'." >&2
+    exit 1
+  fi
 fi
 
 grep -q "GitHub Project 1" README.md
@@ -73,15 +80,21 @@ grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-sta
 grep -q "Validation" docs/ticket-standard.md
 grep -q "future" docs/project-management.md
 grep -q "in-progress" docs/project-management.md
+! grep -q '^- `ready`$' docs/project-management.md
 grep -q 'Potential parallel candidates should stay `Ready`' docs/project-management.md
+grep -q "Project 1 status is the only actionability signal" docs/project-management.md
+grep -q "project_board_audit.sh" docs/project-management.md
 grep -q "Note" docs/project-management.md
 grep -q "separate Codex threads" docs/project-management.md
 grep -q "Blocked" docs/planning-board.md
 grep -q "In Progress" docs/planning-board.md
 grep -q "Only tickets with real active execution" docs/planning-board.md
 grep -q "Note" docs/ticket-standard.md
+! grep -q '^- `ready`$' docs/ticket-standard.md
+grep -q "Use Project 1 status for availability" docs/ticket-standard.md
 grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
 grep -q "Starter Prompts" docs/multi-thread-workflow.md
+grep -q "project_board_audit.sh" docs/multi-thread-workflow.md
 grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
