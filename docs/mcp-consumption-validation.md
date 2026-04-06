@@ -10,6 +10,8 @@ This validation path is governed by:
 - `specs/020-downstream-integration-validation/spec.md`
 - `specs/021-app-facing-operational-constraints/spec.md`
 
+For the first real downstream browser + MCP integration path, also see [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md).
+
 ## Validation Path
 
 Run the deterministic smoke validation:

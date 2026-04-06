@@ -19,6 +19,7 @@ required_files=(
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
   "docs/mcp-consumption-validation.md"
+  "docs/youaskm3-integration-validation.md"
   "docs/wasm-agent-team-readiness-example.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
@@ -36,6 +37,7 @@ required_files=(
   "apps/react-demo/server.mjs"
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
+  "scripts/ci/youaskm3_integration_validation.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -84,6 +86,7 @@ grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
+grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
@@ -113,6 +116,7 @@ grep -q "browser-adapter serve" apps/react-demo/README.md
 grep -q "react_demo_live_adapter_smoke.sh" apps/react-demo/README.md
 grep -q "same-origin local proxy" apps/react-demo/README.md
 grep -q "Run the local browser adapter proxy again" apps/react-demo/README.md
+grep -q "youaskm3 integration validation" README.md
 grep -q "Traverse React demo serving on" apps/react-demo/server.mjs
 grep -q "runLiveBrowserSubscription" apps/react-demo/src/browser-adapter-client.js
 grep -q "applyBrowserSubscriptionMessage" apps/react-demo/src/browser-adapter-client.js
@@ -124,6 +128,9 @@ grep -q "node apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 
 grep -q "bash scripts/ci/react_demo_live_adapter_smoke.sh" quickstart.md
 grep -q "bash scripts/ci/react_demo_smoke.sh" quickstart.md
 grep -q "## Known Limitations" quickstart.md
+grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
+grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
+grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."
