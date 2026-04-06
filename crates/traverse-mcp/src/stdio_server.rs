@@ -388,11 +388,14 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        server
-            .run_stdio(input, &mut stdout, &mut stderr, false)
-            .expect("stdio server should complete successfully");
+        if let Err(error) = server.run_stdio(input, &mut stdout, &mut stderr, false) {
+            panic!("stdio server should complete successfully: {error:?}");
+        }
 
-        let output = String::from_utf8(stdout).expect("stdout should be valid utf-8");
+        let output = match String::from_utf8(stdout) {
+            Ok(output) => output,
+            Err(error) => panic!("stdout should be valid utf-8: {error}"),
+        };
         assert!(output.contains("\"kind\":\"mcp_stdio_server_startup\""));
         assert!(output.contains("\"host_mode\":\"stdio\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_description\""));
@@ -407,12 +410,16 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let error = server
-            .run_stdio(input, &mut stdout, &mut stderr, true)
-            .expect_err("startup failure should be surfaced");
+        let error = match server.run_stdio(input, &mut stdout, &mut stderr, true) {
+            Ok(_) => panic!("startup failure should be surfaced"),
+            Err(error) => error,
+        };
 
         assert_eq!(error.code, "startup_failed");
-        let stderr_text = String::from_utf8(stderr).expect("stderr should be valid utf-8");
+        let stderr_text = match String::from_utf8(stderr) {
+            Ok(stderr_text) => stderr_text,
+            Err(error) => panic!("stderr should be valid utf-8: {error}"),
+        };
         assert!(stderr_text.contains("\"kind\":\"mcp_stdio_server_error\""));
         assert!(stderr_text.contains("\"code\":\"startup_failed\""));
         assert!(stdout.is_empty());
@@ -425,12 +432,16 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let error = server
-            .run_stdio(input, &mut stdout, &mut stderr, false)
-            .expect_err("invalid command should fail");
+        let error = match server.run_stdio(input, &mut stdout, &mut stderr, false) {
+            Ok(_) => panic!("invalid command should fail"),
+            Err(error) => error,
+        };
 
         assert_eq!(error.code, "invalid_request");
-        let stderr_text = String::from_utf8(stderr).expect("stderr should be valid utf-8");
+        let stderr_text = match String::from_utf8(stderr) {
+            Ok(stderr_text) => stderr_text,
+            Err(error) => panic!("stderr should be valid utf-8: {error}"),
+        };
         assert!(stderr_text.contains("\"code\":\"invalid_request\""));
         assert!(stdout.contains(&b'\n'));
     }

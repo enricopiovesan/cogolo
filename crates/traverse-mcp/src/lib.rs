@@ -579,9 +579,8 @@ mod tests {
             allow_ambiguity: true,
         };
 
-        let error = match mcp.execute(request) {
-            Ok(_) => panic!("invalid request should fail"),
-            Err(error) => error,
+        let Err(error) = mcp.execute(request) else {
+            panic!("invalid request should fail");
         };
 
         assert_eq!(error.code, McpErrorCode::InvalidRequest);
