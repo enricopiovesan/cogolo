@@ -19,6 +19,7 @@ required_files=(
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
   "docs/mcp-consumption-validation.md"
+  "docs/app-consumable-release-checklist.md"
   "docs/youaskm3-integration-validation.md"
   "docs/wasm-agent-team-readiness-example.md"
   "docs/app-consumable-acceptance.md"
@@ -89,6 +90,10 @@ grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
+grep -q "app-consumable v0.1" docs/app-consumable-release-checklist.md
+grep -q "Release Blockers" docs/app-consumable-release-checklist.md
+grep -q "Post-Release Follow-Up" docs/app-consumable-release-checklist.md
+grep -q "quickstart.md" docs/app-consumable-release-checklist.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
 grep -q "bash scripts/ci/app_consumable_acceptance.sh" docs/app-consumable-acceptance.md
 grep -q "React browser demo" docs/app-consumable-acceptance.md
