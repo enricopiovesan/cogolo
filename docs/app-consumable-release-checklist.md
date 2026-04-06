@@ -29,6 +29,7 @@ If any item above is unchecked, `app-consumable v0.1` is blocked.
 
 The release decision should be backed by:
 
+- the release artifact and publication bundle definition
 - the first app-consumable quickstart
 - the browser live-adapter smoke path
 - the MCP consumption validation path
@@ -59,5 +60,6 @@ A reviewer can answer the release question by checking:
 6. the MCP validation path
 7. the first real `youaskm3` integration validation path
 8. the end-to-end acceptance path
+9. the release artifact and publication bundle definition
 
 If those artifacts and checks exist and are passing, the first app-consumable release can be evaluated on evidence rather than interpretation.
