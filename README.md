@@ -50,6 +50,7 @@ Code, generated artifacts, and tests must align with the approved governing spec
 - First app-consumable quickstart: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
 - Project direction: [draft.md](/Users/piovese/Documents/cogolo/draft.md)
 - Brainstorming decisions: [brainstorming.md](/Users/piovese/Documents/cogolo/brainstorming.md)
+- First real youaskm3 integration validation: [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
 - Quality standards: [docs/quality-standards.md](/Users/piovese/Documents/cogolo/docs/quality-standards.md)
 - Compatibility policy: [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md)
 - Adapter boundaries: [docs/adapter-boundaries.md](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md)
