@@ -47,6 +47,7 @@ Code, generated artifacts, and tests must align with the approved governing spec
 
 ## Key Docs
 
+- Start here: [quickstart.md](/private/tmp/cogolo-issue-122/quickstart.md)
 - Project direction: [draft.md](/Users/piovese/Documents/cogolo/draft.md)
 - Brainstorming decisions: [brainstorming.md](/Users/piovese/Documents/cogolo/brainstorming.md)
 - Quality standards: [docs/quality-standards.md](/Users/piovese/Documents/cogolo/docs/quality-standards.md)

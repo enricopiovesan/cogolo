@@ -2,6 +2,8 @@
 
 This is the first checked-in React browser demo surface for Traverse.
 
+If you want the shortest end-to-end local path, start with [quickstart.md](/private/tmp/cogolo-issue-122/quickstart.md) and then come back here for the demo-specific details.
+
 What it does:
 - renders one approved expedition flow
 - allows one approved request submission path
