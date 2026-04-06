@@ -1,0 +1,44 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "req-agent-readiness-001",
+  "intent": {
+    "capability_id": "expedition.planning.validate-team-readiness",
+    "capability_version": "1.0.0",
+    "intent_key": "expedition.planning.validate-team-readiness"
+  },
+  "input": {
+    "objective": {
+      "objective_id": "objective-skyline-loop"
+    },
+    "conditions_summary": {
+      "conditions_summary_id": "conditions-skyline-loop",
+      "objective_id": "objective-skyline-loop",
+      "overall_rating": "watchful",
+      "key_findings": [
+        "stable morning window",
+        "low hazard score"
+      ],
+      "blocking_concerns": []
+    },
+    "team_profile": {
+      "team_id": "team-alpine-02",
+      "member_count": 4,
+      "experience_level": "advanced",
+      "equipment_ready": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "correlation_id": "corr-agent-readiness-001",
+    "caller": "agent",
+    "metadata": {
+      "example": "second-governed-agent"
+    }
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
