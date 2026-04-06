@@ -21,6 +21,7 @@ required_files=(
   "docs/mcp-consumption-validation.md"
   "docs/youaskm3-integration-validation.md"
   "docs/wasm-agent-team-readiness-example.md"
+  "docs/app-consumable-acceptance.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
   "quickstart.md"
@@ -88,6 +89,8 @@ grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
+grep -q "bash scripts/ci/app_consumable_acceptance.sh" docs/app-consumable-acceptance.md
+grep -q "React browser demo" docs/app-consumable-acceptance.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
@@ -115,6 +118,7 @@ grep -q "optional adapter choices" docs/adapter-boundaries.md
 grep -q "browser-adapter serve" apps/react-demo/README.md
 grep -q "react_demo_live_adapter_smoke.sh" apps/react-demo/README.md
 grep -q "same-origin local proxy" apps/react-demo/README.md
+grep -q "app-consumable acceptance" apps/react-demo/README.md
 grep -q "Run the local browser adapter proxy again" apps/react-demo/README.md
 grep -q "youaskm3 integration validation" README.md
 grep -q "Traverse React demo serving on" apps/react-demo/server.mjs

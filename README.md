@@ -47,7 +47,8 @@ Code, generated artifacts, and tests must align with the approved governing spec
 
 ## Key Docs
 
-- First app-consumable quickstart: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
+- Start here: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
+- App-consumable acceptance: [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
 - Project direction: [draft.md](/Users/piovese/Documents/cogolo/draft.md)
 - Brainstorming decisions: [brainstorming.md](/Users/piovese/Documents/cogolo/brainstorming.md)
 - First real youaskm3 integration validation: [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
