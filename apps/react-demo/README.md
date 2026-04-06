@@ -3,7 +3,8 @@
 This is the first checked-in React browser demo surface for Traverse.
 
 If you want the shortest end-to-end local path, start with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md) and then come back here for the demo-specific details.
-If you want the formal acceptance entrypoint, use [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md).
+
+If you want the formal app-consumable acceptance entrypoint, use [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md).
 
 What it does:
 - renders one approved expedition flow

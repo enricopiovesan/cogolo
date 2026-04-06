@@ -54,7 +54,7 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
-if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+if grep -R -n -E --exclude-dir=.git --exclude='repository_checks.sh' "Cogollo|Cogolo" .; then
   echo "Found stale project name references; expected 'Traverse'." >&2
   exit 1
 fi
