@@ -24,7 +24,6 @@ required_files=(
   "docs/wasm-agent-team-readiness-example.md"
   "docs/app-consumable-acceptance.md"
   "docs/app-consumable-entry-path.md"
-  "docs/app-consumable-requirements-traceability.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
   "quickstart.md"
@@ -117,9 +116,6 @@ grep -q "React browser demo" docs/app-consumable-acceptance.md
 grep -q "Canonical Rule" docs/app-consumable-entry-path.md
 grep -q "Start Here" docs/app-consumable-entry-path.md
 grep -q "quickstart.md" docs/app-consumable-entry-path.md
-grep -q "Current Open First-Release Ticket Set" docs/app-consumable-requirements-traceability.md
-grep -q "v0.1 Release Ordering" docs/app-consumable-requirements-traceability.md
-grep -q "Traceability from requirements to release artifacts" docs/app-consumable-requirements-traceability.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
@@ -164,7 +160,7 @@ grep -q "## Known Limitations" quickstart.md
 grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
 grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
 grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
-grep -q "bash scripts/ci/project_state_audit.sh" docs/project-management.md
+grep -q "bash scripts/ci/project_board_audit.sh" docs/project-management.md
 grep -q "Open PR-backed tickets" docs/project-management.md
 grep -q 'must be labeled `in-progress`' docs/multi-thread-workflow.md
 grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spec.md
