@@ -485,27 +485,30 @@ mod tests {
             &runtime,
         );
 
-        let capability = mcp
-            .get_capability(
-                McpLookupScope::PreferPrivate,
-                "content.comments.create-comment-draft",
-                "1.0.0",
-            )
-            .expect("capability should resolve");
-        let event = mcp
-            .get_event(
-                McpLookupScope::PreferPrivate,
-                "content.comments.draft-created",
-                "1.0.0",
-            )
-            .expect("event should resolve");
-        let workflow = mcp
-            .get_workflow(
-                McpLookupScope::PreferPrivate,
-                "content.comments.publish-comment",
-                "1.0.0",
-            )
-            .expect("workflow should resolve");
+        let capability = match mcp.get_capability(
+            McpLookupScope::PreferPrivate,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+        ) {
+            Ok(capability) => capability,
+            Err(error) => panic!("capability should resolve: {error:?}"),
+        };
+        let event = match mcp.get_event(
+            McpLookupScope::PreferPrivate,
+            "content.comments.draft-created",
+            "1.0.0",
+        ) {
+            Ok(event) => event,
+            Err(error) => panic!("event should resolve: {error:?}"),
+        };
+        let workflow = match mcp.get_workflow(
+            McpLookupScope::PreferPrivate,
+            "content.comments.publish-comment",
+            "1.0.0",
+        ) {
+            Ok(workflow) => workflow,
+            Err(error) => panic!("workflow should resolve: {error:?}"),
+        };
 
         assert!(matches!(capability, McpArtifactDetail::Capability(_)));
         assert!(matches!(event, McpArtifactDetail::Event(_)));
@@ -525,9 +528,10 @@ mod tests {
             &runtime,
         );
 
-        let response = mcp
-            .execute(runtime_request())
-            .expect("execution should pass");
+        let response = match mcp.execute(runtime_request()) {
+            Ok(response) => response,
+            Err(error) => panic!("execution should pass: {error:?}"),
+        };
 
         assert_eq!(response.result.status, RuntimeResultStatus::Completed);
         assert_eq!(
@@ -574,9 +578,10 @@ mod tests {
             allow_ambiguity: true,
         };
 
-        let error = mcp
-            .execute(request)
-            .expect_err("invalid request should fail");
+        let error = match mcp.execute(request) {
+            Ok(_) => panic!("invalid request should fail"),
+            Err(error) => error,
+        };
 
         assert_eq!(error.code, McpErrorCode::InvalidRequest);
     }
@@ -619,18 +624,20 @@ mod tests {
         assert_eq!(discovered[0].scope, McpRegistryScope::Public);
         assert_eq!(discovered[0].id, "content.comments.create-comment-draft");
 
-        let capability = mcp
-            .get_capability(
-                McpLookupScope::PublicOnly,
-                "content.comments.create-comment-draft",
-                "1.0.0",
-            )
-            .expect("public capability should resolve");
+        let capability = match mcp.get_capability(
+            McpLookupScope::PublicOnly,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+        ) {
+            Ok(capability) => capability,
+            Err(error) => panic!("public capability should resolve: {error:?}"),
+        };
         assert!(matches!(capability, McpArtifactDetail::Capability(_)));
 
-        let response = mcp
-            .execute(runtime_request())
-            .expect("execution should pass");
+        let response = match mcp.execute(runtime_request()) {
+            Ok(response) => response,
+            Err(error) => panic!("execution should pass: {error:?}"),
+        };
         assert_eq!(response.result.status, RuntimeResultStatus::Completed);
         assert_eq!(
             response.observation_messages.first(),
