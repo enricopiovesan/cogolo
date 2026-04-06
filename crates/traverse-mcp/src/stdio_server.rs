@@ -101,6 +101,13 @@ where
         })
     }
 
+    /// Run the stdio server loop.
+    ///
+    /// # Errors
+    ///
+    /// Returns `startup_failed` when deterministic startup failure simulation is enabled.
+    /// Returns `io_error` when writing startup or message envelopes to stdio fails, or when
+    /// reading input from stdin fails.
     pub fn run_stdio<R, W, EWrite>(
         &self,
         input: R,
@@ -247,6 +254,13 @@ impl fmt::Display for StdioServerFailure {
 
 impl std::error::Error for StdioServerFailure {}
 
+/// Run the dedicated Traverse MCP stdio server entrypoint.
+///
+/// # Errors
+///
+/// Returns `usage` when the CLI arguments request help or omit the required `stdio` mode.
+/// Returns `startup_failed` when deterministic startup failure simulation is enabled.
+/// Returns `io_error` when delegating to the server loop fails to read or write stdio data.
 pub fn run_mcp_stdio_server<I, W, E>(
     args: I,
     stdout: &mut W,
