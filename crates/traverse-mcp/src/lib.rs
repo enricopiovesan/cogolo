@@ -180,6 +180,48 @@ where
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct McpConsumptionValidationPath {
+    pub consumer_name: &'static str,
+    pub validated_flow_id: &'static str,
+    pub public_surface_id: &'static str,
+    pub governing_specs: &'static [&'static str],
+    pub required_public_surfaces: &'static [&'static str],
+    pub exposed_tools: &'static [&'static str],
+    pub internal_non_goals: &'static [&'static str],
+}
+
+#[must_use]
+pub fn youaskm3_mcp_consumption_validation_path() -> McpConsumptionValidationPath {
+    McpConsumptionValidationPath {
+        consumer_name: "youaskm3",
+        validated_flow_id: "youaskm3_mcp_validation",
+        public_surface_id: "traverse.mcp.downstream-consumer",
+        governing_specs: &[
+            "019-downstream-consumer-contract",
+            "020-downstream-integration-validation",
+            "021-app-facing-operational-constraints",
+        ],
+        required_public_surfaces: &[
+            "mcp.capabilities.discover",
+            "mcp.capability.get",
+            "mcp.runtime.execute",
+            "mcp.runtime.observe_execution",
+        ],
+        exposed_tools: &[
+            "mcp.capabilities.discover",
+            "mcp.capability.get",
+            "mcp.runtime.execute",
+            "mcp.runtime.observe_execution",
+        ],
+        internal_non_goals: &[
+            "internal_crate_layout",
+            "private_helper_modules",
+            "undocumented_message_types",
+        ],
+    }
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum McpLookupScope {
     PublicOnly,
@@ -535,6 +577,75 @@ mod tests {
         assert_eq!(error.code, McpErrorCode::InvalidRequest);
     }
 
+    #[test]
+    fn validates_youaskm3_mcp_consumption_path() {
+        let capability_registry_for_runtime = public_capability_registry_fixture();
+        let capability_registry_for_mcp = public_capability_registry_fixture();
+        let event_registry = EventRegistry::new();
+        let workflow_registry = WorkflowRegistry::new();
+        let runtime = Runtime::new(capability_registry_for_runtime, EchoExecutor);
+        let mcp = TraverseMcp::new(
+            &capability_registry_for_mcp,
+            &event_registry,
+            &workflow_registry,
+            &runtime,
+        );
+
+        let path = youaskm3_mcp_consumption_validation_path();
+        assert_eq!(path.consumer_name, "youaskm3");
+        assert_eq!(path.validated_flow_id, "youaskm3_mcp_validation");
+        assert_eq!(path.public_surface_id, "traverse.mcp.downstream-consumer");
+        assert!(
+            path.governing_specs
+                .contains(&"020-downstream-integration-validation")
+        );
+        assert!(
+            path.governing_specs
+                .contains(&"021-app-facing-operational-constraints")
+        );
+        assert!(
+            path.required_public_surfaces
+                .contains(&"mcp.runtime.execute")
+        );
+        assert!(path.exposed_tools.contains(&"mcp.capability.get"));
+
+        let discovered =
+            mcp.discover_capabilities(McpLookupScope::PublicOnly, &DiscoveryQuery::default());
+        assert_eq!(discovered.len(), 1);
+        assert_eq!(discovered[0].scope, McpRegistryScope::Public);
+        assert_eq!(discovered[0].id, "content.comments.create-comment-draft");
+
+        let capability = mcp
+            .get_capability(
+                McpLookupScope::PublicOnly,
+                "content.comments.create-comment-draft",
+                "1.0.0",
+            )
+            .expect("public capability should resolve");
+        assert!(matches!(capability, McpArtifactDetail::Capability(_)));
+
+        let response = mcp
+            .execute(runtime_request())
+            .expect("execution should pass");
+        assert_eq!(response.result.status, RuntimeResultStatus::Completed);
+        assert_eq!(
+            response.observation_messages.first(),
+            Some(&McpObservationMessage::Lifecycle(McpLifecycleMessage {
+                sequence: 0,
+                execution_id: response.result.execution_id.clone(),
+                request_id: response.result.request_id.clone(),
+                status: McpLifecycleStatus::StreamStarted,
+            }))
+        );
+        assert!(matches!(
+            response.observation_messages.last(),
+            Some(McpObservationMessage::Lifecycle(McpLifecycleMessage {
+                status: McpLifecycleStatus::StreamCompleted,
+                ..
+            }))
+        ));
+    }
+
     fn runtime_fixture<'a>(
         capability_registry: &'a CapabilityRegistry,
         workflow_registry: &'a WorkflowRegistry,
@@ -553,6 +664,30 @@ mod tests {
             contract: capability_contract(),
             contract_path:
                 "registry/private/content.comments.create-comment-draft/1.0.0/contract.json"
+                    .to_string(),
+            artifact: capability_artifact_record(),
+            registered_at: "2026-03-30T00:00:00Z".to_string(),
+            tags: vec!["comments".to_string()],
+            composability: ComposabilityMetadata {
+                kind: CompositionKind::Atomic,
+                patterns: vec![CompositionPattern::Sequential],
+                provides: vec!["draft".to_string()],
+                requires: Vec::new(),
+            },
+            governing_spec: "005-capability-registry".to_string(),
+            validator_version: "validator".to_string(),
+        });
+        assert!(outcome.is_ok());
+        registry
+    }
+
+    fn public_capability_registry_fixture() -> CapabilityRegistry {
+        let mut registry = CapabilityRegistry::new();
+        let outcome = registry.register(CapabilityRegistration {
+            scope: RegistryScope::Public,
+            contract: capability_contract(),
+            contract_path:
+                "registry/public/content.comments.create-comment-draft/1.0.0/contract.json"
                     .to_string(),
             artifact: capability_artifact_record(),
             registered_at: "2026-03-30T00:00:00Z".to_string(),
