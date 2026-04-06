@@ -23,6 +23,7 @@ required_files=(
   "docs/youaskm3-integration-validation.md"
   "docs/wasm-agent-team-readiness-example.md"
   "docs/app-consumable-acceptance.md"
+  "docs/app-consumable-entry-path.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
   "quickstart.md"
@@ -97,6 +98,9 @@ grep -q "quickstart.md" docs/app-consumable-release-checklist.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
 grep -q "bash scripts/ci/app_consumable_acceptance.sh" docs/app-consumable-acceptance.md
 grep -q "React browser demo" docs/app-consumable-acceptance.md
+grep -q "Canonical Rule" docs/app-consumable-entry-path.md
+grep -q "Start Here" docs/app-consumable-entry-path.md
+grep -q "quickstart.md" docs/app-consumable-entry-path.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
