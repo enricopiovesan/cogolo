@@ -22,6 +22,7 @@ required_files=(
   "docs/wasm-agent-team-readiness-example.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
+  "quickstart.md"
   "examples/expedition/runtime-requests/plan-expedition.json"
   "docs/exception-process.md"
   "docs/project-management.md"
@@ -59,6 +60,7 @@ grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
 grep -q "docs/adapter-boundaries.md" README.md
+grep -q "quickstart.md" README.md
 grep -q "Definition of Done" docs/ticket-standard.md
 grep -q "in-progress" docs/ticket-standard.md
 grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-standard.md
@@ -116,6 +118,12 @@ grep -q "runLiveBrowserSubscription" apps/react-demo/src/browser-adapter-client.
 grep -q "applyBrowserSubscriptionMessage" apps/react-demo/src/browser-adapter-client.js
 grep -q "App" apps/react-demo/src/main.js
 grep -q "react_demo_live_adapter_smoke.sh" scripts/ci/react_demo_live_adapter_smoke.sh
+grep -q "## Prerequisites" quickstart.md
+grep -q "browser-adapter serve --bind 127.0.0.1:4174" quickstart.md
+grep -q "node apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 4173" quickstart.md
+grep -q "bash scripts/ci/react_demo_live_adapter_smoke.sh" quickstart.md
+grep -q "bash scripts/ci/react_demo_smoke.sh" quickstart.md
+grep -q "## Known Limitations" quickstart.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."
