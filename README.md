@@ -52,6 +52,7 @@ Code, generated artifacts, and tests must align with the approved governing spec
 ## Key Docs
 
 - Start here: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
+- Documentation entry path: [docs/app-consumable-entry-path.md](/Users/piovese/Documents/cogolo/docs/app-consumable-entry-path.md)
 - App-consumable release checklist: [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
 - App-consumable acceptance: [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
 - Release and requirements traceability: [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
