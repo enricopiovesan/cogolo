@@ -388,7 +388,11 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        assert!(server.run_stdio(input, &mut stdout, &mut stderr, false).is_ok());
+        assert!(
+            server
+                .run_stdio(input, &mut stdout, &mut stderr, false)
+                .is_ok()
+        );
 
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("\"kind\":\"mcp_stdio_server_startup\""));
@@ -405,7 +409,9 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let error = server.run_stdio(input, &mut stdout, &mut stderr, true).unwrap_err();
+        let error = server
+            .run_stdio(input, &mut stdout, &mut stderr, true)
+            .unwrap_err();
 
         assert_eq!(error.code, "startup_failed");
         let stderr_text = String::from_utf8(stderr).unwrap();
@@ -421,7 +427,9 @@ mod tests {
         let mut stdout = Vec::new();
         let mut stderr = Vec::new();
 
-        let error = server.run_stdio(input, &mut stdout, &mut stderr, false).unwrap_err();
+        let error = server
+            .run_stdio(input, &mut stdout, &mut stderr, false)
+            .unwrap_err();
 
         assert_eq!(error.code, "invalid_request");
         let stderr_text = String::from_utf8(stderr).unwrap();
