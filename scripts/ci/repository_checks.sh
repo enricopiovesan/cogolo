@@ -39,6 +39,7 @@ required_files=(
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
+  "scripts/ci/project_state_audit.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -135,6 +136,9 @@ grep -q "## Known Limitations" quickstart.md
 grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
 grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
 grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
+grep -q "bash scripts/ci/project_state_audit.sh" docs/project-management.md
+grep -q "Open PR-backed tickets" docs/project-management.md
+grep -q 'must be labeled `in-progress`' docs/multi-thread-workflow.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."

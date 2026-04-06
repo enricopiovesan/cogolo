@@ -96,6 +96,14 @@ When a Project 1 item is marked `Blocked`, the project `Note` field should summa
 
 Potential parallel candidates should stay `Ready` until they are actually picked up. We should not use `In Progress` as a placeholder for work that is merely available to start.
 
+Open PR-backed tickets must be reflected as `In Progress` in both the issue labels and Project 1. The PM thread should treat any mismatch as a board-drift bug and fix it immediately.
+
 For true parallel execution, use separate Codex threads with separate issues, branches, and PRs. The operating model is documented in:
 
 - [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
+
+Run the board audit when you change issue labels, Project 1 status, or PR state:
+
+```bash
+bash scripts/ci/project_state_audit.sh
+```
