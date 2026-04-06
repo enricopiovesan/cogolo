@@ -221,6 +221,7 @@ fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, St
 
     Ok(render_agent_execution_summary(
         &package.manifest.package_id,
+        &package.manifest.capability_ref.id,
         &outcome,
     ))
 }
@@ -488,34 +489,67 @@ fn render_runtime_execution_summary(
     lines.join("\n")
 }
 
-fn render_agent_execution_summary(package_id: &str, outcome: &RuntimeExecutionOutcome) -> String {
+fn render_agent_execution_summary(
+    package_id: &str,
+    capability_id: &str,
+    outcome: &RuntimeExecutionOutcome,
+) -> String {
     let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
     let mut lines = vec![
         format!("request_id: {}", outcome.result.request_id),
         format!("execution_id: {}", outcome.result.execution_id),
         format!("package_id: {package_id}"),
-        "capability_id: expedition.planning.interpret-expedition-intent".to_string(),
+        format!("capability_id: {capability_id}"),
         "capability_version: 1.0.0".to_string(),
         "status: completed".to_string(),
         format!("trace_ref: {}", outcome.result.trace_ref),
     ];
 
-    if let Some(intent_id) = output.get("intent_id").and_then(Value::as_str) {
-        lines.push(format!("intent_id: {intent_id}"));
-    }
-    if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
-        lines.push(format!("objective_id: {objective_id}"));
-    }
-    if let Some(confidence) = output.get("confidence").and_then(Value::as_f64) {
-        lines.push(format!("confidence: {confidence:.2}"));
-    }
-    if let Some(route_preferences) = output.get("route_preferences").and_then(Value::as_array) {
-        let joined = route_preferences
-            .iter()
-            .filter_map(Value::as_str)
-            .collect::<Vec<_>>()
-            .join(", ");
-        lines.push(format!("route_preferences: {joined}"));
+    match capability_id {
+        "expedition.planning.interpret-expedition-intent" => {
+            if let Some(intent_id) = output.get("intent_id").and_then(Value::as_str) {
+                lines.push(format!("intent_id: {intent_id}"));
+            }
+            if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
+                lines.push(format!("objective_id: {objective_id}"));
+            }
+            if let Some(confidence) = output.get("confidence").and_then(Value::as_f64) {
+                lines.push(format!("confidence: {confidence:.2}"));
+            }
+            if let Some(route_preferences) =
+                output.get("route_preferences").and_then(Value::as_array)
+            {
+                let joined = route_preferences
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                lines.push(format!("route_preferences: {joined}"));
+            }
+        }
+        "expedition.planning.validate-team-readiness" => {
+            if let Some(readiness_result_id) =
+                output.get("readiness_result_id").and_then(Value::as_str)
+            {
+                lines.push(format!("readiness_result_id: {readiness_result_id}"));
+            }
+            if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
+                lines.push(format!("objective_id: {objective_id}"));
+            }
+            if let Some(status) = output.get("status").and_then(Value::as_str) {
+                lines.push(format!("readiness_status: {status}"));
+            }
+            if let Some(required_actions) = output.get("required_actions").and_then(Value::as_array)
+            {
+                let joined = required_actions
+                    .iter()
+                    .filter_map(Value::as_str)
+                    .collect::<Vec<_>>()
+                    .join(", ");
+                lines.push(format!("required_actions: {joined}"));
+            }
+        }
+        _ => {}
     }
 
     lines.join("\n")
@@ -664,6 +698,7 @@ impl LocalExecutor for AgentPackageExampleExecutor {
             "expedition.planning.interpret-expedition-intent" => {
                 execute_interpret_expedition_intent(input)
             }
+            "expedition.planning.validate-team-readiness" => execute_validate_team_readiness(input),
             other => Err(executor_failure(&format!(
                 "unsupported AI agent capability: {other}"
             ))),
@@ -1418,7 +1453,7 @@ mod tests {
 
     #[test]
     fn inspect_agent_renders_governed_wasm_agent_package() {
-        let fixture = create_agent_package_fixture();
+        let fixture = create_interpret_expedition_intent_agent_fixture();
 
         let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
 
@@ -1432,7 +1467,7 @@ mod tests {
 
     #[test]
     fn execute_agent_runs_governed_ai_agent_request() {
-        let fixture = create_agent_package_fixture();
+        let fixture = create_interpret_expedition_intent_agent_fixture();
         let request_path =
             repo_root().join("examples/agents/runtime-requests/interpret-expedition-intent.json");
 
@@ -1445,6 +1480,33 @@ mod tests {
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("route_preferences: conservative-alpine-push, same-day-return"));
+    }
+
+    #[test]
+    fn inspect_agent_renders_second_governed_wasm_agent_package() {
+        let fixture = create_validate_team_readiness_agent_fixture();
+
+        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+
+        assert!(output.contains("package_id: expedition.planning.validate-team-readiness-agent"));
+        assert!(output.contains("capability_id: expedition.planning.validate-team-readiness"));
+        assert!(output.contains("binary_digest: fnv1a64:"));
+        assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
+    }
+
+    #[test]
+    fn execute_agent_runs_second_governed_ai_agent_request() {
+        let fixture = create_validate_team_readiness_agent_fixture();
+        let request_path =
+            repo_root().join("examples/agents/runtime-requests/validate-team-readiness.json");
+
+        let output = execute_agent(&fixture.manifest_path, &request_path)
+            .expect("agent execution should succeed");
+
+        assert!(output.contains("package_id: expedition.planning.validate-team-readiness-agent"));
+        assert!(output.contains("capability_id: expedition.planning.validate-team-readiness"));
+        assert!(output.contains("status: completed"));
+        assert!(output.contains("readiness_status: ready"));
     }
 
     #[test]
@@ -1607,7 +1669,39 @@ mod tests {
         manifest_path: PathBuf,
     }
 
-    fn create_agent_package_fixture() -> AgentFixture {
+    fn create_interpret_expedition_intent_agent_fixture() -> AgentFixture {
+        create_agent_package_fixture(
+            "expedition.planning.interpret-expedition-intent-agent",
+            "expedition.planning.interpret-expedition-intent",
+            "interpret-expedition-intent-agent.wasm",
+            "Governed WASM AI agent example for expedition intent interpretation.",
+            "contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
+            "expedition-intent-interpretation-v1",
+            "Interpret free-form expedition planning intent into governed route preferences and assumptions.",
+        )
+    }
+
+    fn create_validate_team_readiness_agent_fixture() -> AgentFixture {
+        create_agent_package_fixture(
+            "expedition.planning.validate-team-readiness-agent",
+            "expedition.planning.validate-team-readiness",
+            "validate-team-readiness-agent.wasm",
+            "Governed WASM AI agent example for expedition readiness validation.",
+            "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
+            "expedition-readiness-validation-v1",
+            "Validate expedition team readiness against governed objective, conditions, and team profile context.",
+        )
+    }
+
+    fn create_agent_package_fixture(
+        package_id: &str,
+        capability_id: &str,
+        binary_name: &str,
+        summary: &str,
+        contract_path: &str,
+        model_interface: &str,
+        model_purpose: &str,
+    ) -> AgentFixture {
         let temp_dir = unique_temp_dir();
         let package_dir = temp_dir.join("agent");
         let artifact_dir = package_dir.join("artifacts");
@@ -1618,11 +1712,11 @@ mod tests {
         let wasm_bytes = hex_to_bytes(
             "0061736d0100000001040160000003020100070a01065f737461727400000a040102000b",
         );
-        let binary_path = artifact_dir.join("interpret-expedition-intent-agent.wasm");
+        let binary_path = artifact_dir.join(binary_name);
         fs::write(&binary_path, &wasm_bytes).expect("wasm binary should write");
         fs::write(
             source_dir.join("agent.rs"),
-            "pub fn run() -> &'static str { \"interpret-expedition-intent\" }\n",
+            format!("pub fn run() -> &'static str {{ \"{capability_id}\" }}\n"),
         )
         .expect("source file should write");
 
@@ -1632,11 +1726,11 @@ mod tests {
             r#"{{
   "kind": "agent_package",
   "schema_version": "1.0.0",
-  "package_id": "expedition.planning.interpret-expedition-intent-agent",
+  "package_id": "{}",
   "version": "1.0.0",
-  "summary": "Governed WASM AI agent example for expedition intent interpretation.",
+  "summary": "{}",
   "capability_ref": {{
-    "id": "expedition.planning.interpret-expedition-intent",
+    "id": "{}",
     "version": "1.0.0",
     "contract_path": "{}"
   }},
@@ -1652,7 +1746,7 @@ mod tests {
     "entry": "run"
   }},
   "binary": {{
-    "path": "./artifacts/interpret-expedition-intent-agent.wasm",
+    "path": "./artifacts/{}",
     "format": "wasm",
     "expected_digest": "{}"
   }},
@@ -1663,15 +1757,19 @@ mod tests {
   }},
   "model_dependencies": [
     {{
-      "interface": "expedition-intent-interpretation-v1",
-      "purpose": "Interpret free-form expedition planning intent into governed route preferences and assumptions."
+      "interface": "{}",
+      "purpose": "{}"
     }}
   ]
 }}"#,
-            repo_root
-                .join("contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json")
-                .display(),
-            fnv1a64(&wasm_bytes)
+            package_id,
+            summary,
+            capability_id,
+            repo_root.join(contract_path).display(),
+            binary_name,
+            fnv1a64(&wasm_bytes),
+            model_interface,
+            model_purpose
         );
         fs::write(&manifest_path, manifest).expect("manifest should write");
 
