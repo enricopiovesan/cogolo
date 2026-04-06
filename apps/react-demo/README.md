@@ -5,14 +5,15 @@ This is the first checked-in React browser demo surface for Traverse.
 What it does:
 - renders one approved expedition flow
 - allows one approved request submission path
-- shows ordered runtime state updates
+- shows ordered runtime state updates streamed from the live local browser adapter
 - shows the final trace snapshot and output panel after the stream completes
-- uses the approved browser-subscription session shape through a deterministic fixture-driven rendering path
+- keeps the approved browser-subscription session shape while consuming the live adapter through a same-origin local proxy
 
-Local run path:
+Local live run path:
 
 ```bash
-python3 -m http.server 4173 --directory apps/react-demo
+cargo run -p traverse-cli -- browser-adapter serve --bind 127.0.0.1:4174
+node apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 4173
 ```
 
 Open:
@@ -21,10 +22,25 @@ Open:
 
 Note:
 
-- the documented local run path uses a simple static file server and works on a normal local machine
-- the checked-in repo smoke path stays static and does not bind a local port, because the sandboxed validation environment blocks local socket binding
+- the React app consumes the live browser adapter through the local proxy server
+- if the local adapter cannot be started automatically, use the fallback preview path below
+- Run the local browser adapter proxy again if you need to refresh the live stream setup
 
-Local smoke path:
+Fallback preview path:
+
+```bash
+python3 -m http.server 4173 --directory apps/react-demo
+```
+
+The fallback preview keeps the checked-in fixture-driven render path available for offline inspection and smoke validation.
+
+Live smoke path:
+
+```bash
+bash scripts/ci/react_demo_live_adapter_smoke.sh
+```
+
+Fallback smoke path:
 
 ```bash
 bash scripts/ci/react_demo_smoke.sh
