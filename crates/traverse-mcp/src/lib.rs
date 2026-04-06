@@ -423,6 +423,7 @@ fn lifecycle_name(lifecycle: &traverse_contracts::Lifecycle) -> &'static str {
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
 
     use super::*;
     use serde_json::{Value, json};
