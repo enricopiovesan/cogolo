@@ -98,7 +98,6 @@ What it validates:
 - the first governed WASM AI agent package can build its deterministic local WASM fixture
 - the package inspection command validates the approved capability, workflow linkage, and binary digest
 - the agent executes through the approved Traverse runtime request path without ad hoc private routes
-
 Run the second governed WASM AI agent smoke path with:
 
 ```bash

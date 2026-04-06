@@ -61,6 +61,7 @@ For parallel work to be valid:
 - each active issue must have its own PR
 - Project 1 `Status` must match reality
 - Project 1 `Note` should identify the worker, branch, or workstream when useful
+- run `bash scripts/ci/project_board_audit.sh` after board changes to catch drift early
 
 ## Recommended Current Split
 
