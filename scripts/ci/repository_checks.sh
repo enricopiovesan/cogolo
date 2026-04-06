@@ -25,7 +25,6 @@ required_files=(
   "docs/wasm-agent-team-readiness-example.md"
   "docs/app-consumable-acceptance.md"
   "docs/app-consumable-entry-path.md"
-  "docs/app-consumable-requirements-traceability.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
   "quickstart.md"
@@ -43,7 +42,7 @@ required_files=(
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
-  "scripts/ci/project_state_audit.sh"
+  "scripts/ci/project_board_audit.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -52,6 +51,8 @@ required_files=(
   "specs/004-spec-alignment-gate/spec.md"
   "specs/004-spec-alignment-gate/data-model.md"
   "specs/governance/approved-specs.json"
+  "specs/022-mcp-wasm-server/spec.md"
+  "specs/022-mcp-wasm-server/checklists/requirements.md"
 )
 
 for file in "${required_files[@]}"; do
@@ -59,9 +60,16 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
-if grep -R -n -E --exclude-dir=.git --exclude='repository_checks.sh' "Cogollo|Cogolo" .; then
-  echo "Found stale project name references; expected 'Traverse'." >&2
-  exit 1
+if command -v rg >/dev/null 2>&1; then
+  if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+    echo "Found stale project name references; expected 'Traverse'." >&2
+    exit 1
+  fi
+else
+  if grep -RInE --exclude='repository_checks.sh' --exclude-dir='.git' 'Cogollo|Cogolo' .; then
+    echo "Found stale project name references; expected 'Traverse'." >&2
+    exit 1
+  fi
 fi
 
 grep -q "GitHub Project 1" README.md
@@ -75,15 +83,21 @@ grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-sta
 grep -q "Validation" docs/ticket-standard.md
 grep -q "future" docs/project-management.md
 grep -q "in-progress" docs/project-management.md
+! grep -q '^- `ready`$' docs/project-management.md
 grep -q 'Potential parallel candidates should stay `Ready`' docs/project-management.md
+grep -q "Project 1 status is the only actionability signal" docs/project-management.md
+grep -q "project_board_audit.sh" docs/project-management.md
 grep -q "Note" docs/project-management.md
 grep -q "separate Codex threads" docs/project-management.md
 grep -q "Blocked" docs/planning-board.md
 grep -q "In Progress" docs/planning-board.md
 grep -q "Only tickets with real active execution" docs/planning-board.md
 grep -q "Note" docs/ticket-standard.md
+! grep -q '^- `ready`$' docs/ticket-standard.md
+grep -q "Use Project 1 status for availability" docs/ticket-standard.md
 grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
 grep -q "Starter Prompts" docs/multi-thread-workflow.md
+grep -q "project_board_audit.sh" docs/multi-thread-workflow.md
 grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
@@ -106,9 +120,6 @@ grep -q "React browser demo" docs/app-consumable-acceptance.md
 grep -q "Canonical Rule" docs/app-consumable-entry-path.md
 grep -q "Start Here" docs/app-consumable-entry-path.md
 grep -q "quickstart.md" docs/app-consumable-entry-path.md
-grep -q "Current Open First-Release Ticket Set" docs/app-consumable-requirements-traceability.md
-grep -q "v0.1 Release Ordering" docs/app-consumable-requirements-traceability.md
-grep -q "Traceability from requirements to release artifacts" docs/app-consumable-requirements-traceability.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
@@ -153,9 +164,12 @@ grep -q "## Known Limitations" quickstart.md
 grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
 grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
 grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
-grep -q "bash scripts/ci/project_state_audit.sh" docs/project-management.md
+grep -q "bash scripts/ci/project_board_audit.sh" docs/project-management.md
 grep -q "Open PR-backed tickets" docs/project-management.md
 grep -q 'must be labeled `in-progress`' docs/multi-thread-workflow.md
+grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spec.md
+grep -q "Traverse runtime authority" specs/022-mcp-wasm-server/spec.md
+grep -q "MCP transport concerns" specs/022-mcp-wasm-server/spec.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."
