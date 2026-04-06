@@ -24,6 +24,7 @@ required_files=(
   "docs/wasm-agent-team-readiness-example.md"
   "docs/app-consumable-acceptance.md"
   "docs/app-consumable-entry-path.md"
+  "docs/app-consumable-requirements-traceability.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
   "quickstart.md"
@@ -101,6 +102,9 @@ grep -q "React browser demo" docs/app-consumable-acceptance.md
 grep -q "Canonical Rule" docs/app-consumable-entry-path.md
 grep -q "Start Here" docs/app-consumable-entry-path.md
 grep -q "quickstart.md" docs/app-consumable-entry-path.md
+grep -q "Current Open First-Release Ticket Set" docs/app-consumable-requirements-traceability.md
+grep -q "v0.1 Release Ordering" docs/app-consumable-requirements-traceability.md
+grep -q "Traceability from requirements to release artifacts" docs/app-consumable-requirements-traceability.md
 grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
 grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
 grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
