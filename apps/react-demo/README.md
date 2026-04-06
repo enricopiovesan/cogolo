@@ -2,7 +2,7 @@
 
 This is the first checked-in React browser demo surface for Traverse.
 
-If you want the shortest end-to-end local path, start with [quickstart.md](/private/tmp/cogolo-issue-122/quickstart.md) and then come back here for the demo-specific details.
+If you want the shortest end-to-end local path, start with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md) and then come back here for the demo-specific details.
 
 What it does:
 - renders one approved expedition flow
@@ -35,6 +35,8 @@ python3 -m http.server 4173 --directory apps/react-demo
 ```
 
 The fallback preview keeps the checked-in fixture-driven render path available for offline inspection and smoke validation.
+
+For the first app-consumable quickstart that uses the live browser adapter path, see [../../quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
 
 Live smoke path:
 
