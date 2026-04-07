@@ -1186,7 +1186,7 @@ impl McpDiscoveryCatalog {
     fn content_group_summaries() -> Vec<Value> {
         vec![
             core_runtime_example_content_group_summary(),
-            expedition_example_content_group_summary(),
+            wasm_agent_example_content_group_summary(),
         ]
     }
 
@@ -1217,6 +1217,7 @@ fn core_runtime_example_content_group_summary() -> Value {
     })
 }
 
+<<<<<<< HEAD
 fn expedition_example_content_group_summary() -> Value {
     json!({
         "content_group_id": "expedition-example",
@@ -1243,6 +1244,25 @@ fn expedition_example_content_group_summary() -> Value {
             "validate_entrypoint",
             "execute_entrypoint",
             "render_execution_report"
+=======
+fn wasm_agent_example_content_group_summary() -> Value {
+    json!({
+        "content_group_id": "wasm-agent-example",
+        "summary": "Traverse's first governed WASM AI agent example for expedition intent interpretation.",
+        "display_name": "WASM agent example",
+        "governed_paths": [
+            "examples/agents/expedition-intent-agent/manifest.json",
+            "docs/wasm-agent-example.md",
+            "examples/agents/expedition-intent-agent/build-fixture.sh",
+            "scripts/ci/wasm_agent_example_smoke.sh"
+        ],
+        "validation_commands": [
+            "bash scripts/ci/wasm_agent_example_smoke.sh"
+        ],
+        "invocable_entrypoints": [
+            "describe_content_group",
+            "execute_entrypoint"
+>>>>>>> 37a2dcf (Expose WASM agent content group through MCP)
         ],
     })
 }
