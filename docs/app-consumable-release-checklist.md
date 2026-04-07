@@ -17,6 +17,7 @@ Traverse MUST NOT claim `app-consumable v0.1` unless all of the following are sa
 - [ ] The governed browser consumer path exists and is documented in [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
 - [ ] The live local browser adapter path passes [scripts/ci/react_demo_live_adapter_smoke.sh](/Users/piovese/Documents/cogolo/scripts/ci/react_demo_live_adapter_smoke.sh).
 - [ ] The browser demo path is documented as a real live adapter consumer in [apps/react-demo/README.md](/Users/piovese/Documents/cogolo/apps/react-demo/README.md).
+- [ ] The first versioned Traverse consumer bundle is documented in [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md).
 - [ ] The downstream MCP consumption path exists and passes [scripts/ci/mcp_consumption_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/mcp_consumption_validation.sh).
 - [ ] The first real `youaskm3` integration path exists and passes [scripts/ci/youaskm3_integration_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_integration_validation.sh).
 - [ ] The end-to-end acceptance path exists and passes [scripts/ci/app_consumable_acceptance.sh](/Users/piovese/Documents/cogolo/scripts/ci/app_consumable_acceptance.sh).
@@ -30,6 +31,7 @@ If any item above is unchecked, `app-consumable v0.1` is blocked.
 The release decision should be backed by:
 
 - the release artifact and publication bundle definition
+- the versioned consumer bundle definition
 - the first app-consumable quickstart
 - the browser live-adapter smoke path
 - the MCP consumption validation path
@@ -56,10 +58,11 @@ A reviewer can answer the release question by checking:
 2. the downstream integration-validation spec
 3. the operational-constraints spec
 4. the quickstart
-5. the live browser adapter smoke path
-6. the MCP validation path
-7. the first real `youaskm3` integration validation path
-8. the end-to-end acceptance path
-9. the release artifact and publication bundle definition
+5. the versioned consumer bundle
+6. the live browser adapter smoke path
+7. the MCP validation path
+8. the first real `youaskm3` integration validation path
+9. the end-to-end acceptance path
+10. the release artifact and publication bundle definition
 
 If those artifacts and checks exist and are passing, the first app-consumable release can be evaluated on evidence rather than interpretation.
