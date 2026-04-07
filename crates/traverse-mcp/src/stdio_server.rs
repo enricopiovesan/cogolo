@@ -339,6 +339,8 @@ fn write_json_line<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::panic, clippy::unwrap_used, clippy::manual_let_else)]
+
     use super::*;
     use serde_json::Value;
     use traverse_registry::{CapabilityRegistry, EventRegistry, WorkflowRegistry};
