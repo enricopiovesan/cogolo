@@ -25,9 +25,17 @@ Project 1 status meanings:
 
 ### `In Progress`
 
-Only tickets with real active execution should appear in this section.
+- [#66](https://github.com/enricopiovesan/Traverse/issues/66) `Codify MVP backlog completeness and ticket-quality enforcement`
+  - area: `quality`, `documentation`
+  - status: active in PR [#67](https://github.com/enricopiovesan/Traverse/pull/67)
+  - done when: the backlog standards, templates, planning board, and repo checks land on `main`
 
-- none at the moment
+- [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation`
+  - area: `runtime`, `mcp`
+  - status: active implementation work
+  - done when: the dedicated stdio server boots deterministically, emits machine-readable startup/shutdown envelopes, and passes the new smoke path
+
+Only tickets with real active execution should appear in this section.
 
 ### `Ready`
 
