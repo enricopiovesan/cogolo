@@ -7,20 +7,14 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::PathBuf;
-use traverse_contracts::{
-    Lifecycle,
-};
+use traverse_contracts::Lifecycle;
 use traverse_registry::{
-    BinaryReference, BinaryFormat as RegistryBinaryFormat, CapabilityRegistry,
-    CapabilityRegistration, ComposabilityMetadata, CompositionKind, CompositionPattern,
-    EventRegistry, ImplementationKind, RegistryBundle, RegistryProvenance,
-    SourceKind, SourceReference, WorkflowReference, WorkflowRegistration, WorkflowRegistry,
-    load_registry_bundle,
+    BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityRegistration,
+    CapabilityRegistry, ComposabilityMetadata, CompositionKind, CompositionPattern, EventRegistry,
+    ImplementationKind, RegistryBundle, RegistryProvenance, SourceKind, SourceReference,
+    WorkflowReference, WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
 };
-use traverse_runtime::{
-    LocalExecutor, Runtime, RuntimeRequest,
-    parse_runtime_request,
-};
+use traverse_runtime::{LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request};
 
 const SERVER_NAME: &str = "traverse-mcp";
 const HOST_MODE: &str = "stdio";
@@ -431,20 +425,17 @@ where
                         "runtime request must include intent.capability_id for workflow entrypoints.",
                     ));
                 };
-                let Some(_capability_version) = runtime_request.intent.capability_version.as_deref()
+                let Some(_capability_version) =
+                    runtime_request.intent.capability_version.as_deref()
                 else {
                     return Err(StdioServerFailure::new(
                         "invalid_request",
                         "runtime request must include intent.capability_version for workflow entrypoints.",
                     ));
                 };
-                let Some(workflow) = self
-                    .catalog
-                    .bundle
-                    .workflows
-                    .iter()
-                    .find(|artifact| artifact.definition.id == id && artifact.definition.version == version)
-                else {
+                let Some(workflow) = self.catalog.bundle.workflows.iter().find(|artifact| {
+                    artifact.definition.id == id && artifact.definition.version == version
+                }) else {
                     return Err(not_found("workflow entrypoint", id, version));
                 };
                 let _ = workflow;
@@ -736,7 +727,9 @@ fn runtime_request_summary(runtime_request: &RuntimeRequest) -> Value {
     })
 }
 
-fn execute_capture_expedition_objective(input: &Value) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
+fn execute_capture_expedition_objective(
+    input: &Value,
+) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
     let map = input_object(input)?;
     let destination = required_value(map, "destination")?;
     let target_window = required_value(map, "target_window")?;
@@ -762,7 +755,9 @@ fn execute_capture_expedition_objective(input: &Value) -> Result<Value, traverse
     }))
 }
 
-fn execute_interpret_expedition_intent(input: &Value) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
+fn execute_interpret_expedition_intent(
+    input: &Value,
+) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
     let map = input_object(input)?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
@@ -791,7 +786,9 @@ fn execute_interpret_expedition_intent(input: &Value) -> Result<Value, traverse_
     }))
 }
 
-fn execute_assess_conditions_summary(input: &Value) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
+fn execute_assess_conditions_summary(
+    input: &Value,
+) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
     let map = input_object(input)?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
@@ -817,7 +814,9 @@ fn execute_assess_conditions_summary(input: &Value) -> Result<Value, traverse_ru
     }))
 }
 
-fn execute_validate_team_readiness(input: &Value) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
+fn execute_validate_team_readiness(
+    input: &Value,
+) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
     let map = input_object(input)?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
@@ -852,7 +851,9 @@ fn execute_validate_team_readiness(input: &Value) -> Result<Value, traverse_runt
     }))
 }
 
-fn execute_assemble_expedition_plan(input: &Value) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
+fn execute_assemble_expedition_plan(
+    input: &Value,
+) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
     let map = input_object(input)?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
@@ -888,7 +889,9 @@ fn execute_assemble_expedition_plan(input: &Value) -> Result<Value, traverse_run
     }))
 }
 
-fn input_object(value: &Value) -> Result<&serde_json::Map<String, Value>, traverse_runtime::LocalExecutionFailure> {
+fn input_object(
+    value: &Value,
+) -> Result<&serde_json::Map<String, Value>, traverse_runtime::LocalExecutionFailure> {
     value
         .as_object()
         .ok_or_else(|| executor_failure("executor input must be an object"))
