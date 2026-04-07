@@ -60,6 +60,16 @@ The first release MUST point to at least one runnable consumer artifact that pro
 
 For v0.1, the supported runnable artifact is the checked-in first app-consumable browser flow and its associated validation paths.
 
+## Preparation and Verification
+
+The release steward can verify the first app-consumable publication bundle with:
+
+```bash
+bash scripts/ci/app_consumable_release_prep.sh
+```
+
+That check confirms the release checklist, publication bundle definition, quickstart, and traceability docs are present and linked together.
+
 ## Post-Release Policy
 
 Items that do not belong in the first release bundle include:
