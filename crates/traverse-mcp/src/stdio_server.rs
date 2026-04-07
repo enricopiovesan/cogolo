@@ -6,7 +6,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use traverse_mcp::{TraverseMcp, youaskm3_mcp_consumption_validation_path};
+use crate::{TraverseMcp, youaskm3_mcp_consumption_validation_path};
 use traverse_registry::{
     BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
