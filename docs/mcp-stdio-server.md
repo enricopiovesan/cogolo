@@ -1,41 +1,54 @@
-# Traverse MCP stdio Server Foundation
+# Traverse MCP Stdio Server Package
 
-The first dedicated Traverse MCP server package starts with one governed host mode: `stdio`.
+The dedicated Traverse MCP WASM server package is the thin, governed host-facing surface for the app-consumable MCP path.
 
-## Start Command
+It is intentionally narrow:
 
-Run the server locally with:
+- it stays a façade over Traverse runtime authority
+- it uses the canonical expedition registry bundle as its source of truth
+- it exposes discovery, description, validation, execution, and execution-report rendering through one stdio command surface
+- it is documented and runnable locally
+
+## Start The Server
+
+From the repository root:
 
 ```bash
 cargo run -p traverse-mcp -- stdio
 ```
 
-The command prints machine-readable startup and shutdown envelopes on standard output and stays ready for later governed MCP operations without redefining Traverse runtime authority.
-
-## Deterministic Failure Check
-
-The server also exposes a deterministic startup-failure path for validation:
+To simulate a deterministic startup failure for validation:
 
 ```bash
 cargo run -p traverse-mcp -- stdio --simulate-startup-failure
 ```
 
-The failure envelope is machine-readable JSON on standard error so validation can assert the package’s startup contract without guessing.
+## Supported Commands
 
-## Discovery, Execution, and Report Rendering
+The package emits deterministic JSON envelopes for:
 
-The dedicated stdio server now supports deterministic discovery and description commands:
+- `describe_server`
+- `list_entrypoints`
+- `describe_entrypoint`
+- `validate_entrypoint`
+- `execute_entrypoint`
+- `render_execution_report`
+- `shutdown`
 
-- `list_entrypoints` returns the governed capability and workflow catalog.
-- `describe_entrypoint` returns a machine-readable description for one capability or workflow by id and version.
-- `validate_entrypoint` checks a governed entrypoint request against the canonical runtime request.
-- `execute_entrypoint` executes a governed entrypoint and returns the governed runtime response and trace artifacts.
-- `render_execution_report` renders a structured report from the same governed runtime execution output.
-- `shutdown` exits the server cleanly after emitting a deterministic shutdown envelope.
+The server reports governed capabilities, events, and workflows from the canonical expedition bundle.
 
 ## Validation
 
-- `bash scripts/ci/mcp_stdio_server_smoke.sh`
-- `bash scripts/ci/mcp_stdio_server_discovery_smoke.sh`
-- `bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh`
-- `bash scripts/ci/repository_checks.sh`
+Run the deterministic smoke test for the package surface:
+
+```bash
+bash scripts/ci/mcp_stdio_server_smoke.sh
+bash scripts/ci/mcp_stdio_server_discovery_smoke.sh
+bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh
+```
+
+Run repository checks:
+
+```bash
+bash scripts/ci/repository_checks.sh
+```
