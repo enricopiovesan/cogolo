@@ -1180,16 +1180,16 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
 impl McpDiscoveryCatalog {
     #[must_use]
     fn content_group_count(&self) -> usize {
-        self.content_group_summaries().len()
+        Self::content_group_summaries().len()
     }
 
     #[must_use]
-    fn content_group_summaries(&self) -> Vec<Value> {
+    fn content_group_summaries() -> Vec<Value> {
         vec![core_runtime_example_content_group_summary()]
     }
 
     fn content_group_detail(&self, content_group_id: &str) -> Option<Value> {
-        self.content_group_summaries()
+        Self::content_group_summaries()
             .into_iter()
             .find(|group| group["content_group_id"].as_str() == Some(content_group_id))
     }
