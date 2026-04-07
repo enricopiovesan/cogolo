@@ -381,7 +381,7 @@ where
         let execution_id = result.execution_id.clone();
         let execution_request_id = request_id.clone();
         let execution_execution_id = execution_id.clone();
-        let result_status = result.status.clone();
+        let result_status = result.status;
         let trace_kind = trace.kind.clone();
         let observation_messages = response
             .observation_messages
