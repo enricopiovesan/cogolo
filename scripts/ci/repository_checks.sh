@@ -23,6 +23,8 @@ required_files=(
   "docs/app-consumable-release-checklist.md"
   "docs/app-consumable-release-artifact.md"
   "docs/youaskm3-integration-validation.md"
+  "apps/browser-consumer/README.md"
+  "apps/browser-consumer/package.json"
   "docs/wasm-agent-team-readiness-example.md"
   "docs/app-consumable-acceptance.md"
   "docs/app-consumable-entry-path.md"
@@ -43,6 +45,7 @@ required_files=(
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
   "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
+  "scripts/ci/browser_consumer_package_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
@@ -119,6 +122,7 @@ grep -q "core-runtime-example" docs/mcp-stdio-server.md
 grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
 grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
+grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
 grep -q "app-consumable v0.1" docs/app-consumable-release-checklist.md
 grep -q "Release Blockers" docs/app-consumable-release-checklist.md
 grep -q "Post-Release Follow-Up" docs/app-consumable-release-checklist.md
@@ -171,6 +175,10 @@ grep -q "react_demo_live_adapter_smoke.sh" scripts/ci/react_demo_live_adapter_sm
 grep -q "## Prerequisites" quickstart.md
 grep -q "browser-adapter serve --bind 127.0.0.1:4174" quickstart.md
 grep -q "node apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 4173" quickstart.md
+grep -q "apps/browser-consumer/README.md" docs/app-consumable-entry-path.md
+grep -q "browser-targeted consumer package" apps/browser-consumer/README.md
+grep -q "browser_consumer_package_smoke.sh" apps/browser-consumer/README.md
+grep -q "browser-hosted app" apps/browser-consumer/README.md
 grep -q "bash scripts/ci/react_demo_live_adapter_smoke.sh" quickstart.md
 grep -q "bash scripts/ci/react_demo_smoke.sh" quickstart.md
 grep -q "## Known Limitations" quickstart.md
