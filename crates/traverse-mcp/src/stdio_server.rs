@@ -1217,34 +1217,6 @@ fn core_runtime_example_content_group_summary() -> Value {
     })
 }
 
-<<<<<<< HEAD
-fn expedition_example_content_group_summary() -> Value {
-    json!({
-        "content_group_id": "expedition-example",
-        "summary": "Traverse's canonical expedition content group exposing governed planning capabilities and workflow entrypoints.",
-        "display_name": "Expedition example",
-        "governed_paths": [
-            "examples/expedition/registry-bundle/manifest.json",
-            "docs/expedition-example-registry-bundle.md",
-            "docs/expedition-example-authoring.md",
-            "docs/expedition-example-smoke.md",
-            "examples/expedition/runtime-requests/plan-expedition.json",
-            "workflows/examples/expedition/plan-expedition/workflow.json"
-        ],
-        "validation_commands": [
-            "bash scripts/ci/expedition_artifact_smoke.sh",
-            "bash scripts/ci/expedition_execution_smoke.sh",
-            "bash scripts/ci/expedition_trace_smoke.sh",
-            "bash scripts/ci/expedition_golden_path.sh"
-        ],
-        "invocable_entrypoints": [
-            "describe_content_group",
-            "list_entrypoints",
-            "describe_entrypoint",
-            "validate_entrypoint",
-            "execute_entrypoint",
-            "render_execution_report"
-=======
 fn wasm_agent_example_content_group_summary() -> Value {
     json!({
         "content_group_id": "wasm-agent-example",
@@ -1262,7 +1234,6 @@ fn wasm_agent_example_content_group_summary() -> Value {
         "invocable_entrypoints": [
             "describe_content_group",
             "execute_entrypoint"
->>>>>>> 37a2dcf (Expose WASM agent content group through MCP)
         ],
     })
 }
