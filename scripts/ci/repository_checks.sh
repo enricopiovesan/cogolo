@@ -113,6 +113,9 @@ grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md
+grep -q "list_content_groups" docs/mcp-stdio-server.md
+grep -q "describe_content_group" docs/mcp-stdio-server.md
+grep -q "core-runtime-example" docs/mcp-stdio-server.md
 grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
 grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
@@ -177,6 +180,7 @@ grep -q "cargo run -p traverse-mcp -- stdio --simulate-startup-failure" docs/mcp
 grep -q "bash scripts/ci/mcp_stdio_server_smoke.sh" docs/mcp-stdio-server.md
 grep -q "bash scripts/ci/mcp_stdio_server_discovery_smoke.sh" docs/mcp-stdio-server.md
 grep -q "bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_discovery_smoke.sh" docs/mcp-stdio-server.md
 grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "list_entrypoints" docs/mcp-stdio-server.md
 grep -q "describe_entrypoint" docs/mcp-stdio-server.md
