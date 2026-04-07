@@ -304,14 +304,12 @@ where
                     })?;
                 }
                 "list_entrypoints" | "list" => {
-                    write_json_line(stdout, &self.list_entrypoints_envelope()).map_err(
-                        |error| {
-                            StdioServerFailure::new(
-                                "io_error",
-                                format!("Failed to write entrypoint list envelope: {error}"),
-                            )
-                        },
-                    )?;
+                    write_json_line(stdout, &self.list_entrypoints_envelope()).map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write entrypoint list envelope: {error}"),
+                        )
+                    })?;
                 }
                 "describe_entrypoint" => {
                     let Some(entrypoint_kind) = command.entrypoint_kind.as_deref() else {
