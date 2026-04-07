@@ -46,6 +46,7 @@ required_files=(
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
+  "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
   "scripts/ci/project_board_audit.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
@@ -172,6 +173,8 @@ grep -q "cargo run -p traverse-mcp -- stdio" docs/mcp-stdio-server.md
 grep -q "cargo run -p traverse-mcp -- stdio --simulate-startup-failure" docs/mcp-stdio-server.md
 grep -q "bash scripts/ci/mcp_stdio_server_smoke.sh" docs/mcp-stdio-server.md
 grep -q "bash scripts/ci/mcp_stdio_server_discovery_smoke.sh" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
+grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "list_entrypoints" docs/mcp-stdio-server.md
 grep -q "describe_entrypoint" docs/mcp-stdio-server.md
 grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
