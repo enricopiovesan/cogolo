@@ -41,11 +41,14 @@ The server reports governed content groups, capabilities, events, and workflows 
 
 ## Content Groups
 
-The first content group exposed through the dedicated server is the neutral core-runtime example group:
+The first two content groups exposed through the dedicated server are:
 
 - `core-runtime-example`
+- `expedition-example`
 
-It points at the checked-in executable capability package template and local runtime documentation, so clients can discover a Traverse-native content family that is not expedition-specific.
+The core-runtime group points at the checked-in executable capability package template and local runtime documentation, so clients can discover a Traverse-native content family that is not expedition-specific.
+
+The expedition group points at the canonical expedition registry bundle, authoring guide, smoke validation, runtime request example, and workflow artifact so clients can discover Traverse's primary governed expedition content family through MCP.
 
 ## Validation
 
