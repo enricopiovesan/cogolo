@@ -22,6 +22,8 @@ const GOVERNING_SPEC: &str = "022-mcp-wasm-server";
 const PUBLIC_SURFACE_ID: &str = "traverse.mcp.stdio-server";
 const SUPPORTING_COMMANDS: &[&str] = &[
     "describe_server",
+    "list_content_groups",
+    "describe_content_group",
     "list_entrypoints",
     "describe_entrypoint",
     "validate_entrypoint",
@@ -33,6 +35,8 @@ const SUPPORTING_COMMANDS: &[&str] = &[
 #[derive(Debug, Deserialize)]
 struct StdioCommandEnvelope {
     command: String,
+    #[serde(default)]
+    content_group_id: Option<String>,
     #[serde(default)]
     entrypoint_kind: Option<String>,
     #[serde(default)]
@@ -204,6 +208,7 @@ where
             "status": "ready",
             "supported_commands": SUPPORTING_COMMANDS,
             "public_surface_id": PUBLIC_SURFACE_ID,
+            "content_group_count": self.catalog.content_group_count(),
         })
     }
 
@@ -223,6 +228,7 @@ where
                 "events": self.catalog.event_count(),
                 "workflows": self.catalog.workflow_count(),
             },
+            "content_groups": self.catalog.content_group_summaries(),
             "downstream_validation_path": {
                 "consumer_name": validation_path.consumer_name,
                 "validated_flow_id": validation_path.validated_flow_id,
@@ -261,12 +267,45 @@ where
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
             "governing_spec": GOVERNING_SPEC,
+            "content_groups": self.catalog.content_group_summaries(),
             "entrypoints": {
                 "capabilities": capability_entries,
                 "events": event_entries,
                 "workflows": workflow_entries,
             },
         })
+    }
+
+    #[must_use]
+    pub fn list_content_groups_envelope(&self) -> Value {
+        json!({
+            "kind": "mcp_stdio_server_content_group_list",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": GOVERNING_SPEC,
+            "content_groups": self.catalog.content_group_summaries(),
+        })
+    }
+
+    /// # Errors
+    ///
+    /// Returns `invalid_request` when the content group id is missing or unsupported.
+    pub fn describe_content_group_envelope(
+        &self,
+        content_group_id: &str,
+    ) -> Result<Value, StdioServerFailure> {
+        self.catalog
+            .content_group_detail(content_group_id)
+            .map(|content_group| {
+                json!({
+                    "kind": "mcp_stdio_server_content_group_description",
+                    "server_name": SERVER_NAME,
+                    "host_mode": HOST_MODE,
+                    "governing_spec": GOVERNING_SPEC,
+                    "content_group": content_group,
+                })
+            })
+            .ok_or_else(|| not_found("content group", content_group_id, "1.0.0"))
     }
 
     /// # Errors
@@ -593,6 +632,35 @@ where
                         StdioServerFailure::new(
                             "io_error",
                             format!("Failed to write server description envelope: {error}"),
+                        )
+                    })?;
+                }
+                "list_content_groups" => {
+                    write_json_line(stdout, &self.list_content_groups_envelope()).map_err(
+                        |error| {
+                            StdioServerFailure::new(
+                                "io_error",
+                                format!("Failed to write content group list envelope: {error}"),
+                            )
+                        },
+                    )?;
+                }
+                "describe_content_group" => {
+                    let Some(content_group_id) = command.content_group_id.as_deref() else {
+                        let failure = StdioServerFailure::new(
+                            "invalid_request",
+                            "describe_content_group requires content_group_id.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+
+                    let envelope =
+                        self.describe_content_group_envelope(content_group_id)?;
+                    write_json_line(stdout, &envelope).map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write content group description envelope: {error}"),
                         )
                     })?;
                 }
@@ -1110,6 +1178,44 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
     .to_string()
 }
 
+impl McpDiscoveryCatalog {
+    #[must_use]
+    fn content_group_count(&self) -> usize {
+        self.content_group_summaries().len()
+    }
+
+    #[must_use]
+    fn content_group_summaries(&self) -> Vec<Value> {
+        vec![core_runtime_example_content_group_summary()]
+    }
+
+    fn content_group_detail(&self, content_group_id: &str) -> Option<Value> {
+        self.content_group_summaries()
+            .into_iter()
+            .find(|group| group["content_group_id"].as_str() == Some(content_group_id))
+    }
+}
+
+fn core_runtime_example_content_group_summary() -> Value {
+    json!({
+        "content_group_id": "core-runtime-example",
+        "summary": "Traverse-neutral executable capability package template and local runtime shape.",
+        "display_name": "Core runtime example",
+        "governed_paths": [
+            "examples/templates/executable-capability-package/manifest.template.json",
+            "docs/executable-package-template.md",
+            "docs/local-runtime-home.md",
+            "scripts/ci/executable_package_template_smoke.sh"
+        ],
+        "validation_commands": [
+            "bash scripts/ci/executable_package_template_smoke.sh"
+        ],
+        "invocable_entrypoints": [
+            "describe_content_group"
+        ],
+    })
+}
+
 fn execute_capture_expedition_objective(
     input: &Value,
 ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
@@ -1409,6 +1515,8 @@ mod tests {
         let server = build_test_server();
         let input = std::io::Cursor::new(
             br#"{"command":"describe_server"}
+{"command":"list_content_groups"}
+{"command":"describe_content_group","content_group_id":"core-runtime-example"}
 {"command":"list_entrypoints"}
 {"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}
 {"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}
@@ -1432,6 +1540,9 @@ mod tests {
         };
         assert!(output.contains("\"kind\":\"mcp_stdio_server_startup\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_description\""));
+        assert!(output.contains("\"kind\":\"mcp_stdio_server_content_group_list\""));
+        assert!(output.contains("\"kind\":\"mcp_stdio_server_content_group_description\""));
+        assert!(output.contains("\"content_group_id\":\"core-runtime-example\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_list\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_validation\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_execution\""));
