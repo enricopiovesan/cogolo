@@ -1185,7 +1185,10 @@ impl McpDiscoveryCatalog {
 
     #[must_use]
     fn content_group_summaries() -> Vec<Value> {
-        vec![core_runtime_example_content_group_summary()]
+        vec![
+            core_runtime_example_content_group_summary(),
+            expedition_example_content_group_summary(),
+        ]
     }
 
     fn content_group_detail(&self, content_group_id: &str) -> Option<Value> {
@@ -1211,6 +1214,36 @@ fn core_runtime_example_content_group_summary() -> Value {
         ],
         "invocable_entrypoints": [
             "describe_content_group"
+        ],
+    })
+}
+
+fn expedition_example_content_group_summary() -> Value {
+    json!({
+        "content_group_id": "expedition-example",
+        "summary": "Traverse's canonical expedition content group exposing governed planning capabilities and workflow entrypoints.",
+        "display_name": "Expedition example",
+        "governed_paths": [
+            "examples/expedition/registry-bundle/manifest.json",
+            "docs/expedition-example-registry-bundle.md",
+            "docs/expedition-example-authoring.md",
+            "docs/expedition-example-smoke.md",
+            "examples/expedition/runtime-requests/plan-expedition.json",
+            "workflows/examples/expedition/plan-expedition/workflow.json"
+        ],
+        "validation_commands": [
+            "bash scripts/ci/expedition_artifact_smoke.sh",
+            "bash scripts/ci/expedition_execution_smoke.sh",
+            "bash scripts/ci/expedition_trace_smoke.sh",
+            "bash scripts/ci/expedition_golden_path.sh"
+        ],
+        "invocable_entrypoints": [
+            "describe_content_group",
+            "list_entrypoints",
+            "describe_entrypoint",
+            "validate_entrypoint",
+            "execute_entrypoint",
+            "render_execution_report"
         ],
     })
 }

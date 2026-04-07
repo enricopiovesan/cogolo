@@ -116,6 +116,7 @@ grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md
 grep -q "list_content_groups" docs/mcp-stdio-server.md
 grep -q "describe_content_group" docs/mcp-stdio-server.md
 grep -q "core-runtime-example" docs/mcp-stdio-server.md
+grep -q "expedition-example" docs/mcp-stdio-server.md
 grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
 grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
