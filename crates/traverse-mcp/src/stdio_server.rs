@@ -655,8 +655,7 @@ where
                         return Err(failure);
                     };
 
-                    let envelope =
-                        self.describe_content_group_envelope(content_group_id)?;
+                    let envelope = self.describe_content_group_envelope(content_group_id)?;
                     write_json_line(stdout, &envelope).map_err(|error| {
                         StdioServerFailure::new(
                             "io_error",
