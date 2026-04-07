@@ -2,7 +2,9 @@
 
 Traverse uses `youaskm3` as the first proving downstream app for the app-facing MCP substrate.
 
-For the shortest local start path before you run this downstream validation, begin with [quickstart.md](/private/tmp/cogolo-issue-122/quickstart.md).
+For the shortest local start path before you run this downstream validation, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
+
+For the dedicated Traverse MCP server package, see [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md).
 
 For the dedicated Traverse MCP server package foundation, begin with [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md).
 

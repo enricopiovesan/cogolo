@@ -42,6 +42,7 @@ required_files=(
   "apps/react-demo/server.mjs"
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
+  "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
@@ -112,6 +113,8 @@ grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md
+grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
+grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
 grep -q "app-consumable v0.1" docs/app-consumable-release-checklist.md
 grep -q "Release Blockers" docs/app-consumable-release-checklist.md
