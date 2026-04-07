@@ -22,16 +22,20 @@ cargo run -p traverse-mcp -- stdio --simulate-startup-failure
 
 The failure envelope is machine-readable JSON on standard error so validation can assert the package’s startup contract without guessing.
 
-## Discovery and Description
+## Discovery, Execution, and Report Rendering
 
 The dedicated stdio server now supports deterministic discovery and description commands:
 
 - `list_entrypoints` returns the governed capability and workflow catalog.
 - `describe_entrypoint` returns a machine-readable description for one capability or workflow by id and version.
+- `validate_entrypoint` checks a governed entrypoint request against the canonical runtime request.
+- `execute_entrypoint` executes a governed entrypoint and returns the governed runtime response and trace artifacts.
+- `render_execution_report` renders a structured report from the same governed runtime execution output.
 - `shutdown` exits the server cleanly after emitting a deterministic shutdown envelope.
 
 ## Validation
 
 - `bash scripts/ci/mcp_stdio_server_smoke.sh`
 - `bash scripts/ci/mcp_stdio_server_discovery_smoke.sh`
+- `bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh`
 - `bash scripts/ci/repository_checks.sh`

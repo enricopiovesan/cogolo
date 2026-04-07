@@ -26,6 +26,7 @@ const SUPPORTING_COMMANDS: &[&str] = &[
     "describe_entrypoint",
     "validate_entrypoint",
     "execute_entrypoint",
+    "render_execution_report",
     "shutdown",
 ];
 const FUTURE_OPERATIONS: &[&str] = &[];
@@ -41,6 +42,13 @@ struct StdioCommandEnvelope {
     version: Option<String>,
     #[serde(default)]
     request_path: Option<String>,
+}
+
+#[derive(Debug)]
+struct EntrypointExecutionArtifacts {
+    request_path: String,
+    entrypoint: Value,
+    response: crate::McpExecutionResponse,
 }
 
 #[derive(Debug)]
@@ -335,6 +343,86 @@ where
         &self,
         command: &StdioCommandEnvelope,
     ) -> Result<Value, StdioServerFailure> {
+        let artifacts = self.entrypoint_execution_artifacts(command)?;
+        let result = artifacts.response.result;
+        let trace = artifacts.response.trace;
+        let observation_messages = artifacts
+            .response
+            .observation_messages
+            .into_iter()
+            .map(|message| format!("{message:?}"))
+            .collect::<Vec<_>>();
+
+        Ok(json!({
+            "kind": "mcp_stdio_server_entrypoint_execution",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": GOVERNING_SPEC,
+            "status": "completed",
+            "request_path": artifacts.request_path,
+            "entrypoint": artifacts.entrypoint,
+            "request_id": result.request_id,
+            "execution_id": result.execution_id,
+            "result": result,
+            "trace": trace,
+            "observation_messages": observation_messages,
+        }))
+    }
+
+    fn render_execution_report_envelope(
+        &self,
+        command: &StdioCommandEnvelope,
+    ) -> Result<Value, StdioServerFailure> {
+        let artifacts = self.entrypoint_execution_artifacts(command)?;
+        let response = artifacts.response;
+        let result = response.result.clone();
+        let trace = response.trace.clone();
+        let request_id = result.request_id.clone();
+        let execution_id = result.execution_id.clone();
+        let execution_request_id = request_id.clone();
+        let execution_execution_id = execution_id.clone();
+        let result_status = result.status;
+        let trace_kind = trace.kind.clone();
+        let observation_messages = response
+            .observation_messages
+            .into_iter()
+            .map(|message| format!("{message:?}"))
+            .collect::<Vec<_>>();
+        let observation_message_count = observation_messages.len();
+
+        Ok(json!({
+            "kind": "mcp_stdio_server_execution_report",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": GOVERNING_SPEC,
+            "status": "rendered",
+            "request_path": artifacts.request_path,
+            "entrypoint": artifacts.entrypoint,
+            "execution": {
+                "request_id": execution_request_id,
+                "execution_id": execution_execution_id,
+                "result": result.clone(),
+                "trace": trace.clone(),
+                "observation_messages": observation_messages,
+            },
+            "report": {
+                "execution_id": execution_id,
+                "request_id": request_id,
+                "result_status": result_status,
+                "trace_kind": trace_kind,
+                "observation_message_count": observation_message_count,
+                "summary": format!(
+                    "Rendered execution report for {}",
+                    execution_execution_id
+                ),
+            },
+        }))
+    }
+
+    fn entrypoint_execution_artifacts(
+        &self,
+        command: &StdioCommandEnvelope,
+    ) -> Result<EntrypointExecutionArtifacts, StdioServerFailure> {
         let entrypoint_kind = command.entrypoint_kind.as_deref().ok_or_else(|| {
             StdioServerFailure::new(
                 "invalid_request",
@@ -359,28 +447,12 @@ where
             .mcp
             .execute(runtime_request)
             .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))?;
-        let result = response.result;
-        let trace = response.trace;
-        let observation_messages = response
-            .observation_messages
-            .into_iter()
-            .map(|message| format!("{message:?}"))
-            .collect::<Vec<_>>();
 
-        Ok(json!({
-            "kind": "mcp_stdio_server_entrypoint_execution",
-            "server_name": SERVER_NAME,
-            "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
-            "status": "completed",
-            "request_path": request_path,
-            "entrypoint": self.describe_entrypoint_envelope(entrypoint_kind, id, version)?,
-            "request_id": result.request_id,
-            "execution_id": result.execution_id,
-            "result": result,
-            "trace": trace,
-            "observation_messages": observation_messages,
-        }))
+        Ok(EntrypointExecutionArtifacts {
+            request_path: request_path.to_string(),
+            entrypoint: self.describe_entrypoint_envelope(entrypoint_kind, id, version)?,
+            response,
+        })
     }
 
     fn validate_runtime_request(
@@ -601,6 +673,21 @@ where
                         StdioServerFailure::new(
                             "io_error",
                             format!("Failed to write entrypoint execution envelope: {error}"),
+                        )
+                    })?;
+                }
+                "render_execution_report" => {
+                    let envelope = match self.render_execution_report_envelope(&command) {
+                        Ok(envelope) => envelope,
+                        Err(failure) => {
+                            let _ = write_json_line(stderr, &failure.envelope());
+                            return Err(failure);
+                        }
+                    };
+                    write_json_line(stdout, &envelope).map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write execution report envelope: {error}"),
                         )
                     })?;
                 }
@@ -1405,6 +1492,7 @@ mod tests {
 {"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}
 {"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}
 {"command":"execute_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}
+{"command":"render_execution_report","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}
 {"command":"shutdown"}
 "#,
         );
@@ -1425,6 +1513,8 @@ mod tests {
         assert!(output.contains("\"entrypoint_kind\":\"workflow\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_validation\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_execution\""));
+        assert!(output.contains("\"kind\":\"mcp_stdio_server_execution_report\""));
+        assert!(output.contains("\"status\":\"rendered\""));
         assert!(output.contains("\"status\":\"completed\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_shutdown\""));
         assert!(stderr.is_empty());
