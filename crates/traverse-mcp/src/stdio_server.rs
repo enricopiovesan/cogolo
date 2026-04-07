@@ -50,9 +50,9 @@ pub struct McpDiscoveryCatalog {
 
 #[derive(Debug)]
 struct CanonicalExecutionContext {
-    capability_registry: CapabilityRegistry,
-    event_registry: EventRegistry,
-    workflow_registry: WorkflowRegistry,
+    capability_store: CapabilityRegistry,
+    event_store: EventRegistry,
+    workflow_store: WorkflowRegistry,
 }
 
 impl McpDiscoveryCatalog {
@@ -107,13 +107,13 @@ impl CanonicalExecutionContext {
             )
         })?;
 
-        let mut capability_registry = CapabilityRegistry::new();
-        let mut event_registry = EventRegistry::new();
-        let mut workflow_registry = WorkflowRegistry::new();
+        let mut capability_store = CapabilityRegistry::new();
+        let mut event_store = EventRegistry::new();
+        let mut workflow_store = WorkflowRegistry::new();
 
         for capability in &bundle.capabilities {
             let request = build_capability_registration(&bundle, capability)?;
-            capability_registry.register(request).map_err(|failure| {
+            capability_store.register(request).map_err(|failure| {
                 StdioServerFailure::new(
                     "registry_registration_failed",
                     format!(
@@ -135,7 +135,7 @@ impl CanonicalExecutionContext {
                 governing_spec: "011-event-registry".to_string(),
                 validator_version: env!("CARGO_PKG_VERSION").to_string(),
             };
-            event_registry.register(request).map_err(|failure| {
+            event_store.register(request).map_err(|failure| {
                 StdioServerFailure::new(
                     "registry_registration_failed",
                     format!(
@@ -147,9 +147,9 @@ impl CanonicalExecutionContext {
         }
 
         for workflow in &bundle.workflows {
-            workflow_registry
+            workflow_store
                 .register(
-                    &capability_registry,
+                    &capability_store,
                     WorkflowRegistration {
                         scope: bundle.scope,
                         definition: workflow.definition.clone(),
@@ -172,9 +172,9 @@ impl CanonicalExecutionContext {
         }
 
         Ok(Self {
-            capability_registry,
-            event_registry,
-            workflow_registry,
+            capability_store,
+            event_store,
+            workflow_store,
         })
     }
 }
@@ -269,6 +269,10 @@ where
         })
     }
 
+    /// # Errors
+    ///
+    /// Returns `invalid_request` when the entrypoint kind is unsupported or the id/version is malformed.
+    /// Returns `not_found` when the requested entrypoint does not exist in the canonical bundle.
     pub fn describe_entrypoint_envelope(
         &self,
         entrypoint_kind: &str,
@@ -526,6 +530,11 @@ where
     }
 
     #[allow(clippy::too_many_lines)]
+    /// # Errors
+    ///
+    /// Returns `io_error` when writing or reading stdio fails.
+    /// Returns `invalid_request` when a command envelope omits required fields.
+    /// Returns `unsupported_command` when the command name is not recognized.
     pub fn run_stdio<R, W, EWrite>(
         &self,
         input: R,
@@ -716,20 +725,23 @@ struct EntrypointArtifacts {
     request: RuntimeRequest,
 }
 
+/// # Errors
+///
+/// Returns `catalog_load_failed` when the canonical expedition bundle cannot be loaded.
 pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServerFailure> {
     let canonical_execution = CanonicalExecutionContext::load_canonical()?;
     let catalog = McpDiscoveryCatalog::load_canonical()?;
 
     let capability_registry = Box::leak(Box::new(CapabilityRegistry::new()));
-    let event_registry = Box::leak(Box::new(canonical_execution.event_registry));
+    let event_registry = Box::leak(Box::new(canonical_execution.event_store));
     let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
 
     let runtime = Box::leak(Box::new(
         Runtime::new(
-            canonical_execution.capability_registry,
+            canonical_execution.capability_store,
             ExpeditionExampleExecutor,
         )
-        .with_workflow_registry(canonical_execution.workflow_registry),
+        .with_workflow_registry(canonical_execution.workflow_store),
     ));
     let mcp = Box::leak(Box::new(TraverseMcp::new(
         capability_registry,
@@ -1417,7 +1429,10 @@ mod tests {
                 .is_ok()
         );
 
-        let output = String::from_utf8(stdout).unwrap();
+        let output = match String::from_utf8(stdout) {
+            Ok(output) => output,
+            Err(error) => panic!("stdout is not valid UTF-8: {error}"),
+        };
         assert!(output.contains("\"kind\":\"mcp_stdio_server_startup\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_description\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_list\""));
@@ -1430,13 +1445,16 @@ mod tests {
     }
 
     fn build_test_server() -> TraverseMcpStdioServer<'static, ExpeditionExampleExecutor> {
-        let execution = CanonicalExecutionContext::load_canonical().unwrap();
+        let execution = match CanonicalExecutionContext::load_canonical() {
+            Ok(execution) => execution,
+            Err(error) => panic!("failed to load canonical execution context: {error:?}"),
+        };
         let capability_registry = Box::leak(Box::new(CapabilityRegistry::new()));
         let event_registry = Box::leak(Box::new(EventRegistry::new()));
         let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
         let runtime = Box::leak(Box::new(
-            Runtime::new(execution.capability_registry, ExpeditionExampleExecutor)
-                .with_workflow_registry(execution.workflow_registry),
+            Runtime::new(execution.capability_store, ExpeditionExampleExecutor)
+                .with_workflow_registry(execution.workflow_store),
         ));
         let mcp = Box::leak(Box::new(TraverseMcp::new(
             capability_registry,
@@ -1444,7 +1462,10 @@ mod tests {
             workflow_registry,
             runtime,
         )));
-        let catalog = Box::leak(Box::new(McpDiscoveryCatalog::load_canonical().unwrap()));
+        let catalog = Box::leak(Box::new(match McpDiscoveryCatalog::load_canonical() {
+            Ok(catalog) => catalog,
+            Err(error) => panic!("failed to load canonical discovery catalog: {error:?}"),
+        }));
         TraverseMcpStdioServer::new(mcp, catalog)
     }
 }
