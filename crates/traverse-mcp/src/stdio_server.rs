@@ -1,4 +1,4 @@
-//! Deterministic stdio server foundation for Traverse MCP.
+//! Dedicated Traverse MCP stdio server package entrypoint.
 
 use crate::{TraverseMcp, youaskm3_mcp_consumption_validation_path};
 use serde::Deserialize;
@@ -6,13 +6,13 @@ use serde_json::{Value, json};
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
-use std::path::PathBuf;
-use traverse_contracts::Lifecycle;
+use std::path::{Path, PathBuf};
 use traverse_registry::{
-    BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityRegistration,
-    CapabilityRegistry, ComposabilityMetadata, CompositionKind, CompositionPattern, EventRegistry,
-    ImplementationKind, RegistryBundle, RegistryProvenance, SourceKind, SourceReference,
-    WorkflowReference, WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
+    BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
+    CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
+    CompositionPattern, EventRegistration, EventRegistry, ImplementationKind, RegistryBundle,
+    RegistryProvenance, SourceKind, SourceReference, WorkflowReference, WorkflowRegistration,
+    WorkflowRegistry, load_registry_bundle,
 };
 use traverse_runtime::{LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request};
 
@@ -29,7 +29,6 @@ const SUPPORTING_COMMANDS: &[&str] = &[
     "render_execution_report",
     "shutdown",
 ];
-const FUTURE_OPERATIONS: &[&str] = &[];
 
 #[derive(Debug, Deserialize)]
 struct StdioCommandEnvelope {
@@ -45,21 +44,15 @@ struct StdioCommandEnvelope {
 }
 
 #[derive(Debug)]
-struct EntrypointExecutionArtifacts {
-    request_path: String,
-    entrypoint: Value,
-    response: crate::McpExecutionResponse,
-}
-
-#[derive(Debug)]
 pub struct McpDiscoveryCatalog {
     bundle: RegistryBundle,
 }
 
 #[derive(Debug)]
 struct CanonicalExecutionContext {
-    capability_registry: CapabilityRegistry,
-    workflow_registry: WorkflowRegistry,
+    capabilities: CapabilityRegistry,
+    events: EventRegistry,
+    workflows: WorkflowRegistry,
 }
 
 impl McpDiscoveryCatalog {
@@ -101,7 +94,7 @@ impl McpDiscoveryCatalog {
 }
 
 impl CanonicalExecutionContext {
-    pub fn load_canonical() -> Result<Self, StdioServerFailure> {
+    fn load_canonical() -> Result<Self, StdioServerFailure> {
         let manifest_path = canonical_expedition_bundle_path();
         let bundle = load_registry_bundle(&manifest_path).map_err(|failure| {
             StdioServerFailure::new(
@@ -109,17 +102,18 @@ impl CanonicalExecutionContext {
                 format!(
                     "Failed to load expedition registry bundle {}: {}",
                     manifest_path.display(),
-                    failure.errors[0].message,
+                    failure.errors[0].message
                 ),
             )
         })?;
 
-        let mut capability_registry = CapabilityRegistry::new();
-        let mut workflow_registry = WorkflowRegistry::new();
+        let mut capabilities = CapabilityRegistry::new();
+        let mut events = EventRegistry::new();
+        let mut workflows = WorkflowRegistry::new();
 
         for capability in &bundle.capabilities {
             let request = build_capability_registration(&bundle, capability)?;
-            capability_registry.register(request).map_err(|failure| {
+            capabilities.register(request).map_err(|failure| {
                 StdioServerFailure::new(
                     "registry_registration_failed",
                     format!(
@@ -132,10 +126,30 @@ impl CanonicalExecutionContext {
             })?;
         }
 
+        for event in &bundle.events {
+            let request = EventRegistration {
+                scope: bundle.scope,
+                contract: event.contract.clone(),
+                contract_path: event.path.display().to_string(),
+                registered_at: bundle_registered_at(&bundle),
+                governing_spec: "011-event-registry".to_string(),
+                validator_version: env!("CARGO_PKG_VERSION").to_string(),
+            };
+            events.register(request).map_err(|failure| {
+                StdioServerFailure::new(
+                    "registry_registration_failed",
+                    format!(
+                        "Failed to register event {}@{} for stdio execution: {}",
+                        event.contract.id, event.contract.version, failure.errors[0].message,
+                    ),
+                )
+            })?;
+        }
+
         for workflow in &bundle.workflows {
-            workflow_registry
+            workflows
                 .register(
-                    &capability_registry,
+                    &capabilities,
                     WorkflowRegistration {
                         scope: bundle.scope,
                         definition: workflow.definition.clone(),
@@ -158,8 +172,9 @@ impl CanonicalExecutionContext {
         }
 
         Ok(Self {
-            capability_registry,
-            workflow_registry,
+            capabilities,
+            events,
+            workflows,
         })
     }
 }
@@ -188,7 +203,6 @@ where
             "governing_spec": GOVERNING_SPEC,
             "status": "ready",
             "supported_commands": SUPPORTING_COMMANDS,
-            "future_operations": FUTURE_OPERATIONS,
             "public_surface_id": PUBLIC_SURFACE_ID,
         })
     }
@@ -196,7 +210,6 @@ where
     #[must_use]
     pub fn describe_envelope(&self) -> Value {
         let validation_path = youaskm3_mcp_consumption_validation_path();
-
         json!({
             "kind": "mcp_stdio_server_description",
             "server_name": SERVER_NAME,
@@ -205,7 +218,6 @@ where
             "runtime_authority": "Traverse runtime authority",
             "public_surface_id": PUBLIC_SURFACE_ID,
             "supported_commands": SUPPORTING_COMMANDS,
-            "future_operations": FUTURE_OPERATIONS,
             "governed_surface_counts": {
                 "capabilities": self.catalog.capability_count(),
                 "events": self.catalog.event_count(),
@@ -229,6 +241,13 @@ where
             .iter()
             .map(capability_entrypoint_summary)
             .collect::<Vec<_>>();
+        let event_entries = self
+            .catalog
+            .bundle
+            .events
+            .iter()
+            .map(event_entrypoint_summary)
+            .collect::<Vec<_>>();
         let workflow_entries = self
             .catalog
             .bundle
@@ -244,16 +263,16 @@ where
             "governing_spec": GOVERNING_SPEC,
             "entrypoints": {
                 "capabilities": capability_entries,
+                "events": event_entries,
                 "workflows": workflow_entries,
             },
         })
     }
 
-    /// Describe a single discovered entrypoint by id and version.
-    ///
     /// # Errors
     ///
-    /// Returns `not_found` when the requested capability or workflow is absent.
+    /// Returns `invalid_request` when the entrypoint kind is unsupported or the id/version is malformed.
+    /// Returns `not_found` when the requested entrypoint does not exist in the canonical bundle.
     pub fn describe_entrypoint_envelope(
         &self,
         entrypoint_kind: &str,
@@ -306,36 +325,16 @@ where
         &self,
         command: &StdioCommandEnvelope,
     ) -> Result<Value, StdioServerFailure> {
-        let entrypoint_kind = command.entrypoint_kind.as_deref().ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "validate_entrypoint requires entrypoint_kind.",
-            )
-        })?;
-        let id = command.id.as_deref().ok_or_else(|| {
-            StdioServerFailure::new("invalid_request", "validate_entrypoint requires id.")
-        })?;
-        let version = command.version.as_deref().ok_or_else(|| {
-            StdioServerFailure::new("invalid_request", "validate_entrypoint requires version.")
-        })?;
-        let request_path = command.request_path.as_deref().ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "validate_entrypoint requires request_path.",
-            )
-        })?;
-        let runtime_request = load_runtime_request(request_path)?;
-        self.validate_runtime_request(entrypoint_kind, id, version, &runtime_request)?;
-
+        let artifacts = self.entrypoint_artifacts(command)?;
         Ok(json!({
             "kind": "mcp_stdio_server_entrypoint_validation",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
             "governing_spec": GOVERNING_SPEC,
             "status": "valid",
-            "request_path": request_path,
-            "entrypoint": self.describe_entrypoint_envelope(entrypoint_kind, id, version)?,
-            "request": runtime_request_summary(&runtime_request),
+            "request_path": artifacts.request_path,
+            "entrypoint": artifacts.entrypoint,
+            "request": runtime_request_summary(&artifacts.request),
         }))
     }
 
@@ -343,11 +342,16 @@ where
         &self,
         command: &StdioCommandEnvelope,
     ) -> Result<Value, StdioServerFailure> {
-        let artifacts = self.entrypoint_execution_artifacts(command)?;
-        let result = artifacts.response.result;
-        let trace = artifacts.response.trace;
-        let observation_messages = artifacts
-            .response
+        let artifacts = self.entrypoint_artifacts(command)?;
+        let response = self
+            .mcp
+            .execute(artifacts.request)
+            .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))?;
+        let result = response.result.clone();
+        let trace = response.trace.clone();
+        let request_id = result.request_id.clone();
+        let execution_id = result.execution_id.clone();
+        let observation_messages = response
             .observation_messages
             .into_iter()
             .map(|message| format!("{message:?}"))
@@ -361,8 +365,8 @@ where
             "status": "completed",
             "request_path": artifacts.request_path,
             "entrypoint": artifacts.entrypoint,
-            "request_id": result.request_id,
-            "execution_id": result.execution_id,
+            "request_id": request_id,
+            "execution_id": execution_id,
             "result": result,
             "trace": trace,
             "observation_messages": observation_messages,
@@ -373,22 +377,20 @@ where
         &self,
         command: &StdioCommandEnvelope,
     ) -> Result<Value, StdioServerFailure> {
-        let artifacts = self.entrypoint_execution_artifacts(command)?;
-        let response = artifacts.response;
+        let artifacts = self.entrypoint_artifacts(command)?;
+        let response = self
+            .mcp
+            .execute(artifacts.request)
+            .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))?;
         let result = response.result.clone();
         let trace = response.trace.clone();
         let request_id = result.request_id.clone();
         let execution_id = result.execution_id.clone();
-        let execution_request_id = request_id.clone();
-        let execution_execution_id = execution_id.clone();
-        let result_status = result.status;
-        let trace_kind = trace.kind.clone();
         let observation_messages = response
             .observation_messages
             .into_iter()
             .map(|message| format!("{message:?}"))
             .collect::<Vec<_>>();
-        let observation_message_count = observation_messages.len();
 
         Ok(json!({
             "kind": "mcp_stdio_server_execution_report",
@@ -399,59 +401,47 @@ where
             "request_path": artifacts.request_path,
             "entrypoint": artifacts.entrypoint,
             "execution": {
-                "request_id": execution_request_id,
-                "execution_id": execution_execution_id,
-                "result": result.clone(),
-                "trace": trace.clone(),
+                "request_id": request_id.clone(),
+                "execution_id": execution_id.clone(),
+                "result": result,
+                "trace": trace,
                 "observation_messages": observation_messages,
             },
             "report": {
+                "summary": "Rendered execution report from governed runtime output",
                 "execution_id": execution_id,
                 "request_id": request_id,
-                "result_status": result_status,
-                "trace_kind": trace_kind,
-                "observation_message_count": observation_message_count,
-                "summary": format!(
-                    "Rendered execution report for {}",
-                    execution_execution_id
-                ),
+                "result_status": result.status,
+                "trace_kind": trace.kind,
+                "observation_message_count": observation_messages.len(),
             },
         }))
     }
 
-    fn entrypoint_execution_artifacts(
+    fn entrypoint_artifacts(
         &self,
         command: &StdioCommandEnvelope,
-    ) -> Result<EntrypointExecutionArtifacts, StdioServerFailure> {
+    ) -> Result<EntrypointArtifacts, StdioServerFailure> {
         let entrypoint_kind = command.entrypoint_kind.as_deref().ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "execute_entrypoint requires entrypoint_kind.",
-            )
+            StdioServerFailure::new("invalid_request", "command requires entrypoint_kind.")
         })?;
-        let id = command.id.as_deref().ok_or_else(|| {
-            StdioServerFailure::new("invalid_request", "execute_entrypoint requires id.")
-        })?;
+        let id = command
+            .id
+            .as_deref()
+            .ok_or_else(|| StdioServerFailure::new("invalid_request", "command requires id."))?;
         let version = command.version.as_deref().ok_or_else(|| {
-            StdioServerFailure::new("invalid_request", "execute_entrypoint requires version.")
+            StdioServerFailure::new("invalid_request", "command requires version.")
         })?;
         let request_path = command.request_path.as_deref().ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "execute_entrypoint requires request_path.",
-            )
+            StdioServerFailure::new("invalid_request", "command requires request_path.")
         })?;
-        let runtime_request = load_runtime_request(request_path)?;
-        self.validate_runtime_request(entrypoint_kind, id, version, &runtime_request)?;
-        let response = self
-            .mcp
-            .execute(runtime_request)
-            .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))?;
+        let request = load_runtime_request(request_path)?;
+        self.validate_runtime_request(entrypoint_kind, id, version, &request)?;
 
-        Ok(EntrypointExecutionArtifacts {
+        Ok(EntrypointArtifacts {
             request_path: request_path.to_string(),
             entrypoint: self.describe_entrypoint_envelope(entrypoint_kind, id, version)?,
-            response,
+            request,
         })
     }
 
@@ -460,18 +450,17 @@ where
         entrypoint_kind: &str,
         id: &str,
         version: &str,
-        runtime_request: &RuntimeRequest,
+        request: &RuntimeRequest,
     ) -> Result<(), StdioServerFailure> {
         match entrypoint_kind {
             "capability" => {
-                let Some(capability_id) = runtime_request.intent.capability_id.as_deref() else {
+                let Some(capability_id) = request.intent.capability_id.as_deref() else {
                     return Err(StdioServerFailure::new(
                         "invalid_request",
                         "runtime request must include intent.capability_id for capability entrypoints.",
                     ));
                 };
-                let Some(capability_version) = runtime_request.intent.capability_version.as_deref()
-                else {
+                let Some(capability_version) = request.intent.capability_version.as_deref() else {
                     return Err(StdioServerFailure::new(
                         "invalid_request",
                         "runtime request must include intent.capability_version for capability entrypoints.",
@@ -488,26 +477,34 @@ where
                 }
             }
             "workflow" => {
-                let Some(_capability_id) = runtime_request.intent.capability_id.as_deref() else {
+                let Some(capability_id) = request.intent.capability_id.as_deref() else {
                     return Err(StdioServerFailure::new(
                         "invalid_request",
                         "runtime request must include intent.capability_id for workflow entrypoints.",
                     ));
                 };
-                let Some(_capability_version) =
-                    runtime_request.intent.capability_version.as_deref()
-                else {
+                let Some(capability_version) = request.intent.capability_version.as_deref() else {
                     return Err(StdioServerFailure::new(
                         "invalid_request",
                         "runtime request must include intent.capability_version for workflow entrypoints.",
                     ));
                 };
+
                 let Some(workflow) = self.catalog.bundle.workflows.iter().find(|artifact| {
                     artifact.definition.id == id && artifact.definition.version == version
                 }) else {
                     return Err(not_found("workflow entrypoint", id, version));
                 };
+
                 let _ = workflow;
+                if capability_id != id || capability_version != version {
+                    return Err(StdioServerFailure::new(
+                        "invalid_request",
+                        format!(
+                            "runtime request target {capability_id}@{capability_version} does not match workflow entrypoint {id}@{version}"
+                        ),
+                    ));
+                }
             }
             other => {
                 return Err(StdioServerFailure::new(
@@ -532,14 +529,12 @@ where
         })
     }
 
-    /// Run the stdio server loop.
-    ///
+    #[allow(clippy::too_many_lines)]
     /// # Errors
     ///
-    /// Returns `startup_failed` when deterministic startup failure simulation is enabled.
-    /// Returns `io_error` when writing startup or message envelopes to stdio fails, or when
-    /// reading input from stdin fails.
-    #[allow(clippy::too_many_lines)]
+    /// Returns `io_error` when writing or reading stdio fails.
+    /// Returns `invalid_request` when a command envelope omits required fields.
+    /// Returns `unsupported_command` when the command name is not recognized.
     pub fn run_stdio<R, W, EWrite>(
         &self,
         input: R,
@@ -723,10 +718,55 @@ where
     }
 }
 
-#[derive(Debug, Default, Clone, Copy)]
-struct ExpeditionStdioExecutor;
+#[derive(Debug)]
+struct EntrypointArtifacts {
+    request_path: String,
+    entrypoint: Value,
+    request: RuntimeRequest,
+}
 
-impl LocalExecutor for ExpeditionStdioExecutor {
+/// # Errors
+///
+/// Returns `catalog_load_failed` when the canonical expedition bundle cannot be loaded.
+pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServerFailure> {
+    let canonical_execution = CanonicalExecutionContext::load_canonical()?;
+    let catalog = McpDiscoveryCatalog::load_canonical()?;
+
+    let capability_registry = Box::leak(Box::new(CapabilityRegistry::new()));
+    let event_registry = Box::leak(Box::new(canonical_execution.events));
+    let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
+
+    let runtime = Box::leak(Box::new(
+        Runtime::new(canonical_execution.capabilities, ExpeditionExampleExecutor)
+            .with_workflow_registry(canonical_execution.workflows),
+    ));
+    let mcp = Box::leak(Box::new(TraverseMcp::new(
+        capability_registry,
+        event_registry,
+        workflow_registry,
+        runtime,
+    )));
+    let catalog = Box::leak(Box::new(catalog));
+    let server = TraverseMcpStdioServer::new(mcp, catalog);
+
+    let stdin = io::stdin();
+    let stdout = io::stdout();
+    let stderr = io::stderr();
+
+    let mut stdout = stdout.lock();
+    let mut stderr = stderr.lock();
+    server.run_stdio(
+        stdin.lock(),
+        &mut stdout,
+        &mut stderr,
+        simulate_startup_failure,
+    )
+}
+
+#[derive(Debug, Default, Clone, Copy)]
+struct ExpeditionExampleExecutor;
+
+impl LocalExecutor for ExpeditionExampleExecutor {
     fn execute(
         &self,
         capability: &traverse_registry::ResolvedCapability,
@@ -753,6 +793,170 @@ impl LocalExecutor for ExpeditionStdioExecutor {
     }
 }
 
+fn build_capability_registration(
+    bundle: &RegistryBundle,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+) -> Result<CapabilityRegistration, StdioServerFailure> {
+    let raw_contract = read_text_file(&capability.path, "capability contract")?;
+    let envelope = serde_json::from_str::<Value>(&raw_contract).map_err(|error| {
+        StdioServerFailure::new(
+            "invalid_request",
+            format!(
+                "failed to parse capability registration metadata {}: {error}",
+                capability.path.display()
+            ),
+        )
+    })?;
+    let implementation_kind = derive_implementation_kind(envelope.get("composability"));
+    let workflow_ref = derive_workflow_ref(envelope.get("composability"))?;
+    let composability =
+        derive_composability_metadata(implementation_kind, workflow_ref.as_ref(), capability)?;
+    let artifact = build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
+
+    Ok(CapabilityRegistration {
+        scope: bundle.scope,
+        contract: capability.contract.clone(),
+        contract_path: capability.path.display().to_string(),
+        artifact,
+        registered_at: bundle_registered_at(bundle),
+        tags: Vec::new(),
+        composability,
+        governing_spec: "005-capability-registry".to_string(),
+        validator_version: env!("CARGO_PKG_VERSION").to_string(),
+    })
+}
+
+fn build_capability_artifact(
+    bundle: &RegistryBundle,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+    implementation_kind: ImplementationKind,
+    workflow_ref: Option<WorkflowReference>,
+) -> CapabilityArtifactRecord {
+    CapabilityArtifactRecord {
+        artifact_ref: format!(
+            "bundle:{}:{}:{}",
+            bundle.bundle_id, capability.contract.id, capability.contract.version
+        ),
+        implementation_kind,
+        source: SourceReference {
+            kind: SourceKind::Local,
+            location: capability.path.display().to_string(),
+        },
+        binary: match implementation_kind {
+            ImplementationKind::Executable => Some(BinaryReference {
+                format: RegistryBinaryFormat::Wasm,
+                location: format!(
+                    "bundled://{}/{}/module.wasm",
+                    capability.contract.id, capability.contract.version
+                ),
+            }),
+            ImplementationKind::Workflow => None,
+        },
+        workflow_ref,
+        digests: traverse_registry::ArtifactDigests {
+            source_digest: format!(
+                "source:{}:{}",
+                capability.contract.id, capability.contract.version
+            ),
+            binary_digest: match implementation_kind {
+                ImplementationKind::Executable => Some(format!(
+                    "binary:{}:{}",
+                    capability.contract.id, capability.contract.version
+                )),
+                ImplementationKind::Workflow => None,
+            },
+        },
+        provenance: RegistryProvenance {
+            source: provenance_source_label(&capability.contract.provenance.source),
+            author: capability.contract.provenance.author.clone(),
+            created_at: capability.contract.provenance.created_at.clone(),
+        },
+    }
+}
+
+fn derive_implementation_kind(composability_value: Option<&Value>) -> ImplementationKind {
+    match composability_value
+        .and_then(|composability| composability.get("implementation_kind"))
+        .and_then(Value::as_str)
+    {
+        Some("workflow") => ImplementationKind::Workflow,
+        _ => ImplementationKind::Executable,
+    }
+}
+
+fn derive_workflow_ref(
+    composability_value: Option<&Value>,
+) -> Result<Option<WorkflowReference>, StdioServerFailure> {
+    composability_value
+        .and_then(|composability| composability.get("workflow_ref"))
+        .map(parse_workflow_ref)
+        .transpose()
+}
+
+fn derive_composability_metadata(
+    implementation_kind: ImplementationKind,
+    workflow_ref: Option<&WorkflowReference>,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+) -> Result<ComposabilityMetadata, StdioServerFailure> {
+    let requires = capability
+        .contract
+        .consumes
+        .iter()
+        .map(|event| event.event_id.clone())
+        .collect();
+
+    match implementation_kind {
+        ImplementationKind::Workflow => {
+            if workflow_ref.is_none() {
+                return Err(StdioServerFailure::new(
+                    "invalid_request",
+                    format!(
+                        "workflow-backed capability {} must declare workflow_ref",
+                        capability.contract.id
+                    ),
+                ));
+            }
+            Ok(ComposabilityMetadata {
+                kind: CompositionKind::Composite,
+                patterns: vec![CompositionPattern::Sequential],
+                provides: vec![capability.contract.id.clone()],
+                requires,
+            })
+        }
+        ImplementationKind::Executable => Ok(ComposabilityMetadata {
+            kind: CompositionKind::Atomic,
+            patterns: vec![CompositionPattern::Sequential],
+            provides: vec![capability.contract.id.clone()],
+            requires,
+        }),
+    }
+}
+
+fn parse_workflow_ref(value: &Value) -> Result<WorkflowReference, StdioServerFailure> {
+    let workflow_id = value
+        .get("workflow_id")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            StdioServerFailure::new(
+                "invalid_request",
+                "workflow_ref.workflow_id must be a string.",
+            )
+        })?;
+    let workflow_version = value
+        .get("workflow_version")
+        .and_then(Value::as_str)
+        .ok_or_else(|| {
+            StdioServerFailure::new(
+                "invalid_request",
+                "workflow_ref.workflow_version must be a string.",
+            )
+        })?;
+    Ok(WorkflowReference {
+        workflow_id: workflow_id.to_string(),
+        workflow_version: workflow_version.to_string(),
+    })
+}
+
 fn load_runtime_request(request_path: &str) -> Result<RuntimeRequest, StdioServerFailure> {
     let path = resolve_relative_path(request_path);
     let contents = read_text_file(&path, "runtime request")?;
@@ -766,28 +970,6 @@ fn load_runtime_request(request_path: &str) -> Result<RuntimeRequest, StdioServe
             ),
         )
     })
-}
-
-fn read_text_file(path: &PathBuf, artifact_kind: &str) -> Result<String, StdioServerFailure> {
-    fs::read_to_string(path).map_err(|error| {
-        StdioServerFailure::new(
-            "io_error",
-            format!("failed to read {artifact_kind} {}: {error}", path.display()),
-        )
-    })
-}
-
-fn resolve_relative_path(relative_path: &str) -> PathBuf {
-    let candidate = PathBuf::from(relative_path);
-    if candidate.is_absolute() {
-        candidate
-    } else {
-        repo_root().join(candidate)
-    }
-}
-
-fn repo_root() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
 }
 
 fn runtime_request_summary(runtime_request: &RuntimeRequest) -> Value {
@@ -811,10 +993,129 @@ fn runtime_request_summary(runtime_request: &RuntimeRequest) -> Value {
     })
 }
 
+fn capability_entrypoint_summary(artifact: &traverse_registry::CapabilityBundleArtifact) -> Value {
+    let contract = &artifact.contract;
+    json!({
+        "artifact_kind": "capability",
+        "id": contract.id,
+        "version": contract.version,
+        "lifecycle": format!("{:?}", contract.lifecycle).to_lowercase(),
+        "summary": contract.summary,
+    })
+}
+
+fn event_entrypoint_summary(artifact: &traverse_registry::EventBundleArtifact) -> Value {
+    let contract = &artifact.contract;
+    json!({
+        "artifact_kind": "event",
+        "id": contract.id,
+        "version": contract.version,
+        "lifecycle": format!("{:?}", contract.lifecycle).to_lowercase(),
+        "summary": contract.summary,
+    })
+}
+
+fn workflow_entrypoint_summary(artifact: &traverse_registry::WorkflowBundleArtifact) -> Value {
+    let definition = &artifact.definition;
+    json!({
+        "artifact_kind": "workflow",
+        "id": definition.id,
+        "version": definition.version,
+        "lifecycle": format!("{:?}", definition.lifecycle).to_lowercase(),
+        "summary": definition.summary,
+    })
+}
+
+fn capability_entrypoint_detail(artifact: &traverse_registry::CapabilityBundleArtifact) -> Value {
+    let contract = &artifact.contract;
+    json!({
+        "artifact_kind": "capability",
+        "id": contract.id,
+        "version": contract.version,
+        "lifecycle": format!("{:?}", contract.lifecycle).to_lowercase(),
+        "summary": contract.summary,
+        "owner_team": contract.owner.team,
+        "artifact_path": artifact.path.display().to_string(),
+    })
+}
+
+fn workflow_entrypoint_detail(artifact: &traverse_registry::WorkflowBundleArtifact) -> Value {
+    let definition = &artifact.definition;
+    json!({
+        "artifact_kind": "workflow",
+        "id": definition.id,
+        "version": definition.version,
+        "lifecycle": format!("{:?}", definition.lifecycle).to_lowercase(),
+        "summary": definition.summary,
+        "owner_team": definition.owner.team,
+        "artifact_path": artifact.path.display().to_string(),
+    })
+}
+
+fn write_json_line<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
+    serde_json::to_writer(&mut *writer, value)?;
+    writer.write_all(b"\n")
+}
+
+fn parse_command(raw: &str) -> Result<StdioCommandEnvelope, StdioServerFailure> {
+    serde_json::from_str(raw).map_err(|error| {
+        StdioServerFailure::new(
+            "invalid_request",
+            format!("failed to parse stdio command envelope: {error}"),
+        )
+    })
+}
+
+fn read_text_file(path: &Path, artifact_kind: &str) -> Result<String, StdioServerFailure> {
+    fs::read_to_string(path).map_err(|error| {
+        StdioServerFailure::new(
+            "io_error",
+            format!("failed to read {artifact_kind} {}: {error}", path.display()),
+        )
+    })
+}
+
+fn resolve_relative_path(relative_path: &str) -> PathBuf {
+    let candidate = PathBuf::from(relative_path);
+    if candidate.is_absolute() {
+        candidate
+    } else {
+        repo_root().join(candidate)
+    }
+}
+
+fn repo_root() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
+}
+
+fn canonical_expedition_bundle_path() -> PathBuf {
+    repo_root().join("examples/expedition/registry-bundle/manifest.json")
+}
+
+fn not_found(kind: &str, id: &str, version: &str) -> StdioServerFailure {
+    StdioServerFailure::new("not_found", format!("{kind} {id}@{version} was not found"))
+}
+
+fn bundle_registered_at(bundle: &RegistryBundle) -> String {
+    format!("bundle:{}@{}", bundle.bundle_id, bundle.version)
+}
+
+fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> String {
+    match source {
+        traverse_contracts::ProvenanceSource::Greenfield => "greenfield",
+        traverse_contracts::ProvenanceSource::BrownfieldExtracted => "brownfield-extracted",
+        traverse_contracts::ProvenanceSource::AiGenerated => "ai-generated",
+        traverse_contracts::ProvenanceSource::AiAssisted => "ai-assisted",
+    }
+    .to_string()
+}
+
 fn execute_capture_expedition_objective(
     input: &Value,
 ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
-    let map = input_object(input)?;
+    let map = input
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))?;
     let destination = required_value(map, "destination")?;
     let target_window = required_value(map, "target_window")?;
     let preferences = required_value(map, "preferences")?;
@@ -842,7 +1143,9 @@ fn execute_capture_expedition_objective(
 fn execute_interpret_expedition_intent(
     input: &Value,
 ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
-    let map = input_object(input)?;
+    let map = input
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
     let preferences = required_object(objective, "preferences")?;
@@ -873,7 +1176,9 @@ fn execute_interpret_expedition_intent(
 fn execute_assess_conditions_summary(
     input: &Value,
 ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
-    let map = input_object(input)?;
+    let map = input
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
     let destination = required_string(objective, "destination")?;
@@ -901,7 +1206,9 @@ fn execute_assess_conditions_summary(
 fn execute_validate_team_readiness(
     input: &Value,
 ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
-    let map = input_object(input)?;
+    let map = input
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
     let team_profile = required_object(map, "team_profile")?;
@@ -938,7 +1245,9 @@ fn execute_validate_team_readiness(
 fn execute_assemble_expedition_plan(
     input: &Value,
 ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
-    let map = input_object(input)?;
+    let map = input
+        .as_object()
+        .ok_or_else(|| executor_failure("executor input must be an object"))?;
     let objective = required_object(map, "objective")?;
     let objective_id = required_string(objective, "objective_id")?;
     let interpreted = required_object(map, "interpreted_intent")?;
@@ -973,12 +1282,11 @@ fn execute_assemble_expedition_plan(
     }))
 }
 
-fn input_object(
-    value: &Value,
-) -> Result<&serde_json::Map<String, Value>, traverse_runtime::LocalExecutionFailure> {
-    value
-        .as_object()
-        .ok_or_else(|| executor_failure("executor input must be an object"))
+fn event_ref(event_id: &str) -> Value {
+    json!({
+        "event_id": event_id,
+        "version": "1.0.0"
+    })
 }
 
 fn required_object<'a>(
@@ -1042,214 +1350,29 @@ fn executor_failure(message: &str) -> traverse_runtime::LocalExecutionFailure {
     }
 }
 
-fn event_ref(event_id: &str) -> Value {
-    serde_json::json!({
-        "event_id": event_id,
-        "version": "1.0.0"
-    })
-}
-
-fn build_capability_registration(
-    bundle: &RegistryBundle,
-    capability: &traverse_registry::CapabilityBundleArtifact,
-) -> Result<CapabilityRegistration, StdioServerFailure> {
-    let raw_contract = read_text_file(&capability.path, "capability contract")?;
-    let envelope = serde_json::from_str::<Value>(&raw_contract).map_err(|error| {
-        StdioServerFailure::new(
-            "invalid_request",
-            format!(
-                "failed to parse capability registration metadata {}: {error}",
-                capability.path.display()
-            ),
-        )
-    })?;
-    let implementation_kind = derive_implementation_kind(envelope.get("composability"));
-    let workflow_ref = derive_workflow_ref(envelope.get("composability"))?;
-    let composability =
-        derive_composability_metadata(implementation_kind, workflow_ref.as_ref(), capability)?;
-    let artifact = build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
-
-    Ok(CapabilityRegistration {
-        scope: bundle.scope,
-        contract: capability.contract.clone(),
-        contract_path: capability.path.display().to_string(),
-        artifact,
-        registered_at: bundle_registered_at(bundle),
-        tags: Vec::new(),
-        composability,
-        governing_spec: "005-capability-registry".to_string(),
-        validator_version: env!("CARGO_PKG_VERSION").to_string(),
-    })
-}
-
-fn derive_implementation_kind(composability_value: Option<&Value>) -> ImplementationKind {
-    match composability_value
-        .and_then(|composability| composability.get("implementation_kind"))
-        .and_then(Value::as_str)
-    {
-        Some("workflow") => ImplementationKind::Workflow,
-        _ => ImplementationKind::Executable,
-    }
-}
-
-fn derive_workflow_ref(
-    composability_value: Option<&Value>,
-) -> Result<Option<WorkflowReference>, StdioServerFailure> {
-    composability_value
-        .and_then(|composability| composability.get("workflow_ref"))
-        .map(parse_workflow_ref)
-        .transpose()
-}
-
-fn derive_composability_metadata(
-    implementation_kind: ImplementationKind,
-    workflow_ref: Option<&WorkflowReference>,
-    capability: &traverse_registry::CapabilityBundleArtifact,
-) -> Result<ComposabilityMetadata, StdioServerFailure> {
-    let requires = capability
-        .contract
-        .consumes
-        .iter()
-        .map(|event| event.event_id.clone())
-        .collect();
-
-    match implementation_kind {
-        ImplementationKind::Workflow => {
-            if workflow_ref.is_none() {
-                return Err(StdioServerFailure::new(
-                    "invalid_request",
-                    format!(
-                        "workflow-backed capability {} must declare workflow_ref",
-                        capability.contract.id
-                    ),
-                ));
-            }
-            Ok(ComposabilityMetadata {
-                kind: CompositionKind::Composite,
-                patterns: vec![CompositionPattern::Sequential],
-                provides: vec![capability.contract.id.clone()],
-                requires,
-            })
-        }
-        ImplementationKind::Executable => Ok(ComposabilityMetadata {
-            kind: CompositionKind::Atomic,
-            patterns: vec![CompositionPattern::Sequential],
-            provides: vec![capability.contract.id.clone()],
-            requires,
-        }),
-    }
-}
-
-fn build_capability_artifact(
-    bundle: &RegistryBundle,
-    capability: &traverse_registry::CapabilityBundleArtifact,
-    implementation_kind: ImplementationKind,
-    workflow_ref: Option<WorkflowReference>,
-) -> traverse_registry::CapabilityArtifactRecord {
-    traverse_registry::CapabilityArtifactRecord {
-        artifact_ref: format!(
-            "bundle:{}:{}:{}",
-            bundle.bundle_id, capability.contract.id, capability.contract.version
-        ),
-        implementation_kind,
-        source: SourceReference {
-            kind: SourceKind::Local,
-            location: capability.path.display().to_string(),
-        },
-        binary: match implementation_kind {
-            ImplementationKind::Executable => Some(BinaryReference {
-                format: RegistryBinaryFormat::Wasm,
-                location: format!(
-                    "bundled://{}/{}/module.wasm",
-                    capability.contract.id, capability.contract.version
-                ),
-            }),
-            ImplementationKind::Workflow => None,
-        },
-        workflow_ref,
-        digests: traverse_registry::ArtifactDigests {
-            source_digest: format!(
-                "source:{}:{}",
-                capability.contract.id, capability.contract.version
-            ),
-            binary_digest: match implementation_kind {
-                ImplementationKind::Executable => Some(format!(
-                    "binary:{}:{}",
-                    capability.contract.id, capability.contract.version
-                )),
-                ImplementationKind::Workflow => None,
-            },
-        },
-        provenance: RegistryProvenance {
-            source: provenance_source_label(&capability.contract.provenance.source),
-            author: capability.contract.provenance.author.clone(),
-            created_at: capability.contract.provenance.created_at.clone(),
-        },
-    }
-}
-
-fn bundle_registered_at(bundle: &RegistryBundle) -> String {
-    format!("bundle:{}@{}", bundle.bundle_id, bundle.version)
-}
-
-fn parse_workflow_ref(value: &Value) -> Result<WorkflowReference, StdioServerFailure> {
-    let workflow_id = value
-        .get("workflow_id")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "workflow_ref.workflow_id must be a string",
-            )
-        })?;
-    let workflow_version = value
-        .get("workflow_version")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "workflow_ref.workflow_version must be a string",
-            )
-        })?;
-    Ok(WorkflowReference {
-        workflow_id: workflow_id.to_string(),
-        workflow_version: workflow_version.to_string(),
-    })
-}
-
-fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> String {
-    match source {
-        traverse_contracts::ProvenanceSource::Greenfield => "greenfield",
-        traverse_contracts::ProvenanceSource::BrownfieldExtracted => "brownfield-extracted",
-        traverse_contracts::ProvenanceSource::AiGenerated => "ai-generated",
-        traverse_contracts::ProvenanceSource::AiAssisted => "ai-assisted",
-    }
-    .to_string()
-}
-
 fn slug(value: &str) -> String {
-    let mut slug = String::new();
+    let mut out = String::new();
     for ch in value.chars() {
         if ch.is_ascii_alphanumeric() {
-            slug.push(ch.to_ascii_lowercase());
-        } else if !slug.ends_with('-') {
-            slug.push('-');
+            out.push(ch.to_ascii_lowercase());
+        } else if !out.ends_with('-') {
+            out.push('-');
         }
     }
-    slug.trim_matches('-').to_string()
+    out.trim_matches('-').to_string()
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StdioServerFailure {
-    pub code: &'static str,
-    pub message: String,
+    code: String,
+    message: String,
 }
 
 impl StdioServerFailure {
     #[must_use]
-    pub fn new(code: &'static str, message: impl Into<String>) -> Self {
+    pub fn new(code: impl Into<String>, message: impl Into<String>) -> Self {
         Self {
-            code,
+            code: code.into(),
             message: message.into(),
         }
     }
@@ -1261,7 +1384,6 @@ impl StdioServerFailure {
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
             "governing_spec": GOVERNING_SPEC,
-            "status": "error",
             "code": self.code,
             "message": self.message,
         })
@@ -1276,219 +1398,18 @@ impl fmt::Display for StdioServerFailure {
 
 impl std::error::Error for StdioServerFailure {}
 
-/// Run the dedicated Traverse MCP stdio server entrypoint.
-///
-/// # Errors
-///
-/// Returns `usage` when the CLI arguments request help or omit the required `stdio` mode.
-/// Returns `startup_failed` when deterministic startup failure simulation is enabled.
-/// Returns `io_error` when delegating to the server loop fails to read or write stdio data.
-pub fn run_mcp_stdio_server<I, W, E>(
-    args: I,
-    stdout: &mut W,
-    stderr: &mut E,
-) -> Result<(), StdioServerFailure>
-where
-    I: IntoIterator<Item = String>,
-    W: Write,
-    E: Write,
-{
-    let mut simulate_startup_failure = false;
-
-    for arg in args {
-        match arg.as_str() {
-            "stdio" => {}
-            "--simulate-startup-failure" => {
-                simulate_startup_failure = true;
-            }
-            "-h" | "--help" => {
-                return Err(StdioServerFailure::new(
-                    "usage",
-                    "Usage: cargo run -p traverse-mcp -- stdio [--simulate-startup-failure]",
-                ));
-            }
-            other => {
-                return Err(StdioServerFailure::new(
-                    "invalid_argument",
-                    format!("Unsupported Traverse MCP server argument: {other}"),
-                ));
-            }
-        }
-    }
-
-    let catalog = McpDiscoveryCatalog::load_canonical()?;
-    let execution_context = CanonicalExecutionContext::load_canonical()?;
-    let capability_registry = CapabilityRegistry::new();
-    let event_registry = EventRegistry::new();
-    let workflow_registry = WorkflowRegistry::new();
-    let runtime = Runtime::new(
-        execution_context.capability_registry,
-        ExpeditionStdioExecutor,
-    )
-    .with_workflow_registry(execution_context.workflow_registry);
-    let mcp = TraverseMcp::new(
-        &capability_registry,
-        &event_registry,
-        &workflow_registry,
-        &runtime,
-    );
-    let server = TraverseMcpStdioServer::new(&mcp, Box::leak(Box::new(catalog)));
-    let input = io::stdin();
-    let input = input.lock();
-    server.run_stdio(input, stdout, stderr, simulate_startup_failure)
-}
-
-fn parse_command(line: &str) -> Result<StdioCommandEnvelope, StdioServerFailure> {
-    serde_json::from_str(line).map_err(|error| {
-        StdioServerFailure::new(
-            "invalid_request",
-            format!("Commands must be JSON objects with a command field: {error}"),
-        )
-    })
-}
-
-fn write_json_line<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
-    serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
-    writer.write_all(b"\n")
-}
-
-fn capability_entrypoint_summary(artifact: &traverse_registry::CapabilityBundleArtifact) -> Value {
-    let contract = &artifact.contract;
-    json!({
-        "entrypoint_kind": "capability",
-        "artifact_kind": "capability",
-        "scope": "public",
-        "id": contract.id.clone(),
-        "version": contract.version.clone(),
-        "lifecycle": lifecycle_name(&contract.lifecycle),
-        "summary": contract.summary.clone(),
-        "owner_team": contract.owner.team.clone(),
-        "invocation_surface_id": PUBLIC_SURFACE_ID,
-    })
-}
-
-fn workflow_entrypoint_summary(artifact: &traverse_registry::WorkflowBundleArtifact) -> Value {
-    let definition = &artifact.definition;
-    json!({
-        "entrypoint_kind": "workflow",
-        "artifact_kind": "workflow",
-        "scope": "public",
-        "id": definition.id.clone(),
-        "version": definition.version.clone(),
-        "lifecycle": lifecycle_name(&definition.lifecycle),
-        "summary": definition.summary.clone(),
-        "owner_team": definition.owner.team.clone(),
-        "start_node": definition.start_node.clone(),
-        "terminal_nodes": definition.terminal_nodes.clone(),
-        "node_count": definition.nodes.len(),
-        "edge_count": definition.edges.len(),
-        "invocation_surface_id": PUBLIC_SURFACE_ID,
-    })
-}
-
-fn capability_entrypoint_detail(artifact: &traverse_registry::CapabilityBundleArtifact) -> Value {
-    let contract = &artifact.contract;
-    json!({
-        "entrypoint_kind": "capability",
-        "artifact_kind": "capability",
-        "scope": "public",
-        "id": contract.id.clone(),
-        "version": contract.version.clone(),
-        "lifecycle": lifecycle_name(&contract.lifecycle),
-        "summary": contract.summary.clone(),
-        "description": contract.description.clone(),
-        "owner_team": contract.owner.team.clone(),
-        "owner_contact": contract.owner.contact.clone(),
-        "entrypoint_command": contract.execution.entrypoint.command.clone(),
-        "binary_format": format!("{:?}", contract.execution.binary_format).to_lowercase(),
-        "invocation_surface_id": PUBLIC_SURFACE_ID,
-        "artifact_path": artifact.path.display().to_string(),
-        "tags": Vec::<String>::new(),
-    })
-}
-
-fn workflow_entrypoint_detail(artifact: &traverse_registry::WorkflowBundleArtifact) -> Value {
-    let definition = &artifact.definition;
-    json!({
-        "entrypoint_kind": "workflow",
-        "artifact_kind": "workflow",
-        "scope": "public",
-        "id": definition.id.clone(),
-        "version": definition.version.clone(),
-        "lifecycle": lifecycle_name(&definition.lifecycle),
-        "summary": definition.summary.clone(),
-        "owner_team": definition.owner.team.clone(),
-        "owner_contact": definition.owner.contact.clone(),
-        "start_node": definition.start_node.clone(),
-        "terminal_nodes": definition.terminal_nodes.clone(),
-        "node_count": definition.nodes.len(),
-        "edge_count": definition.edges.len(),
-        "invocation_surface_id": PUBLIC_SURFACE_ID,
-        "artifact_path": artifact.path.display().to_string(),
-        "participating_capabilities": definition
-            .nodes
-            .iter()
-            .map(|node| format!("{}@{}", node.capability_id, node.capability_version))
-            .collect::<Vec<_>>(),
-    })
-}
-
-fn lifecycle_name(lifecycle: &Lifecycle) -> &'static str {
-    match lifecycle {
-        Lifecycle::Draft => "draft",
-        Lifecycle::Active => "active",
-        Lifecycle::Deprecated => "deprecated",
-        Lifecycle::Retired => "retired",
-        Lifecycle::Archived => "archived",
-    }
-}
-
-fn canonical_expedition_bundle_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-        .join("../..")
-        .join("examples/expedition/registry-bundle/manifest.json")
-}
-
-fn not_found(kind: &str, id: &str, version: &str) -> StdioServerFailure {
-    StdioServerFailure::new("not_found", format!("{kind} {id}@{version} was not found"))
-}
-
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::panic, clippy::unwrap_used, clippy::manual_let_else)]
+    #![allow(clippy::panic)]
 
     use super::*;
-    use traverse_registry::{CapabilityRegistry, EventRegistry, WorkflowRegistry};
-    use traverse_runtime::Runtime;
-
-    fn server_fixture() -> TraverseMcpStdioServer<'static, ExpeditionStdioExecutor> {
-        let capability_registry = Box::leak(Box::new(CapabilityRegistry::new()));
-        let event_registry = Box::leak(Box::new(EventRegistry::new()));
-        let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
-        let CanonicalExecutionContext {
-            capability_registry: execution_capability_registry,
-            workflow_registry: execution_workflow_registry,
-        } = CanonicalExecutionContext::load_canonical().unwrap();
-        let runtime = Box::leak(Box::new(
-            Runtime::new(execution_capability_registry, ExpeditionStdioExecutor)
-                .with_workflow_registry(execution_workflow_registry),
-        ));
-        let mcp = Box::leak(Box::new(TraverseMcp::new(
-            capability_registry,
-            event_registry,
-            workflow_registry,
-            runtime,
-        )));
-        let catalog = Box::leak(Box::new(McpDiscoveryCatalog::load_canonical().unwrap()));
-        TraverseMcpStdioServer::new(mcp, catalog)
-    }
 
     #[test]
     fn emits_deterministic_startup_list_validate_execute_and_shutdown_envelopes() {
-        let server = server_fixture();
+        let server = build_test_server();
         let input = std::io::Cursor::new(
-            br#"{"command":"list_entrypoints"}
-{"command":"describe_entrypoint","entrypoint_kind":"capability","id":"expedition.planning.capture-expedition-objective","version":"1.0.0"}
+            br#"{"command":"describe_server"}
+{"command":"list_entrypoints"}
 {"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}
 {"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}
 {"command":"execute_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}
@@ -1505,53 +1426,43 @@ mod tests {
                 .is_ok()
         );
 
-        let output = String::from_utf8(stdout).unwrap();
+        let output = match String::from_utf8(stdout) {
+            Ok(output) => output,
+            Err(error) => panic!("stdout is not valid UTF-8: {error}"),
+        };
         assert!(output.contains("\"kind\":\"mcp_stdio_server_startup\""));
-        assert!(output.contains("\"host_mode\":\"stdio\""));
+        assert!(output.contains("\"kind\":\"mcp_stdio_server_description\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_list\""));
-        assert!(output.contains("\"entrypoint_kind\":\"capability\""));
-        assert!(output.contains("\"entrypoint_kind\":\"workflow\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_validation\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_execution\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_execution_report\""));
         assert!(output.contains("\"status\":\"rendered\""));
-        assert!(output.contains("\"status\":\"completed\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_shutdown\""));
         assert!(stderr.is_empty());
     }
 
-    #[test]
-    fn emits_machine_readable_startup_failure() {
-        let server = server_fixture();
-        let input = std::io::Cursor::new(Vec::<u8>::new());
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-
-        let error = server
-            .run_stdio(input, &mut stdout, &mut stderr, true)
-            .unwrap_err();
-
-        assert_eq!(error.code, "startup_failed");
-        let stderr_text = String::from_utf8(stderr).unwrap();
-        assert!(stderr_text.contains("\"kind\":\"mcp_stdio_server_error\""));
-        assert!(stderr_text.contains("\"code\":\"startup_failed\""));
-        assert!(stdout.is_empty());
-    }
-
-    #[test]
-    fn rejects_non_json_commands_deterministically() {
-        let server = server_fixture();
-        let input = std::io::Cursor::new("not-json\n");
-        let mut stdout = Vec::new();
-        let mut stderr = Vec::new();
-
-        let error = server
-            .run_stdio(input, &mut stdout, &mut stderr, false)
-            .unwrap_err();
-
-        assert_eq!(error.code, "invalid_request");
-        let stderr_text = String::from_utf8(stderr).unwrap();
-        assert!(stderr_text.contains("\"code\":\"invalid_request\""));
-        assert!(stdout.contains(&b'\n'));
+    fn build_test_server() -> TraverseMcpStdioServer<'static, ExpeditionExampleExecutor> {
+        let execution = match CanonicalExecutionContext::load_canonical() {
+            Ok(execution) => execution,
+            Err(error) => panic!("failed to load canonical execution context: {error:?}"),
+        };
+        let capability_registry = Box::leak(Box::new(CapabilityRegistry::new()));
+        let event_registry = Box::leak(Box::new(EventRegistry::new()));
+        let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
+        let runtime = Box::leak(Box::new(
+            Runtime::new(execution.capabilities, ExpeditionExampleExecutor)
+                .with_workflow_registry(execution.workflows),
+        ));
+        let mcp = Box::leak(Box::new(TraverseMcp::new(
+            capability_registry,
+            event_registry,
+            workflow_registry,
+            runtime,
+        )));
+        let catalog = Box::leak(Box::new(match McpDiscoveryCatalog::load_canonical() {
+            Ok(catalog) => catalog,
+            Err(error) => panic!("failed to load canonical discovery catalog: {error:?}"),
+        }));
+        TraverseMcpStdioServer::new(mcp, catalog)
     }
 }

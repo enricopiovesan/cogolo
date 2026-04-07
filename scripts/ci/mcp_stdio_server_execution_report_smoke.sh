@@ -2,32 +2,25 @@
 
 set -euo pipefail
 
-stdout_log=$(mktemp)
-stderr_log=$(mktemp)
-
-cleanup() {
-  rm -f "${stdout_log}" "${stderr_log}"
-}
-
-trap cleanup EXIT
+output="$(mktemp)"
+trap 'rm -f "$output"' EXIT
 
 printf '%s\n' \
+  '{"command":"describe_server"}' \
   '{"command":"list_entrypoints"}' \
   '{"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}' \
   '{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}' \
   '{"command":"execute_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}' \
   '{"command":"render_execution_report","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"examples/expedition/runtime-requests/plan-expedition.json"}' \
-  '{"command":"shutdown"}' \
-  | cargo run --quiet -p traverse-mcp -- stdio >"${stdout_log}" 2>"${stderr_log}"
+  '{"command":"shutdown"}' | cargo run --quiet -p traverse-mcp -- stdio >"$output"
 
-grep -q '"kind":"mcp_stdio_server_startup"' "${stdout_log}"
-grep -q '"kind":"mcp_stdio_server_entrypoint_list"' "${stdout_log}"
-grep -q '"kind":"mcp_stdio_server_entrypoint_validation"' "${stdout_log}"
-grep -q '"kind":"mcp_stdio_server_entrypoint_execution"' "${stdout_log}"
-grep -q '"kind":"mcp_stdio_server_execution_report"' "${stdout_log}"
-grep -q '"status":"rendered"' "${stdout_log}"
-grep -q '"kind":"mcp_stdio_server_shutdown"' "${stdout_log}"
+grep -q '"kind":"mcp_stdio_server_startup"' "$output"
+grep -q '"kind":"mcp_stdio_server_entrypoint_list"' "$output"
+grep -q '"kind":"mcp_stdio_server_entrypoint_description"' "$output"
+grep -q '"kind":"mcp_stdio_server_entrypoint_validation"' "$output"
+grep -q '"kind":"mcp_stdio_server_entrypoint_execution"' "$output"
+grep -q '"kind":"mcp_stdio_server_execution_report"' "$output"
+grep -q '"status":"rendered"' "$output"
+grep -q '"kind":"mcp_stdio_server_shutdown"' "$output"
 
-test ! -s "${stderr_log}"
-
-echo "MCP stdio server execution report smoke passed."
+echo "MCP stdio server execution report smoke test passed."

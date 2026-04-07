@@ -67,7 +67,6 @@ Exceptions should be rare and should be called out explicitly in the PR notes.
 
 Recommended workflow labels:
 
-- `ready`
 - `in-progress`
 - `blocked`
 - `needs-spec`
@@ -93,6 +92,8 @@ Status intent should stay simple:
 - `in-progress` means someone is actively working it right now
 - `blocked` means work cannot continue until the blocker named in the ticket is cleared
 
+Project 1 status is the only actionability signal.
+
 When a Project 1 item is marked `Blocked`, the project `Note` field should summarize the blocker in one short sentence so the reason is visible on the board without opening the issue.
 
 Potential parallel candidates should stay `Ready` until they are actually picked up. We should not use `In Progress` as a placeholder for work that is merely available to start.
@@ -110,3 +111,5 @@ Run the board audit when you change issue labels, Project 1 status, or PR state:
 ```bash
 bash scripts/ci/project_board_audit.sh
 ```
+
+The board audit logic lives in [scripts/ci/project_board_audit.sh](/Users/piovese/Documents/cogolo/scripts/ci/project_board_audit.sh).
