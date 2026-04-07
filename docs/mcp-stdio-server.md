@@ -44,11 +44,11 @@ The server reports governed content groups, capabilities, events, and workflows 
 The first two content groups exposed through the dedicated server are:
 
 - `core-runtime-example`
-- `expedition-example`
+- `wasm-agent-example`
 
 The core-runtime group points at the checked-in executable capability package template and local runtime documentation, so clients can discover a Traverse-native content family that is not expedition-specific.
 
-The expedition group points at the canonical expedition registry bundle, authoring guide, smoke validation, runtime request example, and workflow artifact so clients can discover Traverse's primary governed expedition content family through MCP.
+The WASM-agent group points at the governed agent example package, its fixture build path, and the smoke command that proves the package remains a first-class governed Traverse content family.
 
 ## Validation
 
