@@ -184,6 +184,21 @@
         "crates/cogolo-mcp/",
         "crates/traverse-mcp/"
       ]
+    },
+    {
+      "id": "023-browser-hosted-mcp-consumer-model",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/023-browser-hosted-mcp-consumer-model/spec.md",
+      "governs": [
+        "docs/app-consumable-requirements-traceability.md",
+        "docs/app-consumable-entry-path.md",
+        "docs/app-consumable-acceptance.md",
+        "docs/app-consumable-release-checklist.md",
+        "docs/youaskm3-integration-validation.md",
+        "docs/mcp-consumption-validation.md"
+      ]
     }
   ]
 }
