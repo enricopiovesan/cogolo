@@ -43,6 +43,7 @@ required_files=(
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
+  "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
   "scripts/ci/project_board_audit.sh"
@@ -118,6 +119,7 @@ grep -q "quickstart.md" docs/app-consumable-release-checklist.md
 grep -q "publication bundle" docs/app-consumable-release-artifact.md
 grep -q "GitHub release entry" docs/app-consumable-release-artifact.md
 grep -q "supported runnable artifact" docs/app-consumable-release-artifact.md
+grep -q "bash scripts/ci/app_consumable_release_prep.sh" docs/app-consumable-release-artifact.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
 grep -q "bash scripts/ci/app_consumable_acceptance.sh" docs/app-consumable-acceptance.md
 grep -q "React browser demo" docs/app-consumable-acceptance.md
