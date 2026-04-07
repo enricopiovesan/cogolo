@@ -158,7 +158,7 @@ impl CanonicalExecutionContext {
 
 #[derive(Debug)]
 pub struct TraverseMcpStdioServer<'a, E> {
-    _mcp: &'a TraverseMcp<'a, E>,
+    mcp: &'a TraverseMcp<'a, E>,
     catalog: &'a McpDiscoveryCatalog,
 }
 
@@ -168,7 +168,7 @@ where
 {
     #[must_use]
     pub fn new(mcp: &'a TraverseMcp<'a, E>, catalog: &'a McpDiscoveryCatalog) -> Self {
-        Self { _mcp: mcp, catalog }
+        Self { mcp, catalog }
     }
 
     #[must_use]
@@ -294,7 +294,6 @@ where
         }
     }
 
-    #[must_use]
     fn validate_entrypoint_envelope(
         &self,
         command: &StdioCommandEnvelope,
@@ -332,7 +331,6 @@ where
         }))
     }
 
-    #[must_use]
     fn execute_entrypoint_envelope(
         &self,
         command: &StdioCommandEnvelope,
@@ -358,7 +356,7 @@ where
         let runtime_request = load_runtime_request(request_path)?;
         self.validate_runtime_request(entrypoint_kind, id, version, &runtime_request)?;
         let response = self
-            ._mcp
+            .mcp
             .execute(runtime_request)
             .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))?;
         let result = response.result;
@@ -412,8 +410,7 @@ where
                     return Err(StdioServerFailure::new(
                         "invalid_request",
                         format!(
-                            "runtime request target {}@{} does not match capability entrypoint {}@{}",
-                            capability_id, capability_version, id, version
+                            "runtime request target {capability_id}@{capability_version} does not match capability entrypoint {id}@{version}"
                         ),
                     ));
                 }
