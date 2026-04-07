@@ -28,6 +28,8 @@ cargo run -p traverse-mcp -- stdio --simulate-startup-failure
 The package emits deterministic JSON envelopes for:
 
 - `describe_server`
+- `list_content_groups`
+- `describe_content_group`
 - `list_entrypoints`
 - `describe_entrypoint`
 - `validate_entrypoint`
@@ -35,7 +37,15 @@ The package emits deterministic JSON envelopes for:
 - `render_execution_report`
 - `shutdown`
 
-The server reports governed capabilities, events, and workflows from the canonical expedition bundle.
+The server reports governed content groups, capabilities, events, and workflows from the canonical expedition bundle.
+
+## Content Groups
+
+The first content group exposed through the dedicated server is the neutral core-runtime example group:
+
+- `core-runtime-example`
+
+It points at the checked-in executable capability package template and local runtime documentation, so clients can discover a Traverse-native content family that is not expedition-specific.
 
 ## Validation
 
