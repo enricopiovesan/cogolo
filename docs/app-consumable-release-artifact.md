@@ -19,6 +19,7 @@ The release bundle is a publication record, not a new runtime behavior layer.
 
 The first release bundle MUST include:
 
+- the versioned consumer bundle reference
 - the release notes scope
 - the release checklist reference
 - the governed consumer contract reference
@@ -47,6 +48,7 @@ Release notes SHOULD avoid promising broader production hardening than the appro
 The release publication bundle MUST reference evidence for:
 
 - the first app-consumable quickstart
+- the versioned consumer bundle
 - the live browser adapter smoke path
 - the app-consumable acceptance path
 - the downstream consumer contract
@@ -68,7 +70,7 @@ The release steward can verify the first app-consumable publication bundle with:
 bash scripts/ci/app_consumable_release_prep.sh
 ```
 
-That check confirms the release checklist, publication bundle definition, quickstart, and traceability docs are present and linked together.
+That check confirms the release checklist, publication bundle definition, versioned consumer bundle, quickstart, and traceability docs are present and linked together.
 
 ## Post-Release Policy
 

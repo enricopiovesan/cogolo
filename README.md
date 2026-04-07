@@ -54,6 +54,7 @@ Code, generated artifacts, and tests must align with the approved governing spec
 - Start here: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
 - Documentation entry path: [docs/app-consumable-entry-path.md](/Users/piovese/Documents/cogolo/docs/app-consumable-entry-path.md)
 - App-consumable release checklist: [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
+- App-consumable consumer bundle: [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
 - App-consumable acceptance: [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
 - Release and requirements traceability: [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
 - Dedicated MCP stdio server package: [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md)
