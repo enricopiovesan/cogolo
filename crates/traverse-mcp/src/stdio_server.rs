@@ -47,6 +47,11 @@ pub struct McpDiscoveryCatalog {
 }
 
 impl McpDiscoveryCatalog {
+    /// Load the canonical discovery catalog used by the stdio server.
+    ///
+    /// # Errors
+    ///
+    /// Returns `catalog_load_failed` when the expedition registry bundle cannot be loaded.
     pub fn load_canonical() -> Result<Self, StdioServerFailure> {
         let manifest_path = canonical_expedition_bundle_path();
         let bundle = load_registry_bundle(&manifest_path).map_err(|failure| {
@@ -142,14 +147,14 @@ where
             .bundle
             .capabilities
             .iter()
-            .map(|artifact| capability_entrypoint_summary(artifact))
+            .map(capability_entrypoint_summary)
             .collect::<Vec<_>>();
         let workflow_entries = self
             .catalog
             .bundle
             .workflows
             .iter()
-            .map(|artifact| workflow_entrypoint_summary(artifact))
+            .map(workflow_entrypoint_summary)
             .collect::<Vec<_>>();
 
         json!({
@@ -164,6 +169,11 @@ where
         })
     }
 
+    /// Describe a single discovered entrypoint by id and version.
+    ///
+    /// # Errors
+    ///
+    /// Returns `not_found` when the requested capability or workflow is absent.
     pub fn describe_entrypoint_envelope(
         &self,
         entrypoint_kind: &str,
@@ -231,6 +241,7 @@ where
     /// Returns `startup_failed` when deterministic startup failure simulation is enabled.
     /// Returns `io_error` when writing startup or message envelopes to stdio fails, or when
     /// reading input from stdin fails.
+    #[allow(clippy::too_many_lines)]
     pub fn run_stdio<R, W, EWrite>(
         &self,
         input: R,
