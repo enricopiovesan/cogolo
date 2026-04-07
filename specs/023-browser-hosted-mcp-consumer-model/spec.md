@@ -113,3 +113,22 @@ As a release steward, I want this browser-hosted consumer model to be concrete e
 - Browser-hosted consumers should rely on a published, versioned consumer bundle rather than undocumented repository internals.
 - Unsupported auth, multi-tenant, and remote deployment guarantees remain out of scope unless a future governed slice explicitly adds them.
 - Implementation detail tickets for this model will be created separately after this governing spec is approved.
+
+## Governing Relationship
+
+This specification is governed by:
+
+- `001-foundation-v0-1`
+- `006-runtime-request-execution`
+- `010-runtime-state-machine`
+- `013-browser-runtime-subscription`
+- `019-downstream-consumer-contract`
+- `019-local-browser-adapter-transport`
+- `022-mcp-wasm-server`
+- constitution version `1.2.0`
+
+This specification is intended to govern future implementation and documentation in:
+
+- browser-hosted consumer bundle and compatibility validation slices
+- downstream browser-hosted integration guidance for apps such as `youaskm3`
+- future release-readiness and compatibility documentation tied to browser-hosted consumer use
