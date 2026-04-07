@@ -208,7 +208,7 @@ where
             "status": "ready",
             "supported_commands": SUPPORTING_COMMANDS,
             "public_surface_id": PUBLIC_SURFACE_ID,
-            "content_group_count": self.catalog.content_group_count(),
+            "content_group_count": McpDiscoveryCatalog::content_group_count(),
         })
     }
 
@@ -294,8 +294,7 @@ where
         &self,
         content_group_id: &str,
     ) -> Result<Value, StdioServerFailure> {
-        self.catalog
-            .content_group_detail(content_group_id)
+        McpDiscoveryCatalog::content_group_detail(content_group_id)
             .map(|content_group| {
                 json!({
                     "kind": "mcp_stdio_server_content_group_description",
@@ -1179,7 +1178,7 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
 
 impl McpDiscoveryCatalog {
     #[must_use]
-    fn content_group_count(&self) -> usize {
+    fn content_group_count() -> usize {
         Self::content_group_summaries().len()
     }
 
@@ -1191,7 +1190,7 @@ impl McpDiscoveryCatalog {
         ]
     }
 
-    fn content_group_detail(&self, content_group_id: &str) -> Option<Value> {
+    fn content_group_detail(content_group_id: &str) -> Option<Value> {
         Self::content_group_summaries()
             .into_iter()
             .find(|group| group["content_group_id"].as_str() == Some(content_group_id))
