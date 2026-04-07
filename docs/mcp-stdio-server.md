@@ -42,6 +42,8 @@ The server reports governed capabilities, events, and workflows from the canonic
 Run the deterministic smoke test for the package surface:
 
 ```bash
+bash scripts/ci/mcp_stdio_server_smoke.sh
+bash scripts/ci/mcp_stdio_server_discovery_smoke.sh
 bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh
 ```
 
