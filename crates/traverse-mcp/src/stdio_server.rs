@@ -91,10 +91,7 @@ where
 {
     #[must_use]
     pub fn new(mcp: &'a TraverseMcp<'a, E>, catalog: &'a McpDiscoveryCatalog) -> Self {
-        Self {
-            _mcp: mcp,
-            catalog,
-        }
+        Self { _mcp: mcp, catalog }
     }
 
     #[must_use]
@@ -195,7 +192,9 @@ where
                 .bundle
                 .workflows
                 .iter()
-                .find(|artifact| artifact.definition.id == id && artifact.definition.version == version)
+                .find(|artifact| {
+                    artifact.definition.id == id && artifact.definition.version == version
+                })
                 .map(|artifact| {
                     json!({
                         "kind": "mcp_stdio_server_entrypoint_description",
@@ -294,12 +293,14 @@ where
                     })?;
                 }
                 "list_entrypoints" | "list" => {
-                    write_json_line(stdout, &self.list_entrypoints_envelope()).map_err(|error| {
-                        StdioServerFailure::new(
-                            "io_error",
-                            format!("Failed to write entrypoint list envelope: {error}"),
-                        )
-                    })?;
+                    write_json_line(stdout, &self.list_entrypoints_envelope()).map_err(
+                        |error| {
+                            StdioServerFailure::new(
+                                "io_error",
+                                format!("Failed to write entrypoint list envelope: {error}"),
+                            )
+                        },
+                    )?;
                 }
                 "describe_entrypoint" => {
                     let Some(entrypoint_kind) = command.entrypoint_kind.as_deref() else {
@@ -493,9 +494,7 @@ fn write_json_line<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
     writer.write_all(b"\n")
 }
 
-fn capability_entrypoint_summary(
-    artifact: &traverse_registry::CapabilityBundleArtifact,
-) -> Value {
+fn capability_entrypoint_summary(artifact: &traverse_registry::CapabilityBundleArtifact) -> Value {
     let contract = &artifact.contract;
     json!({
         "entrypoint_kind": "capability",
@@ -529,9 +528,7 @@ fn workflow_entrypoint_summary(artifact: &traverse_registry::WorkflowBundleArtif
     })
 }
 
-fn capability_entrypoint_detail(
-    artifact: &traverse_registry::CapabilityBundleArtifact,
-) -> Value {
+fn capability_entrypoint_detail(artifact: &traverse_registry::CapabilityBundleArtifact) -> Value {
     let contract = &artifact.contract;
     json!({
         "entrypoint_kind": "capability",
@@ -589,14 +586,13 @@ fn lifecycle_name(lifecycle: &Lifecycle) -> &'static str {
 }
 
 fn canonical_expedition_bundle_path() -> PathBuf {
-    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("examples/expedition/registry-bundle/manifest.json")
+    PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+        .join("../..")
+        .join("examples/expedition/registry-bundle/manifest.json")
 }
 
 fn not_found(kind: &str, id: &str, version: &str) -> StdioServerFailure {
-    StdioServerFailure::new(
-        "not_found",
-        format!("{kind} {id}@{version} was not found"),
-    )
+    StdioServerFailure::new("not_found", format!("{kind} {id}@{version} was not found"))
 }
 
 #[cfg(test)]
