@@ -19,6 +19,7 @@ required_files=(
   "docs/expedition-example-authoring.md"
   "docs/expedition-example-smoke.md"
   "docs/mcp-consumption-validation.md"
+  "docs/mcp-stdio-server.md"
   "docs/app-consumable-release-checklist.md"
   "docs/app-consumable-release-artifact.md"
   "docs/youaskm3-integration-validation.md"
@@ -42,6 +43,7 @@ required_files=(
   "apps/react-demo/src/browser-adapter-client.js"
   "scripts/ci/react_demo_live_adapter_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
+  "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/project_board_audit.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
@@ -106,6 +108,7 @@ grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
+grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
 grep -q "app-consumable v0.1" docs/app-consumable-release-checklist.md
 grep -q "Release Blockers" docs/app-consumable-release-checklist.md
@@ -162,6 +165,9 @@ grep -q "bash scripts/ci/react_demo_live_adapter_smoke.sh" quickstart.md
 grep -q "bash scripts/ci/react_demo_smoke.sh" quickstart.md
 grep -q "## Known Limitations" quickstart.md
 grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
+grep -q "cargo run -p traverse-mcp -- stdio" docs/mcp-stdio-server.md
+grep -q "cargo run -p traverse-mcp -- stdio --simulate-startup-failure" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_smoke.sh" docs/mcp-stdio-server.md
 grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
 grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
 grep -q "bash scripts/ci/project_board_audit.sh" docs/project-management.md
