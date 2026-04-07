@@ -50,9 +50,9 @@ pub struct McpDiscoveryCatalog {
 
 #[derive(Debug)]
 struct CanonicalExecutionContext {
-    capability_store: CapabilityRegistry,
-    event_store: EventRegistry,
-    workflow_store: WorkflowRegistry,
+    capabilities: CapabilityRegistry,
+    events: EventRegistry,
+    workflows: WorkflowRegistry,
 }
 
 impl McpDiscoveryCatalog {
@@ -107,13 +107,13 @@ impl CanonicalExecutionContext {
             )
         })?;
 
-        let mut capability_store = CapabilityRegistry::new();
-        let mut event_store = EventRegistry::new();
-        let mut workflow_store = WorkflowRegistry::new();
+        let mut capabilities = CapabilityRegistry::new();
+        let mut events = EventRegistry::new();
+        let mut workflows = WorkflowRegistry::new();
 
         for capability in &bundle.capabilities {
             let request = build_capability_registration(&bundle, capability)?;
-            capability_store.register(request).map_err(|failure| {
+            capabilities.register(request).map_err(|failure| {
                 StdioServerFailure::new(
                     "registry_registration_failed",
                     format!(
@@ -135,7 +135,7 @@ impl CanonicalExecutionContext {
                 governing_spec: "011-event-registry".to_string(),
                 validator_version: env!("CARGO_PKG_VERSION").to_string(),
             };
-            event_store.register(request).map_err(|failure| {
+            events.register(request).map_err(|failure| {
                 StdioServerFailure::new(
                     "registry_registration_failed",
                     format!(
@@ -147,9 +147,9 @@ impl CanonicalExecutionContext {
         }
 
         for workflow in &bundle.workflows {
-            workflow_store
+            workflows
                 .register(
-                    &capability_store,
+                    &capabilities,
                     WorkflowRegistration {
                         scope: bundle.scope,
                         definition: workflow.definition.clone(),
@@ -172,9 +172,9 @@ impl CanonicalExecutionContext {
         }
 
         Ok(Self {
-            capability_store,
-            event_store,
-            workflow_store,
+            capabilities,
+            events,
+            workflows,
         })
     }
 }
@@ -733,15 +733,12 @@ pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServe
     let catalog = McpDiscoveryCatalog::load_canonical()?;
 
     let capability_registry = Box::leak(Box::new(CapabilityRegistry::new()));
-    let event_registry = Box::leak(Box::new(canonical_execution.event_store));
+    let event_registry = Box::leak(Box::new(canonical_execution.events));
     let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
 
     let runtime = Box::leak(Box::new(
-        Runtime::new(
-            canonical_execution.capability_store,
-            ExpeditionExampleExecutor,
-        )
-        .with_workflow_registry(canonical_execution.workflow_store),
+        Runtime::new(canonical_execution.capabilities, ExpeditionExampleExecutor)
+            .with_workflow_registry(canonical_execution.workflows),
     ));
     let mcp = Box::leak(Box::new(TraverseMcp::new(
         capability_registry,
@@ -1453,8 +1450,8 @@ mod tests {
         let event_registry = Box::leak(Box::new(EventRegistry::new()));
         let workflow_registry = Box::leak(Box::new(WorkflowRegistry::new()));
         let runtime = Box::leak(Box::new(
-            Runtime::new(execution.capability_store, ExpeditionExampleExecutor)
-                .with_workflow_registry(execution.workflow_store),
+            Runtime::new(execution.capabilities, ExpeditionExampleExecutor)
+                .with_workflow_registry(execution.workflows),
         ));
         let mcp = Box::leak(Box::new(TraverseMcp::new(
             capability_registry,
