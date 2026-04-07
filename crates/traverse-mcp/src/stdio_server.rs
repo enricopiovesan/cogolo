@@ -228,7 +228,7 @@ where
                 "events": self.catalog.event_count(),
                 "workflows": self.catalog.workflow_count(),
             },
-            "content_groups": self.catalog.content_group_summaries(),
+            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
             "downstream_validation_path": {
                 "consumer_name": validation_path.consumer_name,
                 "validated_flow_id": validation_path.validated_flow_id,
@@ -267,7 +267,7 @@ where
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
             "governing_spec": GOVERNING_SPEC,
-            "content_groups": self.catalog.content_group_summaries(),
+            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
             "entrypoints": {
                 "capabilities": capability_entries,
                 "events": event_entries,
@@ -283,7 +283,7 @@ where
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
             "governing_spec": GOVERNING_SPEC,
-            "content_groups": self.catalog.content_group_summaries(),
+            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
         })
     }
 
