@@ -1,12 +1,15 @@
 //! Deterministic stdio server foundation for Traverse MCP.
 
-use crate::{
-    DiscoveryQuery, McpLookupScope, TraverseMcp, youaskm3_mcp_consumption_validation_path,
-};
+use crate::{TraverseMcp, youaskm3_mcp_consumption_validation_path};
+use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fmt;
 use std::io::{self, BufRead, Write};
-use traverse_registry::{CapabilityRegistry, EventRegistry, WorkflowRegistry};
+use std::path::PathBuf;
+use traverse_contracts::Lifecycle;
+use traverse_registry::{
+    CapabilityRegistry, EventRegistry, RegistryBundle, WorkflowRegistry, load_registry_bundle,
+};
 use traverse_runtime::LocalExecutor;
 use traverse_runtime::Runtime;
 
@@ -14,7 +17,12 @@ const SERVER_NAME: &str = "traverse-mcp";
 const HOST_MODE: &str = "stdio";
 const GOVERNING_SPEC: &str = "022-mcp-wasm-server";
 const PUBLIC_SURFACE_ID: &str = "traverse.mcp.stdio-server";
-const SUPPORTING_COMMANDS: &[&str] = &["describe", "shutdown"];
+const SUPPORTING_COMMANDS: &[&str] = &[
+    "describe_server",
+    "list_entrypoints",
+    "describe_entrypoint",
+    "shutdown",
+];
 const FUTURE_OPERATIONS: &[&str] = &[
     "mcp.capabilities.discover",
     "mcp.capability.get",
@@ -22,9 +30,59 @@ const FUTURE_OPERATIONS: &[&str] = &[
     "mcp.runtime.observe_execution",
 ];
 
+#[derive(Debug, Deserialize)]
+struct StdioCommandEnvelope {
+    command: String,
+    #[serde(default)]
+    entrypoint_kind: Option<String>,
+    #[serde(default)]
+    id: Option<String>,
+    #[serde(default)]
+    version: Option<String>,
+}
+
+#[derive(Debug)]
+pub struct McpDiscoveryCatalog {
+    bundle: RegistryBundle,
+}
+
+impl McpDiscoveryCatalog {
+    pub fn load_canonical() -> Result<Self, StdioServerFailure> {
+        let manifest_path = canonical_expedition_bundle_path();
+        let bundle = load_registry_bundle(&manifest_path).map_err(|failure| {
+            StdioServerFailure::new(
+                "catalog_load_failed",
+                format!(
+                    "Failed to load expedition registry bundle {}: {}",
+                    manifest_path.display(),
+                    failure.errors[0].message
+                ),
+            )
+        })?;
+
+        Ok(Self { bundle })
+    }
+
+    #[must_use]
+    pub fn capability_count(&self) -> usize {
+        self.bundle.capabilities.len()
+    }
+
+    #[must_use]
+    pub fn workflow_count(&self) -> usize {
+        self.bundle.workflows.len()
+    }
+
+    #[must_use]
+    pub fn event_count(&self) -> usize {
+        self.bundle.events.len()
+    }
+}
+
 #[derive(Debug)]
 pub struct TraverseMcpStdioServer<'a, E> {
-    mcp: &'a TraverseMcp<'a, E>,
+    _mcp: &'a TraverseMcp<'a, E>,
+    catalog: &'a McpDiscoveryCatalog,
 }
 
 impl<'a, E> TraverseMcpStdioServer<'a, E>
@@ -32,8 +90,11 @@ where
     E: LocalExecutor,
 {
     #[must_use]
-    pub fn new(mcp: &'a TraverseMcp<'a, E>) -> Self {
-        Self { mcp }
+    pub fn new(mcp: &'a TraverseMcp<'a, E>, catalog: &'a McpDiscoveryCatalog) -> Self {
+        Self {
+            _mcp: mcp,
+            catalog,
+        }
     }
 
     #[must_use]
@@ -53,18 +114,6 @@ where
     #[must_use]
     pub fn describe_envelope(&self) -> Value {
         let validation_path = youaskm3_mcp_consumption_validation_path();
-        let capability_count = self
-            .mcp
-            .discover_capabilities(McpLookupScope::PreferPrivate, &DiscoveryQuery::default())
-            .len();
-        let event_count = self
-            .mcp
-            .discover_events(McpLookupScope::PreferPrivate)
-            .len();
-        let workflow_count = self
-            .mcp
-            .discover_workflows(McpLookupScope::PreferPrivate)
-            .len();
 
         json!({
             "kind": "mcp_stdio_server_description",
@@ -76,9 +125,9 @@ where
             "supported_commands": SUPPORTING_COMMANDS,
             "future_operations": FUTURE_OPERATIONS,
             "governed_surface_counts": {
-                "capabilities": capability_count,
-                "events": event_count,
-                "workflows": workflow_count,
+                "capabilities": self.catalog.capability_count(),
+                "events": self.catalog.event_count(),
+                "workflows": self.catalog.workflow_count(),
             },
             "downstream_validation_path": {
                 "consumer_name": validation_path.consumer_name,
@@ -87,6 +136,81 @@ where
                 "governing_specs": validation_path.governing_specs,
             },
         })
+    }
+
+    #[must_use]
+    pub fn list_entrypoints_envelope(&self) -> Value {
+        let capability_entries = self
+            .catalog
+            .bundle
+            .capabilities
+            .iter()
+            .map(|artifact| capability_entrypoint_summary(artifact))
+            .collect::<Vec<_>>();
+        let workflow_entries = self
+            .catalog
+            .bundle
+            .workflows
+            .iter()
+            .map(|artifact| workflow_entrypoint_summary(artifact))
+            .collect::<Vec<_>>();
+
+        json!({
+            "kind": "mcp_stdio_server_entrypoint_list",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": GOVERNING_SPEC,
+            "entrypoints": {
+                "capabilities": capability_entries,
+                "workflows": workflow_entries,
+            },
+        })
+    }
+
+    pub fn describe_entrypoint_envelope(
+        &self,
+        entrypoint_kind: &str,
+        id: &str,
+        version: &str,
+    ) -> Result<Value, StdioServerFailure> {
+        match entrypoint_kind {
+            "capability" => self
+                .catalog
+                .bundle
+                .capabilities
+                .iter()
+                .find(|artifact| artifact.contract.id == id && artifact.contract.version == version)
+                .map(|artifact| {
+                    json!({
+                        "kind": "mcp_stdio_server_entrypoint_description",
+                        "server_name": SERVER_NAME,
+                        "host_mode": HOST_MODE,
+                        "governing_spec": GOVERNING_SPEC,
+                        "entrypoint": capability_entrypoint_detail(artifact),
+                    })
+                })
+                .ok_or_else(|| not_found("capability entrypoint", id, version)),
+            "workflow" => self
+                .catalog
+                .bundle
+                .workflows
+                .iter()
+                .find(|artifact| artifact.definition.id == id && artifact.definition.version == version)
+                .map(|artifact| {
+                    json!({
+                        "kind": "mcp_stdio_server_entrypoint_description",
+                        "server_name": SERVER_NAME,
+                        "host_mode": HOST_MODE,
+                        "governing_spec": GOVERNING_SPEC,
+                        "entrypoint": workflow_entrypoint_detail(artifact),
+                    })
+                })
+                .ok_or_else(|| not_found("workflow entrypoint", id, version)),
+            other => Err(StdioServerFailure::new(
+                "invalid_request",
+                format!("Unsupported entrypoint_kind: {other}"),
+            )),
+        }
     }
 
     #[must_use]
@@ -160,12 +284,55 @@ where
                     return Err(failure);
                 }
             };
-            match command.as_str() {
-                "describe" => {
+            match command.command.as_str() {
+                "describe_server" | "describe" => {
                     write_json_line(stdout, &self.describe_envelope()).map_err(|error| {
                         StdioServerFailure::new(
                             "io_error",
-                            format!("Failed to write describe envelope: {error}"),
+                            format!("Failed to write server description envelope: {error}"),
+                        )
+                    })?;
+                }
+                "list_entrypoints" | "list" => {
+                    write_json_line(stdout, &self.list_entrypoints_envelope()).map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write entrypoint list envelope: {error}"),
+                        )
+                    })?;
+                }
+                "describe_entrypoint" => {
+                    let Some(entrypoint_kind) = command.entrypoint_kind.as_deref() else {
+                        let failure = StdioServerFailure::new(
+                            "invalid_request",
+                            "describe_entrypoint requires entrypoint_kind.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+                    let Some(id) = command.id.as_deref() else {
+                        let failure = StdioServerFailure::new(
+                            "invalid_request",
+                            "describe_entrypoint requires id.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+                    let Some(version) = command.version.as_deref() else {
+                        let failure = StdioServerFailure::new(
+                            "invalid_request",
+                            "describe_entrypoint requires version.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+
+                    let envelope =
+                        self.describe_entrypoint_envelope(entrypoint_kind, id, version)?;
+                    write_json_line(stdout, &envelope).map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write entrypoint description envelope: {error}"),
                         )
                     })?;
                 }
@@ -294,6 +461,7 @@ where
         }
     }
 
+    let catalog = McpDiscoveryCatalog::load_canonical()?;
     let capability_registry = CapabilityRegistry::new();
     let event_registry = EventRegistry::new();
     let workflow_registry = WorkflowRegistry::new();
@@ -305,36 +473,130 @@ where
         &workflow_registry,
         &runtime,
     );
-    let server = TraverseMcpStdioServer::new(&mcp);
+    let server = TraverseMcpStdioServer::new(&mcp, Box::leak(Box::new(catalog)));
     let input = io::stdin();
     let input = input.lock();
     server.run_stdio(input, stdout, stderr, simulate_startup_failure)
 }
 
-fn parse_command(line: &str) -> Result<String, StdioServerFailure> {
-    let value: Value = serde_json::from_str(line).map_err(|error| {
+fn parse_command(line: &str) -> Result<StdioCommandEnvelope, StdioServerFailure> {
+    serde_json::from_str(line).map_err(|error| {
         StdioServerFailure::new(
             "invalid_request",
             format!("Commands must be JSON objects with a command field: {error}"),
         )
-    })?;
-
-    let command = value
-        .get("command")
-        .and_then(Value::as_str)
-        .ok_or_else(|| {
-            StdioServerFailure::new(
-                "invalid_request",
-                "Commands must contain a string `command` field.",
-            )
-        })?;
-
-    Ok(command.to_string())
+    })
 }
 
 fn write_json_line<W: Write>(writer: &mut W, value: &Value) -> io::Result<()> {
     serde_json::to_writer(&mut *writer, value).map_err(io::Error::other)?;
     writer.write_all(b"\n")
+}
+
+fn capability_entrypoint_summary(
+    artifact: &traverse_registry::CapabilityBundleArtifact,
+) -> Value {
+    let contract = &artifact.contract;
+    json!({
+        "entrypoint_kind": "capability",
+        "artifact_kind": "capability",
+        "scope": "public",
+        "id": contract.id.clone(),
+        "version": contract.version.clone(),
+        "lifecycle": lifecycle_name(&contract.lifecycle),
+        "summary": contract.summary.clone(),
+        "owner_team": contract.owner.team.clone(),
+        "invocation_surface_id": PUBLIC_SURFACE_ID,
+    })
+}
+
+fn workflow_entrypoint_summary(artifact: &traverse_registry::WorkflowBundleArtifact) -> Value {
+    let definition = &artifact.definition;
+    json!({
+        "entrypoint_kind": "workflow",
+        "artifact_kind": "workflow",
+        "scope": "public",
+        "id": definition.id.clone(),
+        "version": definition.version.clone(),
+        "lifecycle": lifecycle_name(&definition.lifecycle),
+        "summary": definition.summary.clone(),
+        "owner_team": definition.owner.team.clone(),
+        "start_node": definition.start_node.clone(),
+        "terminal_nodes": definition.terminal_nodes.clone(),
+        "node_count": definition.nodes.len(),
+        "edge_count": definition.edges.len(),
+        "invocation_surface_id": PUBLIC_SURFACE_ID,
+    })
+}
+
+fn capability_entrypoint_detail(
+    artifact: &traverse_registry::CapabilityBundleArtifact,
+) -> Value {
+    let contract = &artifact.contract;
+    json!({
+        "entrypoint_kind": "capability",
+        "artifact_kind": "capability",
+        "scope": "public",
+        "id": contract.id.clone(),
+        "version": contract.version.clone(),
+        "lifecycle": lifecycle_name(&contract.lifecycle),
+        "summary": contract.summary.clone(),
+        "description": contract.description.clone(),
+        "owner_team": contract.owner.team.clone(),
+        "owner_contact": contract.owner.contact.clone(),
+        "entrypoint_command": contract.execution.entrypoint.command.clone(),
+        "binary_format": format!("{:?}", contract.execution.binary_format).to_lowercase(),
+        "invocation_surface_id": PUBLIC_SURFACE_ID,
+        "artifact_path": artifact.path.display().to_string(),
+        "tags": Vec::<String>::new(),
+    })
+}
+
+fn workflow_entrypoint_detail(artifact: &traverse_registry::WorkflowBundleArtifact) -> Value {
+    let definition = &artifact.definition;
+    json!({
+        "entrypoint_kind": "workflow",
+        "artifact_kind": "workflow",
+        "scope": "public",
+        "id": definition.id.clone(),
+        "version": definition.version.clone(),
+        "lifecycle": lifecycle_name(&definition.lifecycle),
+        "summary": definition.summary.clone(),
+        "owner_team": definition.owner.team.clone(),
+        "owner_contact": definition.owner.contact.clone(),
+        "start_node": definition.start_node.clone(),
+        "terminal_nodes": definition.terminal_nodes.clone(),
+        "node_count": definition.nodes.len(),
+        "edge_count": definition.edges.len(),
+        "invocation_surface_id": PUBLIC_SURFACE_ID,
+        "artifact_path": artifact.path.display().to_string(),
+        "participating_capabilities": definition
+            .nodes
+            .iter()
+            .map(|node| format!("{}@{}", node.capability_id, node.capability_version))
+            .collect::<Vec<_>>(),
+    })
+}
+
+fn lifecycle_name(lifecycle: &Lifecycle) -> &'static str {
+    match lifecycle {
+        Lifecycle::Draft => "draft",
+        Lifecycle::Active => "active",
+        Lifecycle::Deprecated => "deprecated",
+        Lifecycle::Retired => "retired",
+        Lifecycle::Archived => "archived",
+    }
+}
+
+fn canonical_expedition_bundle_path() -> PathBuf {
+    PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..").join("examples/expedition/registry-bundle/manifest.json")
+}
+
+fn not_found(kind: &str, id: &str, version: &str) -> StdioServerFailure {
+    StdioServerFailure::new(
+        "not_found",
+        format!("{kind} {id}@{version} was not found"),
+    )
 }
 
 #[cfg(test)]
@@ -376,14 +638,17 @@ mod tests {
             workflow_registry,
             runtime,
         )));
-        TraverseMcpStdioServer::new(mcp)
+        let catalog = Box::leak(Box::new(McpDiscoveryCatalog::load_canonical().unwrap()));
+        TraverseMcpStdioServer::new(mcp, catalog)
     }
 
     #[test]
-    fn emits_deterministic_startup_describe_and_shutdown_envelopes() {
+    fn emits_deterministic_startup_list_describe_and_shutdown_envelopes() {
         let server = server_fixture();
         let input = std::io::Cursor::new(
-            br#"{"command":"describe"}
+            br#"{"command":"list_entrypoints"}
+{"command":"describe_entrypoint","entrypoint_kind":"capability","id":"expedition.planning.capture-expedition-objective","version":"1.0.0"}
+{"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}
 {"command":"shutdown"}
 "#,
         );
@@ -399,7 +664,9 @@ mod tests {
         let output = String::from_utf8(stdout).unwrap();
         assert!(output.contains("\"kind\":\"mcp_stdio_server_startup\""));
         assert!(output.contains("\"host_mode\":\"stdio\""));
-        assert!(output.contains("\"kind\":\"mcp_stdio_server_description\""));
+        assert!(output.contains("\"kind\":\"mcp_stdio_server_entrypoint_list\""));
+        assert!(output.contains("\"entrypoint_kind\":\"capability\""));
+        assert!(output.contains("\"entrypoint_kind\":\"workflow\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_shutdown\""));
         assert!(stderr.is_empty());
     }
