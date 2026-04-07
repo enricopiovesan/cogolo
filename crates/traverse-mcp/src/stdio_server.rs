@@ -1,12 +1,12 @@
 //! Dedicated Traverse MCP stdio server package entrypoint.
 
+use crate::{TraverseMcp, youaskm3_mcp_consumption_validation_path};
 use serde::Deserialize;
 use serde_json::{Value, json};
 use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use crate::{TraverseMcp, youaskm3_mcp_consumption_validation_path};
 use traverse_registry::{
     BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
