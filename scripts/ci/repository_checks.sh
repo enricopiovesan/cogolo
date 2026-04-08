@@ -28,6 +28,7 @@ required_files=(
   "docs/packaged-traverse-mcp-server-artifact.md"
   "docs/packaged-traverse-runtime-artifact.md"
   "docs/youaskm3-integration-validation.md"
+  "docs/youaskm3-published-artifact-validation.md"
   "docs/youaskm3-compatibility-conformance-suite.md"
   "docs/youaskm3-real-shell-validation.md"
   "docs/wasm-agent-authoring-guide.md"
@@ -62,6 +63,7 @@ required_files=(
   "scripts/ci/youaskm3_compatibility_conformance.sh"
   "scripts/ci/browser_consumer_package_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
+  "scripts/ci/youaskm3_published_artifact_validation.sh"
   "scripts/ci/youaskm3_real_shell_validation.sh"
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/app_consumable_package_release_pointer.sh"
@@ -149,16 +151,20 @@ grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validatio
 grep -q "docs/mcp-real-agent-exercise.md" README.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" README.md
 grep -q "docs/youaskm3-real-shell-validation.md" README.md
+grep -q "docs/youaskm3-published-artifact-validation.md" README.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/app-consumable-entry-path.md
 grep -q "docs/youaskm3-real-shell-validation.md" docs/app-consumable-entry-path.md
+grep -q "docs/youaskm3-published-artifact-validation.md" docs/app-consumable-entry-path.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/youaskm3-integration-validation.md
 grep -q "docs/youaskm3-real-shell-validation.md" docs/youaskm3-integration-validation.md
+grep -q "docs/youaskm3-published-artifact-validation.md" docs/youaskm3-integration-validation.md
 grep -q "docs/mcp-real-agent-exercise.md" docs/youaskm3-integration-validation.md
 grep -q "youaskm3 compatibility conformance suite" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "version pairing" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "bash scripts/ci/youaskm3_compatibility_conformance.sh" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "bash scripts/ci/youaskm3_compatibility_conformance.sh" docs/youaskm3-integration-validation.md
+grep -q "bash scripts/ci/youaskm3_published_artifact_validation.sh" docs/youaskm3-integration-validation.md
 grep -q "the same Traverse v0.1 release pairing" docs/youaskm3-integration-validation.md
 grep -q "youaskm3 real shell validation" docs/youaskm3-real-shell-validation.md
 grep -q "openspec/specs/pwa-shell/spec.md" docs/youaskm3-real-shell-validation.md
@@ -181,6 +187,7 @@ grep -q "specs/023-downstream-publication-strategy/spec.md" docs/app-consumable-
 grep -q "specs/023-downstream-publication-strategy/spec.md" docs/app-consumable-consumer-bundle.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-entry-path.md
+grep -q "docs/youaskm3-published-artifact-validation.md" docs/app-consumable-release-checklist.md
 grep -q "versioned Traverse consumer bundle" docs/app-consumable-consumer-bundle.md
 grep -q "supported version selection" docs/app-consumable-consumer-bundle.md
 grep -q "installation steps" docs/app-consumable-consumer-bundle.md
@@ -196,12 +203,15 @@ grep -q "Post-Release Follow-Up" docs/app-consumable-release-checklist.md
 grep -q "quickstart.md" docs/app-consumable-release-checklist.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-release-checklist.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-release-checklist.md
+grep -q "scripts/ci/youaskm3_published_artifact_validation.sh" docs/app-consumable-release-checklist.md
 grep -q "publication bundle" docs/app-consumable-release-artifact.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-release-artifact.md
 grep -q "versioned consumer bundle" docs/app-consumable-release-artifact.md
 grep -q "GitHub release entry" docs/app-consumable-release-artifact.md
 grep -q "supported runnable artifact" docs/app-consumable-release-artifact.md
 grep -q "docs/packaged-traverse-runtime-artifact.md" docs/app-consumable-release-artifact.md
+grep -q "docs/packaged-traverse-mcp-server-artifact.md" docs/app-consumable-release-artifact.md
+grep -q "docs/youaskm3-published-artifact-validation.md" docs/app-consumable-release-artifact.md
 grep -q "bash scripts/ci/app_consumable_release_prep.sh" docs/app-consumable-release-artifact.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
 grep -q "docs/wasm-agent-authoring-guide.md" docs/expedition-example-authoring.md
