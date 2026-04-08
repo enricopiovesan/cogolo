@@ -6,6 +6,8 @@ For the shortest local start path before you run this downstream validation, beg
 
 For the dedicated Traverse MCP server package foundation, begin with [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md).
 
+For the packaged MCP server artifact, see [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md).
+
 This validation path is governed by:
 
 - `specs/019-downstream-consumer-contract/spec.md`
