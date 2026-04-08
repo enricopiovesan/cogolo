@@ -3,6 +3,8 @@
 mod workflows;
 pub use workflows::*;
 
+pub mod events;
+
 use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
