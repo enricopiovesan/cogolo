@@ -17,6 +17,7 @@ Local runtime-owned generated helpers, overlays, and copied execution byproducts
 See `docs/local-runtime-home.md` for the default layout and ownership boundary.
 
 For agent-package authoring, see `docs/wasm-agent-authoring-guide.md` and the governed example packages under `examples/agents/`.
+For WASM microservice authoring, see `docs/wasm-microservice-authoring-guide.md` and the package template under `examples/templates/`.
 
 ## Artifact Categories
 
