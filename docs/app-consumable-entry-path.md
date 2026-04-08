@@ -12,7 +12,7 @@ This is the canonical documentation path for humans and coding agents working on
    - [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
    - [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
    - [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
-   - [docs/youaskm3-starter-kit.md](/Users/piovese/Documents/cogolo/docs/youaskm3-starter-kit.md)
+   - [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
    - [apps/browser-consumer/README.md](/Users/piovese/Documents/cogolo/apps/browser-consumer/README.md)
 
 ## Canonical Rule
@@ -24,7 +24,7 @@ If a new human or agent asks where to begin, point them to the README first and 
 - The README is the front door.
 - The quickstart is the first executable consumer path.
 - The versioned consumer bundle explains what a downstream app installs and which released surfaces it may rely on.
-- The starter kit explains the downstream adoption path for browser-hosted apps.
+- The conformance suite explains how the released Traverse and `youaskm3` surfaces are proven together.
 - The deeper docs explain validation, release, and traceability after the first path is understood.
 - Competing entrypoints should be treated as references, not as the first recommended path.
 
