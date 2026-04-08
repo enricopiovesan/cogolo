@@ -4,6 +4,19 @@ Traverse can support parallel execution, but only when parallel work is real.
 
 One Codex thread is one active worker. If we want true parallel work, we should run multiple Codex threads, each with a separate issue, branch, and pull request.
 
+## Two-Agent Model (Codex + Claude Code)
+
+Codex and Claude Code can work in parallel on separate issues. To prevent conflicts:
+
+- **Labels**: `agent:codex` and `agent:claude` mark which agent owns an issue
+- **Project board**: the Agent field (Unassigned / Codex / Claude Code) shows ownership at a glance
+- **Branches**: `codex/issue-NNN-*` and `claude/issue-NNN-*` naming makes branch ownership explicit
+
+**Rule**: claim before you code. Both agents check for the other's label and branch before starting work. If already claimed, stop and pick a different ticket.
+
+Claude Code uses the `claim-ticket` skill (`.agents/skills/claim-ticket/SKILL.md`).
+Codex uses the pre-flight steps embedded in the dev thread starter prompt below.
+
 ## Thread Roles
 
 ### PM Thread
@@ -95,8 +108,23 @@ Use this dev thread prompt:
 
 ```text
 Act as a Traverse dev thread for issue #NN.
+
+Pre-flight (run before any work):
+1. gh issue view NN --repo enricopiovesan/Traverse --json labels
+   If labels include "agent:claude" → STOP. Report: "Issue #NN is claimed by Claude Code."
+2. git ls-remote --heads origin | grep "issue-NN-"
+   If a claude/issue-NN-* branch exists → STOP. Report: "A Claude Code branch exists for #NN."
+
+Claim (only if pre-flight passes):
+1. gh issue edit NN --repo enricopiovesan/Traverse --add-label "agent:codex"
+2. Set Agent → Codex and Status → In Progress on Project 1 for this issue.
+   Project ID: PVT_kwHOAEZXvs4BS6Ns
+   Agent field: PVTSSF_lAHOAEZXvs4BS6NszhBK-Qk, Codex option: 34d6db7d
+   Status field: PVTSSF_lAHOAEZXvs4BS6NszhATmdM, In Progress option: 47fc9ee4
+
+Then proceed:
 Only work on this issue.
-Use a dedicated codex branch and open a dedicated PR.
+Use a dedicated codex/issue-NN-* branch and open a dedicated PR.
 Keep implementation strictly aligned with the governing spec.
 If you find a must-fix issue for this slice, fix it in the same PR.
 If you find a non-blocking improvement, create or request a future ticket instead of expanding scope.
