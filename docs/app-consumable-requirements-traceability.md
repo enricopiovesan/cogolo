@@ -22,7 +22,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 | Requirement Area | Covered By Tickets | Current State |
 |---|---|---|
 | Documentation clarity for the first app-consumable path | [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#143](https://github.com/enricopiovesan/Traverse/issues/143), [#145](https://github.com/enricopiovesan/Traverse/issues/145) | `In Progress` / `Done` / `In Progress` |
-| Traceability from requirements to release artifacts | [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150) | `In Progress` / `In Progress` |
+| Traceability from requirements to release artifacts | [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150), [#195](https://github.com/enricopiovesan/Traverse/issues/195) | `In Progress` / `Done` / `In Progress` |
 | Operational safety boundary for app consumers | [#131](https://github.com/enricopiovesan/Traverse/issues/131) | `Blocked` |
 | First app-consumable performance baseline | [#130](https://github.com/enricopiovesan/Traverse/issues/130) | `Blocked` |
 
@@ -34,7 +34,8 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#145](https://github.com/enricopiovesan/Traverse/issues/145) `Refresh release and requirements traceability docs for current v0.1 state` - `In Progress`
 - [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation` - `In Progress`
 - [#179](https://github.com/enricopiovesan/Traverse/issues/179) `Validate the real browser-hosted youaskm3 shell against released Traverse consumer artifacts` - `In Progress`
-- [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact` - `In Progress`
+- [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact` - `Done`
+- [#195](https://github.com/enricopiovesan/Traverse/issues/195) `Publish the first governed Traverse package artifact` - `In Progress`
 - [#176](https://github.com/enricopiovesan/Traverse/issues/176) `Publish versioned Traverse consumer bundle for downstream app integration` - `Ready`
 - [#130](https://github.com/enricopiovesan/Traverse/issues/130) `Define first app-consumable performance baseline` - `Blocked`
 - [#131](https://github.com/enricopiovesan/Traverse/issues/131) `Define app-facing security and safety boundary for browser and MCP consumers` - `Blocked`
@@ -59,6 +60,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#145](https://github.com/enricopiovesan/Traverse/issues/145) requirements traceability refresh
 - [#158](https://github.com/enricopiovesan/Traverse/issues/158) dedicated MCP stdio server package foundation
 - [#150](https://github.com/enricopiovesan/Traverse/issues/150) release artifact and publication bundle
+- [#195](https://github.com/enricopiovesan/Traverse/issues/195) package release pointer
 - [#176](https://github.com/enricopiovesan/Traverse/issues/176) versioned consumer bundle and installation steps
 
 ### Later
