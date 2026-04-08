@@ -1058,9 +1058,14 @@ fn validate_event_boundary(contract: &EventContract, errors: &mut Vec<Validation
     }
 }
 
-fn validate_placement_constraints(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+fn validate_placement_constraints(
+    contract: &CapabilityContract,
+    errors: &mut Vec<ValidationError>,
+) {
     if contract.service_type == ServiceType::Stateful
-        && contract.permitted_targets.contains(&ExecutionTarget::Browser)
+        && contract
+            .permitted_targets
+            .contains(&ExecutionTarget::Browser)
     {
         errors.push(ValidationError {
             code: ValidationErrorCode::InvalidPlacementConstraint,
@@ -1079,9 +1084,8 @@ fn validate_placement_constraints(contract: &CapabilityContract, errors: &mut Ve
     {
         errors.push(ValidationError {
             code: ValidationErrorCode::MissingEventTrigger,
-            message:
-                "Subscribable capabilities must declare a non-empty event_trigger field."
-                    .to_string(),
+            message: "Subscribable capabilities must declare a non-empty event_trigger field."
+                .to_string(),
             path: "$.event_trigger".to_string(),
             severity: ErrorSeverity::Error,
         });
