@@ -162,11 +162,8 @@ grep -q "render_execution_report" docs/mcp-real-agent-exercise.md
 grep -q "scripts/smoke.sh" docs/youaskm3-real-shell-validation.md
 grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
 grep -q "docs/app-consumable-consumer-bundle.md" README.md
-<<<<<<< HEAD
 grep -q "docs/app-consumable-package-release-pointer.md" README.md
-=======
 grep -q "docs/packaged-traverse-mcp-server-artifact.md" README.md
->>>>>>> 5791a72 (Add packaged MCP server artifact guide)
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-entry-path.md
 grep -q "versioned Traverse consumer bundle" docs/app-consumable-consumer-bundle.md
