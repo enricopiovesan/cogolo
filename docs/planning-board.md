@@ -27,6 +27,8 @@ Project 1 status meanings:
 
 Only tickets with real active execution should appear in this section.
 
+- none at the moment
+
 ### `Ready`
 
 - [#121](https://github.com/enricopiovesan/Traverse/issues/121) `Upgrade React browser demo to consume the live local browser adapter`
@@ -39,10 +41,12 @@ Only tickets with real active execution should appear in this section.
   - status: available now that [#109](https://github.com/enricopiovesan/Traverse/pull/109) and [#126](https://github.com/enricopiovesan/Traverse/issues/126) are merged
   - done when: one downstream MCP-consumption path is documented and validated against public Traverse surfaces
 
+>>>>>>> 31a9525 (Ignore .claude/worktrees/ directory)
 - [#53](https://github.com/enricopiovesan/Traverse/issues/53) `Implement second WASM AI agent example`
   - area: `runtime`
   - status: available now that the first agent pattern from [#54](https://github.com/enricopiovesan/Traverse/issues/54) is merged
   - done when: a second distinct governed AI agent example lands with deterministic validation and runnable docs
+
 ## Blocked Backlog
 
 ### `Blocked` + `No Spec Needed`
