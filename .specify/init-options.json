@@ -1,5 +1,5 @@
 {
-  "ai": "codex",
+  "ai": ["codex", "claude"],
   "ai_commands_dir": null,
   "ai_skills": true,
   "branch_numbering": "sequential",
