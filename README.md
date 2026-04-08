@@ -11,7 +11,27 @@
 
 Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows — across browser, edge, cloud, and device environments.
 
-> This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com). Created on personal time, not affiliated with Autodesk.
+This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com), built to prove in code the ideas behind [Universal Microservices Architecture (UMA)](https://github.com/enricopiovesan/UMA-code-examples). Created on personal time, not affiliated with Autodesk.
+
+---
+
+## Built on UMA
+
+Traverse is the runtime that [Universal Microservices Architecture](https://www.universalmicroservices.com/) describes.
+
+UMA answers the question: *how do you keep one business behavior portable and governed as execution moves across browser, edge, cloud, workflows, and AI?* Traverse is the answer in working Rust code — contracts, registries, a governed runtime, and structured traces.
+
+| | UMA | Traverse |
+|---|---|---|
+| What it is | Architecture model + book | Working runtime implementation |
+| Business capabilities | Defines the concept | Executes them with contracts and specs |
+| Portability | Describes the pattern | Enforces it through WASM and adapters |
+| Governance | Specifies the rules | Implements them as immutable specs and CI gates |
+| AI safety | Describes requirements | Delivers through explainable runtime traces |
+
+**If you want to understand the ideas:** [read the UMA book](https://www.universalmicroservices.com/) and explore the [UMA code examples](https://github.com/enricopiovesan/UMA-code-examples).
+
+**If you want to run them:** you're in the right place.
 
 ---
 
