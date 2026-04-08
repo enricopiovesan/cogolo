@@ -3,6 +3,7 @@
 This document defines the first deterministic compatibility and conformance suite for Traverse and `youaskm3`.
 
 The suite exists so a reviewer can prove that the released Traverse surfaces remain consumable by `youaskm3` without depending on repo archaeology, ad hoc environment setup, or private Traverse internals.
+The real browser-hosted shell validation is documented separately in [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md).
 
 This youaskm3 compatibility conformance suite is the release-aligned proof path for the downstream consumer contract.
 
@@ -14,6 +15,7 @@ The suite covers the released downstream path end to end:
 - the live browser-hosted consumer path
 - the app-facing MCP consumption path
 - the first real `youaskm3` integration path
+- the browser-hosted `youaskm3` real shell validation path
 
 It does not define new runtime behavior. It verifies that the supported Traverse surfaces continue to fit together as a released consumer set.
 
@@ -57,6 +59,7 @@ The suite is expected to fail deterministically when:
 - the live browser-hosted adapter path is unavailable
 - the MCP consumer path is unavailable
 - the first real `youaskm3` validation path is unavailable
+- the browser-hosted shell validation path is unavailable
 
 ## Verification
 
@@ -66,3 +69,4 @@ A reviewer can verify the suite by checking:
 2. the live browser-hosted smoke path
 3. the MCP consumption validation path
 4. the first real `youaskm3` integration validation path
+5. the browser-hosted real shell validation path

@@ -14,6 +14,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 | Versioned consumer bundle and installation steps | [#176](https://github.com/enricopiovesan/Traverse/issues/176) | `Ready` |
 | Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `Done` |
 | Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `Done` |
+| Real browser-hosted `youaskm3` shell validation | [#179](https://github.com/enricopiovesan/Traverse/issues/179) | `In Progress` |
 | MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | `Done` / `In Progress` / `Blocked` |
 
 ## Non-Functional Requirements
@@ -32,6 +33,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#144](https://github.com/enricopiovesan/Traverse/issues/144) `Establish one canonical documentation entry path for humans and agents` - `Ready`
 - [#145](https://github.com/enricopiovesan/Traverse/issues/145) `Refresh release and requirements traceability docs for current v0.1 state` - `In Progress`
 - [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation` - `In Progress`
+- [#179](https://github.com/enricopiovesan/Traverse/issues/179) `Validate the real browser-hosted youaskm3 shell against released Traverse consumer artifacts` - `In Progress`
 - [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact` - `In Progress`
 - [#176](https://github.com/enricopiovesan/Traverse/issues/176) `Publish versioned Traverse consumer bundle for downstream app integration` - `Ready`
 - [#130](https://github.com/enricopiovesan/Traverse/issues/130) `Define first app-consumable performance baseline` - `Blocked`
