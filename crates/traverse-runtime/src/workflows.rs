@@ -1023,8 +1023,8 @@ mod tests {
         BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, Entrypoint,
         EntrypointKind, EventReference, EvidenceStatus, EvidenceType, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference,
-        Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, ServiceType,
-        SideEffect, SideEffectKind, ValidationEvidence,
+        Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer,
+        ServiceType, SideEffect, SideEffectKind, ValidationEvidence,
     };
     use traverse_registry::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,

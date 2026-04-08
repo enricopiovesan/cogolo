@@ -581,20 +581,24 @@ fn stateless_contract_defaults_parse_from_json_without_new_fields() {
     let json = serde_json::to_string(&{
         let mut c = valid_contract();
         // Serialize then strip the new fields to simulate an old contract
-        let mut v: serde_json::Value = serde_json::from_str(
-            &serde_json::to_string(&c).unwrap_or_default()
-        ).unwrap_or_default();
+        let mut v: serde_json::Value =
+            serde_json::from_str(&serde_json::to_string(&c).unwrap_or_default())
+                .unwrap_or_default();
         v.as_object_mut().map(|m| {
             m.remove("service_type");
             m.remove("permitted_targets");
             m.remove("event_trigger");
         });
         v
-    }).unwrap_or_default();
+    })
+    .unwrap_or_default();
 
     let parsed = parse_contract(&json).expect("old contract must parse with defaults");
     assert_eq!(parsed.service_type, ServiceType::Stateless);
-    assert!(!parsed.permitted_targets.is_empty(), "permitted_targets defaults to all targets");
+    assert!(
+        !parsed.permitted_targets.is_empty(),
+        "permitted_targets defaults to all targets"
+    );
     assert_eq!(parsed.event_trigger, None);
 }
 
