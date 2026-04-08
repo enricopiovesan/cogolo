@@ -3,6 +3,7 @@
 This document defines the first versioned Traverse consumer bundle for downstream app integration.
 
 The bundle is the release-facing adoption package for downstream apps such as `youaskm3`. It tells a downstream team what to install, which Traverse release tag to pin, and which public surfaces are supported together.
+The bundle is paired with the package release pointer at [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
 
 ## Bundle Purpose
 
@@ -54,6 +55,7 @@ The first versioned consumer bundle MUST include:
 - the `youaskm3` integration validation reference
 - the app-consumable acceptance reference
 - the release artifact and publication bundle reference
+- the package release pointer reference
 
 ## Verification
 
