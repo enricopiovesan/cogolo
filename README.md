@@ -57,6 +57,7 @@ Code, generated artifacts, and tests must align with the approved governing spec
 - App-consumable consumer bundle: [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
 - App-consumable acceptance: [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
 - Release and requirements traceability: [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
+- youaskm3 compatibility conformance suite: [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
 - Dedicated MCP stdio server package: [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md)
 - youaskm3 starter kit and integration guide: [docs/youaskm3-starter-kit.md](/Users/piovese/Documents/cogolo/docs/youaskm3-starter-kit.md)
 - Project direction: [draft.md](/Users/piovese/Documents/cogolo/draft.md)
