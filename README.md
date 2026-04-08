@@ -1,3 +1,5 @@
+[![Traverse](https://github.com/user-attachments/assets/aeafaaf8-650d-4489-bf5e-bd386f0bcaf0)](https://enricopiovesan.com/)
+
 [![CI](https://github.com/enricopiovesan/Traverse/actions/workflows/ci.yml/badge.svg)](https://github.com/enricopiovesan/Traverse/actions/workflows/ci.yml)
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/enricopiovesan/Traverse/actions/workflows/ci.yml)
 [![Spec Governed](https://img.shields.io/badge/spec-governed-blueviolet)](specs/governance/approved-specs.json)
@@ -11,7 +13,7 @@
 
 Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows — across browser, edge, cloud, and device environments.
 
-This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com), built to prove in code the ideas behind [Universal Microservices Architecture (UMA)](https://github.com/enricopiovesan/UMA-code-examples). Created on personal time, not affiliated with Autodesk.
+This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com), built to prove in code the ideas behind [Universal Microservices Architecture (UMA)](https://github.com/enricopiovesan/UMA-code-examples).
 
 ---
 
