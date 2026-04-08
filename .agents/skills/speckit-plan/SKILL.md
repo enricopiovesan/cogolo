@@ -138,6 +138,7 @@ You **MUST** consider the user input before proceeding (if not empty).
 
 3. **Agent context update**:
    - Run `.specify/scripts/bash/update-agent-context.sh codex`
+   - Run `.specify/scripts/bash/update-agent-context.sh claude`
    - These scripts detect which AI agent is in use
    - Update the appropriate agent-specific context file
    - Add only new technology from current plan
