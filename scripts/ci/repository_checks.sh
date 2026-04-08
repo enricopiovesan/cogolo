@@ -29,6 +29,7 @@ required_files=(
   "docs/youaskm3-integration-validation.md"
   "docs/youaskm3-compatibility-conformance-suite.md"
   "docs/youaskm3-real-shell-validation.md"
+  "docs/wasm-agent-authoring-guide.md"
   "apps/browser-consumer/README.md"
   "apps/browser-consumer/package.json"
   "apps/youaskm3-starter-kit/README.md"
@@ -59,6 +60,7 @@ required_files=(
   "scripts/ci/youaskm3_real_shell_validation.sh"
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/app_consumable_package_release_pointer.sh"
+  "scripts/ci/wasm_agent_authoring_guide_smoke.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/packaged_traverse_mcp_server_artifact_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
@@ -164,6 +166,7 @@ grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
 grep -q "docs/app-consumable-consumer-bundle.md" README.md
 grep -q "docs/app-consumable-package-release-pointer.md" README.md
 grep -q "docs/packaged-traverse-mcp-server-artifact.md" README.md
+grep -q "docs/wasm-agent-authoring-guide.md" README.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-entry-path.md
 grep -q "versioned Traverse consumer bundle" docs/app-consumable-consumer-bundle.md
@@ -187,6 +190,7 @@ grep -q "GitHub release entry" docs/app-consumable-release-artifact.md
 grep -q "supported runnable artifact" docs/app-consumable-release-artifact.md
 grep -q "bash scripts/ci/app_consumable_release_prep.sh" docs/app-consumable-release-artifact.md
 grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
+grep -q "docs/wasm-agent-authoring-guide.md" docs/expedition-example-authoring.md
 grep -q "bash scripts/ci/app_consumable_acceptance.sh" docs/app-consumable-acceptance.md
 grep -q "React browser demo" docs/app-consumable-acceptance.md
 grep -q "Canonical Rule" docs/app-consumable-entry-path.md
