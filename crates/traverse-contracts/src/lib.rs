@@ -237,7 +237,7 @@ pub enum EntrypointKind {
     WasiCommand,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Ord, PartialOrd)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize, Ord, PartialOrd)]
 #[serde(rename_all = "snake_case")]
 pub enum ExecutionTarget {
     Local,
