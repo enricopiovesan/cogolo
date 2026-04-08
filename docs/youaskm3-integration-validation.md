@@ -8,10 +8,10 @@ It stays on governed public Traverse surfaces only:
 - the checked-in React browser demo
 - the downstream MCP consumption validation path
 - the first app-consumable quickstart
-- the `youaskm3` starter kit and integration guide
+- the versioned Traverse consumer bundle
+- the `youaskm3` compatibility conformance suite
 
 For the shortest Traverse-side start path, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
-The starter-kit entry point is documented in [docs/youaskm3-starter-kit.md](/Users/piovese/Documents/cogolo/docs/youaskm3-starter-kit.md).
 
 ## Governing Spec
 
@@ -44,10 +44,10 @@ Then run the integration validation wrapper:
 bash scripts/ci/youaskm3_integration_validation.sh
 ```
 
-For the starter-kit smoke path, also run:
+For the broader release-aligned compatibility check, also run:
 
 ```bash
-bash scripts/ci/youaskm3_starter_kit_smoke.sh
+bash scripts/ci/youaskm3_compatibility_conformance.sh
 ```
 
 ## Expected Evidence
@@ -60,7 +60,7 @@ The validation path should prove:
 - `consumer_name: youaskm3`
 - `validated_flow_id: youaskm3_mcp_validation`
 - no dependency on private Traverse internals or undocumented setup
-- the starter kit and integration guide remain aligned with the released consumer bundle
+- the same Traverse v0.1 release pairing used by the compatibility conformance suite
 
 ## Known Failure Modes
 
