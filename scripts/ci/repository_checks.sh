@@ -31,6 +31,9 @@ required_files=(
   "docs/youaskm3-real-shell-validation.md"
   "docs/wasm-agent-authoring-guide.md"
   "docs/wasm-microservice-authoring-guide.md"
+  "specs/023-downstream-publication-strategy/spec.md"
+  "specs/023-downstream-publication-strategy/data-model.md"
+  "specs/023-downstream-publication-strategy/checklists/requirements.md"
   "apps/browser-consumer/README.md"
   "apps/browser-consumer/package.json"
   "apps/youaskm3-starter-kit/README.md"
@@ -63,6 +66,7 @@ required_files=(
   "scripts/ci/app_consumable_package_release_pointer.sh"
   "scripts/ci/wasm_agent_authoring_guide_smoke.sh"
   "scripts/ci/wasm_microservice_authoring_guide_smoke.sh"
+  "scripts/ci/downstream_publication_strategy_smoke.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/packaged_traverse_mcp_server_artifact_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
@@ -170,6 +174,8 @@ grep -q "docs/app-consumable-package-release-pointer.md" README.md
 grep -q "docs/packaged-traverse-mcp-server-artifact.md" README.md
 grep -q "docs/wasm-agent-authoring-guide.md" README.md
 grep -q "docs/wasm-microservice-authoring-guide.md" README.md
+grep -q "specs/023-downstream-publication-strategy/spec.md" docs/app-consumable-release-artifact.md
+grep -q "specs/023-downstream-publication-strategy/spec.md" docs/app-consumable-consumer-bundle.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-entry-path.md
 grep -q "versioned Traverse consumer bundle" docs/app-consumable-consumer-bundle.md
