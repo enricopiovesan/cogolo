@@ -14,6 +14,11 @@ All meaningful work must be traceable through all three of these artifacts:
 
 This is the default Traverse operating rule for spec slices, implementation slices, governance work, and material documentation changes.
 
+Ticket quality rules are defined in:
+
+- [docs/ticket-standard.md](/Users/piovese/Documents/cogolo/docs/ticket-standard.md)
+- [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
+
 ## Preferred Flow
 
 1. Start from the governing spec or approved design discussion.
@@ -30,6 +35,9 @@ Issues should describe:
 - affected spec or capability/workflow area
 - expected outcome
 - any compatibility or governance concerns
+- explicit definition of done
+- explicit validation steps
+- explicit blocker note when blocked
 
 ## Pull Request Guidance
 
@@ -57,6 +65,15 @@ Exceptions should be rare and should be called out explicitly in the PR notes.
 
 ## Board Discipline
 
+Recommended workflow labels:
+
+- `in-progress`
+- `blocked`
+- `needs-spec`
+- `needs-enrico`
+- `future`
+- `no-spec-needed`
+
 Recommended categories for task tracking:
 
 - specs and architecture
@@ -67,3 +84,32 @@ Recommended categories for task tracking:
 - quality and CI
 
 The exact board columns can evolve, but the project board should remain the primary planning surface and the issue should remain the durable record of intent.
+
+Status intent should stay simple:
+
+- Project 1 status is the only actionability signal.
+- `ready` means the ticket can be started now
+- `in-progress` means someone is actively working it right now
+- `blocked` means work cannot continue until the blocker named in the ticket is cleared
+
+Project 1 status is the only actionability signal.
+
+When a Project 1 item is marked `Blocked`, the project `Note` field should summarize the blocker in one short sentence so the reason is visible on the board without opening the issue.
+
+Potential parallel candidates should stay `Ready` until they are actually picked up. We should not use `In Progress` as a placeholder for work that is merely available to start.
+
+Open PR-backed tickets must be reflected as `In Progress` in both the issue labels and Project 1. The PM thread should treat any mismatch as a board-drift bug and fix it immediately.
+
+Only tickets with real active execution should appear on Project 1 as `In Progress`.
+
+For true parallel execution, use separate Codex threads with separate issues, branches, and PRs. The operating model is documented in:
+
+- [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
+
+Run the board audit when you change issue labels, Project 1 status, or PR state:
+
+```bash
+bash scripts/ci/project_board_audit.sh
+```
+
+The board audit logic lives in [scripts/ci/project_board_audit.sh](/Users/piovese/Documents/cogolo/scripts/ci/project_board_audit.sh).

@@ -1,128 +1,148 @@
 # Traverse Planning Board
 
-This document is the local planning view for active work and mirrors the current backlog in GitHub Project 1.
+This document is the local planning view for MVP work and mirrors the active backlog in GitHub Project 1.
 
 Status meanings:
 
-- `Ready`: can be implemented now under an approved governing spec
-- `Needs Spec`: should not be implemented yet because the governing slice is not implementation-tight enough
-- `Needs Enrico`: blocked on product, governance, or prioritization input from Enrico
+- `Ready`: can be implemented now under approved specs and current repo rules
+- `In Progress`: currently being worked on in an active issue or pull request
+- `Blocked`: should not start yet; the item must state why it is blocked
+- `Needs Spec`: implementation must not start because the governing slice is not approved yet
+- `Needs Enrico`: blocked on product or governance direction from Enrico
+- `No Spec Needed`: the work is artifact authoring, docs, or another task already fully governed by approved specs
+- `Future`: valid MVP-following work that is tracked but not part of the current active slice
 
-## In Progress
+## Active Backlog
 
-### `Ready`
+### `In Progress`
 
-- `002-capability-contracts`
-  - scope: capability contract parsing, normalization, validation, immutability, and evidence
-  - status: merged in PR [#5](https://github.com/enricopiovesan/cogolo/pull/5)
-  - notes: protected at `100%` line coverage
+- [#66](https://github.com/enricopiovesan/Traverse/issues/66) `Codify MVP backlog completeness and ticket-quality enforcement`
+  - area: `quality`, `documentation`
+  - status: active in PR [#67](https://github.com/enricopiovesan/Traverse/pull/67)
+  - done when: the backlog standards, templates, planning board, and repo checks land on `main`
 
-- `006-runtime-request-execution`
-  - scope: runtime request parsing, deterministic local execution, ambiguity handling, state events, and runtime trace output
-  - status: merged in PR [#20](https://github.com/enricopiovesan/cogolo/pull/20)
-  - notes: protected at `100%` line coverage
+- [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation`
+  - area: `runtime`, `mcp`
+  - status: active implementation work
+  - done when: the dedicated stdio server boots deterministically, emits machine-readable startup/shutdown envelopes, and passes the new smoke path
 
-- `005-capability-registry`
-  - scope: capability registry storage, immutable publication, overlay lookup, compatibility checks, and discovery index
-  - status: merged in PR [#18](https://github.com/enricopiovesan/cogolo/pull/18)
-  - notes: protected at `100%` line coverage
+Only tickets with real active execution should appear in this section.
 
-## Next Core Tasks
+### `Ready` + `No Spec Needed`
 
-### `Ready`
+- [#42](https://github.com/enricopiovesan/Traverse/issues/42) `Author expedition event contract files`
+  - area: `contracts`
+  - why ready: governed by `003`, `008`, and `009`
+  - done when: canonical event contract artifacts exist and validate under the approved example domain
 
-- Event contract spec slice
-  - issue: [#6](https://github.com/enricopiovesan/cogolo/issues/6)
-  - suggested id: `003-event-contracts`
-  - outcome: event artifact shape, lifecycle, ownership, versioning, publisher/subscriber metadata, validation rules
-  - status: merged in PR [#15](https://github.com/enricopiovesan/cogolo/pull/15)
+- [#43](https://github.com/enricopiovesan/Traverse/issues/43) `Author workflow-backed composed capability contract for plan-expedition`
+  - area: `contracts`, `workflow`
+  - why ready: governed by `002`, `007`, `008`, and `009`
+  - done when: the composed capability contract for `plan-expedition` is authored and valid
 
-- Spec-alignment CI gate design
-  - issue: [#7](https://github.com/enricopiovesan/cogolo/issues/7)
-  - outcome: first deterministic check that maps implementation slices to governing spec ids and fails when required spec artifacts are missing or unapproved
-  - status: merged in PR [#16](https://github.com/enricopiovesan/cogolo/pull/16)
+- [#44](https://github.com/enricopiovesan/Traverse/issues/44) `Author expedition atomic capability contract files`
+  - area: `contracts`
+  - why ready: governed by `002`, `008`, and `009`
+  - done when: all five atomic expedition capability contracts are authored and valid
 
-- Workflow registry and deterministic traversal
-  - issue: [#10](https://github.com/enricopiovesan/cogolo/issues/10)
-  - target area: `crates/traverse-registry`, `crates/traverse-runtime`
-  - status: spec drafting in progress under `007-workflow-registry-traversal`
-  - outcome: deterministic workflow artifact shape, workflow registry metadata, traversal rules, workflow-backed composed capability semantics
+- [#45](https://github.com/enricopiovesan/Traverse/issues/45) `Author plan-expedition workflow definition artifact`
+  - area: `workflow`
+  - why ready: governed by `007`, `008`, and `009`
+  - done when: the canonical workflow artifact is authored and validates against the approved workflow shape
 
-### `Needs Spec`
+### `Blocked` + `No Spec Needed`
 
-- Event-driven composition
-  - target area: `crates/traverse-runtime`
-  - missing first: event contract slice plus runtime event-flow slice
+- [#46](https://github.com/enricopiovesan/Traverse/issues/46) `Seed expedition example registry bundle and CLI walkthrough`
+  - blocked by: example contracts and workflow artifacts are not authored yet
+  - unblock path: complete [#42](https://github.com/enricopiovesan/Traverse/issues/42), [#43](https://github.com/enricopiovesan/Traverse/issues/43), [#44](https://github.com/enricopiovesan/Traverse/issues/44), and [#45](https://github.com/enricopiovesan/Traverse/issues/45)
 
-## Product and Architecture Backlog
+- [#47](https://github.com/enricopiovesan/Traverse/issues/47) `Document expedition example authoring and validation walkthrough`
+  - blocked by: the first concrete example artifacts and smoke path are not finished yet
+  - unblock path: complete [#42](https://github.com/enricopiovesan/Traverse/issues/42), [#43](https://github.com/enricopiovesan/Traverse/issues/43), [#44](https://github.com/enricopiovesan/Traverse/issues/44), [#45](https://github.com/enricopiovesan/Traverse/issues/45), and [#48](https://github.com/enricopiovesan/Traverse/issues/48)
 
-### `Ready`
+- [#48](https://github.com/enricopiovesan/Traverse/issues/48) `Add example artifact validation smoke path`
+  - blocked by: the example artifact set is not complete yet
+  - unblock path: complete [#42](https://github.com/enricopiovesan/Traverse/issues/42), [#43](https://github.com/enricopiovesan/Traverse/issues/43), [#44](https://github.com/enricopiovesan/Traverse/issues/44), and [#45](https://github.com/enricopiovesan/Traverse/issues/45)
 
-- Expedition example capability set and canonical workflow spec
-  - issue: [#30](https://github.com/enricopiovesan/Traverse/issues/30)
-  - target area: `specs/008-expedition-example-domain`
-  - outcome: implementation-governing example domain for the first five capabilities, canonical workflow, and event/output shapes
-
-- Expedition example contracts and workflow artifact spec
-  - issue: [#33](https://github.com/enricopiovesan/Traverse/issues/33)
-  - target area: `specs/009-expedition-example-artifacts`
-  - outcome: concrete example capability ids, event ids, workflow artifact shape, and workflow-backed composed capability relationship
+## Future MVP Backlog
 
 ### `Needs Spec`
 
-- Metadata graph model
-- Placement abstraction contract model beyond local execution
-- Runtime state machine implementation slice
-- Trace artifact implementation slice
-- MCP surface spec
-- Browser runtime subscription surface
+- [#35](https://github.com/enricopiovesan/Traverse/issues/35) `Future: specify placement abstraction beyond local execution`
+- [#36](https://github.com/enricopiovesan/Traverse/issues/36) `Future: specify event-driven composition slice`
+- [#37](https://github.com/enricopiovesan/Traverse/issues/37) `Future: specify metadata graph model`
+- [#38](https://github.com/enricopiovesan/Traverse/issues/38) `Future: specify browser runtime subscription surface`
+- [#39](https://github.com/enricopiovesan/Traverse/issues/39) `Future: specify trace artifact slice`
+- [#40](https://github.com/enricopiovesan/Traverse/issues/40) `Future: specify MCP surface`
+- [#41](https://github.com/enricopiovesan/Traverse/issues/41) `Future: specify runtime state machine slice`
+- [#49](https://github.com/enricopiovesan/Traverse/issues/49) `Future: specify AI agent execution and WASM agent packaging slice`
+- [#50](https://github.com/enricopiovesan/Traverse/issues/50) `Future: specify macOS demo app slice`
+- [#51](https://github.com/enricopiovesan/Traverse/issues/51) `Future: specify Android demo app slice`
+- [#52](https://github.com/enricopiovesan/Traverse/issues/52) `Future: specify event registry slice`
 
-### `Resolved`
+### `Blocked`
 
-- Prioritized first five real capabilities for `v0.1`
-  - issue: [#11](https://github.com/enricopiovesan/Traverse/issues/11)
-  - resolved direction: expedition-planning example domain
+- [#53](https://github.com/enricopiovesan/Traverse/issues/53) `Future: implement second WASM AI agent example`
+  - blocked by: [#49](https://github.com/enricopiovesan/Traverse/issues/49), [#40](https://github.com/enricopiovesan/Traverse/issues/40), and [#54](https://github.com/enricopiovesan/Traverse/issues/54)
 
-- First canonical demo workflow
-  - issue: [#12](https://github.com/enricopiovesan/Traverse/issues/12)
-  - resolved direction: `plan-expedition`
+- [#54](https://github.com/enricopiovesan/Traverse/issues/54) `Future: implement first WASM AI agent example`
+  - blocked by: [#49](https://github.com/enricopiovesan/Traverse/issues/49) and [#40](https://github.com/enricopiovesan/Traverse/issues/40)
 
-- Contract lifecycle publication policy
-  - issue: [#13](https://github.com/enricopiovesan/Traverse/issues/13)
-  - resolved direction: CI-gated plus manual approval before publication
+- [#55](https://github.com/enricopiovesan/Traverse/issues/55) `Future: implement React browser demo app`
+  - blocked by: [#38](https://github.com/enricopiovesan/Traverse/issues/38) and the expedition example artifacts becoming runnable
 
-- Project-management policy
-  - issue: [#14](https://github.com/enricopiovesan/Traverse/issues/14)
-  - resolved direction: issue + project item + PR for all meaningful slices
+- [#56](https://github.com/enricopiovesan/Traverse/issues/56) `Future: implement event registry foundation`
+  - blocked by: [#52](https://github.com/enricopiovesan/Traverse/issues/52)
 
-## Recommended Sequence
+- [#57](https://github.com/enricopiovesan/Traverse/issues/57) `Future: implement Android demo app`
+  - blocked by: [#51](https://github.com/enricopiovesan/Traverse/issues/51)
 
-1. Review and merge `007-workflow-registry-traversal`
-2. Implement workflow registry storage and deterministic traversal
-3. Write the event-driven composition slice for runtime event flow
-4. Implement event-driven workflow execution on top of the workflow slice
-5. Lock the first five capabilities and the first canonical workflow
-6. Move into browser-facing runtime subscription work
+- [#58](https://github.com/enricopiovesan/Traverse/issues/58) `Future: implement MCP surface`
+  - blocked by: [#40](https://github.com/enricopiovesan/Traverse/issues/40)
 
-## Project 1 Sync
+- [#59](https://github.com/enricopiovesan/Traverse/issues/59) `Future: implement macOS demo app`
+  - blocked by: [#50](https://github.com/enricopiovesan/Traverse/issues/50)
+
+- [#60](https://github.com/enricopiovesan/Traverse/issues/60) `Future: implement runtime state machine`
+  - blocked by: [#41](https://github.com/enricopiovesan/Traverse/issues/41)
+
+- [#61](https://github.com/enricopiovesan/Traverse/issues/61) `Future: implement browser runtime subscription surface`
+  - blocked by: [#38](https://github.com/enricopiovesan/Traverse/issues/38)
+
+- [#62](https://github.com/enricopiovesan/Traverse/issues/62) `Future: implement metadata graph projection`
+  - blocked by: [#37](https://github.com/enricopiovesan/Traverse/issues/37)
+
+- [#63](https://github.com/enricopiovesan/Traverse/issues/63) `Future: implement trace artifacts`
+  - blocked by: [#39](https://github.com/enricopiovesan/Traverse/issues/39)
+
+- [#64](https://github.com/enricopiovesan/Traverse/issues/64) `Future: implement placement abstraction beyond local executor`
+  - blocked by: [#35](https://github.com/enricopiovesan/Traverse/issues/35)
+
+- [#65](https://github.com/enricopiovesan/Traverse/issues/65) `Future: implement event-driven composition in runtime`
+  - blocked by: [#36](https://github.com/enricopiovesan/Traverse/issues/36) and [#52](https://github.com/enricopiovesan/Traverse/issues/52)
+
+## Quality Rules
+
+- Every active ticket must have:
+  - a clear summary
+  - explicit dependencies
+  - a blocker note if blocked
+  - a Definition of Done with no ambiguity
+  - exact validation steps
+
+- If a problem is required to make the current slice correct, governed, or mergeable, it must be fixed in the active PR.
+- If a problem is valid but not required for the active slice, it must become a `future` ticket instead of silently disappearing.
+
+## Recommended Next Sequence
+
+1. Complete [#42](https://github.com/enricopiovesan/Traverse/issues/42), [#43](https://github.com/enricopiovesan/Traverse/issues/43), [#44](https://github.com/enricopiovesan/Traverse/issues/44), and [#45](https://github.com/enricopiovesan/Traverse/issues/45)
+2. Unblock and complete [#48](https://github.com/enricopiovesan/Traverse/issues/48)
+3. Unblock and complete [#46](https://github.com/enricopiovesan/Traverse/issues/46)
+4. Unblock and complete [#47](https://github.com/enricopiovesan/Traverse/issues/47)
+5. Then choose the next future spec slice based on MVP priority
+
+## Project 1
 
 This planning board is mirrored into:
 
 - [GitHub Project 1](https://github.com/users/enricopiovesan/projects/1/)
-
-Recommended project fields:
-
-- `Status`
-- `Spec Status`
-- `Owner`
-- `Area`
-- `Needs Enrico`
-
-Recommended starter items:
-
-- `002-capability-contracts`
-- `003-event-contracts`
-- `capability-registry`
-- `runtime-execution-model`
-- `workflow-definition-slice`
-- `spec-alignment-ci-gate`

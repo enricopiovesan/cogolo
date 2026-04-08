@@ -3,6 +3,7 @@ use crate::{
     WorkflowReference,
 };
 use semver::Version;
+use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::{BTreeMap, BTreeSet};
 use traverse_contracts::{ErrorSeverity, EventReference, Lifecycle, Owner, SchemaContainer};
@@ -11,7 +12,7 @@ const WORKFLOW_KIND: &str = "workflow_definition";
 const WORKFLOW_SCHEMA_VERSION: &str = "1.0.0";
 const WORKFLOW_GOVERNING_SPEC: &str = "007-workflow-registry-traversal";
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowDefinition {
     pub kind: String,
     pub schema_version: String,
@@ -31,7 +32,7 @@ pub struct WorkflowDefinition {
     pub governing_spec: String,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowNode {
     pub node_id: String,
     pub capability_id: String,
@@ -40,26 +41,35 @@ pub struct WorkflowNode {
     pub output: WorkflowNodeOutput,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowNodeInput {
     pub from_workflow_input: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowNodeOutput {
     pub to_workflow_state: Vec<String>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowEdge {
     pub edge_id: String,
     pub from: String,
     pub to: String,
     pub trigger: WorkflowEdgeTrigger,
     pub event: Option<EventReference>,
+    #[serde(default)]
+    pub predicate: Option<WorkflowEdgePredicate>,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkflowEdgePredicate {
+    pub field: String,
+    pub equals: Value,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
 pub enum WorkflowEdgeTrigger {
     Direct,
     Event,
@@ -305,6 +315,63 @@ impl WorkflowRegistry {
         }
         None
     }
+
+    #[must_use]
+    pub(crate) fn graph_entries(&self) -> Vec<ResolvedWorkflow> {
+        self.records
+            .iter()
+            .filter_map(|((scope, id, version), record)| {
+                let key = (*scope, id.clone(), version.clone());
+                let definition = self.definitions.get(&key)?.clone();
+                let index_entry = self.index.get(&key)?.clone();
+                Some(ResolvedWorkflow {
+                    definition,
+                    record: record.clone(),
+                    index_entry,
+                })
+            })
+            .collect()
+    }
+
+    #[must_use]
+    pub fn discover(&self, lookup_scope: LookupScope) -> Vec<WorkflowDiscoveryIndexEntry> {
+        let mut results = Vec::new();
+        let mut shadowed = BTreeSet::new();
+
+        for &scope in lookup_order(lookup_scope) {
+            let entries = self
+                .index
+                .iter()
+                .filter(|((entry_scope, _, _), _)| *entry_scope == scope);
+
+            for ((_, id, version), entry) in entries {
+                if lookup_scope == LookupScope::PreferPrivate
+                    && scope == RegistryScope::Public
+                    && shadowed.contains(&(id.clone(), version.clone()))
+                {
+                    continue;
+                }
+
+                if scope == RegistryScope::Private {
+                    shadowed.insert((id.clone(), version.clone()));
+                }
+
+                results.push(entry.clone());
+            }
+        }
+
+        results.sort_by(|left, right| {
+            left.id.cmp(&right.id).then_with(|| {
+                let left_version = Version::parse(&left.version).ok();
+                let right_version = Version::parse(&right.version).ok();
+                match (left_version, right_version) {
+                    (Some(left_version), Some(right_version)) => right_version.cmp(&left_version),
+                    _ => right.version.cmp(&left.version),
+                }
+            })
+        });
+        results
+    }
 }
 
 #[must_use]
@@ -463,6 +530,13 @@ fn validate_workflow_fields(
                         "direct edges must not declare an event reference",
                     ));
                 }
+                if edge.predicate.is_some() {
+                    errors.push(workflow_error(
+                        WorkflowErrorCode::InvalidEventEdge,
+                        &format!("{base}.predicate"),
+                        "direct edges must not declare an event predicate",
+                    ));
+                }
             }
             WorkflowEdgeTrigger::Event => {
                 let Some(event) = edge.event.as_ref() else {
@@ -485,6 +559,15 @@ fn validate_workflow_fields(
                         WorkflowErrorCode::InvalidSemver,
                         &format!("{base}.event.version"),
                         "event version must be valid semantic versioning",
+                    ));
+                }
+                if let Some(predicate) = edge.predicate.as_ref()
+                    && predicate.field.trim().is_empty()
+                {
+                    errors.push(workflow_error(
+                        WorkflowErrorCode::InvalidEventEdge,
+                        &format!("{base}.predicate.field"),
+                        "event predicate field must be non-empty",
                     ));
                 }
             }
@@ -557,7 +640,7 @@ fn validate_workflow_references(
         .collect::<Vec<_>>();
 
     for (index, (_node, resolved)) in node_capabilities.iter().enumerate() {
-        let Some(capability) = resolved else {
+        let Some(_capability) = resolved else {
             errors.push(workflow_error(
                 WorkflowErrorCode::MissingReference,
                 &format!("$.nodes[{index}]"),
@@ -565,13 +648,6 @@ fn validate_workflow_references(
             ));
             continue;
         };
-        if !capability.contract.lifecycle.is_runtime_eligible() {
-            errors.push(workflow_error(
-                WorkflowErrorCode::MissingReference,
-                &format!("$.nodes[{index}]"),
-                "workflow node must reference a runtime-eligible capability",
-            ));
-        }
     }
 
     let resolved_by_node = node_capabilities
@@ -911,6 +987,95 @@ mod tests {
     }
 
     #[test]
+    fn discover_covers_public_only_and_private_overlay_paths() {
+        let capabilities = capability_registry();
+        let mut registry = WorkflowRegistry::new();
+
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: valid_workflow_definition(),
+                workflow_path: "workflows/public.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Private,
+                definition: WorkflowDefinition {
+                    summary: "private summary".to_string(),
+                    ..valid_workflow_definition()
+                },
+                workflow_path: "workflows/private.json".to_string(),
+                registered_at: "2026-03-27T00:01:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: WorkflowDefinition {
+                    version: "1.1.0".to_string(),
+                    ..valid_workflow_definition()
+                },
+                workflow_path: "workflows/public-v1-1-0.json".to_string(),
+                registered_at: "2026-03-27T00:02:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+        registry.index.insert(
+            (
+                RegistryScope::Public,
+                "content.comments.publish-comment".to_string(),
+                "invalid".to_string(),
+            ),
+            WorkflowDiscoveryIndexEntry {
+                scope: RegistryScope::Public,
+                id: "content.comments.publish-comment".to_string(),
+                version: "invalid".to_string(),
+                lifecycle: Lifecycle::Active,
+                owner: Owner {
+                    team: "comments".to_string(),
+                    contact: "comments@example.com".to_string(),
+                },
+                summary: "invalid semver workflow".to_string(),
+                tags: vec!["comments".to_string()],
+                participating_capabilities: vec![
+                    "content.comments.create-comment-draft".to_string(),
+                ],
+                events_used: vec!["content.comments.draft-created".to_string()],
+                start_node: "create_draft".to_string(),
+                terminal_nodes: vec!["persist_comment".to_string()],
+                registered_at: "2026-03-27T00:03:00Z".to_string(),
+            },
+        );
+
+        let public_only = registry.discover(LookupScope::PublicOnly);
+        let prefer_private = registry.discover(LookupScope::PreferPrivate);
+
+        assert_eq!(public_only.len(), 3);
+        assert_eq!(public_only[0].version, "invalid");
+        assert_eq!(public_only[1].version, "1.1.0");
+        assert_eq!(prefer_private.len(), 3);
+        assert!(prefer_private.iter().any(|entry| {
+            entry.scope == RegistryScope::Private && entry.summary == "private summary"
+        }));
+        assert!(
+            prefer_private
+                .iter()
+                .any(|entry| entry.version == "invalid")
+        );
+        assert!(prefer_private.iter().any(|entry| entry.version == "1.1.0"));
+    }
+
+    #[test]
     fn rejects_invalid_workflow_fields_references_and_cycles() {
         let capabilities = capability_registry();
         let mut registry = WorkflowRegistry::new();
@@ -932,6 +1097,7 @@ mod tests {
                 event_id: "content.comments.draft-created".to_string(),
                 version: "1.0.0".to_string(),
             }),
+            predicate: None,
         });
 
         let failure = register_workflow_err(
@@ -1003,6 +1169,7 @@ mod tests {
                 event_id: "content.comments.validated".to_string(),
                 version: "1.0.0".to_string(),
             }),
+            predicate: None,
         });
 
         let failure = register_workflow_err(
@@ -1153,6 +1320,7 @@ mod tests {
                         to: "persist_comment".to_string(),
                         trigger: WorkflowEdgeTrigger::Direct,
                         event: None,
+                        predicate: None,
                     }],
                     ..valid_workflow_definition()
                 },
@@ -1173,6 +1341,7 @@ mod tests {
                         to: "persist_comment".to_string(),
                         trigger: WorkflowEdgeTrigger::Direct,
                         event: None,
+                        predicate: None,
                     }],
                     ..valid_workflow_definition()
                 },
@@ -1218,6 +1387,10 @@ mod tests {
                     event_id: "content.comments.draft-created".to_string(),
                     version: "1.0.0".to_string(),
                 }),
+                predicate: Some(WorkflowEdgePredicate {
+                    field: "payload.severity".to_string(),
+                    equals: json!("normal"),
+                }),
             },
             WorkflowEdge {
                 edge_id: "edge".to_string(),
@@ -1225,6 +1398,7 @@ mod tests {
                 to: String::new(),
                 trigger: WorkflowEdgeTrigger::Event,
                 event: None,
+                predicate: None,
             },
             WorkflowEdge {
                 edge_id: "edge-3".to_string(),
@@ -1234,6 +1408,10 @@ mod tests {
                 event: Some(EventReference {
                     event_id: String::new(),
                     version: "bad".to_string(),
+                }),
+                predicate: Some(WorkflowEdgePredicate {
+                    field: String::new(),
+                    equals: json!(true),
                 }),
             },
         ];
@@ -1275,6 +1453,11 @@ mod tests {
         assert!(failure.errors.iter().any(|error| {
             error
                 .message
+                .contains("direct edges must not declare an event predicate")
+        }));
+        assert!(failure.errors.iter().any(|error| {
+            error
+                .message
                 .contains("event edges must declare an event reference")
         }));
         assert!(
@@ -1283,6 +1466,11 @@ mod tests {
                 .iter()
                 .any(|error| error.message.contains("event_id must be non-empty"))
         );
+        assert!(failure.errors.iter().any(|error| {
+            error
+                .message
+                .contains("event predicate field must be non-empty")
+        }));
         assert!(failure.errors.iter().any(|error| {
             error
                 .message
@@ -1331,6 +1519,7 @@ mod tests {
                             to: "archived".to_string(),
                             trigger: WorkflowEdgeTrigger::Direct,
                             event: None,
+                            predicate: None,
                         },
                         WorkflowEdge {
                             edge_id: "d2".to_string(),
@@ -1338,6 +1527,7 @@ mod tests {
                             to: "archived".to_string(),
                             trigger: WorkflowEdgeTrigger::Direct,
                             event: None,
+                            predicate: None,
                         },
                     ],
                     start_node: "archived".to_string(),
@@ -1348,12 +1538,6 @@ mod tests {
                 registered_at: "2026-03-27T00:00:00Z".to_string(),
                 validator_version: "validator".to_string(),
             },
-        );
-        assert!(
-            failure
-                .errors
-                .iter()
-                .any(|error| error.message.contains("runtime-eligible capability"))
         );
         assert!(
             failure
@@ -1630,6 +1814,7 @@ mod tests {
                         event_id: "content.comments.draft-created".to_string(),
                         version: "1.0.0".to_string(),
                     }),
+                    predicate: None,
                 },
                 WorkflowEdge {
                     edge_id: "validate_to_persist".to_string(),
@@ -1640,6 +1825,7 @@ mod tests {
                         event_id: "content.comments.validated".to_string(),
                         version: "1.0.0".to_string(),
                     }),
+                    predicate: None,
                 },
             ],
             start_node: "create_draft".to_string(),

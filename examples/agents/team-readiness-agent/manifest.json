@@ -1,0 +1,39 @@
+{
+  "kind": "agent_package",
+  "schema_version": "1.0.0",
+  "package_id": "expedition.planning.validate-team-readiness-agent",
+  "version": "1.0.0",
+  "summary": "Governed WASM AI agent example for expedition readiness validation.",
+  "capability_ref": {
+    "id": "expedition.planning.validate-team-readiness",
+    "version": "1.0.0",
+    "contract_path": "../../../contracts/examples/expedition/capabilities/validate-team-readiness/contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "expedition.planning.plan-expedition",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/validate-team-readiness-agent.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:dffc31d6401c84d6"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": [
+    {
+      "interface": "expedition-readiness-validation-v1",
+      "purpose": "Validate expedition team readiness from governed objective, conditions summary, and team profile context."
+    }
+  ]
+}

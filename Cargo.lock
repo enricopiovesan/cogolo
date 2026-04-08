@@ -95,6 +95,13 @@ dependencies = [
 [[package]]
 name = "traverse-cli"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "traverse-contracts",
+ "traverse-registry",
+ "traverse-runtime",
+]
 
 [[package]]
 name = "traverse-contracts"
@@ -108,12 +115,20 @@ dependencies = [
 [[package]]
 name = "traverse-mcp"
 version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+ "traverse-contracts",
+ "traverse-registry",
+ "traverse-runtime",
+]
 
 [[package]]
 name = "traverse-registry"
 version = "0.1.0"
 dependencies = [
  "semver",
+ "serde",
  "serde_json",
  "traverse-contracts",
 ]

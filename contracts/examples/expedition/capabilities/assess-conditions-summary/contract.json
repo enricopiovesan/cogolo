@@ -5,13 +5,13 @@
   "namespace": "expedition.planning",
   "name": "assess-conditions-summary",
   "version": "1.0.0",
-  "lifecycle": "draft",
+  "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
   },
-  "summary": "Assess expedition conditions and produce a deterministic planning summary.",
-  "description": "Portable deterministic capability for combining the normalized expedition objective with interpreted planning intent context to produce a governed conditions summary covering overall rating, key findings, and blocking concerns.",
+  "summary": "Assess a deterministic expedition conditions summary from objective and interpreted intent context.",
+  "description": "Portable capability for deriving a governed conditions summary that consolidates weather, route, hazard, and environmental planning context without delegating the decision boundary to AI interpretation.",
   "inputs": {
     "schema": {
       "type": "object",
@@ -23,56 +23,10 @@
         "objective": {
           "type": "object",
           "required": [
-            "objective_id",
-            "destination",
-            "target_window",
-            "preferences",
-            "notes"
+            "objective_id"
           ],
           "properties": {
             "objective_id": {
-              "type": "string"
-            },
-            "destination": {
-              "type": "string"
-            },
-            "target_window": {
-              "type": "object",
-              "required": [
-                "start",
-                "end"
-              ],
-              "properties": {
-                "start": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "end": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              }
-            },
-            "preferences": {
-              "type": "object",
-              "required": [
-                "style",
-                "risk_tolerance",
-                "priority"
-              ],
-              "properties": {
-                "style": {
-                  "type": "string"
-                },
-                "risk_tolerance": {
-                  "type": "string"
-                },
-                "priority": {
-                  "type": "string"
-                }
-              }
-            },
-            "notes": {
               "type": "string"
             }
           }
@@ -157,20 +111,20 @@
   },
   "preconditions": [
     {
-      "id": "objective-and-intent-aligned",
-      "description": "The normalized expedition objective and interpreted intent refer to the same planning objective."
+      "id": "objective-and-intent-normalized",
+      "description": "The normalized expedition objective and interpreted intent are available for deterministic assessment."
     }
   ],
   "postconditions": [
     {
       "id": "conditions-summary-produced",
-      "description": "A deterministic conditions summary is returned for downstream readiness validation."
+      "description": "A deterministic conditions summary record is returned for readiness validation."
     }
   ],
   "side_effects": [
     {
       "kind": "event_emission",
-      "description": "Emits the conditions-summary-assessed domain event after the summary is produced."
+      "description": "Emits the conditions-summary-assessed event after deterministic conditions assessment completes."
     }
   ],
   "emits": [
@@ -179,8 +133,17 @@
       "version": "1.0.0"
     }
   ],
-  "consumes": [],
-  "permissions": [],
+  "consumes": [
+    {
+      "event_id": "expedition.planning.expedition-intent-interpreted",
+      "version": "1.0.0"
+    }
+  ],
+  "permissions": [
+    {
+      "id": "expedition.plan.assess-conditions"
+    }
+  ],
   "execution": {
     "binary_format": "wasm",
     "entrypoint": {
@@ -204,6 +167,11 @@
   "dependencies": [
     {
       "artifact_type": "event",
+      "id": "expedition.planning.expedition-intent-interpreted",
+      "version": "1.0.0"
+    },
+    {
+      "artifact_type": "event",
       "id": "expedition.planning.conditions-summary-assessed",
       "version": "1.0.0"
     }
@@ -212,7 +180,11 @@
     "source": "greenfield",
     "author": "enricopiovesan",
     "created_at": "2026-03-27T00:00:00Z",
-    "spec_ref": "009-expedition-example-artifacts"
+    "spec_ref": "009-expedition-example-artifacts@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
   },
   "evidence": []
 }

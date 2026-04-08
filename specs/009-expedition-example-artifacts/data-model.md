@@ -265,7 +265,7 @@ Produces:
   "id": "expedition.planning.plan-expedition",
   "name": "plan-expedition",
   "version": "1.0.0",
-  "lifecycle": "draft",
+  "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
@@ -292,7 +292,7 @@ Produces:
     "planning",
     "example-domain"
   ],
-  "governing_spec": "009-expedition-example-artifacts"
+  "governing_spec": "007-workflow-registry-traversal"
 }
 ```
 

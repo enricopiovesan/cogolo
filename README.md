@@ -6,7 +6,7 @@ Traverse is a contract-driven runtime for discovering, validating, and composing
 
 ## Status
 
-This repository is in pre-implementation setup for `Foundation v0.1`.
+This repository is in v0.1 release-candidate preparation for the first app-consumable Traverse flow.
 
 This project is personal research and development work by Enrico Piovesan,
 created on personal time, outside of work, and is not affiliated with,
@@ -14,6 +14,10 @@ sponsored by, or related to Autodesk.
 
 The project is currently focused on:
 
+- the first app-consumable browser flow
+- the live local browser adapter consumer path
+- downstream consumer contracts and validation
+- release readiness, checklist, and publication shape
 - Rust-first runtime foundations
 - WASM-first portable capabilities
 - capability, event, and workflow contracts
@@ -47,11 +51,21 @@ Code, generated artifacts, and tests must align with the approved governing spec
 
 ## Key Docs
 
+- Start here: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
+- Documentation entry path: [docs/app-consumable-entry-path.md](/Users/piovese/Documents/cogolo/docs/app-consumable-entry-path.md)
+- App-consumable release checklist: [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
+- App-consumable consumer bundle: [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
+- App-consumable acceptance: [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
+- Release and requirements traceability: [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
+- Dedicated MCP stdio server package: [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md)
 - Project direction: [draft.md](/Users/piovese/Documents/cogolo/draft.md)
 - Brainstorming decisions: [brainstorming.md](/Users/piovese/Documents/cogolo/brainstorming.md)
+- First real youaskm3 integration validation: [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
 - Quality standards: [docs/quality-standards.md](/Users/piovese/Documents/cogolo/docs/quality-standards.md)
 - Compatibility policy: [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md)
+- Adapter boundaries: [docs/adapter-boundaries.md](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md)
 - Contract publication policy: [docs/contract-publication-policy.md](/Users/piovese/Documents/cogolo/docs/contract-publication-policy.md)
+- Local runtime home: [docs/local-runtime-home.md](/Users/piovese/Documents/cogolo/docs/local-runtime-home.md)
 - Exception process: [docs/exception-process.md](/Users/piovese/Documents/cogolo/docs/exception-process.md)
 - ADR guidance: [docs/adr/README.md](/Users/piovese/Documents/cogolo/docs/adr/README.md)
 

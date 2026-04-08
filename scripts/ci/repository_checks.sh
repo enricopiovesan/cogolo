@@ -14,12 +14,46 @@ required_files=(
   ".specify/memory/constitution.md"
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
+  "docs/adapter-boundaries.md"
   "docs/contract-publication-policy.md"
+  "docs/expedition-example-authoring.md"
+  "docs/expedition-example-smoke.md"
+  "docs/mcp-consumption-validation.md"
+  "docs/mcp-stdio-server.md"
+  "docs/app-consumable-release-checklist.md"
+  "docs/app-consumable-consumer-bundle.md"
+  "docs/app-consumable-release-artifact.md"
+  "docs/youaskm3-integration-validation.md"
+  "apps/browser-consumer/README.md"
+  "apps/browser-consumer/package.json"
+  "docs/wasm-agent-team-readiness-example.md"
+  "docs/app-consumable-acceptance.md"
+  "docs/app-consumable-entry-path.md"
+  "docs/executable-package-template.md"
+  "docs/local-runtime-home.md"
+  "quickstart.md"
+  "examples/expedition/runtime-requests/plan-expedition.json"
   "docs/exception-process.md"
   "docs/project-management.md"
+  "docs/multi-thread-workflow.md"
+  "docs/ticket-standard.md"
+  "docs/planning-board.md"
   "docs/ai-review-process.md"
   "docs/adr/README.md"
   "docs/adr/0001-rust-wasm-foundation.md"
+  "scripts/ci/browser_adapter_smoke.sh"
+  "apps/react-demo/server.mjs"
+  "apps/react-demo/src/browser-adapter-client.js"
+  "scripts/ci/react_demo_live_adapter_smoke.sh"
+  "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
+  "scripts/ci/browser_consumer_package_smoke.sh"
+  "scripts/ci/youaskm3_integration_validation.sh"
+  "scripts/ci/app_consumable_release_prep.sh"
+  "scripts/ci/mcp_stdio_server_smoke.sh"
+  "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
+  "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
+  "scripts/ci/project_board_audit.sh"
+  ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
   "specs/001-foundation-v0-1/research.md"
@@ -27,6 +61,8 @@ required_files=(
   "specs/004-spec-alignment-gate/spec.md"
   "specs/004-spec-alignment-gate/data-model.md"
   "specs/governance/approved-specs.json"
+  "specs/022-mcp-wasm-server/spec.md"
+  "specs/022-mcp-wasm-server/checklists/requirements.md"
 )
 
 for file in "${required_files[@]}"; do
@@ -34,14 +70,95 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
-if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
-  echo "Found stale project name references; expected 'Traverse'." >&2
-  exit 1
+if command -v rg >/dev/null 2>&1; then
+  if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+    echo "Found stale project name references; expected 'Traverse'." >&2
+    exit 1
+  fi
+else
+  if grep -RInE --exclude='repository_checks.sh' --exclude-dir='.git' 'Cogollo|Cogolo' .; then
+    echo "Found stale project name references; expected 'Traverse'." >&2
+    exit 1
+  fi
 fi
 
 grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
+grep -q "docs/adapter-boundaries.md" README.md
+grep -q "quickstart.md" README.md
+grep -q "Definition of Done" docs/ticket-standard.md
+grep -q "in-progress" docs/ticket-standard.md
+grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-standard.md
+grep -q "Validation" docs/ticket-standard.md
+grep -q "future" docs/project-management.md
+grep -q "in-progress" docs/project-management.md
+! grep -q '^- `ready`$' docs/project-management.md
+grep -q 'Potential parallel candidates should stay `Ready`' docs/project-management.md
+grep -q "Project 1 status is the only actionability signal" docs/project-management.md
+grep -q "project_board_audit.sh" docs/project-management.md
+grep -q "Note" docs/project-management.md
+grep -q "separate Codex threads" docs/project-management.md
+grep -q "Blocked" docs/planning-board.md
+grep -q "In Progress" docs/planning-board.md
+grep -q "Only tickets with real active execution" docs/planning-board.md
+grep -q "Note" docs/ticket-standard.md
+! grep -q '^- `ready`$' docs/ticket-standard.md
+grep -q "Use Project 1 status for availability" docs/ticket-standard.md
+grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
+grep -q "Starter Prompts" docs/multi-thread-workflow.md
+grep -q "project_board_audit.sh" docs/multi-thread-workflow.md
+grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
+grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
+grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
+grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md
+grep -q "list_content_groups" docs/mcp-stdio-server.md
+grep -q "describe_content_group" docs/mcp-stdio-server.md
+grep -q "core-runtime-example" docs/mcp-stdio-server.md
+grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
+grep -q "render_execution_report" docs/mcp-stdio-server.md
+grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
+grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
+grep -q "docs/app-consumable-consumer-bundle.md" README.md
+grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
+grep -q "versioned Traverse consumer bundle" docs/app-consumable-consumer-bundle.md
+grep -q "supported version selection" docs/app-consumable-consumer-bundle.md
+grep -q "installation steps" docs/app-consumable-consumer-bundle.md
+grep -q "apps/browser-consumer/README.md" docs/app-consumable-consumer-bundle.md
+grep -q "docs/mcp-stdio-server.md" docs/app-consumable-consumer-bundle.md
+grep -q "bash scripts/ci/app_consumable_release_prep.sh" docs/app-consumable-consumer-bundle.md
+grep -q "app-consumable v0.1" docs/app-consumable-release-checklist.md
+grep -q "Release Blockers" docs/app-consumable-release-checklist.md
+grep -q "Post-Release Follow-Up" docs/app-consumable-release-checklist.md
+grep -q "quickstart.md" docs/app-consumable-release-checklist.md
+grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-release-checklist.md
+grep -q "publication bundle" docs/app-consumable-release-artifact.md
+grep -q "versioned consumer bundle" docs/app-consumable-release-artifact.md
+grep -q "GitHub release entry" docs/app-consumable-release-artifact.md
+grep -q "supported runnable artifact" docs/app-consumable-release-artifact.md
+grep -q "bash scripts/ci/app_consumable_release_prep.sh" docs/app-consumable-release-artifact.md
+grep -q "bash scripts/ci/wasm_agent_team_readiness_smoke.sh" docs/wasm-agent-team-readiness-example.md
+grep -q "bash scripts/ci/app_consumable_acceptance.sh" docs/app-consumable-acceptance.md
+grep -q "React browser demo" docs/app-consumable-acceptance.md
+grep -q "Canonical Rule" docs/app-consumable-entry-path.md
+grep -q "Start Here" docs/app-consumable-entry-path.md
+grep -q "quickstart.md" docs/app-consumable-entry-path.md
+grep -q "bash scripts/ci/executable_package_template_smoke.sh" docs/executable-package-template.md
+grep -q "docs/local-runtime-home.md" docs/executable-package-template.md
+grep -q "cargo run -p traverse-cli -- bundle inspect examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
+grep -q "cargo run -p traverse-cli -- expedition execute examples/expedition/runtime-requests/plan-expedition.json" docs/expedition-example-authoring.md
+grep -q "cargo run -p traverse-cli -- trace inspect" docs/expedition-example-authoring.md
+grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
+grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
+grep -q ".traverse/local/" docs/expedition-example-authoring.md
+grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
+grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
+grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
 grep -q "Specs Are Versioned, Immutable, and Merge-Gating" .specify/memory/constitution.md
 grep -q "Non-Functional Requirements" .specify/memory/constitution.md
 grep -q "Enterprise Quality Standards" .specify/memory/constitution.md
@@ -50,6 +167,52 @@ grep -q "Non-Negotiable Quality Standards" specs/001-foundation-v0-1/spec.md
 grep -q "AI Review Process" docs/ai-review-process.md
 grep -q '"schema_version": "1.0.0"' specs/governance/approved-specs.json
 grep -q "Spec-alignment gate implementation" docs/quality-standards.md
+grep -q "docs/adapter-boundaries.md" docs/compatibility-policy.md
+grep -q "specs/013-browser-runtime-subscription/spec.md" docs/adapter-boundaries.md
+grep -q "specs/014-mcp-surface/spec.md" docs/adapter-boundaries.md
+grep -q "mandatory sidecar topology" docs/adapter-boundaries.md
+grep -q "optional adapter choices" docs/adapter-boundaries.md
+grep -q "browser-adapter serve" apps/react-demo/README.md
+grep -q "react_demo_live_adapter_smoke.sh" apps/react-demo/README.md
+grep -q "same-origin local proxy" apps/react-demo/README.md
+grep -q "app-consumable acceptance" apps/react-demo/README.md
+grep -q "Run the local browser adapter proxy again" apps/react-demo/README.md
+grep -q "browser-targeted consumer package" docs/app-consumable-consumer-bundle.md
+grep -q "consumer bundle" docs/app-consumable-consumer-bundle.md
+grep -q "youaskm3 integration validation" README.md
+grep -q "Traverse React demo serving on" apps/react-demo/server.mjs
+grep -q "runLiveBrowserSubscription" apps/react-demo/src/browser-adapter-client.js
+grep -q "applyBrowserSubscriptionMessage" apps/react-demo/src/browser-adapter-client.js
+grep -q "App" apps/react-demo/src/main.js
+grep -q "react_demo_live_adapter_smoke.sh" scripts/ci/react_demo_live_adapter_smoke.sh
+grep -q "## Prerequisites" quickstart.md
+grep -q "browser-adapter serve --bind 127.0.0.1:4174" quickstart.md
+grep -q "node apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 4173" quickstart.md
+grep -q "apps/browser-consumer/README.md" docs/app-consumable-entry-path.md
+grep -q "browser-targeted consumer package" apps/browser-consumer/README.md
+grep -q "browser_consumer_package_smoke.sh" apps/browser-consumer/README.md
+grep -q "browser-hosted app" apps/browser-consumer/README.md
+grep -q "bash scripts/ci/react_demo_live_adapter_smoke.sh" quickstart.md
+grep -q "bash scripts/ci/react_demo_smoke.sh" quickstart.md
+grep -q "## Known Limitations" quickstart.md
+grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
+grep -q "cargo run -p traverse-mcp -- stdio" docs/mcp-stdio-server.md
+grep -q "cargo run -p traverse-mcp -- stdio --simulate-startup-failure" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_smoke.sh" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_discovery_smoke.sh" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
+grep -q "bash scripts/ci/mcp_stdio_server_discovery_smoke.sh" docs/mcp-stdio-server.md
+grep -q "render_execution_report" docs/mcp-stdio-server.md
+grep -q "list_entrypoints" docs/mcp-stdio-server.md
+grep -q "describe_entrypoint" docs/mcp-stdio-server.md
+grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
+grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
+grep -q "bash scripts/ci/project_board_audit.sh" docs/project-management.md
+grep -q "Open PR-backed tickets" docs/project-management.md
+grep -q 'must be labeled `in-progress`' docs/multi-thread-workflow.md
+grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spec.md
+grep -q "Traverse runtime authority" specs/022-mcp-wasm-server/spec.md
+grep -q "MCP transport concerns" specs/022-mcp-wasm-server/spec.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
 echo "Repository checks passed."

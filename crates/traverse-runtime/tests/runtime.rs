@@ -12,10 +12,12 @@ use traverse_registry::{
     SourceReference,
 };
 use traverse_runtime::{
-    CandidateReason, ExecutionFailureReason, ExecutionStatus, LocalExecutionFailure,
-    LocalExecutionFailureCode, LocalExecutor, PlacementTarget, Runtime, RuntimeContext,
-    RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest, RuntimeResultStatus,
-    RuntimeState, SelectionFailureReason, SelectionStatus, parse_runtime_request,
+    BrowserRuntimeSubscriptionLifecycleStatus, BrowserRuntimeSubscriptionMessage,
+    BrowserRuntimeSubscriptionRequest, CandidateReason, ExecutionFailureReason, ExecutionStatus,
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, PlacementTarget, Runtime,
+    RuntimeContext, RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
+    RuntimeResultStatus, RuntimeState, SelectionFailureReason, SelectionStatus,
+    browser_subscription_messages, parse_runtime_request,
 };
 
 #[test]
@@ -60,10 +62,36 @@ fn executes_one_exact_registered_capability_locally() {
             RuntimeState::EvaluatingConstraints,
             RuntimeState::Selecting,
             RuntimeState::Executing,
+            RuntimeState::EmittingEvents,
             RuntimeState::Completed,
+            RuntimeState::Ready,
         ]
     );
     assert_eq!(outcome.trace.selection.status, SelectionStatus::Selected);
+    assert_eq!(
+        outcome.trace.decision_evidence.candidate_collection,
+        outcome.trace.candidate_collection
+    );
+    assert_eq!(
+        outcome.trace.decision_evidence.selection,
+        outcome.trace.selection
+    );
+    assert_eq!(
+        outcome.trace.state_progression.state_events,
+        outcome.state_events
+    );
+    assert_eq!(
+        outcome.trace.state_progression.transitions,
+        outcome.trace.state_transitions
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.runtime_status,
+        RuntimeResultStatus::Completed
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.execution_status,
+        ExecutionStatus::Succeeded
+    );
     assert_eq!(outcome.trace.candidate_collection.candidates.len(), 1);
     assert_eq!(
         outcome.trace.candidate_collection.candidates[0].reason,
@@ -71,6 +99,8 @@ fn executes_one_exact_registered_capability_locally() {
     );
     assert_eq!(outcome.trace.execution.status, ExecutionStatus::Succeeded);
     assert!(outcome.trace.execution.output_digest.is_some());
+    assert!(outcome.trace.emitted_events.is_empty());
+    assert!(outcome.trace.workflow_evidence.is_none());
 }
 
 #[test]
@@ -179,7 +209,10 @@ fn rejects_invalid_request_before_discovery() {
         vec![
             RuntimeState::LoadingRegistry,
             RuntimeState::Ready,
-            RuntimeState::Error
+            RuntimeState::Discovering,
+            RuntimeState::EvaluatingConstraints,
+            RuntimeState::Error,
+            RuntimeState::Ready
         ]
     );
     assert_eq!(
@@ -292,6 +325,18 @@ fn surfaces_executor_failures() {
         outcome.trace.execution.failure_reason,
         Some(ExecutionFailureReason::ExecutionFailed)
     );
+    assert_eq!(
+        outcome.trace.terminal_outcome.runtime_status,
+        RuntimeResultStatus::Error
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.execution_status,
+        ExecutionStatus::Failed
+    );
+    assert_eq!(
+        outcome.trace.terminal_outcome.failure_reason,
+        Some(ExecutionFailureReason::ExecutionFailed)
+    );
 }
 
 #[test]
@@ -315,6 +360,82 @@ fn rejects_invalid_executor_output_against_contract() {
     assert_eq!(
         outcome.trace.execution.failure_reason,
         Some(ExecutionFailureReason::ContractOutputInvalid)
+    );
+}
+
+#[test]
+fn records_local_placement_decision_for_successful_execution() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+
+    let outcome = runtime.execute(base_request_exact());
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+    assert_eq!(
+        outcome.trace.execution.placement.requested_target,
+        PlacementTarget::Local
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.selected_target,
+        Some(PlacementTarget::Local)
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.status,
+        traverse_runtime::PlacementDecisionStatus::Selected
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.reason,
+        traverse_runtime::PlacementDecisionReason::RequestedTargetSelected
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.supported_executor_targets,
+        vec![PlacementTarget::Local]
+    );
+}
+
+#[test]
+fn rejects_unsupported_non_local_placement_requests() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let mut request = base_request_exact();
+    request.context.requested_target = PlacementTarget::Cloud;
+
+    let outcome = runtime.execute(request);
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
+    assert_eq!(
+        outcome.result.error.as_ref().map(|error| error.code),
+        Some(RuntimeErrorCode::PlacementUnsupported)
+    );
+    assert_eq!(
+        outcome.trace.execution.failure_reason,
+        Some(ExecutionFailureReason::PlacementUnsupported)
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.status,
+        traverse_runtime::PlacementDecisionStatus::NotAttempted
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.reason,
+        traverse_runtime::PlacementDecisionReason::RequestedTargetUnsupported
+    );
+    assert_eq!(
+        outcome.trace.execution.placement.supported_executor_targets,
+        vec![PlacementTarget::Local]
     );
 }
 
@@ -350,6 +471,115 @@ fn uses_public_only_scope_when_requested() {
         outcome.trace.candidate_collection.candidates[0].scope,
         traverse_runtime::RuntimeRegistryScope::Public
     );
+}
+
+#[test]
+fn browser_subscription_by_request_id_emits_ordered_messages() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let outcome = runtime.execute(base_request_exact());
+
+    let messages = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: Some("req-123".to_string()),
+            execution_id: None,
+        },
+        &outcome,
+    );
+
+    assert!(matches!(
+        messages.first(),
+        Some(BrowserRuntimeSubscriptionMessage::Lifecycle(message))
+            if message.status == BrowserRuntimeSubscriptionLifecycleStatus::SubscriptionEstablished
+    ));
+    assert!(matches!(
+        messages.get(messages.len() - 2),
+        Some(BrowserRuntimeSubscriptionMessage::StreamTerminal(_))
+    ));
+    assert!(matches!(
+        messages.last(),
+        Some(BrowserRuntimeSubscriptionMessage::Lifecycle(message))
+            if message.status == BrowserRuntimeSubscriptionLifecycleStatus::StreamCompleted
+    ));
+}
+
+#[test]
+fn browser_subscription_by_execution_id_emits_trace_artifact() {
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let outcome = runtime.execute(base_request_exact());
+
+    let messages = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: None,
+            execution_id: Some(outcome.result.execution_id.clone()),
+        },
+        &outcome,
+    );
+
+    assert!(messages.iter().any(|message| {
+        matches!(
+            message,
+            BrowserRuntimeSubscriptionMessage::TraceArtifact(trace)
+                if trace.trace.trace_id == outcome.trace.trace_id
+        )
+    }));
+}
+
+#[test]
+fn browser_subscription_rejects_invalid_targeting_requests() {
+    let runtime = Runtime::new(registry_with(vec![]), EchoExecutor);
+    let outcome = runtime.execute(base_request_exact());
+
+    let both = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: Some("req-123".to_string()),
+            execution_id: Some("exec_req-123".to_string()),
+        },
+        &outcome,
+    );
+    let none = browser_subscription_messages(
+        &BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: None,
+            execution_id: None,
+        },
+        &outcome,
+    );
+
+    assert!(matches!(
+        both.first(),
+        Some(BrowserRuntimeSubscriptionMessage::Error(_))
+    ));
+    assert!(matches!(
+        none.first(),
+        Some(BrowserRuntimeSubscriptionMessage::Error(_))
+    ));
 }
 
 fn states(events: &[traverse_runtime::RuntimeStateEvent]) -> Vec<RuntimeState> {

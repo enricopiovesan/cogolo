@@ -1,0 +1,70 @@
+# youaskm3 Integration Validation
+
+This document defines the first real downstream `youaskm3` integration path against Traverse.
+
+It stays on governed public Traverse surfaces only:
+
+- the live local browser adapter
+- the checked-in React browser demo
+- the downstream MCP consumption validation path
+- the first app-consumable quickstart
+
+For the shortest Traverse-side start path, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
+
+## Governing Spec
+
+- `specs/019-downstream-consumer-contract/spec.md`
+- `specs/020-downstream-integration-validation/spec.md`
+- `specs/021-app-facing-operational-constraints/spec.md`
+
+## Purpose
+
+Use one deterministic repo-local validation flow to prove that `youaskm3` can consume Traverse through the documented public surfaces without private repo knowledge or undocumented setup.
+
+## Prerequisites
+
+- A local Traverse checkout with the approved browser adapter, quickstart, and MCP validation docs available.
+- Rust and Node.js installed locally.
+- Optional: a sibling `youaskm3` checkout if you want to run the downstream app alongside Traverse while following the documented flow.
+
+## Traverse Validation Path
+
+Run the browser and MCP validation smoke checks in order:
+
+```bash
+bash scripts/ci/react_demo_live_adapter_smoke.sh
+bash scripts/ci/mcp_consumption_validation.sh
+```
+
+Then run the integration validation wrapper:
+
+```bash
+bash scripts/ci/youaskm3_integration_validation.sh
+```
+
+## Expected Evidence
+
+The validation path should prove:
+
+- request submission from the approved public consumer path
+- ordered runtime updates and terminal outcome consumption
+- trace visibility through the public Traverse surfaces
+- `consumer_name: youaskm3`
+- `validated_flow_id: youaskm3_mcp_validation`
+- no dependency on private Traverse internals or undocumented setup
+
+## Known Failure Modes
+
+The path is expected to fail deterministically when:
+
+- the live browser adapter is unavailable
+- the MCP consumption surface is unavailable
+- the documented quickstart or validation docs are missing
+- the downstream consumer path cannot be followed through the public surfaces
+
+## Validation
+
+- `bash scripts/ci/react_demo_live_adapter_smoke.sh`
+- `bash scripts/ci/mcp_consumption_validation.sh`
+- `bash scripts/ci/youaskm3_integration_validation.sh`
+- `bash scripts/ci/repository_checks.sh`

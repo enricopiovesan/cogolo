@@ -1,0 +1,278 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.plan-expedition",
+  "name": "plan-expedition",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Capture, interpret, validate, and assemble an expedition plan deterministically.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "destination",
+        "target_window",
+        "preferences",
+        "notes",
+        "planning_intent",
+        "team_profile"
+      ],
+      "properties": {
+        "destination": {
+          "type": "string"
+        },
+        "target_window": {
+          "type": "object",
+          "required": [
+            "start",
+            "end"
+          ],
+          "properties": {
+            "start": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "end": {
+              "type": "string",
+              "format": "date-time"
+            }
+          }
+        },
+        "preferences": {
+          "type": "object",
+          "required": [
+            "style",
+            "risk_tolerance",
+            "priority"
+          ],
+          "properties": {
+            "style": {
+              "type": "string"
+            },
+            "risk_tolerance": {
+              "type": "string"
+            },
+            "priority": {
+              "type": "string"
+            }
+          }
+        },
+        "notes": {
+          "type": "string"
+        },
+        "planning_intent": {
+          "type": "string"
+        },
+        "team_profile": {
+          "type": "object",
+          "required": [
+            "team_id",
+            "member_count",
+            "experience_level",
+            "equipment_ready"
+          ],
+          "properties": {
+            "team_id": {
+              "type": "string"
+            },
+            "member_count": {
+              "type": "integer"
+            },
+            "experience_level": {
+              "type": "string"
+            },
+            "equipment_ready": {
+              "type": "boolean"
+            }
+          }
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "plan_id",
+        "objective_id",
+        "status",
+        "recommended_route_style",
+        "key_steps",
+        "constraints",
+        "readiness_notes",
+        "summary"
+      ],
+      "properties": {
+        "plan_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "recommended_route_style": {
+          "type": "string"
+        },
+        "key_steps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "readiness_notes": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "summary": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "capture_objective",
+      "capability_id": "expedition.planning.capture-expedition-objective",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "destination",
+          "target_window",
+          "preferences",
+          "notes"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "objective"
+        ]
+      }
+    },
+    {
+      "node_id": "interpret_intent",
+      "capability_id": "expedition.planning.interpret-expedition-intent",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "objective",
+          "planning_intent"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "interpreted_intent"
+        ]
+      }
+    },
+    {
+      "node_id": "assess_conditions",
+      "capability_id": "expedition.planning.assess-conditions-summary",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "objective",
+          "interpreted_intent"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "conditions_summary"
+        ]
+      }
+    },
+    {
+      "node_id": "validate_readiness",
+      "capability_id": "expedition.planning.validate-team-readiness",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "objective",
+          "conditions_summary",
+          "team_profile"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "readiness_result"
+        ]
+      }
+    },
+    {
+      "node_id": "assemble_plan",
+      "capability_id": "expedition.planning.assemble-expedition-plan",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "objective",
+          "interpreted_intent",
+          "conditions_summary",
+          "readiness_result"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "plan_id",
+          "objective_id",
+          "status",
+          "recommended_route_style",
+          "key_steps",
+          "constraints",
+          "readiness_notes",
+          "summary"
+        ]
+      }
+    }
+  ],
+  "edges": [
+    {
+      "edge_id": "capture_to_interpret",
+      "from": "capture_objective",
+      "to": "interpret_intent",
+      "trigger": "direct"
+    },
+    {
+      "edge_id": "interpret_to_conditions",
+      "from": "interpret_intent",
+      "to": "assess_conditions",
+      "trigger": "direct"
+    },
+    {
+      "edge_id": "conditions_to_readiness",
+      "from": "assess_conditions",
+      "to": "validate_readiness",
+      "trigger": "direct"
+    },
+    {
+      "edge_id": "readiness_to_plan",
+      "from": "validate_readiness",
+      "to": "assemble_plan",
+      "trigger": "direct"
+    }
+  ],
+  "start_node": "capture_objective",
+  "terminal_nodes": [
+    "assemble_plan"
+  ],
+  "tags": [
+    "expedition",
+    "planning",
+    "example-domain"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}

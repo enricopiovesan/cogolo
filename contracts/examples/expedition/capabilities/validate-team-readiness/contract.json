@@ -5,13 +5,13 @@
   "namespace": "expedition.planning",
   "name": "validate-team-readiness",
   "version": "1.0.0",
-  "lifecycle": "draft",
+  "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "enrico.piovesan10@gmail.com"
   },
-  "summary": "Validate expedition team readiness against the objective and conditions context.",
-  "description": "Portable deterministic capability for evaluating expedition team profile context together with the normalized objective and conditions summary to produce a governed readiness result with status, reasons, and required actions.",
+  "summary": "Validate expedition team readiness from objective, conditions summary, and team profile context.",
+  "description": "Portable capability for deterministic readiness validation that evaluates whether the expedition team satisfies planning requirements and required actions before plan assembly proceeds.",
   "inputs": {
     "schema": {
       "type": "object",
@@ -24,56 +24,10 @@
         "objective": {
           "type": "object",
           "required": [
-            "objective_id",
-            "destination",
-            "target_window",
-            "preferences",
-            "notes"
+            "objective_id"
           ],
           "properties": {
             "objective_id": {
-              "type": "string"
-            },
-            "destination": {
-              "type": "string"
-            },
-            "target_window": {
-              "type": "object",
-              "required": [
-                "start",
-                "end"
-              ],
-              "properties": {
-                "start": {
-                  "type": "string",
-                  "format": "date-time"
-                },
-                "end": {
-                  "type": "string",
-                  "format": "date-time"
-                }
-              }
-            },
-            "preferences": {
-              "type": "object",
-              "required": [
-                "style",
-                "risk_tolerance",
-                "priority"
-              ],
-              "properties": {
-                "style": {
-                  "type": "string"
-                },
-                "risk_tolerance": {
-                  "type": "string"
-                },
-                "priority": {
-                  "type": "string"
-                }
-              }
-            },
-            "notes": {
               "type": "string"
             }
           }
@@ -114,19 +68,23 @@
         "team_profile": {
           "type": "object",
           "required": [
-            "team_size",
-            "experience_summary",
-            "equipment_status"
+            "team_id",
+            "member_count",
+            "experience_level",
+            "equipment_ready"
           ],
           "properties": {
-            "team_size": {
+            "team_id": {
+              "type": "string"
+            },
+            "member_count": {
               "type": "integer"
             },
-            "experience_summary": {
+            "experience_level": {
               "type": "string"
             },
-            "equipment_status": {
-              "type": "string"
+            "equipment_ready": {
+              "type": "boolean"
             }
           }
         }
@@ -170,20 +128,20 @@
   },
   "preconditions": [
     {
-      "id": "objective-conditions-and-team-profile-available",
-      "description": "The normalized expedition objective, deterministic conditions summary, and team profile context are all available."
+      "id": "readiness-context-available",
+      "description": "Objective, deterministic conditions summary, and team profile context are available for readiness validation."
     }
   ],
   "postconditions": [
     {
       "id": "readiness-result-produced",
-      "description": "A deterministic readiness result is returned with status, reasons, and required actions."
+      "description": "A deterministic readiness result is returned with required actions when caution or blocking factors exist."
     }
   ],
   "side_effects": [
     {
       "kind": "event_emission",
-      "description": "Emits the team-readiness-validated domain event after readiness validation completes."
+      "description": "Emits the team-readiness-validated event after readiness validation completes."
     }
   ],
   "emits": [
@@ -192,8 +150,17 @@
       "version": "1.0.0"
     }
   ],
-  "consumes": [],
-  "permissions": [],
+  "consumes": [
+    {
+      "event_id": "expedition.planning.conditions-summary-assessed",
+      "version": "1.0.0"
+    }
+  ],
+  "permissions": [
+    {
+      "id": "expedition.plan.validate-readiness"
+    }
+  ],
   "execution": {
     "binary_format": "wasm",
     "entrypoint": {
@@ -217,6 +184,11 @@
   "dependencies": [
     {
       "artifact_type": "event",
+      "id": "expedition.planning.conditions-summary-assessed",
+      "version": "1.0.0"
+    },
+    {
+      "artifact_type": "event",
       "id": "expedition.planning.team-readiness-validated",
       "version": "1.0.0"
     }
@@ -225,7 +197,11 @@
     "source": "greenfield",
     "author": "enricopiovesan",
     "created_at": "2026-03-27T00:00:00Z",
-    "spec_ref": "009-expedition-example-artifacts"
+    "spec_ref": "009-expedition-example-artifacts@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
   },
   "evidence": []
 }

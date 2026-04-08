@@ -14,6 +14,18 @@ jobs:
       - name: Checkout
         uses: actions/checkout@v4
 
+      - name: Run expedition artifact smoke path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_artifact_smoke.sh
+
+      - name: Run expedition execution smoke path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_execution_smoke.sh
+
+      - name: Run expedition trace smoke path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_trace_smoke.sh
+
+      - name: Run expedition golden path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_golden_path.sh
+
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
 
@@ -28,6 +40,9 @@ jobs:
 
       - name: Run Rust checks
         run: bash scripts/ci/rust_checks.sh
+
+      - name: Run event-driven workflow smoke path
+        run: bash scripts/ci/event_driven_workflow_smoke.sh
 
   coverage-gate:
     runs-on: ubuntu-latest

@@ -1,0 +1,91 @@
+{
+  "kind": "event_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.expedition-intent-interpreted",
+  "namespace": "expedition.planning",
+  "name": "expedition-intent-interpreted",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "An expedition intent has been interpreted into structured planning inputs for downstream steps.",
+  "description": "Governed event contract for the AI-assisted interpretation emitted after interpret-expedition-intent converts free-form planning intent into structured route preferences, constraints, and assumptions.",
+  "payload": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "intent_id",
+        "objective_id",
+        "route_preferences",
+        "constraints",
+        "assumptions",
+        "confidence"
+      ],
+      "properties": {
+        "intent_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "route_preferences": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "constraints": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "assumptions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "confidence": {
+          "type": "number"
+        }
+      }
+    },
+    "compatibility": "backward-compatible"
+  },
+  "classification": {
+    "domain": "expedition",
+    "bounded_context": "planning",
+    "event_type": "domain",
+    "tags": [
+      "expedition",
+      "intent",
+      "planning"
+    ]
+  },
+  "publishers": [
+    {
+      "capability_id": "expedition.planning.interpret-expedition-intent",
+      "version": "1.0.0"
+    }
+  ],
+  "subscribers": [],
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "tags": [
+    "expedition",
+    "intent-interpreted",
+    "example-domain"
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z"
+  },
+  "evidence": []
+}

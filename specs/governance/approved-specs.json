@@ -99,6 +99,106 @@
         "contracts/examples/",
         "workflows/examples/"
       ]
+    },
+    {
+      "id": "009-expedition-example-artifacts",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/009-expedition-example-artifacts/spec.md",
+      "governs": [
+        "contracts/examples/",
+        "workflows/examples/"
+      ]
+    },
+    {
+      "id": "010-runtime-state-machine",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/010-runtime-state-machine/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "013-browser-runtime-subscription",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/013-browser-runtime-subscription/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "011-event-registry",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/011-event-registry/spec.md",
+      "governs": [
+        "crates/cogolo-registry/",
+        "crates/traverse-registry/"
+      ]
+    },
+    {
+      "id": "018-event-driven-composition",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/018-event-driven-composition/spec.md",
+      "governs": [
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/",
+        "crates/cogolo-registry/",
+        "crates/traverse-registry/"
+      ]
+    },
+    {
+      "id": "019-downstream-consumer-contract",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/019-downstream-consumer-contract/spec.md",
+      "governs": [
+        "docs/app-consumable-requirements-traceability.md",
+        "docs/planning-board.md",
+        "docs/project-management.md"
+      ]
+    },
+    {
+      "id": "017-ai-agent-packaging",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/017-ai-agent-packaging/spec.md",
+      "governs": [
+        "examples/agents/",
+        "crates/cogolo-cli/",
+        "crates/traverse-cli/",
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/",
+        "crates/cogolo-mcp/",
+        "crates/traverse-mcp/"
+      ]
+    },
+    {
+      "id": "023-browser-hosted-mcp-consumer-model",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/023-browser-hosted-mcp-consumer-model/spec.md",
+      "governs": [
+        "docs/app-consumable-requirements-traceability.md",
+        "docs/app-consumable-entry-path.md",
+        "docs/app-consumable-acceptance.md",
+        "docs/app-consumable-release-checklist.md",
+        "docs/youaskm3-integration-validation.md",
+        "docs/mcp-consumption-validation.md"
+      ]
     }
   ]
 }

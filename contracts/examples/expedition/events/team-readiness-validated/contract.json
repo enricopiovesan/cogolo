@@ -1,0 +1,84 @@
+{
+  "kind": "event_contract",
+  "schema_version": "1.0.0",
+  "id": "expedition.planning.team-readiness-validated",
+  "namespace": "expedition.planning",
+  "name": "team-readiness-validated",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "A team readiness result has been validated for the expedition objective and conditions context.",
+  "description": "Governed event contract for the readiness validation emitted after validate-team-readiness determines expedition team status, reasons, and required follow-up actions deterministically.",
+  "payload": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "readiness_result_id",
+        "objective_id",
+        "status",
+        "reasons",
+        "required_actions"
+      ],
+      "properties": {
+        "readiness_result_id": {
+          "type": "string"
+        },
+        "objective_id": {
+          "type": "string"
+        },
+        "status": {
+          "type": "string"
+        },
+        "reasons": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "required_actions": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    },
+    "compatibility": "backward-compatible"
+  },
+  "classification": {
+    "domain": "expedition",
+    "bounded_context": "planning",
+    "event_type": "domain",
+    "tags": [
+      "expedition",
+      "planning",
+      "readiness"
+    ]
+  },
+  "publishers": [
+    {
+      "capability_id": "expedition.planning.validate-team-readiness",
+      "version": "1.0.0"
+    }
+  ],
+  "subscribers": [],
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "tags": [
+    "example-domain",
+    "expedition",
+    "team-readiness-validated"
+  ],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-03-27T00:00:00Z"
+  },
+  "evidence": []
+}

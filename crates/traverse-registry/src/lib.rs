@@ -1,6 +1,12 @@
-//! Capability registry support for Traverse.
+//! Registry support for Traverse.
 
+mod bundle;
+mod events;
+mod graph;
 mod workflows;
+pub use bundle::*;
+pub use events::*;
+pub use graph::*;
 pub use workflows::*;
 
 use semver::Version;
@@ -444,6 +450,14 @@ impl CapabilityRegistry {
     #[must_use]
     pub fn compatibility_records(&self) -> &[VersionCompatibilityRecord] {
         &self.compatibility
+    }
+
+    #[must_use]
+    pub(crate) fn graph_entries(&self) -> Vec<ResolvedCapability> {
+        self.records
+            .iter()
+            .filter_map(|(key, record)| self.resolve(key, record.clone()))
+            .collect()
     }
 
     fn reconcile_existing(

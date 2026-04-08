@@ -17,8 +17,17 @@ const RUNTIME_REQUEST_KIND: &str = "runtime_request";
 const RUNTIME_RESULT_KIND: &str = "runtime_result";
 const RUNTIME_STATE_EVENT_KIND: &str = "runtime_state_event";
 const RUNTIME_TRACE_KIND: &str = "runtime_trace";
+const RUNTIME_STATE_MACHINE_VALIDATION_KIND: &str = "runtime_state_machine_validation";
+const BROWSER_SUBSCRIPTION_REQUEST_KIND: &str = "browser_runtime_subscription_request";
+const BROWSER_SUBSCRIPTION_ERROR_KIND: &str = "browser_runtime_subscription_error";
+const BROWSER_SUBSCRIPTION_LIFECYCLE_KIND: &str = "browser_runtime_subscription_lifecycle";
+const BROWSER_SUBSCRIPTION_STATE_KIND: &str = "browser_runtime_subscription_state";
+const BROWSER_SUBSCRIPTION_TRACE_KIND: &str = "browser_runtime_subscription_trace_artifact";
+const BROWSER_SUBSCRIPTION_TERMINAL_KIND: &str = "browser_runtime_subscription_terminal";
 const SUPPORTED_SCHEMA_VERSION: &str = "1.0.0";
 const GOVERNING_SPEC: &str = "006-runtime-request-execution";
+const STATE_MACHINE_GOVERNING_SPEC: &str = "010-runtime-state-machine";
+const BROWSER_SUBSCRIPTION_GOVERNING_SPEC: &str = "013-browser-runtime-subscription";
 const EXECUTION_PREFIX: &str = "exec_";
 const TRACE_PREFIX: &str = "trace_";
 
@@ -121,30 +130,118 @@ pub struct RuntimeContext {
 #[serde(rename_all = "snake_case")]
 pub enum PlacementTarget {
     Local,
+    Browser,
+    Edge,
+    Cloud,
+    Worker,
+    Device,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PlacementDecisionRecord {
+    pub requested_target: PlacementTarget,
+    #[serde(default)]
+    pub selected_target: Option<PlacementTarget>,
+    pub status: PlacementDecisionStatus,
+    pub reason: PlacementDecisionReason,
+    pub supported_executor_targets: Vec<PlacementTarget>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementDecisionStatus {
+    NotAttempted,
+    Selected,
+    Unsupported,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PlacementDecisionReason {
+    SelectionNotReached,
+    RequestedTargetSelected,
+    RequestedTargetUnsupported,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RuntimeStateEvent {
     pub kind: String,
     pub schema_version: String,
+    pub event_id: String,
     pub execution_id: String,
     pub request_id: String,
     pub state: RuntimeState,
-    pub timestamp: String,
+    pub entered_at: String,
     pub details: Value,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum RuntimeState {
+    Idle,
     LoadingRegistry,
     Ready,
     Discovering,
     EvaluatingConstraints,
     Selecting,
     Executing,
+    EmittingEvents,
     Completed,
     Error,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeTransitionReasonCode {
+    RuntimeInitializationStarted,
+    RegistryLoaded,
+    RegistryLoadFailed,
+    RequestStarted,
+    CandidatesCollected,
+    NoMatch,
+    ConstraintsEvaluated,
+    ConstraintValidationFailed,
+    CandidateSelected,
+    SelectionFailed,
+    ExecutionSucceededWithEvents,
+    ExecutionSucceeded,
+    ExecutionFailed,
+    EventsEmitted,
+    EventEmissionFailed,
+    ExecutionClosed,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeTransitionRecord {
+    pub from_state: RuntimeState,
+    pub to_state: RuntimeState,
+    pub reason_code: RuntimeTransitionReasonCode,
+    pub occurred_at: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
+    #[serde(default)]
+    pub details: Option<Value>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RuntimeStateMachineValidationEvidence {
+    pub kind: String,
+    pub schema_version: String,
+    pub governing_spec: String,
+    pub validated_at: String,
+    pub status: RuntimeStateMachineValidationStatus,
+    pub checked_states: Vec<RuntimeState>,
+    pub checked_transitions: Vec<String>,
+    pub violations: Vec<Value>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum RuntimeStateMachineValidationStatus {
+    Passed,
+    Failed,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -156,10 +253,41 @@ pub struct RuntimeTrace {
     pub request_id: String,
     pub governing_spec: String,
     pub request: RuntimeRequest,
+    pub decision_evidence: TraceDecisionEvidence,
+    pub state_progression: TraceStateProgression,
+    pub terminal_outcome: TraceTerminalOutcome,
+    pub emitted_events: Vec<traverse_contracts::EventReference>,
+    #[serde(default)]
+    pub workflow_evidence: Option<WorkflowTraversalEvidence>,
+    pub state_transitions: Vec<RuntimeTransitionRecord>,
+    pub state_machine_validation: RuntimeStateMachineValidationEvidence,
     pub candidate_collection: CandidateCollectionRecord,
     pub selection: SelectionRecord,
     pub execution: ExecutionRecord,
     pub result: TraceResultRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceDecisionEvidence {
+    pub candidate_collection: CandidateCollectionRecord,
+    pub selection: SelectionRecord,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceStateProgression {
+    pub state_events: Vec<RuntimeStateEvent>,
+    pub transitions: Vec<RuntimeTransitionRecord>,
+    pub validation: RuntimeStateMachineValidationEvidence,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TraceTerminalOutcome {
+    pub runtime_status: RuntimeResultStatus,
+    pub execution_status: ExecutionStatus,
+    #[serde(default)]
+    pub failure_reason: Option<ExecutionFailureReason>,
+    #[serde(default)]
+    pub error: Option<RuntimeError>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -240,6 +368,7 @@ pub enum SelectionFailureReason {
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ExecutionRecord {
+    pub placement: PlacementDecisionRecord,
     pub placement_target: PlacementTarget,
     pub status: ExecutionStatus,
     #[serde(default)]
@@ -268,6 +397,7 @@ pub enum ExecutionFailureReason {
     ContractInputInvalid,
     ArtifactMissing,
     ArtifactNotRunnable,
+    PlacementUnsupported,
     ExecutionFailed,
     ContractOutputInvalid,
 }
@@ -314,6 +444,7 @@ pub enum RuntimeErrorCode {
     CapabilityNotFound,
     CapabilityAmbiguous,
     CapabilityNotRunnable,
+    PlacementUnsupported,
     ArtifactMissing,
     ExecutionFailed,
     OutputValidationFailed,
@@ -324,6 +455,84 @@ pub struct RuntimeExecutionOutcome {
     pub result: RuntimeResult,
     pub trace: RuntimeTrace,
     pub state_events: Vec<RuntimeStateEvent>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionRequest {
+    pub kind: String,
+    pub schema_version: String,
+    pub governing_spec: String,
+    #[serde(default)]
+    pub request_id: Option<String>,
+    #[serde(default)]
+    pub execution_id: Option<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionErrorMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub code: BrowserRuntimeSubscriptionErrorCode,
+    pub message: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserRuntimeSubscriptionErrorCode {
+    InvalidRequest,
+    NotFound,
+    UnsupportedOperation,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionLifecycleMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub request_id: String,
+    pub execution_id: String,
+    pub status: BrowserRuntimeSubscriptionLifecycleStatus,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum BrowserRuntimeSubscriptionLifecycleStatus {
+    SubscriptionEstablished,
+    StreamCompleted,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionStateMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub state_event: RuntimeStateEvent,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionTraceArtifactMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub trace: RuntimeTrace,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct BrowserRuntimeSubscriptionTerminalMessage {
+    pub kind: String,
+    pub schema_version: String,
+    pub sequence: u64,
+    pub result: RuntimeResult,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub enum BrowserRuntimeSubscriptionMessage {
+    Error(BrowserRuntimeSubscriptionErrorMessage),
+    Lifecycle(Box<BrowserRuntimeSubscriptionLifecycleMessage>),
+    State(Box<BrowserRuntimeSubscriptionStateMessage>),
+    TraceArtifact(Box<BrowserRuntimeSubscriptionTraceArtifactMessage>),
+    StreamTerminal(Box<BrowserRuntimeSubscriptionTerminalMessage>),
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -375,6 +584,148 @@ pub fn parse_runtime_request(json: &str) -> Result<RuntimeRequest, RequestParseF
     })
 }
 
+#[must_use]
+pub fn browser_subscription_messages(
+    request: &BrowserRuntimeSubscriptionRequest,
+    outcome: &RuntimeExecutionOutcome,
+) -> Vec<BrowserRuntimeSubscriptionMessage> {
+    if let Some(error) = validate_browser_subscription_request(request) {
+        return vec![BrowserRuntimeSubscriptionMessage::Error(error)];
+    }
+
+    if !subscription_targets_outcome(request, outcome) {
+        return vec![BrowserRuntimeSubscriptionMessage::Error(
+            BrowserRuntimeSubscriptionErrorMessage {
+                kind: BROWSER_SUBSCRIPTION_ERROR_KIND.to_string(),
+                schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+                sequence: 0,
+                code: BrowserRuntimeSubscriptionErrorCode::NotFound,
+                message: "subscription target did not match the supplied execution outcome"
+                    .to_string(),
+            },
+        )];
+    }
+
+    let mut sequence = 0_u64;
+    let mut messages = Vec::new();
+    messages.push(BrowserRuntimeSubscriptionMessage::Lifecycle(Box::new(
+        BrowserRuntimeSubscriptionLifecycleMessage {
+            kind: BROWSER_SUBSCRIPTION_LIFECYCLE_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            request_id: outcome.result.request_id.clone(),
+            execution_id: outcome.result.execution_id.clone(),
+            status: BrowserRuntimeSubscriptionLifecycleStatus::SubscriptionEstablished,
+        },
+    )));
+    sequence += 1;
+
+    for state_event in &outcome.state_events {
+        messages.push(BrowserRuntimeSubscriptionMessage::State(Box::new(
+            BrowserRuntimeSubscriptionStateMessage {
+                kind: BROWSER_SUBSCRIPTION_STATE_KIND.to_string(),
+                schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+                sequence,
+                state_event: state_event.clone(),
+            },
+        )));
+        sequence += 1;
+    }
+
+    messages.push(BrowserRuntimeSubscriptionMessage::TraceArtifact(Box::new(
+        BrowserRuntimeSubscriptionTraceArtifactMessage {
+            kind: BROWSER_SUBSCRIPTION_TRACE_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            trace: outcome.trace.clone(),
+        },
+    )));
+    sequence += 1;
+
+    messages.push(BrowserRuntimeSubscriptionMessage::StreamTerminal(Box::new(
+        BrowserRuntimeSubscriptionTerminalMessage {
+            kind: BROWSER_SUBSCRIPTION_TERMINAL_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            result: outcome.result.clone(),
+        },
+    )));
+    sequence += 1;
+
+    messages.push(BrowserRuntimeSubscriptionMessage::Lifecycle(Box::new(
+        BrowserRuntimeSubscriptionLifecycleMessage {
+            kind: BROWSER_SUBSCRIPTION_LIFECYCLE_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            sequence,
+            request_id: outcome.result.request_id.clone(),
+            execution_id: outcome.result.execution_id.clone(),
+            status: BrowserRuntimeSubscriptionLifecycleStatus::StreamCompleted,
+        },
+    )));
+
+    messages
+}
+
+fn validate_browser_subscription_request(
+    request: &BrowserRuntimeSubscriptionRequest,
+) -> Option<BrowserRuntimeSubscriptionErrorMessage> {
+    if request.kind != BROWSER_SUBSCRIPTION_REQUEST_KIND {
+        return Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "kind must equal browser_runtime_subscription_request",
+        ));
+    }
+    if request.schema_version != SUPPORTED_SCHEMA_VERSION {
+        return Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "schema_version must equal 1.0.0",
+        ));
+    }
+    if request.governing_spec != BROWSER_SUBSCRIPTION_GOVERNING_SPEC {
+        return Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "governing_spec must equal 013-browser-runtime-subscription",
+        ));
+    }
+
+    match (&request.request_id, &request.execution_id) {
+        (Some(request_id), None) if non_empty(request_id) => None,
+        (None, Some(execution_id)) if non_empty(execution_id) => None,
+        (Some(_), Some(_)) => Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "exactly one target selector must be supplied",
+        )),
+        _ => Some(browser_subscription_error(
+            BrowserRuntimeSubscriptionErrorCode::InvalidRequest,
+            "subscription request must include request_id or execution_id",
+        )),
+    }
+}
+
+fn subscription_targets_outcome(
+    request: &BrowserRuntimeSubscriptionRequest,
+    outcome: &RuntimeExecutionOutcome,
+) -> bool {
+    match (&request.request_id, &request.execution_id) {
+        (Some(request_id), None) => request_id == &outcome.result.request_id,
+        (None, Some(execution_id)) => execution_id == &outcome.result.execution_id,
+        _ => false,
+    }
+}
+
+fn browser_subscription_error(
+    code: BrowserRuntimeSubscriptionErrorCode,
+    message: &str,
+) -> BrowserRuntimeSubscriptionErrorMessage {
+    BrowserRuntimeSubscriptionErrorMessage {
+        kind: BROWSER_SUBSCRIPTION_ERROR_KIND.to_string(),
+        schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+        sequence: 0,
+        code,
+        message: message.to_string(),
+    }
+}
+
 impl<E> Runtime<E>
 where
     E: LocalExecutor,
@@ -383,6 +734,11 @@ where
     #[must_use]
     pub fn execute(&self, request: RuntimeRequest) -> RuntimeExecutionOutcome {
         let (attempt, mut emitter) = begin_attempt(request);
+        emitter.push(
+            RuntimeState::Discovering,
+            RuntimeTransitionReasonCode::RequestStarted,
+            json!({"lookup_scope": attempt.request.lookup.scope}),
+        );
 
         if let Some(error) = validate_request(&attempt.request) {
             return invalid_request_outcome(attempt, emitter, error);
@@ -461,11 +817,6 @@ where
         request: &RuntimeRequest,
         emitter: &mut StateEmitter,
     ) -> CandidateResolution {
-        emitter.push(
-            RuntimeState::Discovering,
-            json!({"lookup_scope": request.lookup.scope}),
-        );
-
         let candidate_reason = if is_exact_target(&request.intent) {
             CandidateReason::ExactMatch
         } else {
@@ -473,10 +824,13 @@ where
         };
 
         let discovered = self.collect_candidates(request, candidate_reason);
-        emitter.push(
-            RuntimeState::EvaluatingConstraints,
-            json!({"candidate_count": discovered.len()}),
-        );
+        if !discovered.is_empty() {
+            emitter.push(
+                RuntimeState::EvaluatingConstraints,
+                RuntimeTransitionReasonCode::CandidatesCollected,
+                json!({"candidate_count": discovered.len()}),
+            );
+        }
 
         let mut eligible = Vec::new();
         let mut rejected = Vec::new();
@@ -494,10 +848,16 @@ where
             }
         }
 
-        emitter.push(
-            RuntimeState::Selecting,
-            json!({"eligible_candidates": eligible.len(), "rejected_candidates": rejected.len()}),
-        );
+        if !eligible.is_empty() {
+            emitter.push(
+                RuntimeState::Selecting,
+                RuntimeTransitionReasonCode::ConstraintsEvaluated,
+                json!({
+                    "eligible_candidates": eligible.len(),
+                    "rejected_candidates": rejected.len()
+                }),
+            );
+        }
 
         CandidateResolution {
             eligible: eligible.clone(),
@@ -516,49 +876,71 @@ where
     fn execute_selected(
         &self,
         attempt: AttemptContext,
-        mut emitter: StateEmitter,
+        emitter: StateEmitter,
         candidate_collection: CandidateCollectionRecord,
         selection: SelectionRecord,
         selected: &ResolvedCapability,
     ) -> RuntimeExecutionOutcome {
+        let context = ExecutionContext {
+            attempt,
+            emitter,
+            candidate_collection,
+            selection,
+        };
+        let requested_target = context.attempt.request.context.requested_target;
+        let placement = match resolve_placement(requested_target) {
+            Ok(placement) => placement,
+            Err(error) => {
+                return pre_execution_failure_outcome(
+                    context,
+                    PreExecutionFailure {
+                        artifact_ref: Some(selected.record.artifact_ref.clone()),
+                        failure_reason: ExecutionFailureReason::PlacementUnsupported,
+                        placement: placement_not_attempted(
+                            requested_target,
+                            PlacementDecisionReason::RequestedTargetUnsupported,
+                        ),
+                        error,
+                    },
+                );
+            }
+        };
+
         if let Err(error) = validate_payload_against_contract(
-            &attempt.request.input,
+            &context.attempt.request.input,
             &selected.contract.inputs.schema,
             RuntimeErrorCode::RequestInvalid,
             "runtime request input does not satisfy the selected capability input contract",
         ) {
             return pre_execution_failure_outcome(
-                attempt,
-                emitter,
-                candidate_collection,
-                selection,
-                Some(selected.record.artifact_ref.clone()),
-                ExecutionFailureReason::ContractInputInvalid,
-                error,
+                context,
+                PreExecutionFailure {
+                    artifact_ref: Some(selected.record.artifact_ref.clone()),
+                    failure_reason: ExecutionFailureReason::ContractInputInvalid,
+                    placement,
+                    error,
+                },
             );
         }
 
+        self.execute_started_selection(context, selected, placement)
+    }
+
+    fn execute_started_selection(
+        &self,
+        mut context: ExecutionContext,
+        selected: &ResolvedCapability,
+        placement: PlacementDecisionRecord,
+    ) -> RuntimeExecutionOutcome {
+        let started_execution = start_selected_execution(&mut context.emitter, selected, placement);
         if selected.record.implementation_kind == ImplementationKind::Workflow {
-            return self.execute_workflow_capability(
-                attempt,
-                emitter,
-                candidate_collection,
-                selection,
-                selected,
-            );
+            return self.execute_workflow_capability(context, selected, started_execution);
         }
 
-        let started_at = emitter.next_timestamp();
-        emitter.push(
-            RuntimeState::Executing,
-            json!({
-                "capability_id": selected.record.id,
-                "capability_version": selected.record.version,
-                "artifact_ref": selected.record.artifact_ref,
-            }),
-        );
-
-        let execution_output = match self.executor.execute(selected, &attempt.request.input) {
+        let execution_output = match self
+            .executor
+            .execute(selected, &context.attempt.request.input)
+        {
             Ok(output) => output,
             Err(failure) => {
                 let error = runtime_error(
@@ -567,16 +949,16 @@ where
                     json!({"code": "execution_failed"}),
                 );
                 return execution_failure_outcome(
-                    attempt,
-                    emitter,
-                    candidate_collection,
-                    selection,
+                    context,
                     ExecutionFailureState {
                         artifact_ref: selected.record.artifact_ref.clone(),
-                        started_at,
+                        started_at: started_execution.started_at,
+                        placement: started_execution.placement,
                         failure_reason: ExecutionFailureReason::ExecutionFailed,
                     },
                     error,
+                    Vec::new(),
+                    None,
                 );
             }
         };
@@ -588,27 +970,26 @@ where
             "executor output does not satisfy the selected capability output contract",
         ) {
             return execution_failure_outcome(
-                attempt,
-                emitter,
-                candidate_collection,
-                selection,
+                context,
                 ExecutionFailureState {
                     artifact_ref: selected.record.artifact_ref.clone(),
-                    started_at,
+                    started_at: started_execution.started_at,
+                    placement: started_execution.placement,
                     failure_reason: ExecutionFailureReason::ContractOutputInvalid,
                 },
                 error,
+                Vec::new(),
+                None,
             );
         }
 
         successful_execution_outcome(
-            attempt,
-            emitter,
-            candidate_collection,
-            selection,
+            context,
             selected,
-            started_at,
+            started_execution,
             execution_output,
+            Vec::new(),
+            None,
         )
     }
 }
@@ -622,6 +1003,25 @@ fn terminal_failure(context: FailureContext) -> RuntimeExecutionOutcome {
         request_id: context.attempt.request.request_id.clone(),
         governing_spec: GOVERNING_SPEC.to_string(),
         request: context.attempt.request.clone(),
+        decision_evidence: TraceDecisionEvidence {
+            candidate_collection: context.candidate_collection.clone(),
+            selection: context.selection.clone(),
+        },
+        state_progression: TraceStateProgression {
+            state_events: context.state_events.clone(),
+            transitions: context.state_transitions.clone(),
+            validation: context.state_machine_validation.clone(),
+        },
+        terminal_outcome: TraceTerminalOutcome {
+            runtime_status: RuntimeResultStatus::Error,
+            execution_status: context.execution.status,
+            failure_reason: context.execution.failure_reason,
+            error: Some(context.error.clone()),
+        },
+        emitted_events: context.emitted_events,
+        workflow_evidence: context.workflow_evidence,
+        state_transitions: context.state_transitions,
+        state_machine_validation: context.state_machine_validation,
         candidate_collection: context.candidate_collection,
         selection: context.selection,
         execution: context.execution,
@@ -649,6 +1049,46 @@ fn terminal_failure(context: FailureContext) -> RuntimeExecutionOutcome {
     }
 }
 
+fn supported_executor_targets() -> Vec<PlacementTarget> {
+    vec![PlacementTarget::Local]
+}
+
+fn placement_not_attempted(
+    requested_target: PlacementTarget,
+    reason: PlacementDecisionReason,
+) -> PlacementDecisionRecord {
+    PlacementDecisionRecord {
+        requested_target,
+        selected_target: None,
+        status: PlacementDecisionStatus::NotAttempted,
+        reason,
+        supported_executor_targets: supported_executor_targets(),
+    }
+}
+
+fn resolve_placement(
+    requested_target: PlacementTarget,
+) -> Result<PlacementDecisionRecord, RuntimeError> {
+    if requested_target == PlacementTarget::Local {
+        return Ok(PlacementDecisionRecord {
+            requested_target,
+            selected_target: Some(PlacementTarget::Local),
+            status: PlacementDecisionStatus::Selected,
+            reason: PlacementDecisionReason::RequestedTargetSelected,
+            supported_executor_targets: supported_executor_targets(),
+        });
+    }
+
+    Err(runtime_error(
+        RuntimeErrorCode::PlacementUnsupported,
+        "requested placement target is not supported by the available executor set",
+        json!({
+            "requested_target": requested_target,
+            "supported_executor_targets": supported_executor_targets(),
+        }),
+    ))
+}
+
 fn begin_attempt(request: RuntimeRequest) -> (AttemptContext, StateEmitter) {
     let request_id = request.request_id.clone();
     let execution_id = format!("{EXECUTION_PREFIX}{request_id}");
@@ -656,10 +1096,12 @@ fn begin_attempt(request: RuntimeRequest) -> (AttemptContext, StateEmitter) {
     let mut emitter = StateEmitter::new(&execution_id, &request_id);
     emitter.push(
         RuntimeState::LoadingRegistry,
+        RuntimeTransitionReasonCode::RuntimeInitializationStarted,
         json!({"registry_status": "available"}),
     );
     emitter.push(
         RuntimeState::Ready,
+        RuntimeTransitionReasonCode::RegistryLoaded,
         json!({"governing_spec": GOVERNING_SPEC}),
     );
 
@@ -678,13 +1120,31 @@ fn invalid_request_outcome(
     mut emitter: StateEmitter,
     error: RuntimeError,
 ) -> RuntimeExecutionOutcome {
+    let placement = placement_not_attempted(
+        attempt.request.context.requested_target,
+        PlacementDecisionReason::SelectionNotReached,
+    );
+    emitter.push(
+        RuntimeState::EvaluatingConstraints,
+        RuntimeTransitionReasonCode::CandidatesCollected,
+        json!({"candidate_count": 0}),
+    );
     emitter.push(
         RuntimeState::Error,
+        RuntimeTransitionReasonCode::ConstraintValidationFailed,
         json!({"code": error.code, "message": error.message}),
     );
+    emitter.push(
+        RuntimeState::Ready,
+        RuntimeTransitionReasonCode::ExecutionClosed,
+        json!({"terminal_state": RuntimeState::Error}),
+    );
+    let finished = emitter.finish();
     terminal_failure(FailureContext {
         attempt,
-        state_events: emitter.finish(),
+        state_events: finished.events,
+        state_transitions: finished.transitions,
+        state_machine_validation: finished.validation,
         candidate_collection: CandidateCollectionRecord {
             lookup_scope: RuntimeLookupScope::PreferPrivate,
             candidates: Vec::new(),
@@ -698,7 +1158,8 @@ fn invalid_request_outcome(
             remaining_candidates: Vec::new(),
         },
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement.requested_target,
             status: ExecutionStatus::NotStarted,
             artifact_ref: None,
             started_at: None,
@@ -707,6 +1168,8 @@ fn invalid_request_outcome(
             failure_reason: Some(ExecutionFailureReason::ContractInputInvalid),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
@@ -715,6 +1178,10 @@ fn no_eligible_outcome(
     mut emitter: StateEmitter,
     candidate_collection: CandidateCollectionRecord,
 ) -> RuntimeExecutionOutcome {
+    let placement = placement_not_attempted(
+        attempt.request.context.requested_target,
+        PlacementDecisionReason::SelectionNotReached,
+    );
     let error = if candidate_collection.rejected_candidates.is_empty() {
         runtime_error(
             RuntimeErrorCode::CapabilityNotFound,
@@ -728,25 +1195,40 @@ fn no_eligible_outcome(
             json!({"rejected_candidates": candidate_collection.rejected_candidates}),
         )
     };
-    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+    let reason = if candidate_collection.rejected_candidates.is_empty() {
+        RuntimeTransitionReasonCode::NoMatch
+    } else {
+        RuntimeTransitionReasonCode::ConstraintValidationFailed
+    };
+    emitter.push(RuntimeState::Error, reason, json!({"code": error.code}));
+    emitter.push(
+        RuntimeState::Ready,
+        RuntimeTransitionReasonCode::ExecutionClosed,
+        json!({"terminal_state": RuntimeState::Error}),
+    );
+    let failure_reason = if error.code == RuntimeErrorCode::CapabilityNotFound {
+        SelectionFailureReason::NoMatch
+    } else {
+        SelectionFailureReason::NotRunnable
+    };
+    let finished = emitter.finish();
 
     terminal_failure(FailureContext {
         attempt,
-        state_events: emitter.finish(),
+        state_events: finished.events,
+        state_transitions: finished.transitions,
+        state_machine_validation: finished.validation,
         candidate_collection,
         selection: SelectionRecord {
             status: SelectionStatus::NoMatch,
             selected_capability_id: None,
             selected_capability_version: None,
-            failure_reason: Some(if error.code == RuntimeErrorCode::CapabilityNotFound {
-                SelectionFailureReason::NoMatch
-            } else {
-                SelectionFailureReason::NotRunnable
-            }),
+            failure_reason: Some(failure_reason),
             remaining_candidates: Vec::new(),
         },
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement.requested_target,
             status: ExecutionStatus::NotStarted,
             artifact_ref: None,
             started_at: None,
@@ -755,6 +1237,8 @@ fn no_eligible_outcome(
             failure_reason: Some(ExecutionFailureReason::ArtifactNotRunnable),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
@@ -763,6 +1247,10 @@ fn ambiguous_outcome(
     mut emitter: StateEmitter,
     resolution: CandidateResolution,
 ) -> RuntimeExecutionOutcome {
+    let placement = placement_not_attempted(
+        attempt.request.context.requested_target,
+        PlacementDecisionReason::SelectionNotReached,
+    );
     let remaining_candidates = resolution
         .eligible
         .iter()
@@ -773,11 +1261,23 @@ fn ambiguous_outcome(
         "runtime request matched more than one eligible capability",
         json!({"remaining_candidates": remaining_candidates}),
     );
-    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+    emitter.push(
+        RuntimeState::Error,
+        RuntimeTransitionReasonCode::SelectionFailed,
+        json!({"code": error.code}),
+    );
+    emitter.push(
+        RuntimeState::Ready,
+        RuntimeTransitionReasonCode::ExecutionClosed,
+        json!({"terminal_state": RuntimeState::Error}),
+    );
+    let finished = emitter.finish();
 
     terminal_failure(FailureContext {
         attempt,
-        state_events: emitter.finish(),
+        state_events: finished.events,
+        state_transitions: finished.transitions,
+        state_machine_validation: finished.validation,
         candidate_collection: resolution.collection,
         selection: SelectionRecord {
             status: SelectionStatus::Ambiguous,
@@ -787,7 +1287,8 @@ fn ambiguous_outcome(
             remaining_candidates,
         },
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: placement.clone(),
+            placement_target: placement.requested_target,
             status: ExecutionStatus::NotStarted,
             artifact_ref: None,
             started_at: None,
@@ -796,55 +1297,103 @@ fn ambiguous_outcome(
             failure_reason: Some(ExecutionFailureReason::ArtifactNotRunnable),
         },
         error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
 fn pre_execution_failure_outcome(
-    attempt: AttemptContext,
-    mut emitter: StateEmitter,
-    candidate_collection: CandidateCollectionRecord,
-    selection: SelectionRecord,
-    artifact_ref: Option<String>,
-    failure_reason: ExecutionFailureReason,
-    error: RuntimeError,
+    context: ExecutionContext,
+    failure: PreExecutionFailure,
 ) -> RuntimeExecutionOutcome {
-    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+    let ExecutionContext {
+        attempt,
+        mut emitter,
+        candidate_collection,
+        selection,
+    } = context;
+    let reason = if emitter.current_state == RuntimeState::Selecting {
+        RuntimeTransitionReasonCode::SelectionFailed
+    } else {
+        RuntimeTransitionReasonCode::ConstraintValidationFailed
+    };
+    emitter.push(
+        RuntimeState::Error,
+        reason,
+        json!({"code": failure.error.code, "details": failure.error.details}),
+    );
+    emitter.push(
+        RuntimeState::Ready,
+        RuntimeTransitionReasonCode::ExecutionClosed,
+        json!({"terminal_state": RuntimeState::Error}),
+    );
+    let finished = emitter.finish();
     terminal_failure(FailureContext {
         attempt,
-        state_events: emitter.finish(),
+        state_events: finished.events,
+        state_transitions: finished.transitions,
+        state_machine_validation: finished.validation,
         candidate_collection,
         selection,
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: failure.placement.clone(),
+            placement_target: failure
+                .placement
+                .selected_target
+                .unwrap_or(failure.placement.requested_target),
             status: ExecutionStatus::NotStarted,
-            artifact_ref,
+            artifact_ref: failure.artifact_ref,
             started_at: None,
             completed_at: None,
             output_digest: None,
-            failure_reason: Some(failure_reason),
+            failure_reason: Some(failure.failure_reason),
         },
-        error,
+        error: failure.error,
+        emitted_events: Vec::new(),
+        workflow_evidence: None,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn execution_failure_outcome(
-    attempt: AttemptContext,
-    mut emitter: StateEmitter,
-    candidate_collection: CandidateCollectionRecord,
-    selection: SelectionRecord,
+    context: ExecutionContext,
     failure: ExecutionFailureState,
     error: RuntimeError,
+    emitted_events: Vec<traverse_contracts::EventReference>,
+    workflow_evidence: Option<WorkflowTraversalEvidence>,
 ) -> RuntimeExecutionOutcome {
-    emitter.push(RuntimeState::Error, json!({"code": error.code}));
+    let ExecutionContext {
+        attempt,
+        mut emitter,
+        candidate_collection,
+        selection,
+    } = context;
+    emitter.push(
+        RuntimeState::Error,
+        RuntimeTransitionReasonCode::ExecutionFailed,
+        json!({"code": error.code, "details": error.details}),
+    );
     let completed_at = emitter.next_timestamp();
+    emitter.push(
+        RuntimeState::Ready,
+        RuntimeTransitionReasonCode::ExecutionClosed,
+        json!({"terminal_state": RuntimeState::Error}),
+    );
+    let finished = emitter.finish();
 
     terminal_failure(FailureContext {
         attempt,
-        state_events: emitter.finish(),
+        state_events: finished.events,
+        state_transitions: finished.transitions,
+        state_machine_validation: finished.validation,
         candidate_collection,
         selection,
         execution: ExecutionRecord {
-            placement_target: PlacementTarget::Local,
+            placement: failure.placement.clone(),
+            placement_target: failure
+                .placement
+                .selected_target
+                .unwrap_or(failure.placement.requested_target),
             status: ExecutionStatus::Failed,
             artifact_ref: Some(failure.artifact_ref),
             started_at: Some(failure.started_at),
@@ -853,32 +1402,73 @@ fn execution_failure_outcome(
             failure_reason: Some(failure.failure_reason),
         },
         error,
+        emitted_events,
+        workflow_evidence,
     })
 }
 
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
 fn successful_execution_outcome(
-    attempt: AttemptContext,
-    mut emitter: StateEmitter,
-    candidate_collection: CandidateCollectionRecord,
-    selection: SelectionRecord,
+    context: ExecutionContext,
     selected: &ResolvedCapability,
-    started_at: String,
+    started_execution: StartedExecution,
     execution_output: Value,
+    emitted_events: Vec<traverse_contracts::EventReference>,
+    workflow_evidence: Option<WorkflowTraversalEvidence>,
 ) -> RuntimeExecutionOutcome {
+    let ExecutionContext {
+        attempt,
+        mut emitter,
+        candidate_collection,
+        selection,
+    } = context;
     let completed_at = emitter.next_timestamp();
+    let emits_events = selected.record.implementation_kind == ImplementationKind::Workflow
+        || !selected.contract.emits.is_empty();
+    if emits_events {
+        emitter.push(
+            RuntimeState::EmittingEvents,
+            RuntimeTransitionReasonCode::ExecutionSucceededWithEvents,
+            json!({
+                "capability_id": selected.record.id,
+                "capability_version": selected.record.version,
+                "declared_event_count": selected.contract.emits.len(),
+            }),
+        );
+        emitter.push(
+            RuntimeState::Completed,
+            RuntimeTransitionReasonCode::EventsEmitted,
+            json!({
+                "capability_id": selected.record.id,
+                "capability_version": selected.record.version,
+            }),
+        );
+    } else {
+        emitter.push(
+            RuntimeState::Completed,
+            RuntimeTransitionReasonCode::ExecutionSucceeded,
+            json!({
+                "capability_id": selected.record.id,
+                "capability_version": selected.record.version,
+            }),
+        );
+    }
     emitter.push(
-        RuntimeState::Completed,
-        json!({
-            "capability_id": selected.record.id,
-            "capability_version": selected.record.version,
-        }),
+        RuntimeState::Ready,
+        RuntimeTransitionReasonCode::ExecutionClosed,
+        json!({"terminal_state": RuntimeState::Completed}),
     );
+    let finished = emitter.finish();
 
     let execution = ExecutionRecord {
-        placement_target: PlacementTarget::Local,
+        placement: started_execution.placement.clone(),
+        placement_target: started_execution
+            .placement
+            .selected_target
+            .unwrap_or(started_execution.placement.requested_target),
         status: ExecutionStatus::Succeeded,
         artifact_ref: Some(selected.record.artifact_ref.clone()),
-        started_at: Some(started_at),
+        started_at: Some(started_execution.started_at),
         completed_at: Some(completed_at),
         output_digest: Some(content_digest(&execution_output)),
         failure_reason: None,
@@ -892,6 +1482,25 @@ fn successful_execution_outcome(
         request_id: attempt.request.request_id.clone(),
         governing_spec: GOVERNING_SPEC.to_string(),
         request: attempt.request.clone(),
+        decision_evidence: TraceDecisionEvidence {
+            candidate_collection: candidate_collection.clone(),
+            selection: selection.clone(),
+        },
+        state_progression: TraceStateProgression {
+            state_events: finished.events.clone(),
+            transitions: finished.transitions.clone(),
+            validation: finished.validation.clone(),
+        },
+        terminal_outcome: TraceTerminalOutcome {
+            runtime_status: RuntimeResultStatus::Completed,
+            execution_status: execution.status,
+            failure_reason: None,
+            error: None,
+        },
+        emitted_events,
+        workflow_evidence,
+        state_transitions: finished.transitions.clone(),
+        state_machine_validation: finished.validation.clone(),
         candidate_collection,
         selection,
         execution,
@@ -915,7 +1524,7 @@ fn successful_execution_outcome(
     RuntimeExecutionOutcome {
         result,
         trace,
-        state_events: emitter.finish(),
+        state_events: finished.events,
     }
 }
 
@@ -1237,16 +1846,40 @@ struct CandidateResolution {
 struct FailureContext {
     attempt: AttemptContext,
     state_events: Vec<RuntimeStateEvent>,
+    state_transitions: Vec<RuntimeTransitionRecord>,
+    state_machine_validation: RuntimeStateMachineValidationEvidence,
     candidate_collection: CandidateCollectionRecord,
     selection: SelectionRecord,
     execution: ExecutionRecord,
     error: RuntimeError,
+    emitted_events: Vec<traverse_contracts::EventReference>,
+    workflow_evidence: Option<WorkflowTraversalEvidence>,
 }
 
 struct ExecutionFailureState {
     artifact_ref: String,
     started_at: String,
+    placement: PlacementDecisionRecord,
     failure_reason: ExecutionFailureReason,
+}
+
+struct ExecutionContext {
+    attempt: AttemptContext,
+    emitter: StateEmitter,
+    candidate_collection: CandidateCollectionRecord,
+    selection: SelectionRecord,
+}
+
+struct StartedExecution {
+    started_at: String,
+    placement: PlacementDecisionRecord,
+}
+
+struct PreExecutionFailure {
+    artifact_ref: Option<String>,
+    failure_reason: ExecutionFailureReason,
+    placement: PlacementDecisionRecord,
+    error: RuntimeError,
 }
 
 enum CandidateEvaluation {
@@ -1258,7 +1891,42 @@ struct StateEmitter {
     execution_id: String,
     request_id: String,
     next_second: u32,
+    next_event_index: u32,
+    current_state: RuntimeState,
     events: Vec<RuntimeStateEvent>,
+    transitions: Vec<RuntimeTransitionRecord>,
+    violations: Vec<Value>,
+}
+
+struct FinishedStateMachineArtifacts {
+    events: Vec<RuntimeStateEvent>,
+    transitions: Vec<RuntimeTransitionRecord>,
+    validation: RuntimeStateMachineValidationEvidence,
+}
+
+fn start_selected_execution(
+    emitter: &mut StateEmitter,
+    selected: &ResolvedCapability,
+    placement: PlacementDecisionRecord,
+) -> StartedExecution {
+    let started_at = emitter.next_timestamp();
+    emitter.push(
+        RuntimeState::Executing,
+        RuntimeTransitionReasonCode::CandidateSelected,
+        json!({
+            "capability_id": selected.record.id,
+            "capability_version": selected.record.version,
+            "artifact_ref": selected.record.artifact_ref,
+            "requested_target": placement.requested_target,
+            "selected_target": placement.selected_target,
+            "placement_status": placement.status,
+            "placement_reason": placement.reason,
+        }),
+    );
+    StartedExecution {
+        started_at,
+        placement,
+    }
 }
 
 impl StateEmitter {
@@ -1267,21 +1935,65 @@ impl StateEmitter {
             execution_id: execution_id.to_string(),
             request_id: request_id.to_string(),
             next_second: 0,
+            next_event_index: 0,
+            current_state: RuntimeState::Idle,
             events: Vec::new(),
+            transitions: Vec::new(),
+            violations: Vec::new(),
         }
     }
 
-    fn push(&mut self, state: RuntimeState, details: Value) {
+    fn push(&mut self, state: RuntimeState, reason: RuntimeTransitionReasonCode, details: Value) {
+        let transitioned = self.try_push(state, reason, details);
+        debug_assert!(transitioned, "runtime state transition must be spec-valid");
+    }
+
+    fn try_push(
+        &mut self,
+        state: RuntimeState,
+        reason: RuntimeTransitionReasonCode,
+        details: Value,
+    ) -> bool {
+        let from_state = self.current_state;
+        if !is_allowed_transition(from_state, state, reason) {
+            self.violations.push(json!({
+                "from_state": from_state,
+                "to_state": state,
+                "reason_code": reason,
+                "message": "unexpected runtime state transition"
+            }));
+            return false;
+        }
+        let entered_at = self.next_timestamp();
+        let mut event_details = detail_object(details);
+        event_details.insert(
+            "transition_reason".to_string(),
+            serde_json::to_value(reason)
+                .unwrap_or_else(|_| Value::String("serialization_failed".to_string())),
+        );
         let event = RuntimeStateEvent {
             kind: RUNTIME_STATE_EVENT_KIND.to_string(),
             schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            event_id: format!("rse_{}_{:04}", self.execution_id, self.next_event_index),
             execution_id: self.execution_id.clone(),
             request_id: self.request_id.clone(),
             state,
-            timestamp: self.next_timestamp(),
-            details,
+            entered_at: entered_at.clone(),
+            details: Value::Object(event_details.clone()),
         };
+        self.next_event_index += 1;
         self.events.push(event);
+        self.transitions.push(RuntimeTransitionRecord {
+            from_state,
+            to_state: state,
+            reason_code: reason,
+            occurred_at: entered_at,
+            request_id: Some(self.request_id.clone()),
+            execution_id: Some(self.execution_id.clone()),
+            details: Some(Value::Object(event_details)),
+        });
+        self.current_state = state;
+        true
     }
 
     fn next_timestamp(&mut self) -> String {
@@ -1290,20 +2002,167 @@ impl StateEmitter {
         timestamp
     }
 
-    fn finish(self) -> Vec<RuntimeStateEvent> {
-        self.events
+    fn finish(self) -> FinishedStateMachineArtifacts {
+        let checked_states = vec![
+            RuntimeState::Idle,
+            RuntimeState::LoadingRegistry,
+            RuntimeState::Ready,
+            RuntimeState::Discovering,
+            RuntimeState::EvaluatingConstraints,
+            RuntimeState::Selecting,
+            RuntimeState::Executing,
+            RuntimeState::EmittingEvents,
+            RuntimeState::Completed,
+            RuntimeState::Error,
+        ];
+        let checked_transitions = self
+            .transitions
+            .iter()
+            .map(|transition| {
+                format!(
+                    "{}->{}",
+                    runtime_state_name(transition.from_state),
+                    runtime_state_name(transition.to_state)
+                )
+            })
+            .collect();
+        let validation = RuntimeStateMachineValidationEvidence {
+            kind: RUNTIME_STATE_MACHINE_VALIDATION_KIND.to_string(),
+            schema_version: SUPPORTED_SCHEMA_VERSION.to_string(),
+            governing_spec: STATE_MACHINE_GOVERNING_SPEC.to_string(),
+            validated_at: format!(
+                "1970-01-01T00:00:{:02}Z",
+                self.next_second.saturating_sub(1)
+            ),
+            status: if self.violations.is_empty() {
+                RuntimeStateMachineValidationStatus::Passed
+            } else {
+                RuntimeStateMachineValidationStatus::Failed
+            },
+            checked_states,
+            checked_transitions,
+            violations: self.violations,
+        };
+        FinishedStateMachineArtifacts {
+            events: self.events,
+            transitions: self.transitions,
+            validation,
+        }
+    }
+}
+
+fn is_allowed_transition(
+    from: RuntimeState,
+    to: RuntimeState,
+    reason: RuntimeTransitionReasonCode,
+) -> bool {
+    matches!(
+        (from, to, reason),
+        (
+            RuntimeState::Idle,
+            RuntimeState::LoadingRegistry,
+            RuntimeTransitionReasonCode::RuntimeInitializationStarted
+        ) | (
+            RuntimeState::LoadingRegistry,
+            RuntimeState::Ready,
+            RuntimeTransitionReasonCode::RegistryLoaded
+        ) | (
+            RuntimeState::LoadingRegistry,
+            RuntimeState::Error,
+            RuntimeTransitionReasonCode::RegistryLoadFailed
+        ) | (
+            RuntimeState::Ready,
+            RuntimeState::Discovering,
+            RuntimeTransitionReasonCode::RequestStarted
+        ) | (
+            RuntimeState::Discovering,
+            RuntimeState::EvaluatingConstraints,
+            RuntimeTransitionReasonCode::CandidatesCollected
+        ) | (
+            RuntimeState::Discovering,
+            RuntimeState::Error,
+            RuntimeTransitionReasonCode::NoMatch
+        ) | (
+            RuntimeState::EvaluatingConstraints,
+            RuntimeState::Selecting,
+            RuntimeTransitionReasonCode::ConstraintsEvaluated
+        ) | (
+            RuntimeState::EvaluatingConstraints,
+            RuntimeState::Error,
+            RuntimeTransitionReasonCode::ConstraintValidationFailed
+        ) | (
+            RuntimeState::Selecting,
+            RuntimeState::Executing,
+            RuntimeTransitionReasonCode::CandidateSelected
+        ) | (
+            RuntimeState::Selecting,
+            RuntimeState::Error,
+            RuntimeTransitionReasonCode::SelectionFailed
+        ) | (
+            RuntimeState::Executing,
+            RuntimeState::EmittingEvents,
+            RuntimeTransitionReasonCode::ExecutionSucceededWithEvents
+        ) | (
+            RuntimeState::Executing,
+            RuntimeState::Completed,
+            RuntimeTransitionReasonCode::ExecutionSucceeded
+        ) | (
+            RuntimeState::Executing,
+            RuntimeState::Error,
+            RuntimeTransitionReasonCode::ExecutionFailed
+        ) | (
+            RuntimeState::EmittingEvents,
+            RuntimeState::Completed,
+            RuntimeTransitionReasonCode::EventsEmitted
+        ) | (
+            RuntimeState::EmittingEvents,
+            RuntimeState::Error,
+            RuntimeTransitionReasonCode::EventEmissionFailed
+        ) | (
+            RuntimeState::Completed | RuntimeState::Error,
+            RuntimeState::Ready,
+            RuntimeTransitionReasonCode::ExecutionClosed
+        )
+    )
+}
+
+fn detail_object(details: Value) -> Map<String, Value> {
+    match details {
+        Value::Object(map) => map,
+        other => {
+            let mut map = Map::new();
+            map.insert("value".to_string(), other);
+            map
+        }
+    }
+}
+
+fn runtime_state_name(state: RuntimeState) -> &'static str {
+    match state {
+        RuntimeState::Idle => "idle",
+        RuntimeState::LoadingRegistry => "loading_registry",
+        RuntimeState::Ready => "ready",
+        RuntimeState::Discovering => "discovering",
+        RuntimeState::EvaluatingConstraints => "evaluating_constraints",
+        RuntimeState::Selecting => "selecting",
+        RuntimeState::Executing => "executing",
+        RuntimeState::EmittingEvents => "emitting_events",
+        RuntimeState::Completed => "completed",
+        RuntimeState::Error => "error",
     }
 }
 
 #[cfg(test)]
 mod tests {
     use super::{
-        CandidateEvaluation, CandidateReason, LocalExecutor, PlacementTarget,
-        RejectedCandidateReason, RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope,
-        RuntimeLookupScope::*, RuntimeRequest, RuntimeResultStatus, RuntimeState,
-        evaluate_candidate, map_implementation_kind, map_lifecycle, map_registry_scope,
-        parse_runtime_request, runtime_candidate, validate_payload_against_contract,
-        validate_request,
+        BrowserRuntimeSubscriptionErrorCode, BrowserRuntimeSubscriptionMessage,
+        BrowserRuntimeSubscriptionRequest, CandidateEvaluation, CandidateReason, LocalExecutor,
+        PlacementTarget, RejectedCandidateReason, Runtime, RuntimeContext, RuntimeIntent,
+        RuntimeLookup, RuntimeLookupScope, RuntimeLookupScope::*, RuntimeRequest,
+        RuntimeResultStatus, RuntimeState, RuntimeTransitionReasonCode,
+        browser_subscription_messages, evaluate_candidate, map_implementation_kind, map_lifecycle,
+        map_registry_scope, parse_runtime_request, runtime_candidate, subscription_targets_outcome,
+        validate_browser_subscription_request, validate_payload_against_contract, validate_request,
     };
     use serde_json::json;
     use traverse_contracts::{
@@ -1636,7 +2495,36 @@ mod tests {
     #[test]
     fn successful_runtime_execution_reports_completed_result_status() {
         let mut events = super::StateEmitter::new("exec_1", "req_1");
-        events.push(RuntimeState::LoadingRegistry, json!({}));
+        events.push(
+            RuntimeState::LoadingRegistry,
+            RuntimeTransitionReasonCode::RuntimeInitializationStarted,
+            json!({}),
+        );
+        events.push(
+            RuntimeState::Ready,
+            RuntimeTransitionReasonCode::RegistryLoaded,
+            json!({}),
+        );
+        events.push(
+            RuntimeState::Discovering,
+            RuntimeTransitionReasonCode::RequestStarted,
+            json!({}),
+        );
+        events.push(
+            RuntimeState::EvaluatingConstraints,
+            RuntimeTransitionReasonCode::CandidatesCollected,
+            json!({"candidate_count": 1}),
+        );
+        events.push(
+            RuntimeState::Selecting,
+            RuntimeTransitionReasonCode::ConstraintsEvaluated,
+            json!({"eligible_candidates": 1}),
+        );
+        events.push(
+            RuntimeState::Executing,
+            RuntimeTransitionReasonCode::CandidateSelected,
+            json!({"capability_id": "content.comments.create-comment-draft"}),
+        );
         let attempt = super::AttemptContext {
             request: valid_request(),
             execution_id: "exec_1".to_string(),
@@ -1651,30 +2539,154 @@ mod tests {
         );
 
         let outcome = super::successful_execution_outcome(
-            attempt,
-            events,
-            super::CandidateCollectionRecord {
-                lookup_scope: PreferPrivate,
-                candidates: vec![runtime_candidate(&capability, CandidateReason::ExactMatch)],
-                rejected_candidates: Vec::new(),
-            },
-            super::SelectionRecord {
-                status: super::SelectionStatus::Selected,
-                selected_capability_id: Some(capability.record.id.clone()),
-                selected_capability_version: Some(capability.record.version.clone()),
-                failure_reason: None,
-                remaining_candidates: Vec::new(),
+            super::ExecutionContext {
+                attempt,
+                emitter: events,
+                candidate_collection: super::CandidateCollectionRecord {
+                    lookup_scope: PreferPrivate,
+                    candidates: vec![runtime_candidate(&capability, CandidateReason::ExactMatch)],
+                    rejected_candidates: Vec::new(),
+                },
+                selection: super::SelectionRecord {
+                    status: super::SelectionStatus::Selected,
+                    selected_capability_id: Some(capability.record.id.clone()),
+                    selected_capability_version: Some(capability.record.version.clone()),
+                    failure_reason: None,
+                    remaining_candidates: Vec::new(),
+                },
             },
             &capability,
-            "1970-01-01T00:00:00Z".to_string(),
+            super::StartedExecution {
+                started_at: "1970-01-01T00:00:00Z".to_string(),
+                placement: super::resolve_placement(PlacementTarget::Local)
+                    .unwrap_or_else(|_| unreachable!("local placement should resolve")),
+            },
             json!({"draft_id": "draft-1"}),
+            capability.contract.emits.clone(),
+            None,
         );
 
         assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
         assert_eq!(
             outcome.state_events.last().map(|event| event.state),
-            Some(RuntimeState::Completed)
+            Some(RuntimeState::Ready)
         );
+        assert_eq!(
+            outcome.trace.decision_evidence.selection.status,
+            super::SelectionStatus::Selected
+        );
+        assert_eq!(
+            outcome.trace.state_progression.state_events,
+            outcome.state_events
+        );
+        assert_eq!(
+            outcome.trace.terminal_outcome.runtime_status,
+            RuntimeResultStatus::Completed
+        );
+        assert_eq!(outcome.trace.emitted_events, capability.contract.emits);
+        assert_eq!(
+            outcome.trace.state_machine_validation.status,
+            super::RuntimeStateMachineValidationStatus::Passed
+        );
+    }
+
+    #[test]
+    fn state_emitter_records_transition_validation_and_rejects_invalid_moves() {
+        let mut events = super::StateEmitter::new("exec_1", "req_1");
+
+        assert!(events.try_push(
+            RuntimeState::LoadingRegistry,
+            RuntimeTransitionReasonCode::RuntimeInitializationStarted,
+            json!({})
+        ));
+        assert!(!events.try_push(
+            RuntimeState::Completed,
+            RuntimeTransitionReasonCode::ExecutionSucceeded,
+            json!({})
+        ));
+
+        let finished = events.finish();
+
+        assert_eq!(finished.events.len(), 1);
+        assert_eq!(finished.transitions.len(), 1);
+        assert_eq!(
+            finished.validation.status,
+            super::RuntimeStateMachineValidationStatus::Failed
+        );
+        assert_eq!(finished.validation.violations.len(), 1);
+    }
+
+    #[test]
+    fn pre_execution_failure_from_constraint_phase_uses_constraint_reason() {
+        let mut events = super::StateEmitter::new("exec_1", "req_1");
+        events.push(
+            RuntimeState::LoadingRegistry,
+            RuntimeTransitionReasonCode::RuntimeInitializationStarted,
+            json!({}),
+        );
+        events.push(
+            RuntimeState::Ready,
+            RuntimeTransitionReasonCode::RegistryLoaded,
+            json!({}),
+        );
+        events.push(
+            RuntimeState::Discovering,
+            RuntimeTransitionReasonCode::RequestStarted,
+            json!({}),
+        );
+        events.push(
+            RuntimeState::EvaluatingConstraints,
+            RuntimeTransitionReasonCode::CandidatesCollected,
+            json!({"candidate_count": 1}),
+        );
+
+        let outcome = super::pre_execution_failure_outcome(
+            super::ExecutionContext {
+                attempt: super::AttemptContext {
+                    request: valid_request(),
+                    execution_id: "exec_1".to_string(),
+                    trace_id: "trace_exec_1".to_string(),
+                },
+                emitter: events,
+                candidate_collection: super::CandidateCollectionRecord {
+                    lookup_scope: PreferPrivate,
+                    candidates: Vec::new(),
+                    rejected_candidates: Vec::new(),
+                },
+                selection: super::SelectionRecord {
+                    status: super::SelectionStatus::NoMatch,
+                    selected_capability_id: None,
+                    selected_capability_version: None,
+                    failure_reason: Some(super::SelectionFailureReason::NotRunnable),
+                    remaining_candidates: Vec::new(),
+                },
+            },
+            super::PreExecutionFailure {
+                artifact_ref: None,
+                failure_reason: super::ExecutionFailureReason::ArtifactMissing,
+                placement: super::placement_not_attempted(
+                    PlacementTarget::Local,
+                    super::PlacementDecisionReason::SelectionNotReached,
+                ),
+                error: super::runtime_error(
+                    super::RuntimeErrorCode::CapabilityNotRunnable,
+                    "not runnable",
+                    json!({}),
+                ),
+            },
+        );
+
+        assert_eq!(
+            outcome.trace.state_transitions[4].reason_code,
+            RuntimeTransitionReasonCode::ConstraintValidationFailed
+        );
+    }
+
+    #[test]
+    fn detail_object_wraps_non_object_values() {
+        let wrapped = super::detail_object(json!("value"));
+
+        assert_eq!(wrapped.get("value"), Some(&json!("value")));
     }
 
     #[test]
@@ -1724,6 +2736,67 @@ mod tests {
         assert_eq!(result, Ok(json!({"draft_id": "draft"})));
     }
 
+    #[test]
+    fn browser_subscription_validation_covers_guard_branches() {
+        let mut request = valid_browser_subscription_request();
+        request.kind = "wrong".to_string();
+        assert_eq!(
+            validate_browser_subscription_request(&request).map(|error| error.code),
+            Some(BrowserRuntimeSubscriptionErrorCode::InvalidRequest)
+        );
+
+        let mut request = valid_browser_subscription_request();
+        request.schema_version = "9.9.9".to_string();
+        assert_eq!(
+            validate_browser_subscription_request(&request).map(|error| error.code),
+            Some(BrowserRuntimeSubscriptionErrorCode::InvalidRequest)
+        );
+
+        let mut request = valid_browser_subscription_request();
+        request.governing_spec = "wrong-spec".to_string();
+        assert_eq!(
+            validate_browser_subscription_request(&request).map(|error| error.code),
+            Some(BrowserRuntimeSubscriptionErrorCode::InvalidRequest)
+        );
+    }
+
+    #[test]
+    fn browser_subscription_reports_not_found_for_mismatched_target() {
+        let outcome = runtime_outcome_for_browser_subscription();
+        let request = BrowserRuntimeSubscriptionRequest {
+            request_id: Some("req_other".to_string()),
+            execution_id: None,
+            ..valid_browser_subscription_request()
+        };
+
+        let messages = browser_subscription_messages(&request, &outcome);
+        assert_eq!(
+            messages,
+            vec![BrowserRuntimeSubscriptionMessage::Error(
+                super::BrowserRuntimeSubscriptionErrorMessage {
+                    kind: "browser_runtime_subscription_error".to_string(),
+                    schema_version: "1.0.0".to_string(),
+                    sequence: 0,
+                    code: BrowserRuntimeSubscriptionErrorCode::NotFound,
+                    message: "subscription target did not match the supplied execution outcome"
+                        .to_string(),
+                }
+            )]
+        );
+    }
+
+    #[test]
+    fn browser_subscription_target_helper_covers_fallback_branch() {
+        let outcome = runtime_outcome_for_browser_subscription();
+        let invalid_request = BrowserRuntimeSubscriptionRequest {
+            request_id: Some("req_123".to_string()),
+            execution_id: Some(outcome.result.execution_id.clone()),
+            ..valid_browser_subscription_request()
+        };
+
+        assert!(!subscription_targets_outcome(&invalid_request, &outcome));
+    }
+
     fn valid_request() -> RuntimeRequest {
         RuntimeRequest {
             kind: "runtime_request".to_string(),
@@ -1747,6 +2820,23 @@ mod tests {
             },
             governing_spec: "006-runtime-request-execution".to_string(),
         }
+    }
+
+    fn valid_browser_subscription_request() -> BrowserRuntimeSubscriptionRequest {
+        BrowserRuntimeSubscriptionRequest {
+            kind: "browser_runtime_subscription_request".to_string(),
+            schema_version: "1.0.0".to_string(),
+            governing_spec: "013-browser-runtime-subscription".to_string(),
+            request_id: Some("req_123".to_string()),
+            execution_id: None,
+        }
+    }
+
+    fn runtime_outcome_for_browser_subscription() -> super::RuntimeExecutionOutcome {
+        let mut registry = CapabilityRegistry::new();
+        assert!(registry.register(public_registration()).is_ok());
+        let runtime = Runtime::new(registry, NoopExecutor);
+        runtime.execute(valid_request())
     }
 
     fn public_registration() -> CapabilityRegistration {
