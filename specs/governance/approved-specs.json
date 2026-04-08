@@ -199,6 +199,102 @@
         "docs/youaskm3-integration-validation.md",
         "docs/mcp-consumption-validation.md"
       ]
+    },
+    {
+      "id": "024-placement-constraint-evaluator",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/204-placement-constraint-evaluator/spec.md",
+      "governs": [
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "025-wasm-executor-adapter",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/205-wasm-executor-adapter/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "Cargo.toml"
+      ]
+    },
+    {
+      "id": "012-execution-trace-tiered",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/206-execution-trace-tiered/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-mcp/"
+      ]
+    },
+    {
+      "id": "026-event-broker",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/207-event-broker/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-mcp/"
+      ]
+    },
+    {
+      "id": "014-service-type-taxonomy",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/208-service-type-taxonomy/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "contracts/"
+      ]
+    },
+    {
+      "id": "015-capability-discovery-mcp",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/209-capability-discovery-mcp/spec.md",
+      "governs": [
+        "crates/traverse-mcp/"
+      ]
+    },
+    {
+      "id": "016-runtime-placement-router",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/210-runtime-placement-router/spec.md",
+      "governs": [
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "027-expedition-wasm-port",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/211-expedition-wasm-port/spec.md",
+      "governs": [
+        "crates/traverse-expedition-wasm/",
+        "contracts/expedition/"
+      ]
+    },
+    {
+      "id": "028-schema-alignment-gate-v02",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/212-schema-alignment-gate-v02/spec.md",
+      "governs": [
+        "scripts/ci/",
+        "specs/governance/"
+      ]
     }
   ]
 }
