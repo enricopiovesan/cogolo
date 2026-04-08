@@ -10,6 +10,7 @@ This is the canonical documentation path for humans and coding agents working on
    - [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
    - [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
    - [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
+   - [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md)
    - [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
    - [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
    - [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
@@ -25,6 +26,7 @@ If a new human or agent asks where to begin, point them to the README first and 
 - The README is the front door.
 - The quickstart is the first executable consumer path.
 - The versioned consumer bundle explains what a downstream app installs and which released surfaces it may rely on.
+- The package release pointer explains how the governed app-consumable package release is identified downstream.
 - The conformance suite explains how the released Traverse and `youaskm3` surfaces are proven together.
 - The real-shell validation explains how the browser-hosted `youaskm3` shell is checked against the released Traverse consumer artifacts.
 - The deeper docs explain validation, release, and traceability after the first path is understood.

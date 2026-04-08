@@ -23,6 +23,7 @@ required_files=(
   "docs/app-consumable-release-checklist.md"
   "docs/app-consumable-consumer-bundle.md"
   "docs/app-consumable-release-artifact.md"
+  "docs/app-consumable-package-release-pointer.md"
   "docs/youaskm3-integration-validation.md"
   "docs/youaskm3-compatibility-conformance-suite.md"
   "docs/youaskm3-real-shell-validation.md"
@@ -55,6 +56,7 @@ required_files=(
   "scripts/ci/youaskm3_integration_validation.sh"
   "scripts/ci/youaskm3_real_shell_validation.sh"
   "scripts/ci/app_consumable_release_prep.sh"
+  "scripts/ci/app_consumable_package_release_pointer.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
   "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
@@ -147,7 +149,9 @@ grep -q "bash scripts/ci/youaskm3_real_shell_validation.sh" docs/youaskm3-real-s
 grep -q "scripts/smoke.sh" docs/youaskm3-real-shell-validation.md
 grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
 grep -q "docs/app-consumable-consumer-bundle.md" README.md
+grep -q "docs/app-consumable-package-release-pointer.md" README.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
+grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-entry-path.md
 grep -q "versioned Traverse consumer bundle" docs/app-consumable-consumer-bundle.md
 grep -q "supported version selection" docs/app-consumable-consumer-bundle.md
 grep -q "installation steps" docs/app-consumable-consumer-bundle.md
@@ -159,7 +163,9 @@ grep -q "Release Blockers" docs/app-consumable-release-checklist.md
 grep -q "Post-Release Follow-Up" docs/app-consumable-release-checklist.md
 grep -q "quickstart.md" docs/app-consumable-release-checklist.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-release-checklist.md
+grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-release-checklist.md
 grep -q "publication bundle" docs/app-consumable-release-artifact.md
+grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-release-artifact.md
 grep -q "versioned consumer bundle" docs/app-consumable-release-artifact.md
 grep -q "GitHub release entry" docs/app-consumable-release-artifact.md
 grep -q "supported runnable artifact" docs/app-consumable-release-artifact.md
@@ -201,6 +207,7 @@ grep -q "app-consumable acceptance" apps/react-demo/README.md
 grep -q "Run the local browser adapter proxy again" apps/react-demo/README.md
 grep -q "browser-targeted consumer package" docs/app-consumable-consumer-bundle.md
 grep -q "consumer bundle" docs/app-consumable-consumer-bundle.md
+grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-consumer-bundle.md
 grep -q "youaskm3 integration validation" README.md
 grep -q "Traverse React demo serving on" apps/react-demo/server.mjs
 grep -q "runLiveBrowserSubscription" apps/react-demo/src/browser-adapter-client.js

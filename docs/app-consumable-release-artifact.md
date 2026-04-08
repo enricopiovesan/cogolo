@@ -3,6 +3,7 @@
 This document defines what the first Traverse v0.1 app-consumable release actually publishes.
 
 The release checklist explains when the release is allowed. This document explains what the release artifact is once that checklist is satisfied.
+The package release pointer is defined in [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
 
 ## Publication Shape
 
@@ -30,6 +31,7 @@ The first release bundle MUST include:
 - the canonical quickstart reference
 - the release-traceability reference
 - the supported runnable consumer artifact reference
+- the package release pointer reference
 
 ## Release Notes Scope
 
