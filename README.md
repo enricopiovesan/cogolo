@@ -11,8 +11,6 @@
 
 Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows — across browser, edge, cloud, and device environments.
 
-> This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com). Created on personal time, not affiliated with Autodesk.
-
 ---
 
 ## For Humans
