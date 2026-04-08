@@ -11,7 +11,7 @@
 
 Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows — across browser, edge, cloud, and device environments.
 
-> Personal R&D by [Enrico Piovesan](https://enricopiovesan.com). Created on personal time, not affiliated with Autodesk.
+> This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com). Created on personal time, not affiliated with Autodesk.
 
 ---
 
@@ -129,7 +129,12 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 
 ### Key docs
 
+- [quickstart.md](quickstart.md) — start here for the first runnable flow
 - [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) — first app-consumable flow
+- [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
+- [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
+- [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation
+- [docs/youaskm3-compatibility-conformance-suite.md](docs/youaskm3-compatibility-conformance-suite.md) — youaskm3 compatibility conformance suite
 - [docs/quality-standards.md](docs/quality-standards.md) — non-negotiable quality rules
 - [docs/compatibility-policy.md](docs/compatibility-policy.md) — versioning and compatibility
 - [docs/multi-thread-workflow.md](docs/multi-thread-workflow.md) — parallel agent workflow
