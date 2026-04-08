@@ -9,6 +9,7 @@ It stays on governed public Traverse surfaces only:
 - the downstream MCP consumption validation path
 - the first app-consumable quickstart
 - the versioned Traverse consumer bundle
+- the real-agent MCP exercise guide
 - [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
 - the `youaskm3` compatibility conformance suite
 - [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md)
@@ -59,6 +60,12 @@ For the real browser-hosted shell validation against released Traverse consumer 
 bash scripts/ci/youaskm3_real_shell_validation.sh
 ```
 
+For the real agent exercise against the documented MCP substrate, also run:
+
+```bash
+bash scripts/ci/mcp_real_agent_exercise_smoke.sh
+```
+
 ## Expected Evidence
 
 The validation path should prove:
@@ -72,6 +79,7 @@ The validation path should prove:
 - the same Traverse v0.1 release pairing used by the compatibility conformance suite
 - the browser-hosted shell spec at `openspec/specs/pwa-shell/spec.md`
 - the downstream repo-local smoke validation at `scripts/smoke.sh`
+- the real-agent MCP exercise at `docs/mcp-real-agent-exercise.md`
 
 ## Known Failure Modes
 
@@ -86,5 +94,6 @@ The path is expected to fail deterministically when:
 
 - `bash scripts/ci/react_demo_live_adapter_smoke.sh`
 - `bash scripts/ci/mcp_consumption_validation.sh`
+- `bash scripts/ci/mcp_real_agent_exercise_smoke.sh`
 - `bash scripts/ci/youaskm3_integration_validation.sh`
 - `bash scripts/ci/repository_checks.sh`

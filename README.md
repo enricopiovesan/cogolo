@@ -156,6 +156,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 - [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
 - [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
 - [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
+- [docs/mcp-real-agent-exercise.md](docs/mcp-real-agent-exercise.md) — real AI agent exercise for the Traverse MCP surface
 - [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation
 - [docs/youaskm3-compatibility-conformance-suite.md](docs/youaskm3-compatibility-conformance-suite.md) — youaskm3 compatibility conformance suite
 - [docs/youaskm3-real-shell-validation.md](docs/youaskm3-real-shell-validation.md) — youaskm3 real shell validation

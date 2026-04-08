@@ -14,6 +14,8 @@ This validation path is governed by:
 
 For the first real downstream browser + MCP integration path, also see [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md), [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md), and the browser-targeted consumer package at [apps/browser-consumer/README.md](/Users/piovese/Documents/cogolo/apps/browser-consumer/README.md).
 
+For the real-agent exercise against the same MCP substrate, also see [docs/mcp-real-agent-exercise.md](/Users/piovese/Documents/cogolo/docs/mcp-real-agent-exercise.md).
+
 ## Validation Path
 
 Run the deterministic smoke validation:
