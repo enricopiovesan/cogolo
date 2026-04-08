@@ -157,6 +157,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 - [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
 - [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation
 - [docs/youaskm3-compatibility-conformance-suite.md](docs/youaskm3-compatibility-conformance-suite.md) — youaskm3 compatibility conformance suite
+- [docs/youaskm3-real-shell-validation.md](docs/youaskm3-real-shell-validation.md) — youaskm3 real shell validation
 - [docs/quality-standards.md](docs/quality-standards.md) — non-negotiable quality rules
 - [docs/compatibility-policy.md](docs/compatibility-policy.md) — versioning and compatibility
 - [docs/multi-thread-workflow.md](docs/multi-thread-workflow.md) — parallel agent workflow

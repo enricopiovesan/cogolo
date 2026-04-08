@@ -25,6 +25,7 @@ required_files=(
   "docs/app-consumable-release-artifact.md"
   "docs/youaskm3-integration-validation.md"
   "docs/youaskm3-compatibility-conformance-suite.md"
+  "docs/youaskm3-real-shell-validation.md"
   "apps/browser-consumer/README.md"
   "apps/browser-consumer/package.json"
   "apps/youaskm3-starter-kit/README.md"
@@ -52,6 +53,7 @@ required_files=(
   "scripts/ci/youaskm3_compatibility_conformance.sh"
   "scripts/ci/browser_consumer_package_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
+  "scripts/ci/youaskm3_real_shell_validation.sh"
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
@@ -128,14 +130,21 @@ grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
 grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" README.md
+grep -q "docs/youaskm3-real-shell-validation.md" README.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/app-consumable-entry-path.md
+grep -q "docs/youaskm3-real-shell-validation.md" docs/app-consumable-entry-path.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/youaskm3-integration-validation.md
+grep -q "docs/youaskm3-real-shell-validation.md" docs/youaskm3-integration-validation.md
 grep -q "youaskm3 compatibility conformance suite" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "version pairing" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "bash scripts/ci/youaskm3_compatibility_conformance.sh" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "bash scripts/ci/youaskm3_compatibility_conformance.sh" docs/youaskm3-integration-validation.md
 grep -q "the same Traverse v0.1 release pairing" docs/youaskm3-integration-validation.md
+grep -q "youaskm3 real shell validation" docs/youaskm3-real-shell-validation.md
+grep -q "openspec/specs/pwa-shell/spec.md" docs/youaskm3-real-shell-validation.md
+grep -q "bash scripts/ci/youaskm3_real_shell_validation.sh" docs/youaskm3-real-shell-validation.md
+grep -q "scripts/smoke.sh" docs/youaskm3-real-shell-validation.md
 grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
 grep -q "docs/app-consumable-consumer-bundle.md" README.md
 grep -q "docs/app-consumable-consumer-bundle.md" docs/app-consumable-entry-path.md
