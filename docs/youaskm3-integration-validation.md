@@ -11,6 +11,8 @@ It stays on governed public Traverse surfaces only:
 - the versioned Traverse consumer bundle
 - [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
 - the `youaskm3` compatibility conformance suite
+- [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md)
+- the `youaskm3` real shell validation
 
 For the shortest Traverse-side start path, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
 
@@ -51,6 +53,12 @@ For the broader release-aligned compatibility check, also run:
 bash scripts/ci/youaskm3_compatibility_conformance.sh
 ```
 
+For the real browser-hosted shell validation against released Traverse consumer artifacts, also run:
+
+```bash
+bash scripts/ci/youaskm3_real_shell_validation.sh
+```
+
 ## Expected Evidence
 
 The validation path should prove:
@@ -62,6 +70,8 @@ The validation path should prove:
 - `validated_flow_id: youaskm3_mcp_validation`
 - no dependency on private Traverse internals or undocumented setup
 - the same Traverse v0.1 release pairing used by the compatibility conformance suite
+- the browser-hosted shell spec at `openspec/specs/pwa-shell/spec.md`
+- the downstream repo-local smoke validation at `scripts/smoke.sh`
 
 ## Known Failure Modes
 
