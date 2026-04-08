@@ -10,3 +10,7 @@ references/open-source/*
 *.profraw
 *.profdata
 coverage.profdata
+references/open-source/*
+!references/open-source/.gitignore
+!references/open-source/README.md
+.claude/worktrees/
