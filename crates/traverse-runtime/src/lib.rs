@@ -2168,7 +2168,7 @@ mod tests {
     use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, Entrypoint, EntrypointKind, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
-        NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer,
+        NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, ServiceType,
     };
     use traverse_registry::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
@@ -2928,6 +2928,14 @@ mod tests {
                 exception_refs: Vec::new(),
             },
             evidence: Vec::new(),
+            service_type: ServiceType::Stateless,
+            permitted_targets: vec![
+                ExecutionTarget::Local,
+                ExecutionTarget::Cloud,
+                ExecutionTarget::Edge,
+                ExecutionTarget::Device,
+            ],
+            event_trigger: None,
         }
     }
 

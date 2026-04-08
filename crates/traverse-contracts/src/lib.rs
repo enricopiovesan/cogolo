@@ -35,6 +35,15 @@ pub struct CapabilityContract {
     pub dependencies: Vec<DependencyReference>,
     pub provenance: Provenance,
     pub evidence: Vec<ValidationEvidence>,
+    /// UMA service type — governs placement and event routing. Defaults to `Stateless`.
+    #[serde(default)]
+    pub service_type: ServiceType,
+    /// Placement targets this capability may run on. Defaults to all targets.
+    #[serde(default = "default_permitted_targets")]
+    pub permitted_targets: Vec<ExecutionTarget>,
+    /// Required for `Subscribable` capabilities: the event type that triggers this capability.
+    #[serde(default)]
+    pub event_trigger: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -190,6 +199,30 @@ pub struct Execution {
 #[serde(rename_all = "snake_case")]
 pub enum BinaryFormat {
     Wasm,
+}
+
+/// UMA service type classification — governs placement routing and event routing.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+#[serde(rename_all = "snake_case")]
+pub enum ServiceType {
+    /// Runs anywhere; no persistent state required. Default for backward compatibility.
+    #[default]
+    Stateless,
+    /// Activated by an incoming event; requires a non-empty `event_trigger`.
+    Subscribable,
+    /// Requires managed persistence; cannot be placed in Browser environments.
+    Stateful,
+}
+
+fn default_permitted_targets() -> Vec<ExecutionTarget> {
+    vec![
+        ExecutionTarget::Local,
+        ExecutionTarget::Browser,
+        ExecutionTarget::Edge,
+        ExecutionTarget::Cloud,
+        ExecutionTarget::Worker,
+        ExecutionTarget::Device,
+    ]
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -383,6 +416,10 @@ pub enum ValidationErrorCode {
     PortabilityExceptionRequired,
     ImmutableVersionConflict,
     InvalidDependencyRef,
+    /// `service_type: stateful` combined with `Browser` in `permitted_targets`.
+    InvalidPlacementConstraint,
+    /// `service_type: subscribable` without a non-empty `event_trigger`.
+    MissingEventTrigger,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -456,6 +493,7 @@ pub fn validate_contract(
     validate_provenance(&contract.provenance, &mut errors);
     validate_evidence(&contract.evidence, &mut errors);
     validate_boundary(&contract, &mut errors);
+    validate_placement_constraints(&contract, &mut errors);
     validate_published_record(&contract, context.existing_published, &mut errors);
 
     if !errors.is_empty() {
@@ -1017,6 +1055,36 @@ fn validate_event_boundary(contract: &EventContract, errors: &mut Vec<Validation
             "$.summary",
             "event must describe one governed business event boundary",
         ));
+    }
+}
+
+fn validate_placement_constraints(contract: &CapabilityContract, errors: &mut Vec<ValidationError>) {
+    if contract.service_type == ServiceType::Stateful
+        && contract.permitted_targets.contains(&ExecutionTarget::Browser)
+    {
+        errors.push(ValidationError {
+            code: ValidationErrorCode::InvalidPlacementConstraint,
+            message: "Stateful capabilities cannot target Browser environments; browsers cannot \
+                      provide managed persistence guarantees."
+                .to_string(),
+            path: "$.permitted_targets".to_string(),
+            severity: ErrorSeverity::Error,
+        });
+    }
+    if contract.service_type == ServiceType::Subscribable
+        && contract
+            .event_trigger
+            .as_deref()
+            .map_or(true, str::is_empty)
+    {
+        errors.push(ValidationError {
+            code: ValidationErrorCode::MissingEventTrigger,
+            message:
+                "Subscribable capabilities must declare a non-empty event_trigger field."
+                    .to_string(),
+            path: "$.event_trigger".to_string(),
+            severity: ErrorSeverity::Error,
+        });
     }
 }
 

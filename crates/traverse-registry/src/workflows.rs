@@ -939,8 +939,8 @@ mod tests {
     use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, Condition, Entrypoint, EntrypointKind,
         EvidenceStatus, EvidenceType, Execution, ExecutionConstraints, ExecutionTarget,
-        FilesystemAccess, HostApiAccess, NetworkAccess, Provenance, ProvenanceSource, SideEffect,
-        SideEffectKind, ValidationEvidence,
+        FilesystemAccess, HostApiAccess, NetworkAccess, Provenance, ProvenanceSource, ServiceType,
+        SideEffect, SideEffectKind, ValidationEvidence,
     };
 
     #[test]
@@ -1699,6 +1699,14 @@ mod tests {
                     evidence_type: EvidenceType::ContractValidation,
                     status: EvidenceStatus::Passed,
                 }],
+                service_type: ServiceType::Stateless,
+                permitted_targets: vec![
+                    ExecutionTarget::Local,
+                    ExecutionTarget::Cloud,
+                    ExecutionTarget::Edge,
+                    ExecutionTarget::Device,
+                ],
+                event_trigger: None,
             },
             contract_path: format!("contracts/{capability_id}.json"),
             artifact: CapabilityArtifactRecord {
