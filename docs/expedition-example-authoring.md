@@ -16,6 +16,8 @@ Local runtime-owned generated helpers, overlays, and copied execution byproducts
 
 See `docs/local-runtime-home.md` for the default layout and ownership boundary.
 
+For agent-package authoring, see `docs/wasm-agent-authoring-guide.md` and the governed example packages under `examples/agents/`.
+
 ## Artifact Categories
 
 Atomic capability contracts:
