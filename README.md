@@ -160,6 +160,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 - [docs/mcp-real-agent-exercise.md](docs/mcp-real-agent-exercise.md) — real AI agent exercise for the Traverse MCP surface
 - [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) — how to create new WASM agents
 - [docs/wasm-agent-team-readiness-example.md](docs/wasm-agent-team-readiness-example.md) — second governed WASM AI agent example
+- [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) — how to create new WASM microservices
 - [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation
 - [docs/youaskm3-compatibility-conformance-suite.md](docs/youaskm3-compatibility-conformance-suite.md) — youaskm3 compatibility conformance suite
 - [docs/youaskm3-real-shell-validation.md](docs/youaskm3-real-shell-validation.md) — youaskm3 real shell validation
