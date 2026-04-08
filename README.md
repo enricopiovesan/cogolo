@@ -1,109 +1,152 @@
-[<img width="1357" height="440" alt="Screenshot 2026-03-27 at 9 22 54 AM" src="https://github.com/user-attachments/assets/aeafaaf8-650d-4489-bf5e-bd386f0bcaf0" />](https://enricopiovesan.com/)
+[![CI](https://github.com/enricopiovesan/Traverse/actions/workflows/ci.yml/badge.svg)](https://github.com/enricopiovesan/Traverse/actions/workflows/ci.yml)
+[![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/enricopiovesan/Traverse/actions/workflows/ci.yml)
+[![Spec Governed](https://img.shields.io/badge/spec-governed-blueviolet)](specs/governance/approved-specs.json)
+[![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
+[![Rust](https://img.shields.io/badge/rust-1.94%2B-orange)](https://www.rust-lang.org/)
+[![Version](https://img.shields.io/badge/version-v0.1--rc-lightgrey)](https://github.com/enricopiovesan/Traverse/releases)
 
 # Traverse
 
-Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
+**Business logic should be portable. Traverse makes it executable anywhere and composable with everything.**
 
-## Status
+Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows — across browser, edge, cloud, and device environments.
 
-This repository is in v0.1 release-candidate preparation for the first app-consumable Traverse flow.
+> This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com). Created on personal time, not affiliated with Autodesk.
 
-This project is personal research and development work by Enrico Piovesan,
-created on personal time, outside of work, and is not affiliated with,
-sponsored by, or related to Autodesk.
+---
 
-The project is currently focused on:
+## For Humans
 
-- the first app-consumable browser flow
-- the live local browser adapter consumer path
-- downstream consumer contracts and validation
-- release readiness, checklist, and publication shape
-- Rust-first runtime foundations
-- WASM-first portable capabilities
-- capability, event, and workflow contracts
-- registries and deterministic workflows
-- structured traces and runtime state
-- a React browser demo
+### Quick Start
 
-## Vision
+```bash
+git clone https://github.com/enricopiovesan/Traverse.git
+cd Traverse
 
-Traverse treats business capabilities as the primary unit of software.
+cargo build                   # build all crates
+cargo test                    # run the full test suite
+cargo run -p traverse-cli     # run the CLI
+```
 
-The long-term goal is to make business logic:
+**Requirements**: Rust 1.94+
 
-- portable across browser, edge, cloud, and device environments
-- governed through contracts and specs
+### What it does
+
+- Define a **capability contract** — one meaningful business action with explicit inputs, outputs, and side effects
+- **Register** it in the capability registry
+- **Validate** it against its governing spec
+- **Execute** it locally through the runtime with structured trace output
+
+### Vision
+
+Traverse treats business capabilities as the primary unit of software:
+
+- portable across browser, edge, cloud, and device
+- governed through versioned, immutable contracts and specs
 - composable through events and graph-based workflows
 - explainable through structured runtime traces
-- usable by humans, runtimes, and AI systems safely
+- safe for humans, runtimes, and AI systems to consume
 
-## Source of Truth
+### Contributing
 
-Traverse is spec-governed.
+Please read before opening a PR:
 
-The governing artifacts are:
+- [CONTRIBUTING.md](CONTRIBUTING.md)
+- [CODE_OF_CONDUCT.md](CODE_OF_CONDUCT.md)
+- [SECURITY.md](SECURITY.md)
+- [docs/quality-standards.md](docs/quality-standards.md)
 
-- approved versioned specs in [specs](/Users/piovese/Documents/cogolo/specs)
-- capability and event contracts
-- project constitution in [.specify/memory/constitution.md](/Users/piovese/Documents/cogolo/.specify/memory/constitution.md)
+All work follows the [Speckit governance workflow](#governance). Every PR must be backed by an approved spec.
 
-Code, generated artifacts, and tests must align with the approved governing spec version. Pull requests should fail when implementation drifts from spec.
+---
 
-## Key Docs
+## For Agents
 
-- Start here: [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
-- Documentation entry path: [docs/app-consumable-entry-path.md](/Users/piovese/Documents/cogolo/docs/app-consumable-entry-path.md)
-- App-consumable release checklist: [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
-- App-consumable consumer bundle: [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
-- App-consumable acceptance: [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
-- Release and requirements traceability: [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
-- youaskm3 compatibility conformance suite: [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
-- Dedicated MCP stdio server package: [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md)
-- youaskm3 starter kit and integration guide: [docs/youaskm3-starter-kit.md](/Users/piovese/Documents/cogolo/docs/youaskm3-starter-kit.md)
-- Project direction: [draft.md](/Users/piovese/Documents/cogolo/draft.md)
-- Brainstorming decisions: [brainstorming.md](/Users/piovese/Documents/cogolo/brainstorming.md)
-- First real youaskm3 integration validation: [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
-- Quality standards: [docs/quality-standards.md](/Users/piovese/Documents/cogolo/docs/quality-standards.md)
-- Compatibility policy: [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md)
-- Adapter boundaries: [docs/adapter-boundaries.md](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md)
-- Contract publication policy: [docs/contract-publication-policy.md](/Users/piovese/Documents/cogolo/docs/contract-publication-policy.md)
-- Local runtime home: [docs/local-runtime-home.md](/Users/piovese/Documents/cogolo/docs/local-runtime-home.md)
-- Exception process: [docs/exception-process.md](/Users/piovese/Documents/cogolo/docs/exception-process.md)
-- ADR guidance: [docs/adr/README.md](/Users/piovese/Documents/cogolo/docs/adr/README.md)
+This project supports AI-assisted development with Codex and Claude Code running in parallel.
 
-Foundation `v0.1` planning docs:
+### Entry points
 
-- Spec: [specs/001-foundation-v0-1/spec.md](/Users/piovese/Documents/cogolo/specs/001-foundation-v0-1/spec.md)
-- Plan: [specs/001-foundation-v0-1/plan.md](/Users/piovese/Documents/cogolo/specs/001-foundation-v0-1/plan.md)
-- Research: [specs/001-foundation-v0-1/research.md](/Users/piovese/Documents/cogolo/specs/001-foundation-v0-1/research.md)
+| Agent | File | Purpose |
+|---|---|---|
+| Claude Code | [`CLAUDE.md`](CLAUDE.md) | Project context, governance rules, speckit workflow |
+| Codex | [`AGENTS.md`](AGENTS.md) | Project context, coordination rules, speckit workflow |
+| All agents | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Governing constitution v1.2.0 |
 
-## Task Management
+### Agent workflow
 
-The canonical task board for this project is:
+1. **Read** your entry point file (`CLAUDE.md` or `AGENTS.md`)
+2. **Claim** the ticket — check for `agent:claude` / `agent:codex` labels and existing branches
+3. **Create** a feature branch: `NNN-feature-name`
+4. **Run** `.specify/scripts/bash/setup-plan.sh --json` to initialize the spec directory
+5. **Write** `specs/<branch>/spec.md` and `plan.md` before any code
+6. **Implement** the smallest change that satisfies the spec and contracts
+7. **Open** a PR with `## Governing Spec`, `## Project Item`, and `## Validation` sections
 
-- [GitHub Project 1](https://github.com/users/enricopiovesan/projects/1/)
+### Agent coordination
 
-Issues and pull requests should be written so they can be tracked there cleanly. See [docs/project-management.md](/Users/piovese/Documents/cogolo/docs/project-management.md).
+- `agent:claude` label = claimed by Claude Code — Codex must skip
+- `agent:codex` label = claimed by Codex — Claude Code must skip
+- Full coordination rules: [`docs/multi-thread-workflow.md`](docs/multi-thread-workflow.md)
 
-## Open Source Collaboration
+### Approved specs
 
-Please read before contributing:
+| ID | Spec | Governs |
+|---|---|---|
+| 001 | [foundation-v0-1](specs/001-foundation-v0-1/spec.md) | Core runtime, CLI, MCP surface |
+| 002 | [capability-contracts](specs/002-capability-contracts/spec.md) | Contract definitions and validation |
+| 003 | [event-contracts](specs/003-event-contracts/spec.md) | Event contract definitions |
+| 004 | [spec-alignment-gate](specs/004-spec-alignment-gate/spec.md) | CI merge gate |
+| 005 | [capability-registry](specs/005-capability-registry/spec.md) | Registry behavior |
+| 006 | [runtime-request-execution](specs/006-runtime-request-execution/spec.md) | Execution model |
+| 007 | [workflow-registry-traversal](specs/007-workflow-registry-traversal/spec.md) | Workflow composition |
+| 008 | [expedition-example-domain](specs/008-expedition-example-domain/spec.md) | Example domain |
+| 009 | [expedition-example-artifacts](specs/009-expedition-example-artifacts/spec.md) | Example artifacts |
 
-- [CONTRIBUTING.md](/Users/piovese/Documents/cogolo/CONTRIBUTING.md)
-- [CODE_OF_CONDUCT.md](/Users/piovese/Documents/cogolo/CODE_OF_CONDUCT.md)
-- [SECURITY.md](/Users/piovese/Documents/cogolo/SECURITY.md)
-- [SUPPORT.md](/Users/piovese/Documents/cogolo/SUPPORT.md)
+---
 
-## Repository Principles
+## Architecture
 
-- Specs are versioned, immutable, and merge-gating once approved.
-- Contracts are the source of truth for runtime behavior.
-- Portability matters more than host-specific shortcuts.
-- Core logic must maintain production-grade quality and full automated coverage.
-- Runtime behavior must be explainable through explicit traces and evidence.
+### Crates
+
+| Crate | Role |
+|---|---|
+| `traverse-runtime` | Core execution engine — validates, places, and executes capabilities |
+| `traverse-contracts` | Contract definitions, parsing, and validation |
+| `traverse-registry` | Capability and event registries with deterministic traversal |
+| `traverse-cli` | Command-line interface: register, list, validate, run |
+| `traverse-mcp` | Model Context Protocol surface (in progress) |
+
+### Governance
+
+Traverse is spec-driven. Code must align with an approved, immutable spec or it does not merge.
+
+| Artifact | Location | Role |
+|---|---|---|
+| Specs | [`specs/`](specs/) | Versioned, immutable, merge-gating |
+| Contracts | [`contracts/`](contracts/) | Source of truth for runtime behavior |
+| Constitution | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Overrides all convenience decisions |
+| CI gate | [`scripts/ci/spec_alignment_check.sh`](scripts/ci/spec_alignment_check.sh) | Deterministic, AI-agnostic |
+
+### Key docs
+
+- [quickstart.md](quickstart.md) — start here for the first runnable flow
+- [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) — first app-consumable flow
+- [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
+- [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
+- [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation
+- [docs/youaskm3-compatibility-conformance-suite.md](docs/youaskm3-compatibility-conformance-suite.md) — youaskm3 compatibility conformance suite
+- [docs/quality-standards.md](docs/quality-standards.md) — non-negotiable quality rules
+- [docs/compatibility-policy.md](docs/compatibility-policy.md) — versioning and compatibility
+- [docs/multi-thread-workflow.md](docs/multi-thread-workflow.md) — parallel agent workflow
+- [docs/project-management.md](docs/project-management.md) — issue and board rules
+- [docs/adr/README.md](docs/adr/README.md) — architecture decision records
+
+### Task board
+
+[GitHub Project 1](https://github.com/users/enricopiovesan/projects/1/) is the canonical board. All active work has an issue, a project item, and a PR.
+
+---
 
 ## License
 
-This project is licensed under Apache-2.0. See [LICENSE](/Users/piovese/Documents/cogolo/LICENSE).
-
-See [NOTICE](/Users/piovese/Documents/cogolo/NOTICE) for attribution and project disclaimer text.
+Apache-2.0 — see [LICENSE](LICENSE) and [NOTICE](NOTICE).
