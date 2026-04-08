@@ -20,6 +20,7 @@ required_files=(
   "docs/expedition-example-smoke.md"
   "docs/mcp-consumption-validation.md"
   "docs/mcp-stdio-server.md"
+  "docs/mcp-real-agent-exercise.md"
   "docs/app-consumable-release-checklist.md"
   "docs/app-consumable-consumer-bundle.md"
   "docs/app-consumable-release-artifact.md"
@@ -60,6 +61,7 @@ required_files=(
   "scripts/ci/mcp_stdio_server_smoke.sh"
   "scripts/ci/mcp_stdio_server_discovery_smoke.sh"
   "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
+  "scripts/ci/mcp_real_agent_exercise_smoke.sh"
   "scripts/ci/project_board_audit.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
@@ -125,12 +127,14 @@ grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md
+grep -q "docs/mcp-real-agent-exercise.md" docs/mcp-consumption-validation.md
 grep -q "list_content_groups" docs/mcp-stdio-server.md
 grep -q "describe_content_group" docs/mcp-stdio-server.md
 grep -q "core-runtime-example" docs/mcp-stdio-server.md
 grep -q "mcp_stdio_server_execution_report_smoke.sh" docs/mcp-stdio-server.md
 grep -q "render_execution_report" docs/mcp-stdio-server.md
 grep -q "docs/youaskm3-integration-validation.md" docs/mcp-consumption-validation.md
+grep -q "docs/mcp-real-agent-exercise.md" README.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" README.md
 grep -q "docs/youaskm3-real-shell-validation.md" README.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/app-consumable-entry-path.md
@@ -138,6 +142,7 @@ grep -q "docs/youaskm3-real-shell-validation.md" docs/app-consumable-entry-path.
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/mcp-consumption-validation.md
 grep -q "docs/youaskm3-compatibility-conformance-suite.md" docs/youaskm3-integration-validation.md
 grep -q "docs/youaskm3-real-shell-validation.md" docs/youaskm3-integration-validation.md
+grep -q "docs/mcp-real-agent-exercise.md" docs/youaskm3-integration-validation.md
 grep -q "youaskm3 compatibility conformance suite" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "version pairing" docs/youaskm3-compatibility-conformance-suite.md
 grep -q "bash scripts/ci/youaskm3_compatibility_conformance.sh" docs/youaskm3-compatibility-conformance-suite.md
@@ -146,6 +151,12 @@ grep -q "the same Traverse v0.1 release pairing" docs/youaskm3-integration-valid
 grep -q "youaskm3 real shell validation" docs/youaskm3-real-shell-validation.md
 grep -q "openspec/specs/pwa-shell/spec.md" docs/youaskm3-real-shell-validation.md
 grep -q "bash scripts/ci/youaskm3_real_shell_validation.sh" docs/youaskm3-real-shell-validation.md
+grep -q "bash scripts/ci/mcp_real_agent_exercise_smoke.sh" docs/mcp-real-agent-exercise.md
+grep -q "discover_capabilities" docs/mcp-real-agent-exercise.md
+grep -q "discover_events" docs/mcp-real-agent-exercise.md
+grep -q "discover_workflows" docs/mcp-real-agent-exercise.md
+grep -q "execute_entrypoint" docs/mcp-real-agent-exercise.md
+grep -q "render_execution_report" docs/mcp-real-agent-exercise.md
 grep -q "scripts/smoke.sh" docs/youaskm3-real-shell-validation.md
 grep -q "apps/browser-consumer/README.md" docs/mcp-consumption-validation.md
 grep -q "docs/app-consumable-consumer-bundle.md" README.md
