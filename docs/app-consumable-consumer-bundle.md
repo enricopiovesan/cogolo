@@ -5,6 +5,7 @@ This document defines the first versioned Traverse consumer bundle for downstrea
 The bundle is the release-facing adoption package for downstream apps such as `youaskm3`. It tells a downstream team what to install, which Traverse release tag to pin, and which public surfaces are supported together.
 The bundle is paired with the package release pointer at [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
 The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](/Users/piovese/Documents/cogolo/specs/023-downstream-publication-strategy/spec.md).
+The packaged runtime artifact is defined in [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md).
 
 ## Bundle Purpose
 

@@ -5,6 +5,7 @@ This document defines what the first Traverse v0.1 app-consumable release actual
 The release checklist at [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md) explains when the release is allowed. This document explains what the release artifact is once that checklist is satisfied.
 The package release pointer is defined in [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
 The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](/Users/piovese/Documents/cogolo/specs/023-downstream-publication-strategy/spec.md).
+For the packaged runtime artifact itself, see [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md).
 
 ## Publication Shape
 
