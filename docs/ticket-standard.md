@@ -6,7 +6,7 @@ This document defines the minimum quality bar for Traverse issues.
 
 Every meaningful ticket must be explicit enough that a developer can tell:
 
-- whether the work is ready to start
+- whether the work is available to start
 - whether it is blocked
 - whether it needs a governing spec
 - what "done" means
@@ -16,7 +16,6 @@ Every meaningful ticket must be explicit enough that a developer can tell:
 
 Every active or future ticket should use the relevant labels from this set:
 
-- `ready`
 - `in-progress`
 - `blocked`
 - `needs-spec`
@@ -30,14 +29,27 @@ Every active or future ticket should use the relevant labels from this set:
 
 Use `no-spec-needed` when the work can proceed under existing approved specs or is non-governing support work.
 
-Use status labels this way:
+Use labels this way:
 
-- `ready`: approved and not started yet
 - `in-progress`: currently being worked on right now
 - `blocked`: started or selected, but cannot continue until the blocker is removed
 - `future`: valid backlog work that is intentionally not active now
 
+Use Project 1 status for availability:
+
+- `Ready`: approved and not started yet
+- `In Progress`: currently being worked on right now
+- `Blocked`: cannot continue until the blocker is removed
+
 Do not move work to `in-progress` just because it is a candidate for parallel execution. Use `in-progress` only when there is real active execution, typically with an active branch, PR, or an explicitly assigned developer currently working the ticket.
+
+If a ticket has an open PR, `in-progress` should remain until that PR merges or is closed. Once the PR merges, the ticket should be closed or moved out of `in-progress` in the same cleanup pass.
+
+Open-PR rule:
+
+- an open PR and a `Ready` Project 1 status must never coexist on the same ticket
+- when a PR is opened, the ticket-state handoff must happen immediately in the same operational pass
+- if this invariant is violated, fixing the ticket state takes priority over additional backlog cleanup
 
 ## Required Ticket Sections
 
@@ -109,3 +121,14 @@ When a real problem is found during active work:
 - if it is not required to complete the current slice, create a `future` ticket instead of silently dropping it
 
 This keeps the active PR clean without losing useful follow-up work.
+
+## Merge Candidate Rule
+
+When a ticket's PR is the next candidate to merge into a protected base branch:
+
+- do not start unrelated side work ahead of merging it
+- update the PR to the latest base immediately after any prior merge changes `main`
+- keep the ticket and project item clearly marked as active until the merge finishes
+- if the PR is green but `BEHIND`, update it immediately rather than waiting on stale checks
+
+This rule prevents "green but behind base" drift from silently stalling delivery.

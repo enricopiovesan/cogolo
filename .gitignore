@@ -3,3 +3,7 @@
 !.agents/skills/**
 target/
 .DS_Store
+references/open-source/*
+!references/open-source/.gitignore
+!references/open-source/README.md
+.claude/worktrees/
