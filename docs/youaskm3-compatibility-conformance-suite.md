@@ -19,6 +19,8 @@ It does not define new runtime behavior. It verifies that the supported Traverse
 
 ## Version Pairing
 
+This version pairing is the release-aligned Traverse and `youaskm3` combination the suite proves.
+
 The suite proves a single Traverse release pairing:
 
 - the approved Traverse v0.1 consumer bundle

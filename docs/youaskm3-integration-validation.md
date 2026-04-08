@@ -9,6 +9,7 @@ It stays on governed public Traverse surfaces only:
 - the downstream MCP consumption validation path
 - the first app-consumable quickstart
 - the versioned Traverse consumer bundle
+- [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
 - the `youaskm3` compatibility conformance suite
 
 For the shortest Traverse-side start path, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
