@@ -1023,8 +1023,8 @@ mod tests {
         BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, Entrypoint,
         EntrypointKind, EventReference, EvidenceStatus, EvidenceType, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference,
-        Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, SideEffect,
-        SideEffectKind, ValidationEvidence,
+        Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer,
+        ServiceType, SideEffect, SideEffectKind, ValidationEvidence,
     };
     use traverse_registry::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
@@ -2102,6 +2102,14 @@ mod tests {
                 evidence_type: EvidenceType::ContractValidation,
                 status: EvidenceStatus::Passed,
             }],
+            service_type: ServiceType::Stateless,
+            permitted_targets: vec![
+                ExecutionTarget::Local,
+                ExecutionTarget::Cloud,
+                ExecutionTarget::Edge,
+                ExecutionTarget::Device,
+            ],
+            event_trigger: None,
         }
     }
 

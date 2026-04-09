@@ -831,6 +831,14 @@ mod tests {
                 exception_refs: Vec::new(),
             },
             evidence: Vec::new(),
+            service_type: traverse_contracts::ServiceType::Stateless,
+            permitted_targets: vec![
+                traverse_contracts::ExecutionTarget::Local,
+                traverse_contracts::ExecutionTarget::Cloud,
+                traverse_contracts::ExecutionTarget::Edge,
+                traverse_contracts::ExecutionTarget::Device,
+            ],
+            event_trigger: None,
         }
     }
 

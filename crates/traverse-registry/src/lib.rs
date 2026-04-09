@@ -1125,7 +1125,7 @@ mod tests {
         BinaryFormat as ContractBinaryFormat, Condition, DependencyArtifactType,
         DependencyReference, Entrypoint, EntrypointKind, EvidenceStatus, EvidenceType, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, NetworkAccess,
-        Provenance, ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind,
+        Provenance, ProvenanceSource, SchemaContainer, ServiceType, SideEffect, SideEffectKind,
         ValidationEvidence,
     };
 
@@ -1744,6 +1744,14 @@ mod tests {
                 evidence_type: EvidenceType::ContractValidation,
                 status: EvidenceStatus::Passed,
             }],
+            service_type: ServiceType::Stateless,
+            permitted_targets: vec![
+                ExecutionTarget::Local,
+                ExecutionTarget::Cloud,
+                ExecutionTarget::Edge,
+                ExecutionTarget::Device,
+            ],
+            event_trigger: None,
         }
     }
 
