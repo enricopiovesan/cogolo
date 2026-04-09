@@ -279,6 +279,27 @@ for spec_id in sorted(required_spec_ids):
             }
         )
 
+# --- v0.2.0 contract field validation ---
+# Every capability_contract file must declare service_type and artifact_type.
+contracts_dir = Path("contracts")
+if contracts_dir.is_dir():
+    for contract_path in sorted(contracts_dir.rglob("*.json")):
+        try:
+            contract = json.loads(contract_path.read_text())
+        except Exception:
+            continue
+        if contract.get("kind") != "capability_contract":
+            continue
+        for required_field in ("service_type", "artifact_type"):
+            if required_field not in contract:
+                failures.append(
+                    {
+                        "code": "contract.missing_required_field",
+                        "path": str(contract_path),
+                        "message": f"Capability contract is missing required v0.2.0 field '{required_field}': {contract_path}",
+                    }
+                )
+
 status = "passed" if not failures else "failed"
 
 print(
@@ -289,6 +310,9 @@ print(
             "governed_files": governed_files,
             "required_spec_ids": sorted(required_spec_ids),
             "declared_spec_ids": declared_spec_ids,
+            "contract_field_failures": [
+                f for f in failures if f["code"] == "contract.missing_required_field"
+            ],
             "failures": failures,
         }
     )

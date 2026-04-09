@@ -200,5 +200,6 @@
     "cloud",
     "edge",
     "device"
-  ]
+  ],
+  "artifact_type": "native"
 }
