@@ -91,8 +91,7 @@ impl PlacementConstraintEvaluator {
             .iter()
             .filter(|t| {
                 // Stateful services cannot run in Browser.
-                !(contract.service_type == ServiceType::Stateful
-                    && **t == ExecutionTarget::Browser)
+                !(contract.service_type == ServiceType::Stateful && **t == ExecutionTarget::Browser)
             })
             .cloned()
             .collect();
