@@ -575,121 +575,109 @@ fn valid_contract() -> CapabilityContract {
 }
 
 #[test]
-fn stateless_contract_defaults_parse_from_json_without_new_fields() {
+fn stateless_contract_defaults_parse_from_json_without_new_fields() -> Result<(), String> {
     // Contracts without service_type/permitted_targets/event_trigger must still parse —
     // backward-compatible defaults apply.
-    let json = serde_json::to_string(&{
-        // Serialize then strip the new fields to simulate an old contract
-        let mut v: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&valid_contract()).unwrap_or_default())
-                .unwrap_or_default();
-        if let Some(m) = v.as_object_mut() {
-            m.remove("service_type");
-            m.remove("permitted_targets");
-            m.remove("event_trigger");
-        }
-        v
-    })
-    .unwrap_or_default();
+    let mut v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&valid_contract()).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    if let Some(m) = v.as_object_mut() {
+        m.remove("service_type");
+        m.remove("permitted_targets");
+        m.remove("event_trigger");
+    }
+    let json = serde_json::to_string(&v).map_err(|e| e.to_string())?;
 
-    let parsed = match parse_contract(&json) {
-        Ok(parsed) => parsed,
-        Err(_) => panic!("old contract must parse with defaults"),
-    };
+    let parsed = parse_contract(&json).map_err(|e| format!("{e:?}"))?;
     assert_eq!(parsed.service_type, ServiceType::Stateless);
     assert!(
         !parsed.permitted_targets.is_empty(),
         "permitted_targets defaults to all targets"
     );
     assert_eq!(parsed.event_trigger, None);
+    Ok(())
 }
 
 #[test]
-fn stateful_with_browser_target_is_rejected() {
+fn stateful_with_browser_target_is_rejected() -> Result<(), String> {
     let mut contract = valid_contract();
     contract.service_type = ServiceType::Stateful;
     contract.permitted_targets = vec![ExecutionTarget::Browser, ExecutionTarget::Cloud];
 
-    let failure = match expect_validation_failure(validate_contract(
+    let failure = expect_validation_failure(validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    )) {
-        Ok(failure) => failure,
-        Err(_) => panic!("expected validation failure"),
-    };
+    ))?;
 
     let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
     assert!(
         codes.contains(&&ValidationErrorCode::InvalidPlacementConstraint),
         "expected InvalidPlacementConstraint, got {codes:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn subscribable_without_event_trigger_is_rejected() {
+fn subscribable_without_event_trigger_is_rejected() -> Result<(), String> {
     let mut contract = valid_contract();
     contract.service_type = ServiceType::Subscribable;
     contract.event_trigger = None;
 
-    let failure = match expect_validation_failure(validate_contract(
+    let failure = expect_validation_failure(validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    )) {
-        Ok(failure) => failure,
-        Err(_) => panic!("expected validation failure"),
-    };
+    ))?;
 
     let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
     assert!(
         codes.contains(&&ValidationErrorCode::MissingEventTrigger),
         "expected MissingEventTrigger, got {codes:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn subscribable_with_event_trigger_passes() {
+fn subscribable_with_event_trigger_passes() -> Result<(), String> {
     let mut contract = valid_contract();
     contract.service_type = ServiceType::Subscribable;
     contract.event_trigger = Some("content.comments.comment-draft-created".to_string());
 
-    if let Err(error) = validate_contract(
+    validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    ) {
-        let _ = error;
-        panic!("subscribable with event_trigger must pass validation");
-    }
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(())
 }
 
 #[test]
-fn stateful_without_browser_passes() {
+fn stateful_without_browser_passes() -> Result<(), String> {
     let mut contract = valid_contract();
     contract.service_type = ServiceType::Stateful;
     contract.permitted_targets = vec![ExecutionTarget::Cloud, ExecutionTarget::Edge];
 
-    if let Err(error) = validate_contract(
+    validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    ) {
-        let _ = error;
-        panic!("stateful without Browser must pass validation");
-    }
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(())
 }
 
 #[test]
