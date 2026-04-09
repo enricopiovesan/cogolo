@@ -196,7 +196,7 @@ fn capability_registry_with_two_capabilities() -> Result<CapabilityRegistry, Str
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:?}"))?;
 
     let subscribable_contract = subscribable_capability_contract();
     let subscribable_id = subscribable_contract.id.clone();
@@ -212,7 +212,7 @@ fn capability_registry_with_two_capabilities() -> Result<CapabilityRegistry, Str
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:?}"))?;
 
     Ok(registry)
 }
@@ -227,7 +227,7 @@ fn event_catalog_with_one_entry() -> Result<EventCatalog, String> {
             lifecycle_status: LifecycleStatus::Active,
             consumer_count: 0,
         })
-        .map_err(|e| e.to_string())?;
+        .map_err(|e| format!("{e:?}"))?;
     Ok(catalog)
 }
 
