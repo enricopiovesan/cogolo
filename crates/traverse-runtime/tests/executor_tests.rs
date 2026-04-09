@@ -235,6 +235,15 @@ fn wasm_executor_rejects_invalid_json_output() -> Result<(), String> {
     Ok(())
 }
 
+// --- Debug impl coverage ---
+
+#[test]
+fn native_executor_debug_impl_is_accessible() {
+    let executor = NativeExecutor::new(|_| Ok(json!({})));
+    let dbg = format!("{executor:?}");
+    assert!(dbg.contains("NativeExecutor"), "Debug output: {dbg}");
+}
+
 // --- ExecutorError Display coverage ---
 
 #[test]
