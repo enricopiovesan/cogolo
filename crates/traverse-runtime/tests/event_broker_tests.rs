@@ -208,7 +208,7 @@ fn unsubscribe_removes_all_handlers_for_event_type() -> Result<(), String> {
 }
 
 #[test]
-fn subscribe_to_unregistered_event_type_returns_error() -> Result<(), String> {
+fn subscribe_to_unregistered_event_type_returns_error() {
     let catalog = Arc::new(EventCatalog::new());
     let broker = InProcessBroker::new(catalog);
 
@@ -217,11 +217,10 @@ fn subscribe_to_unregistered_event_type_returns_error() -> Result<(), String> {
         matches!(result, Err(EventError::UnregisteredEventType(_))),
         "expected UnregisteredEventType, got {result:?}"
     );
-    Ok(())
 }
 
 #[test]
-fn unsubscribe_from_unregistered_event_type_returns_error() -> Result<(), String> {
+fn unsubscribe_from_unregistered_event_type_returns_error() {
     let catalog = Arc::new(EventCatalog::new());
     let broker = InProcessBroker::new(catalog);
 
@@ -230,7 +229,6 @@ fn unsubscribe_from_unregistered_event_type_returns_error() -> Result<(), String
         matches!(result, Err(EventError::UnregisteredEventType(_))),
         "expected UnregisteredEventType, got {result:?}"
     );
-    Ok(())
 }
 
 #[test]
