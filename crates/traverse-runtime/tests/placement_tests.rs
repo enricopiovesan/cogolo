@@ -120,7 +120,7 @@ fn tier1_hint_accepted_when_in_permitted_targets() -> Result<(), PlacementError>
         runtime_snapshot: snapshot_with(&[(ExecutionTarget::Cloud, 0.3)]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Cloud),
@@ -151,7 +151,7 @@ fn tier1_hint_rejected_falls_through_to_tier3() -> Result<(), PlacementError> {
         ]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     // Lowest load eligible target is Local (0.2), Edge is Low (0.8 < 0.9 still eligible).
     assert!(
@@ -189,7 +189,7 @@ fn tier2_filters_browser_for_stateful_service() -> Result<(), PlacementError> {
         ]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     assert!(
         !matches!(decision.target, ExecutionTarget::Browser),
@@ -217,7 +217,7 @@ fn tier2_permitted_targets_restricts_universe() -> Result<(), PlacementError> {
         ]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Local),
@@ -244,7 +244,7 @@ fn tier3_selects_lowest_load_target() -> Result<(), PlacementError> {
         ]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Cloud),
@@ -275,7 +275,7 @@ fn tier3_overloaded_targets_excluded() -> Result<(), PlacementError> {
         ]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Edge),
@@ -303,7 +303,7 @@ fn no_eligible_target_returns_error() {
         ]),
     };
 
-    let result = evaluator().evaluate(request, &contract);
+    let result = evaluator().evaluate(&request, &contract);
     assert!(
         matches!(result, Err(PlacementError::NoEligibleTarget)),
         "should return NoEligibleTarget when all targets are overloaded"
@@ -326,8 +326,8 @@ fn deterministic_same_inputs_same_output() -> Result<(), PlacementError> {
     };
 
     let ev = evaluator();
-    let first = ev.evaluate(make_request(), &contract)?;
-    let second = ev.evaluate(make_request(), &contract)?;
+    let first = ev.evaluate(&make_request(), &contract)?;
+    let second = ev.evaluate(&make_request(), &contract)?;
 
     assert_eq!(
         format!("{:?}", first.target),
@@ -352,7 +352,7 @@ fn confidence_medium_for_load_between_0_5_and_0_75() -> Result<(), PlacementErro
         runtime_snapshot: snapshot_with(&[(ExecutionTarget::Local, 0.6)]),
     };
 
-    let decision = evaluator().evaluate(request, &contract)?;
+    let decision = evaluator().evaluate(&request, &contract)?;
 
     assert!(
         matches!(decision.confidence, PlacementConfidence::Medium),

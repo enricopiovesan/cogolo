@@ -67,21 +67,26 @@ impl PlacementConstraintEvaluator {
     ///
     /// Returns a [`PlacementDecision`] on success, or
     /// [`PlacementError::NoEligibleTarget`] when all targets are eliminated.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`PlacementError::NoEligibleTarget`] when no target survives all
+    /// three constraint tiers (caller hint, contract constraints, heuristics).
     pub fn evaluate(
         &self,
-        request: PlacementRequest,
+        request: &PlacementRequest,
         contract: &CapabilityContract,
     ) -> Result<PlacementDecision, PlacementError> {
         // --- Tier 1: Caller hint ---
-        if let Some(ref hint) = request.target_hint {
-            if contract.permitted_targets.contains(hint) {
-                let load = load_for(&request.runtime_snapshot, hint);
-                return Ok(PlacementDecision {
-                    target: hint.clone(),
-                    reason: PlacementReason::CallerHintAccepted,
-                    confidence: confidence_for(load),
-                });
-            }
+        if let Some(ref hint) = request.target_hint
+            && contract.permitted_targets.contains(hint)
+        {
+            let load = load_for(&request.runtime_snapshot, hint);
+            return Ok(PlacementDecision {
+                target: hint.clone(),
+                reason: PlacementReason::CallerHintAccepted,
+                confidence: confidence_for(load),
+            });
         }
 
         // --- Tier 2: Contract constraints ---
