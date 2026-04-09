@@ -4,11 +4,14 @@ use serde_json::Value;
 
 use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
 
+/// Handler type alias for native capability implementations.
+type NativeHandler = Box<dyn Fn(&Value) -> Result<Value, String> + Send + Sync>;
+
 /// Executes capabilities implemented as native Rust functions.
 ///
 /// The handler is stored as a boxed closure and invoked synchronously.
 pub struct NativeExecutor {
-    handler: Box<dyn Fn(&Value) -> Result<Value, String> + Send + Sync>,
+    handler: NativeHandler,
 }
 
 impl std::fmt::Debug for NativeExecutor {

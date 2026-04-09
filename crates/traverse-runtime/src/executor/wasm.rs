@@ -72,6 +72,11 @@ impl WasmExecutor {
     /// Execute pre-loaded WASM bytes with the given input.
     ///
     /// Exposed separately so tests can pass raw bytes without needing a file on disk.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] if input serialization fails, the WASM module cannot be
+    /// compiled or linked, execution fails, or stdout is not valid JSON.
     pub fn run_bytes(&self, wasm_bytes: &[u8], input: &Value) -> Result<Value, ExecutorError> {
         self.run_wasm(wasm_bytes, input)
     }
