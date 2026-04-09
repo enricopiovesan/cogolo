@@ -5,11 +5,9 @@
 use std::sync::Arc;
 use traverse_contracts::{
     BinaryFormat as ContractBinaryFormat, Condition, DependencyArtifactType, DependencyReference,
-    Entrypoint, EntrypointKind, EventClassification, EventContract, EventPayload, EventProvenance,
-    EventProvenanceSource, EventReference, EventType, EventValidationEvidence, Execution,
-    ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference, Lifecycle,
-    NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, ServiceType, SideEffect,
-    SideEffectKind,
+    Entrypoint, EntrypointKind, EventReference, Execution, ExecutionConstraints, ExecutionTarget,
+    FilesystemAccess, HostApiAccess, IdReference, Lifecycle, NetworkAccess, Owner, Provenance,
+    ProvenanceSource, SchemaContainer, ServiceType, SideEffect, SideEffectKind,
 };
 use traverse_mcp::{
     McpContext,
@@ -198,7 +196,7 @@ fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .expect("first registration should succeed");
+        .unwrap_or_else(|_| panic!("first registration should succeed"));
 
     let subscribable_contract = subscribable_capability_contract();
     let subscribable_id = subscribable_contract.id.clone();
@@ -214,7 +212,7 @@ fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .expect("second registration should succeed");
+        .unwrap_or_else(|_| panic!("second registration should succeed"));
 
     registry
 }
@@ -229,7 +227,7 @@ fn event_catalog_with_one_entry() -> EventCatalog {
             lifecycle_status: LifecycleStatus::Active,
             consumer_count: 0,
         })
-        .expect("catalog registration should succeed");
+        .unwrap_or_else(|_| panic!("catalog registration should succeed"));
     catalog
 }
 
@@ -267,7 +265,7 @@ fn mcp_context(
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_capabilities_returns_all_when_no_filter() -> Result<(), String> {
+fn list_capabilities_returns_all_when_no_filter() {
     let registry = capability_registry_with_two_capabilities();
     let summaries = list_capabilities(&registry, None);
     assert_eq!(
@@ -276,11 +274,10 @@ fn list_capabilities_returns_all_when_no_filter() -> Result<(), String> {
         "expected 2 capabilities, got {}",
         summaries.len()
     );
-    Ok(())
 }
 
 #[test]
-fn list_capabilities_filters_by_service_type() -> Result<(), String> {
+fn list_capabilities_filters_by_service_type() {
     let registry = capability_registry_with_two_capabilities();
     let filter = CapabilityFilter {
         service_type: Some(ServiceType::Subscribable),
@@ -290,11 +287,10 @@ fn list_capabilities_filters_by_service_type() -> Result<(), String> {
     assert_eq!(summaries.len(), 1, "expected 1 subscribable capability");
     assert_eq!(summaries[0].id, "content.comments.notify-subscriber");
     assert_eq!(summaries[0].service_type, ServiceType::Subscribable);
-    Ok(())
 }
 
 #[test]
-fn list_capabilities_filters_by_permitted_targets() -> Result<(), String> {
+fn list_capabilities_filters_by_permitted_targets() {
     let registry = capability_registry_with_two_capabilities();
     let filter = CapabilityFilter {
         service_type: None,
@@ -308,11 +304,10 @@ fn list_capabilities_filters_by_permitted_targets() -> Result<(), String> {
         "expected 1 capability with Cloud target"
     );
     assert_eq!(summaries[0].id, "content.comments.create-comment-draft");
-    Ok(())
 }
 
 #[test]
-fn list_capabilities_returns_expected_fields() -> Result<(), String> {
+fn list_capabilities_returns_expected_fields() {
     let registry = capability_registry_with_two_capabilities();
     let filter = CapabilityFilter {
         service_type: Some(ServiceType::Stateless),
@@ -325,7 +320,6 @@ fn list_capabilities_returns_expected_fields() -> Result<(), String> {
     assert_eq!(s.name, "create-comment-draft");
     assert!(!s.description.is_empty());
     assert!(!s.permitted_targets.is_empty());
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -333,25 +327,29 @@ fn list_capabilities_returns_expected_fields() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn get_capability_returns_full_contract_json() -> Result<(), String> {
+fn get_capability_returns_full_contract_json() {
     let registry = capability_registry_with_two_capabilities();
-    let result = get_capability(&registry, "content.comments.create-comment-draft")
-        .map_err(|e| format!("unexpected error: {e:?}"))?;
-    let id = result["id"].as_str().ok_or("missing id")?;
-    assert_eq!(id, "content.comments.create-comment-draft");
-    Ok(())
+    let result = match get_capability(&registry, "content.comments.create-comment-draft") {
+        Ok(result) => result,
+        Err(error) => panic!("unexpected error: {error:?}"),
+    };
+    assert_eq!(
+        result["id"].as_str(),
+        Some("content.comments.create-comment-draft")
+    );
 }
 
 #[test]
-fn get_capability_returns_not_found_for_missing_id() -> Result<(), String> {
+fn get_capability_returns_not_found_for_missing_id() {
     let registry = capability_registry_with_two_capabilities();
-    let err = get_capability(&registry, "does.not.exist")
-        .expect_err("should return error for missing capability");
+    let err = match get_capability(&registry, "does.not.exist") {
+        Ok(_) => panic!("should return error for missing capability"),
+        Err(err) => err,
+    };
     assert!(
         format!("{err:?}").contains("NotFound"),
         "expected NotFound, got {err:?}"
     );
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -359,13 +357,12 @@ fn get_capability_returns_not_found_for_missing_id() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_event_types_returns_all_catalog_entries() -> Result<(), String> {
+fn list_event_types_returns_all_catalog_entries() {
     let catalog = event_catalog_with_one_entry();
     let entries = list_event_types(&catalog);
     assert_eq!(entries.len(), 1, "expected 1 event type");
     assert_eq!(entries[0].event_type, "content.comments.draft-created");
     assert_eq!(entries[0].owner, "content.comments.create-comment-draft");
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -373,21 +370,21 @@ fn list_event_types_returns_all_catalog_entries() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn get_event_type_returns_entry_for_known_type() -> Result<(), String> {
+fn get_event_type_returns_entry_for_known_type() {
     let catalog = event_catalog_with_one_entry();
-    let entry = get_event_type(&catalog, "content.comments.draft-created")
-        .ok_or("expected Some but got None")?;
+    let entry = match get_event_type(&catalog, "content.comments.draft-created") {
+        Some(entry) => entry,
+        None => panic!("expected Some but got None"),
+    };
     assert_eq!(entry.event_type, "content.comments.draft-created");
     assert_eq!(entry.version, "1.0.0");
-    Ok(())
 }
 
 #[test]
-fn get_event_type_returns_none_for_unknown_type() -> Result<(), String> {
+fn get_event_type_returns_none_for_unknown_type() {
     let catalog = event_catalog_with_one_entry();
     let entry = get_event_type(&catalog, "does.not.exist");
     assert!(entry.is_none(), "expected None for unknown event type");
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -395,7 +392,7 @@ fn get_event_type_returns_none_for_unknown_type() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_traces_returns_all_public_entries_when_no_filter() -> Result<(), String> {
+fn list_traces_returns_all_public_entries_when_no_filter() {
     let (store, _) = trace_store_with_one_entry();
     let entries = list_traces(
         &store,
@@ -408,11 +405,10 @@ fn list_traces_returns_all_public_entries_when_no_filter() -> Result<(), String>
         entries[0].capability_id,
         "content.comments.create-comment-draft"
     );
-    Ok(())
 }
 
 #[test]
-fn list_traces_filters_by_capability_id() -> Result<(), String> {
+fn list_traces_filters_by_capability_id() {
     let (store, _) = trace_store_with_one_entry();
 
     let matching = list_traces(
@@ -430,7 +426,6 @@ fn list_traces_filters_by_capability_id() -> Result<(), String> {
         },
     );
     assert_eq!(none.len(), 0, "expected 0 traces for non-matching filter");
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -438,47 +433,50 @@ fn list_traces_filters_by_capability_id() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn get_trace_returns_public_entry_always() -> Result<(), String> {
+fn get_trace_returns_public_entry_always() {
     let (store, trace_id) = trace_store_with_one_entry();
-    let response = get_trace(
+    let response = match get_trace(
         &store,
         &GetTraceRequest {
             trace_id: trace_id.clone(),
             include_private: false,
         },
-    )
-    .ok_or("expected Some but got None")?;
+    ) {
+        Some(response) => response,
+        None => panic!("expected Some but got None"),
+    };
     assert_eq!(response.public.id, trace_id);
     assert!(
         response.private.is_none(),
         "private should be None when include_private is false"
     );
-    Ok(())
 }
 
 #[test]
-fn get_trace_includes_private_when_flag_is_true() -> Result<(), String> {
+fn get_trace_includes_private_when_flag_is_true() {
     let (store, trace_id) = trace_store_with_one_entry();
-    let response = get_trace(
+    let response = match get_trace(
         &store,
         &GetTraceRequest {
             trace_id: trace_id.clone(),
             include_private: true,
         },
-    )
-    .ok_or("expected Some but got None")?;
+    ) {
+        Some(response) => response,
+        None => panic!("expected Some but got None"),
+    };
     assert_eq!(response.public.id, trace_id);
-    let private = response
-        .private
-        .ok_or("expected private entry but got None")?;
+    let private = match response.private {
+        Some(private) => private,
+        None => panic!("expected private entry but got None"),
+    };
     assert_eq!(private.trace_id, trace_id);
     assert!(!private.inputs_hash.is_empty());
     assert!(!private.outputs_hash.is_empty());
-    Ok(())
 }
 
 #[test]
-fn get_trace_returns_none_for_unknown_trace_id() -> Result<(), String> {
+fn get_trace_returns_none_for_unknown_trace_id() {
     let (store, _) = trace_store_with_one_entry();
     let response = get_trace(
         &store,
@@ -488,7 +486,6 @@ fn get_trace_returns_none_for_unknown_trace_id() -> Result<(), String> {
         },
     );
     assert!(response.is_none(), "expected None for unknown trace id");
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -496,7 +493,7 @@ fn get_trace_returns_none_for_unknown_trace_id() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn mcp_context_holds_injected_registries() -> Result<(), String> {
+fn mcp_context_holds_injected_registries() {
     let registry = capability_registry_with_two_capabilities();
     let catalog = event_catalog_with_one_entry();
     let (store, _) = trace_store_with_one_entry();
@@ -516,8 +513,6 @@ fn mcp_context_holds_injected_registries() -> Result<(), String> {
         },
     );
     assert_eq!(traces.len(), 1);
-
-    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -525,28 +520,32 @@ fn mcp_context_holds_injected_registries() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_capabilities_serializes_to_valid_json() -> Result<(), String> {
+fn list_capabilities_serializes_to_valid_json() {
     let registry = capability_registry_with_two_capabilities();
     let summaries = list_capabilities(&registry, None);
-    let json =
-        serde_json::to_string(&summaries).map_err(|e| format!("serialization failed: {e}"))?;
+    let json = match serde_json::to_string(&summaries) {
+        Ok(json) => json,
+        Err(error) => panic!("serialization failed: {error}"),
+    };
     assert!(json.starts_with('['), "expected JSON array");
-    let parsed: serde_json::Value =
-        serde_json::from_str(&json).map_err(|e| format!("parse failed: {e}"))?;
+    let parsed: serde_json::Value = match serde_json::from_str(&json) {
+        Ok(parsed) => parsed,
+        Err(error) => panic!("parse failed: {error}"),
+    };
     assert!(parsed.is_array());
-    Ok(())
 }
 
 #[test]
-fn get_capability_produces_valid_json_contract() -> Result<(), String> {
+fn get_capability_produces_valid_json_contract() {
     let registry = capability_registry_with_two_capabilities();
-    let contract_json = get_capability(&registry, "content.comments.create-comment-draft")
-        .map_err(|e| format!("unexpected error: {e:?}"))?;
+    let contract_json = match get_capability(&registry, "content.comments.create-comment-draft") {
+        Ok(contract_json) => contract_json,
+        Err(error) => panic!("unexpected error: {error:?}"),
+    };
     assert!(contract_json.is_object(), "expected JSON object");
     assert_eq!(
         contract_json["id"].as_str(),
         Some("content.comments.create-comment-draft")
     );
     assert_eq!(contract_json["service_type"].as_str(), Some("stateless"));
-    Ok(())
 }
