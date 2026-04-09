@@ -1738,6 +1738,14 @@ dependencies = [
 ]
 
 [[package]]
+name = "traverse-expedition-wasm"
+version = "0.1.0"
+dependencies = [
+ "serde",
+ "serde_json",
+]
+
+[[package]]
 name = "traverse-mcp"
 version = "0.1.0"
 dependencies = [
