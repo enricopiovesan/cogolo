@@ -15,6 +15,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 | Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `Done` |
 | Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `Done` |
 | Real browser-hosted `youaskm3` shell validation | [#179](https://github.com/enricopiovesan/Traverse/issues/179) | `In Progress` |
+| Published-artifact validation against packaged Traverse runtime and MCP artifacts | [#200](https://github.com/enricopiovesan/Traverse/issues/200) | `In Progress` |
 | MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | `Done` / `In Progress` / `Blocked` |
 
 ## Non-Functional Requirements
@@ -34,6 +35,8 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#145](https://github.com/enricopiovesan/Traverse/issues/145) `Refresh release and requirements traceability docs for current v0.1 state` - `In Progress`
 - [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation` - `In Progress`
 - [#179](https://github.com/enricopiovesan/Traverse/issues/179) `Validate the real browser-hosted youaskm3 shell against released Traverse consumer artifacts` - `In Progress`
+- [#200](https://github.com/enricopiovesan/Traverse/issues/200) `Validate youaskm3 consumption against published Traverse runtime and MCP artifacts` - `In Progress`
+- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md) published-artifact validation doc
 - [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact` - `Done`
 - [#195](https://github.com/enricopiovesan/Traverse/issues/195) `Publish the first governed Traverse package artifact` - `In Progress`
 - [#176](https://github.com/enricopiovesan/Traverse/issues/176) `Publish versioned Traverse consumer bundle for downstream app integration` - `Ready`
@@ -62,6 +65,7 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 - [#150](https://github.com/enricopiovesan/Traverse/issues/150) release artifact and publication bundle
 - [#195](https://github.com/enricopiovesan/Traverse/issues/195) package release pointer
 - [#176](https://github.com/enricopiovesan/Traverse/issues/176) versioned consumer bundle and installation steps
+- [#200](https://github.com/enricopiovesan/Traverse/issues/200) published-artifact validation against packaged runtime and MCP artifacts
 
 ### Later
 

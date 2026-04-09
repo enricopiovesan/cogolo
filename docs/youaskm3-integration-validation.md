@@ -10,6 +10,8 @@ It stays on governed public Traverse surfaces only:
 - the first app-consumable quickstart
 - the versioned Traverse consumer bundle
 - the real-agent MCP exercise guide
+- the published-artifact validation path for the released Traverse runtime and MCP artifacts
+- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md)
 - [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
 - the `youaskm3` compatibility conformance suite
 - [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md)
@@ -22,6 +24,7 @@ For the shortest Traverse-side start path, begin with [quickstart.md](/Users/pio
 - `specs/019-downstream-consumer-contract/spec.md`
 - `specs/020-downstream-integration-validation/spec.md`
 - `specs/021-app-facing-operational-constraints/spec.md`
+- `specs/023-downstream-publication-strategy/spec.md`
 
 ## Purpose
 
@@ -52,6 +55,12 @@ For the broader release-aligned compatibility check, also run:
 
 ```bash
 bash scripts/ci/youaskm3_compatibility_conformance.sh
+```
+
+For the published-artifact validation against the released Traverse runtime and MCP artifacts, also run:
+
+```bash
+bash scripts/ci/youaskm3_published_artifact_validation.sh
 ```
 
 For the real browser-hosted shell validation against released Traverse consumer artifacts, also run:
