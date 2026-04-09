@@ -579,21 +579,23 @@ fn stateless_contract_defaults_parse_from_json_without_new_fields() {
     // Contracts without service_type/permitted_targets/event_trigger must still parse —
     // backward-compatible defaults apply.
     let json = serde_json::to_string(&{
-        let mut c = valid_contract();
         // Serialize then strip the new fields to simulate an old contract
         let mut v: serde_json::Value =
-            serde_json::from_str(&serde_json::to_string(&c).unwrap_or_default())
+            serde_json::from_str(&serde_json::to_string(&valid_contract()).unwrap_or_default())
                 .unwrap_or_default();
-        v.as_object_mut().map(|m| {
+        if let Some(m) = v.as_object_mut() {
             m.remove("service_type");
             m.remove("permitted_targets");
             m.remove("event_trigger");
-        });
+        }
         v
     })
     .unwrap_or_default();
 
-    let parsed = parse_contract(&json).expect("old contract must parse with defaults");
+    let parsed = match parse_contract(&json) {
+        Ok(parsed) => parsed,
+        Err(error) => panic!("old contract must parse with defaults: {error}"),
+    };
     assert_eq!(parsed.service_type, ServiceType::Stateless);
     assert!(
         !parsed.permitted_targets.is_empty(),
@@ -608,15 +610,17 @@ fn stateful_with_browser_target_is_rejected() {
     contract.service_type = ServiceType::Stateful;
     contract.permitted_targets = vec![ExecutionTarget::Browser, ExecutionTarget::Cloud];
 
-    let failure = expect_validation_failure(validate_contract(
+    let failure = match expect_validation_failure(validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    ))
-    .expect("expected validation failure");
+    )) {
+        Ok(failure) => failure,
+        Err(error) => panic!("expected validation failure: {error}"),
+    };
 
     let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
     assert!(
@@ -631,15 +635,17 @@ fn subscribable_without_event_trigger_is_rejected() {
     contract.service_type = ServiceType::Subscribable;
     contract.event_trigger = None;
 
-    let failure = expect_validation_failure(validate_contract(
+    let failure = match expect_validation_failure(validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    ))
-    .expect("expected validation failure");
+    )) {
+        Ok(failure) => failure,
+        Err(error) => panic!("expected validation failure: {error}"),
+    };
 
     let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
     assert!(
@@ -654,15 +660,16 @@ fn subscribable_with_event_trigger_passes() {
     contract.service_type = ServiceType::Subscribable;
     contract.event_trigger = Some("content.comments.comment-draft-created".to_string());
 
-    validate_contract(
+    if let Err(error) = validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    )
-    .expect("subscribable with event_trigger must pass validation");
+    ) {
+        panic!("subscribable with event_trigger must pass validation: {error}");
+    }
 }
 
 #[test]
@@ -671,15 +678,16 @@ fn stateful_without_browser_passes() {
     contract.service_type = ServiceType::Stateful;
     contract.permitted_targets = vec![ExecutionTarget::Cloud, ExecutionTarget::Edge];
 
-    validate_contract(
+    if let Err(error) = validate_contract(
         contract,
         &ValidationContext {
             governing_spec: GOVERNING_SPEC,
             validator_version: VALIDATOR_VERSION,
             existing_published: None,
         },
-    )
-    .expect("stateful without Browser must pass validation");
+    ) {
+        panic!("stateful without Browser must pass validation: {error}");
+    }
 }
 
 #[test]
