@@ -594,7 +594,7 @@ fn stateless_contract_defaults_parse_from_json_without_new_fields() {
 
     let parsed = match parse_contract(&json) {
         Ok(parsed) => parsed,
-        Err(error) => panic!("old contract must parse with defaults: {error}"),
+        Err(_) => panic!("old contract must parse with defaults"),
     };
     assert_eq!(parsed.service_type, ServiceType::Stateless);
     assert!(
@@ -619,7 +619,7 @@ fn stateful_with_browser_target_is_rejected() {
         },
     )) {
         Ok(failure) => failure,
-        Err(error) => panic!("expected validation failure: {error}"),
+        Err(_) => panic!("expected validation failure"),
     };
 
     let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
@@ -644,7 +644,7 @@ fn subscribable_without_event_trigger_is_rejected() {
         },
     )) {
         Ok(failure) => failure,
-        Err(error) => panic!("expected validation failure: {error}"),
+        Err(_) => panic!("expected validation failure"),
     };
 
     let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
@@ -668,7 +668,8 @@ fn subscribable_with_event_trigger_passes() {
             existing_published: None,
         },
     ) {
-        panic!("subscribable with event_trigger must pass validation: {error}");
+        let _ = error;
+        panic!("subscribable with event_trigger must pass validation");
     }
 }
 
@@ -686,7 +687,8 @@ fn stateful_without_browser_passes() {
             existing_published: None,
         },
     ) {
-        panic!("stateful without Browser must pass validation: {error}");
+        let _ = error;
+        panic!("stateful without Browser must pass validation");
     }
 }
 
