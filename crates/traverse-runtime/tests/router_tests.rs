@@ -416,7 +416,10 @@ fn router_error_display_covers_all_variants() {
 
     for err in &cases {
         let msg = err.to_string();
-        assert!(!msg.is_empty(), "Display must produce non-empty string for {err:?}");
+        assert!(
+            !msg.is_empty(),
+            "Display must produce non-empty string for {err:?}"
+        );
     }
 }
 
