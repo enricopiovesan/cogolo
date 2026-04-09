@@ -1077,10 +1077,10 @@ fn validate_placement_constraints(
         });
     }
     if contract.service_type == ServiceType::Subscribable
-        && contract
-            .event_trigger
-            .as_deref()
-            .map_or(true, str::is_empty)
+        && match contract.event_trigger.as_deref() {
+            None => true,
+            Some(event_trigger) => event_trigger.is_empty(),
+        }
     {
         errors.push(ValidationError {
             code: ValidationErrorCode::MissingEventTrigger,
