@@ -193,7 +193,7 @@ fn compile_expedition_wat() -> Result<Vec<u8>, String> {
 // Tests
 // ---------------------------------------------------------------------------
 
-/// FR-005 / SC-002: PlacementRouter routes expedition request to WasmExecutor
+/// FR-005 / SC-002: `PlacementRouter` routes expedition request to `WasmExecutor`
 /// and returns a valid plan response.
 #[test]
 fn placement_router_routes_expedition_to_wasm_executor() -> Result<(), String> {
@@ -292,7 +292,7 @@ fn expedition_wasm_execution_writes_trace() -> Result<(), String> {
     Ok(())
 }
 
-/// The WAT stub itself (WasmExecutor.run_bytes) produces valid JSON without
+/// The WAT stub itself (`WasmExecutor.run_bytes`) produces valid JSON without
 /// going through the router.
 #[test]
 fn expedition_wat_stub_produces_valid_json_via_run_bytes() -> Result<(), String> {
