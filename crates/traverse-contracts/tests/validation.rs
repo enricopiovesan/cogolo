@@ -7,10 +7,10 @@ use traverse_contracts::{
     EventValidationContext, EventValidationEvidence, EvidenceStatus, EvidenceType, Execution,
     ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, IdReference, Lifecycle,
     NetworkAccess, Owner, PayloadCompatibility, ProducedValidationEvidence, Provenance,
-    ProvenanceSource, PublishedContractRecord, PublishedEventRecord, SchemaContainer, SideEffect,
-    SideEffectKind, ValidationContext, ValidationErrorCode, ValidationEvidence, ValidationFailure,
-    ValidationResult, governed_content_digest, governed_event_content_digest, parse_contract,
-    parse_event_contract, validate_contract, validate_event_contract,
+    ProvenanceSource, PublishedContractRecord, PublishedEventRecord, SchemaContainer, ServiceType,
+    SideEffect, SideEffectKind, ValidationContext, ValidationErrorCode, ValidationEvidence,
+    ValidationFailure, ValidationResult, governed_content_digest, governed_event_content_digest,
+    parse_contract, parse_event_contract, validate_contract, validate_event_contract,
 };
 
 const GOVERNING_SPEC: &str = "002-capability-contracts@0.1.0";
@@ -564,7 +564,120 @@ fn valid_contract() -> CapabilityContract {
             exception_refs: Vec::new(),
         },
         evidence: Vec::new(),
+        service_type: ServiceType::Stateless,
+        permitted_targets: vec![
+            ExecutionTarget::Local,
+            ExecutionTarget::Cloud,
+            ExecutionTarget::Edge,
+        ],
+        event_trigger: None,
     }
+}
+
+#[test]
+fn stateless_contract_defaults_parse_from_json_without_new_fields() -> Result<(), String> {
+    // Contracts without service_type/permitted_targets/event_trigger must still parse —
+    // backward-compatible defaults apply.
+    let mut v: serde_json::Value =
+        serde_json::from_str(&serde_json::to_string(&valid_contract()).map_err(|e| e.to_string())?)
+            .map_err(|e| e.to_string())?;
+    if let Some(m) = v.as_object_mut() {
+        m.remove("service_type");
+        m.remove("permitted_targets");
+        m.remove("event_trigger");
+    }
+    let json = serde_json::to_string(&v).map_err(|e| e.to_string())?;
+
+    let parsed = parse_contract(&json).map_err(|e| format!("{e:?}"))?;
+    assert_eq!(parsed.service_type, ServiceType::Stateless);
+    assert!(
+        !parsed.permitted_targets.is_empty(),
+        "permitted_targets defaults to all targets"
+    );
+    assert_eq!(parsed.event_trigger, None);
+    Ok(())
+}
+
+#[test]
+fn stateful_with_browser_target_is_rejected() -> Result<(), String> {
+    let mut contract = valid_contract();
+    contract.service_type = ServiceType::Stateful;
+    contract.permitted_targets = vec![ExecutionTarget::Browser, ExecutionTarget::Cloud];
+
+    let failure = expect_validation_failure(validate_contract(
+        contract,
+        &ValidationContext {
+            governing_spec: GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    ))?;
+
+    let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
+    assert!(
+        codes.contains(&&ValidationErrorCode::InvalidPlacementConstraint),
+        "expected InvalidPlacementConstraint, got {codes:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn subscribable_without_event_trigger_is_rejected() -> Result<(), String> {
+    let mut contract = valid_contract();
+    contract.service_type = ServiceType::Subscribable;
+    contract.event_trigger = None;
+
+    let failure = expect_validation_failure(validate_contract(
+        contract,
+        &ValidationContext {
+            governing_spec: GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    ))?;
+
+    let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
+    assert!(
+        codes.contains(&&ValidationErrorCode::MissingEventTrigger),
+        "expected MissingEventTrigger, got {codes:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn subscribable_with_event_trigger_passes() -> Result<(), String> {
+    let mut contract = valid_contract();
+    contract.service_type = ServiceType::Subscribable;
+    contract.event_trigger = Some("content.comments.comment-draft-created".to_string());
+
+    validate_contract(
+        contract,
+        &ValidationContext {
+            governing_spec: GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn stateful_without_browser_passes() -> Result<(), String> {
+    let mut contract = valid_contract();
+    contract.service_type = ServiceType::Stateful;
+    contract.permitted_targets = vec![ExecutionTarget::Cloud, ExecutionTarget::Edge];
+
+    validate_contract(
+        contract,
+        &ValidationContext {
+            governing_spec: GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    Ok(())
 }
 
 #[test]

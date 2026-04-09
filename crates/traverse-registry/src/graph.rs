@@ -491,7 +491,7 @@ mod tests {
         EventProvenance, EventProvenanceSource, EventReference, EventType, Execution,
         ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
         NetworkAccess, Owner, PayloadCompatibility, Provenance, ProvenanceSource, SchemaContainer,
-        SideEffect, SideEffectKind,
+        ServiceType, SideEffect, SideEffectKind,
     };
 
     #[test]
@@ -875,6 +875,14 @@ mod tests {
             },
             policies: vec![],
             dependencies: vec![],
+            service_type: ServiceType::Stateless,
+            permitted_targets: vec![
+                ExecutionTarget::Local,
+                ExecutionTarget::Cloud,
+                ExecutionTarget::Edge,
+                ExecutionTarget::Device,
+            ],
+            event_trigger: None,
             provenance: Provenance {
                 source: ProvenanceSource::Greenfield,
                 author: "graph".to_string(),

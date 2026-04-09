@@ -230,5 +230,12 @@
     ],
     "exception_refs": []
   },
-  "evidence": []
+  "evidence": [],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "cloud",
+    "edge",
+    "device"
+  ]
 }

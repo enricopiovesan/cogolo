@@ -10,7 +10,7 @@ use traverse_contracts::{
     EventPayload, EventProvenance, EventProvenanceSource, EventReference, EventType,
     EvidenceStatus, EvidenceType, Execution, ExecutionConstraints, ExecutionTarget,
     FilesystemAccess, HostApiAccess, IdReference, Lifecycle, NetworkAccess, Owner,
-    PayloadCompatibility, Provenance, ProvenanceSource, SchemaContainer, SideEffect,
+    PayloadCompatibility, Provenance, ProvenanceSource, SchemaContainer, ServiceType, SideEffect,
     SideEffectKind, ValidationEvidence,
 };
 use traverse_registry::{
@@ -702,6 +702,14 @@ fn base_contract(id: &str, version: &str) -> CapabilityContract {
             evidence_type: EvidenceType::ContractValidation,
             status: EvidenceStatus::Passed,
         }],
+        service_type: ServiceType::Stateless,
+        permitted_targets: vec![
+            ExecutionTarget::Local,
+            ExecutionTarget::Cloud,
+            ExecutionTarget::Edge,
+            ExecutionTarget::Device,
+        ],
+        event_trigger: None,
     }
 }
 
