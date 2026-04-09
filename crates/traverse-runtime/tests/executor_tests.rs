@@ -1,4 +1,5 @@
 use serde_json::json;
+use sha2::{Digest, Sha256};
 use traverse_runtime::executor::{
     ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, NativeExecutor,
     WasmExecutor,
@@ -316,6 +317,50 @@ fn wasm_executor_full_execute_path_via_disk() -> Result<(), String> {
     std::fs::remove_file(&tmp).ok();
 
     assert_eq!(result, Ok(input));
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String> {
+    // Exercises the checksum-match success branch in execute() — skipped by run_bytes() tests.
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+
+    let wat_src = r#"
+        (module
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (data (i32.const 8) "{}")
+            (func $_start (export "_start")
+                (i32.store (i32.const 0) (i32.const 8))
+                (i32.store (i32.const 4) (i32.const 2))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4)))
+            )
+        )
+    "#;
+    let wasm_bytes = wat::parse_str(wat_src).map_err(|e| format!("WAT parse: {e}"))?;
+
+    // Compute the correct SHA-256 checksum so the checksum-match branch is taken.
+    let mut hasher = Sha256::new();
+    hasher.update(&wasm_bytes);
+    let checksum = format!("{:x}", hasher.finalize());
+
+    let tmp = tempfile_path();
+    std::fs::write(&tmp, &wasm_bytes).map_err(|e| format!("write: {e}"))?;
+
+    let cap = ExecutorCapability {
+        capability_id: "checksum-ok".to_string(),
+        artifact_type: ArtifactType::Wasm,
+        wasm_binary_path: Some(tmp.clone()),
+        wasm_checksum: Some(checksum),
+    };
+
+    let result = executor
+        .execute(&cap, &json!({}))
+        .map_err(|e| format!("{e:?}"));
+    std::fs::remove_file(&tmp).ok();
+
+    assert_eq!(result, Ok(json!({})));
     Ok(())
 }
 
