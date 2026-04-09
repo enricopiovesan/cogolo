@@ -1,4 +1,4 @@
-//! MCP-facing trace tools: list_traces and get_trace.
+//! MCP-facing trace tools: `list_traces` and `get_trace`.
 //!
 //! Governed by spec `012-execution-trace-tiered`.
 
@@ -34,7 +34,7 @@ pub struct TraceResponse {
 ///
 /// Returns a `Vec` of cloned [`PublicTraceEntry`] values from the store.
 #[must_use]
-pub fn list_traces(store: &TraceStore, request: ListTracesRequest) -> Vec<PublicTraceEntry> {
+pub fn list_traces(store: &TraceStore, request: &ListTracesRequest) -> Vec<PublicTraceEntry> {
     store
         .list_public(request.capability_id.as_deref())
         .into_iter()
@@ -48,7 +48,7 @@ pub fn list_traces(store: &TraceStore, request: ListTracesRequest) -> Vec<Public
 /// When `include_private` is `false` the `private` field of the
 /// returned [`TraceResponse`] will always be `None`.
 #[must_use]
-pub fn get_trace(store: &TraceStore, request: GetTraceRequest) -> Option<TraceResponse> {
+pub fn get_trace(store: &TraceStore, request: &GetTraceRequest) -> Option<TraceResponse> {
     store.get(&request.trace_id).map(|(public, private)| {
         let private = if request.include_private {
             private.cloned()

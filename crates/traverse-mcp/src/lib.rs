@@ -1,7 +1,14 @@
 //! MCP-facing surfaces for Traverse.
+//!
+//! Governed by spec 015-capability-discovery-mcp
 
 mod stdio_server;
 
+pub mod context;
+pub mod error;
+pub mod tools;
+
+pub use context::McpContext;
 pub use stdio_server::*;
 
 use traverse_registry::{
