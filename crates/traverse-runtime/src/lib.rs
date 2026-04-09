@@ -5,6 +5,7 @@ pub use workflows::*;
 pub mod events;
 pub mod executor;
 pub mod placement;
+pub mod router;
 pub mod trace;
 
 use semver::Version;
