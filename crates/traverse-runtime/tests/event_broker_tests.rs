@@ -206,3 +206,94 @@ fn unsubscribe_removes_all_handlers_for_event_type() -> Result<(), String> {
     );
     Ok(())
 }
+
+#[test]
+fn subscribe_to_unregistered_event_type_returns_error() -> Result<(), String> {
+    let catalog = Arc::new(EventCatalog::new());
+    let broker = InProcessBroker::new(catalog);
+
+    let result = broker.subscribe("dev.traverse.missing", Box::new(|_| {}));
+    assert!(
+        matches!(result, Err(EventError::UnregisteredEventType(_))),
+        "expected UnregisteredEventType, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn unsubscribe_from_unregistered_event_type_returns_error() -> Result<(), String> {
+    let catalog = Arc::new(EventCatalog::new());
+    let broker = InProcessBroker::new(catalog);
+
+    let result = broker.unsubscribe("dev.traverse.missing");
+    assert!(
+        matches!(result, Err(EventError::UnregisteredEventType(_))),
+        "expected UnregisteredEventType, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn register_duplicate_event_type_returns_lifecycle_violation() -> Result<(), String> {
+    let catalog = EventCatalog::new();
+    catalog
+        .register(active_entry("dev.traverse.dup"))
+        .map_err(|e| e.to_string())?;
+
+    let result = catalog.register(active_entry("dev.traverse.dup"));
+    assert!(
+        matches!(result, Err(EventError::LifecycleViolation(_))),
+        "expected LifecycleViolation for duplicate, got {result:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn event_catalog_default_is_empty() {
+    let catalog = EventCatalog::default();
+    assert!(catalog.list().is_empty());
+}
+
+#[test]
+fn event_error_display_lifecycle_violation() {
+    let err = EventError::LifecycleViolation("test reason".to_string());
+    assert_eq!(err.to_string(), "lifecycle violation: test reason");
+}
+
+#[test]
+fn event_error_display_unregistered_event_type() {
+    let err = EventError::UnregisteredEventType("dev.traverse.unknown".to_string());
+    assert_eq!(
+        err.to_string(),
+        "unregistered event type: dev.traverse.unknown"
+    );
+}
+
+#[test]
+fn in_process_broker_debug_format() -> Result<(), String> {
+    let broker = broker_with_active("dev.traverse.debug.test")?;
+    let debug_str = format!("{broker:?}");
+    assert!(
+        debug_str.contains("InProcessBroker"),
+        "debug output should contain 'InProcessBroker': {debug_str}"
+    );
+    Ok(())
+}
+
+#[test]
+fn event_catalog_debug_format() {
+    let catalog = EventCatalog::new();
+    let debug_str = format!("{catalog:?}");
+    assert!(
+        debug_str.contains("EventCatalog"),
+        "debug output should contain 'EventCatalog': {debug_str}"
+    );
+}
+
+#[test]
+fn increment_consumer_count_on_missing_entry_is_noop() {
+    let catalog = EventCatalog::new();
+    // Should not panic — just a no-op when event type is not in catalog.
+    catalog.increment_consumer_count("dev.traverse.nonexistent");
+    assert!(catalog.list().is_empty());
+}

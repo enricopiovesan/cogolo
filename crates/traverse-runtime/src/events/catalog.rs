@@ -2,10 +2,7 @@
 //!
 //! Governed by spec 026-event-broker.
 
-use std::{
-    collections::HashMap,
-    sync::Mutex,
-};
+use std::{collections::HashMap, sync::Mutex};
 
 use serde::{Deserialize, Serialize};
 
@@ -88,10 +85,14 @@ impl EventCatalog {
 
     /// Atomically increment the subscriber count for an event type.
     pub fn increment_consumer_count(&self, event_type: &str) {
-        if let Ok(mut map) = self.entries.lock() {
-            if let Some(entry) = map.get_mut(event_type) {
-                entry.consumer_count = entry.consumer_count.saturating_add(1);
-            }
+        if let Some(entry) = self
+            .entries
+            .lock()
+            .ok()
+            .as_mut()
+            .and_then(|map| map.get_mut(event_type))
+        {
+            entry.consumer_count = entry.consumer_count.saturating_add(1);
         }
     }
 }
