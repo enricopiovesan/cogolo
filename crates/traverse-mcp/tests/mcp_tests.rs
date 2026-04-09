@@ -196,7 +196,7 @@ fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .unwrap_or_else(|_| panic!("first registration should succeed"));
+        .unwrap_or_else(|_| assert!(false, "first registration should succeed"));
 
     let subscribable_contract = subscribable_capability_contract();
     let subscribable_id = subscribable_contract.id.clone();
@@ -212,7 +212,7 @@ fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .unwrap_or_else(|_| panic!("second registration should succeed"));
+        .unwrap_or_else(|_| assert!(false, "second registration should succeed"));
 
     registry
 }
@@ -227,7 +227,7 @@ fn event_catalog_with_one_entry() -> EventCatalog {
             lifecycle_status: LifecycleStatus::Active,
             consumer_count: 0,
         })
-        .unwrap_or_else(|_| panic!("catalog registration should succeed"));
+        .unwrap_or_else(|_| assert!(false, "catalog registration should succeed"));
     catalog
 }
 
@@ -331,7 +331,10 @@ fn get_capability_returns_full_contract_json() {
     let registry = capability_registry_with_two_capabilities();
     let result = match get_capability(&registry, "content.comments.create-comment-draft") {
         Ok(result) => result,
-        Err(error) => panic!("unexpected error: {error:?}"),
+        Err(error) => {
+            assert!(false, "unexpected error: {error:?}");
+            return;
+        }
     };
     assert_eq!(
         result["id"].as_str(),
@@ -343,7 +346,10 @@ fn get_capability_returns_full_contract_json() {
 fn get_capability_returns_not_found_for_missing_id() {
     let registry = capability_registry_with_two_capabilities();
     let err = match get_capability(&registry, "does.not.exist") {
-        Ok(_) => panic!("should return error for missing capability"),
+        Ok(_) => {
+            assert!(false, "should return error for missing capability");
+            return;
+        }
         Err(err) => err,
     };
     assert!(
@@ -374,7 +380,10 @@ fn get_event_type_returns_entry_for_known_type() {
     let catalog = event_catalog_with_one_entry();
     let entry = match get_event_type(&catalog, "content.comments.draft-created") {
         Some(entry) => entry,
-        None => panic!("expected Some but got None"),
+        None => {
+            assert!(false, "expected Some but got None");
+            return;
+        }
     };
     assert_eq!(entry.event_type, "content.comments.draft-created");
     assert_eq!(entry.version, "1.0.0");
@@ -443,7 +452,10 @@ fn get_trace_returns_public_entry_always() {
         },
     ) {
         Some(response) => response,
-        None => panic!("expected Some but got None"),
+        None => {
+            assert!(false, "expected Some but got None");
+            return;
+        }
     };
     assert_eq!(response.public.id, trace_id);
     assert!(
@@ -463,12 +475,18 @@ fn get_trace_includes_private_when_flag_is_true() {
         },
     ) {
         Some(response) => response,
-        None => panic!("expected Some but got None"),
+        None => {
+            assert!(false, "expected Some but got None");
+            return;
+        }
     };
     assert_eq!(response.public.id, trace_id);
     let private = match response.private {
         Some(private) => private,
-        None => panic!("expected private entry but got None"),
+        None => {
+            assert!(false, "expected private entry but got None");
+            return;
+        }
     };
     assert_eq!(private.trace_id, trace_id);
     assert!(!private.inputs_hash.is_empty());
@@ -525,12 +543,18 @@ fn list_capabilities_serializes_to_valid_json() {
     let summaries = list_capabilities(&registry, None);
     let json = match serde_json::to_string(&summaries) {
         Ok(json) => json,
-        Err(error) => panic!("serialization failed: {error}"),
+        Err(error) => {
+            assert!(false, "serialization failed: {error}");
+            return;
+        }
     };
     assert!(json.starts_with('['), "expected JSON array");
     let parsed: serde_json::Value = match serde_json::from_str(&json) {
         Ok(parsed) => parsed,
-        Err(error) => panic!("parse failed: {error}"),
+        Err(error) => {
+            assert!(false, "parse failed: {error}");
+            return;
+        }
     };
     assert!(parsed.is_array());
 }
@@ -540,7 +564,10 @@ fn get_capability_produces_valid_json_contract() {
     let registry = capability_registry_with_two_capabilities();
     let contract_json = match get_capability(&registry, "content.comments.create-comment-draft") {
         Ok(contract_json) => contract_json,
-        Err(error) => panic!("unexpected error: {error:?}"),
+        Err(error) => {
+            assert!(false, "unexpected error: {error:?}");
+            return;
+        }
     };
     assert!(contract_json.is_object(), "expected JSON object");
     assert_eq!(
