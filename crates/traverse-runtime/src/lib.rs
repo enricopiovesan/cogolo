@@ -4,6 +4,7 @@ mod workflows;
 pub use workflows::*;
 pub mod executor;
 pub mod placement;
+pub mod trace;
 
 use semver::Version;
 use serde::{Deserialize, Serialize};
