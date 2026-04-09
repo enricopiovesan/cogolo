@@ -6,6 +6,8 @@ The release checklist at [docs/app-consumable-release-checklist.md](/Users/piove
 The package release pointer is defined in [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
 The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](/Users/piovese/Documents/cogolo/specs/023-downstream-publication-strategy/spec.md).
 For the packaged runtime artifact itself, see [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md).
+For the packaged MCP server artifact itself, see [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md).
+For the downstream published-artifact validation path, see [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md).
 
 ## Publication Shape
 
@@ -29,6 +31,7 @@ The first release bundle MUST include:
 - the downstream integration-validation reference
 - the MCP consumption-validation reference
 - the first real `youaskm3` validation reference
+- the published-artifact validation reference
 - the app-consumable acceptance reference
 - the canonical quickstart reference
 - the release-traceability reference
@@ -75,6 +78,7 @@ bash scripts/ci/app_consumable_release_prep.sh
 ```
 
 That check confirms the release checklist, publication bundle definition, versioned consumer bundle, quickstart, and traceability docs are present and linked together.
+The release prep bundle also keeps the packaged runtime and MCP artifact docs linked to the published-artifact validation path.
 
 ## Post-Release Policy
 

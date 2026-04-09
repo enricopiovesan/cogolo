@@ -21,6 +21,8 @@ Traverse MUST NOT claim `app-consumable v0.1` unless all of the following are sa
 - [ ] The downstream MCP consumption path exists and passes [scripts/ci/mcp_consumption_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/mcp_consumption_validation.sh).
 - [ ] The first real `youaskm3` integration path exists and passes [scripts/ci/youaskm3_integration_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_integration_validation.sh).
 - [ ] The real browser-hosted `youaskm3` shell validation exists and passes [scripts/ci/youaskm3_real_shell_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_real_shell_validation.sh).
+- [ ] The published-artifact validation path exists and passes [scripts/ci/youaskm3_published_artifact_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_published_artifact_validation.sh).
+- [ ] The published-artifact validation path is documented in [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md).
 - [ ] The end-to-end acceptance path exists and passes [scripts/ci/app_consumable_acceptance.sh](/Users/piovese/Documents/cogolo/scripts/ci/app_consumable_acceptance.sh).
 - [ ] The package release pointer exists and is documented in [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
 - [ ] The operational constraints for app-facing browser and MCP surfaces are documented in [docs/adapter-boundaries.md](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md) and [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md).
@@ -39,6 +41,8 @@ The release decision should be backed by:
 - the MCP consumption validation path
 - the first real `youaskm3` integration validation path
 - the real browser-hosted `youaskm3` shell validation path
+- the published-artifact validation path against the packaged runtime and MCP artifacts
+- the published-artifact validation doc
 - the package release pointer path
 - the end-to-end app-consumable acceptance path
 - reviewable PR checks on the release-related documentation and validation artifacts
@@ -67,7 +71,9 @@ A reviewer can answer the release question by checking:
 7. the MCP validation path
 8. the first real `youaskm3` integration validation path
 9. the real browser-hosted `youaskm3` shell validation path
-10. the end-to-end acceptance path
-11. the release artifact and publication bundle definition
+10. the published-artifact validation path
+11. the published-artifact validation doc
+12. the end-to-end acceptance path
+13. the release artifact and publication bundle definition
 
 If those artifacts and checks exist and are passing, the first app-consumable release can be evaluated on evidence rather than interpretation.
