@@ -6,8 +6,9 @@ use std::collections::HashMap;
 
 use traverse_contracts::{
     BinaryFormat, CapabilityContract, Condition, Entrypoint, EntrypointKind, Execution,
-    ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle, NetworkAccess,
-    Owner, Provenance, ProvenanceSource, SchemaContainer, ServiceType, SideEffect, SideEffectKind,
+    ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
+    NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, ServiceType, SideEffect,
+    SideEffectKind,
 };
 use traverse_runtime::placement::{
     PlacementConfidence, PlacementConstraintEvaluator, PlacementError, PlacementReason,
@@ -111,7 +112,7 @@ fn evaluator() -> PlacementConstraintEvaluator {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tier1_hint_accepted_when_in_permitted_targets() {
+fn tier1_hint_accepted_when_in_permitted_targets() -> Result<(), PlacementError> {
     let contract = base_contract(); // permitted: Local, Cloud, Edge
     let request = PlacementRequest {
         capability_id: "placement.tests.evaluator-subject".to_string(),
@@ -119,9 +120,7 @@ fn tier1_hint_accepted_when_in_permitted_targets() {
         runtime_snapshot: snapshot_with(&[(ExecutionTarget::Cloud, 0.3)]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("should succeed");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Cloud),
@@ -135,10 +134,11 @@ fn tier1_hint_accepted_when_in_permitted_targets() {
         matches!(decision.confidence, PlacementConfidence::High),
         "load 0.3 → High confidence"
     );
+    Ok(())
 }
 
 #[test]
-fn tier1_hint_rejected_falls_through_to_tier3() {
+fn tier1_hint_rejected_falls_through_to_tier3() -> Result<(), PlacementError> {
     let contract = base_contract(); // permitted: Local, Cloud, Edge
     // Hint is Browser, which is not in permitted_targets → must fall through.
     let request = PlacementRequest {
@@ -151,9 +151,7 @@ fn tier1_hint_rejected_falls_through_to_tier3() {
         ]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("should succeed without the hint");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     // Lowest load eligible target is Local (0.2), Edge is Low (0.8 < 0.9 still eligible).
     assert!(
@@ -164,6 +162,7 @@ fn tier1_hint_rejected_falls_through_to_tier3() {
         matches!(decision.reason, PlacementReason::HeuristicSelected),
         "expected HeuristicSelected after tier-1 rejection"
     );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -171,7 +170,7 @@ fn tier1_hint_rejected_falls_through_to_tier3() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tier2_filters_browser_for_stateful_service() {
+fn tier2_filters_browser_for_stateful_service() -> Result<(), PlacementError> {
     let mut contract = base_contract();
     contract.service_type = ServiceType::Stateful;
     contract.permitted_targets = vec![
@@ -190,9 +189,7 @@ fn tier2_filters_browser_for_stateful_service() {
         ]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("should succeed without Browser");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     assert!(
         !matches!(decision.target, ExecutionTarget::Browser),
@@ -202,10 +199,11 @@ fn tier2_filters_browser_for_stateful_service() {
         matches!(decision.target, ExecutionTarget::Local),
         "Local should win after Browser exclusion (lower load than Cloud)"
     );
+    Ok(())
 }
 
 #[test]
-fn tier2_permitted_targets_restricts_universe() {
+fn tier2_permitted_targets_restricts_universe() -> Result<(), PlacementError> {
     let mut contract = base_contract();
     // Only Local is permitted — all others must be ignored regardless of load.
     contract.permitted_targets = vec![ExecutionTarget::Local];
@@ -219,14 +217,13 @@ fn tier2_permitted_targets_restricts_universe() {
         ]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("should succeed");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Local),
         "only permitted target should be chosen"
     );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -234,7 +231,7 @@ fn tier2_permitted_targets_restricts_universe() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn tier3_selects_lowest_load_target() {
+fn tier3_selects_lowest_load_target() -> Result<(), PlacementError> {
     let contract = base_contract(); // permitted: Local, Cloud, Edge
 
     let request = PlacementRequest {
@@ -247,9 +244,7 @@ fn tier3_selects_lowest_load_target() {
         ]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("should succeed");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Cloud),
@@ -263,25 +258,24 @@ fn tier3_selects_lowest_load_target() {
         matches!(decision.confidence, PlacementConfidence::High),
         "load 0.2 → High confidence"
     );
+    Ok(())
 }
 
 #[test]
-fn tier3_overloaded_targets_excluded() {
+fn tier3_overloaded_targets_excluded() -> Result<(), PlacementError> {
     let contract = base_contract(); // permitted: Local, Cloud, Edge
 
     let request = PlacementRequest {
         capability_id: "placement.tests.evaluator-subject".to_string(),
         target_hint: None,
         runtime_snapshot: snapshot_with(&[
-            (ExecutionTarget::Local, 0.95),  // overloaded → excluded
-            (ExecutionTarget::Cloud, 0.91),  // overloaded → excluded
-            (ExecutionTarget::Edge, 0.85),   // high but still eligible (0.85 <= 0.9)
+            (ExecutionTarget::Local, 0.95), // overloaded → excluded
+            (ExecutionTarget::Cloud, 0.91), // overloaded → excluded
+            (ExecutionTarget::Edge, 0.85),  // high but still eligible (0.85 <= 0.9)
         ]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("Edge should still be eligible");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     assert!(
         matches!(decision.target, ExecutionTarget::Edge),
@@ -291,6 +285,7 @@ fn tier3_overloaded_targets_excluded() {
         matches!(decision.confidence, PlacementConfidence::Low),
         "load 0.85 → Low confidence"
     );
+    Ok(())
 }
 
 #[test]
@@ -316,7 +311,7 @@ fn no_eligible_target_returns_error() {
 }
 
 #[test]
-fn deterministic_same_inputs_same_output() {
+fn deterministic_same_inputs_same_output() -> Result<(), PlacementError> {
     let contract = base_contract(); // permitted: Local, Cloud, Edge
 
     // Two targets with equal load → lexicographic tiebreak must produce the same winner each time.
@@ -331,18 +326,15 @@ fn deterministic_same_inputs_same_output() {
     };
 
     let ev = evaluator();
-    let first = ev
-        .evaluate(make_request(), &contract)
-        .expect("first evaluation should succeed");
-    let second = ev
-        .evaluate(make_request(), &contract)
-        .expect("second evaluation should succeed");
+    let first = ev.evaluate(make_request(), &contract)?;
+    let second = ev.evaluate(make_request(), &contract)?;
 
     assert_eq!(
         format!("{:?}", first.target),
         format!("{:?}", second.target),
         "same inputs must produce the same target (determinism)"
     );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -350,7 +342,7 @@ fn deterministic_same_inputs_same_output() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn confidence_medium_for_load_between_0_5_and_0_75() {
+fn confidence_medium_for_load_between_0_5_and_0_75() -> Result<(), PlacementError> {
     let mut contract = base_contract();
     contract.permitted_targets = vec![ExecutionTarget::Local];
 
@@ -360,12 +352,11 @@ fn confidence_medium_for_load_between_0_5_and_0_75() {
         runtime_snapshot: snapshot_with(&[(ExecutionTarget::Local, 0.6)]),
     };
 
-    let decision = evaluator()
-        .evaluate(request, &contract)
-        .expect("should succeed");
+    let decision = evaluator().evaluate(request, &contract)?;
 
     assert!(
         matches!(decision.confidence, PlacementConfidence::Medium),
         "load 0.6 should produce Medium confidence"
     );
+    Ok(())
 }
