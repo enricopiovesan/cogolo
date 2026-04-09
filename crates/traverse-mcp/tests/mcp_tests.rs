@@ -468,7 +468,9 @@ fn get_trace_includes_private_when_flag_is_true() -> Result<(), String> {
     )
     .ok_or("expected Some but got None")?;
     assert_eq!(response.public.id, trace_id);
-    let private = response.private.ok_or("expected private entry but got None")?;
+    let private = response
+        .private
+        .ok_or("expected private entry but got None")?;
     assert_eq!(private.trace_id, trace_id);
     assert!(!private.inputs_hash.is_empty());
     assert!(!private.outputs_hash.is_empty());
@@ -524,8 +526,8 @@ fn mcp_context_holds_injected_registries() -> Result<(), String> {
 fn list_capabilities_serializes_to_valid_json() -> Result<(), String> {
     let registry = capability_registry_with_two_capabilities()?;
     let summaries = list_capabilities(&registry, None);
-    let json = serde_json::to_string(&summaries)
-        .map_err(|e| format!("serialization failed: {e}"))?;
+    let json =
+        serde_json::to_string(&summaries).map_err(|e| format!("serialization failed: {e}"))?;
     assert!(json.starts_with('['), "expected JSON array");
     let parsed: serde_json::Value =
         serde_json::from_str(&json).map_err(|e| format!("parse failed: {e}"))?;
