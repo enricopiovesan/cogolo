@@ -22,12 +22,7 @@ pub struct PrivateTraceEntry {
 impl PrivateTraceEntry {
     /// Creates a new [`PrivateTraceEntry`], hashing `inputs` and `outputs` with SHA-256.
     #[must_use]
-    pub fn new(
-        trace_id: String,
-        inputs: &str,
-        outputs: &str,
-        resource_usage_ms: u64,
-    ) -> Self {
+    pub fn new(trace_id: String, inputs: &str, outputs: &str, resource_usage_ms: u64) -> Self {
         Self {
             trace_id,
             inputs_hash: sha256_hex(inputs),
