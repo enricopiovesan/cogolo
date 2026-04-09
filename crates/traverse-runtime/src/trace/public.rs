@@ -18,11 +18,11 @@ pub enum TraceOutcome {
 pub struct PublicTraceEntry {
     /// UUID v4 string identifying this trace.
     pub id: String,
-    /// CloudEvents source: `traverse-runtime/<capability_id>`.
+    /// `CloudEvents` source: `traverse-runtime/<capability_id>`.
     pub source: String,
-    /// CloudEvents type: `dev.traverse.execution.completed`.
+    /// `CloudEvents` type: `dev.traverse.execution.completed`.
     pub event_type: String,
-    /// CloudEvents data content type: `application/json`.
+    /// `CloudEvents` data content type: `application/json`.
     pub datacontenttype: String,
     /// RFC 3339 timestamp of when the trace was recorded.
     pub time: String,

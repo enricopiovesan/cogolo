@@ -1,4 +1,4 @@
-//! Two-tier execution trace: public (CloudEvents) + private (hashed).
+//! Two-tier execution trace: public (`CloudEvents`) + private (hashed).
 //!
 //! Governed by spec `012-execution-trace-tiered`.
 
