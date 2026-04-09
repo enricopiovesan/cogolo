@@ -91,12 +91,6 @@ fn base_contract() -> CapabilityContract {
     }
 }
 
-fn empty_snapshot() -> RuntimeSnapshot {
-    RuntimeSnapshot {
-        target_loads: HashMap::new(),
-    }
-}
-
 fn snapshot_with(pairs: &[(ExecutionTarget, f32)]) -> RuntimeSnapshot {
     RuntimeSnapshot {
         target_loads: pairs.iter().cloned().collect(),
