@@ -20,20 +20,24 @@ fn native_executor_runs_handler() {
 }
 
 #[test]
-fn native_executor_propagates_handler_error() {
+fn native_executor_propagates_handler_error() -> Result<(), String> {
     let executor = NativeExecutor::new(|_| Err("something went wrong".to_string()));
 
     let cap = native_capability("fail");
-    let err = executor.execute(&cap, &json!({})).unwrap_err();
+    let err = expect_err(
+        executor.execute(&cap, &json!({})),
+        "expected execution error",
+    )?;
 
     assert_eq!(
         err,
         ExecutorError::ExecutionFailed("something went wrong".to_string())
     );
+    Ok(())
 }
 
 #[test]
-fn native_executor_rejects_wasm_artifact_type() {
+fn native_executor_rejects_wasm_artifact_type() -> Result<(), String> {
     let executor = NativeExecutor::new(|_| Ok(json!({})));
 
     let cap = ExecutorCapability {
@@ -42,37 +46,42 @@ fn native_executor_rejects_wasm_artifact_type() {
         wasm_binary_path: None,
         wasm_checksum: None,
     };
-    let err = executor.execute(&cap, &json!({})).unwrap_err();
+    let err = expect_err(executor.execute(&cap, &json!({})), "expected type error")?;
 
     assert_eq!(err, ExecutorError::UnsupportedArtifactType);
+    Ok(())
 }
 
 #[test]
-fn native_executor_passes_input_through() {
+fn native_executor_passes_input_through() -> Result<(), String> {
     let executor = NativeExecutor::new(|input| Ok(input.clone()));
 
     let cap = native_capability("echo");
     let input = json!({ "a": 1, "b": [true, false] });
-    let result = executor.execute(&cap, &input).unwrap();
+    let result = executor
+        .execute(&cap, &input)
+        .map_err(|e| format!("{e:?}"))?;
 
     assert_eq!(result, input);
+    Ok(())
 }
 
 // --- WasmExecutor tests ---
 
 #[test]
-fn wasm_executor_rejects_native_artifact_type() {
-    let executor = WasmExecutor::new().expect("engine init");
+fn wasm_executor_rejects_native_artifact_type() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
 
     let cap = native_capability("wrong");
-    let err = executor.execute(&cap, &json!({})).unwrap_err();
+    let err = expect_err(executor.execute(&cap, &json!({})), "expected type error")?;
 
     assert_eq!(err, ExecutorError::UnsupportedArtifactType);
+    Ok(())
 }
 
 #[test]
-fn wasm_executor_errors_when_no_path_set() {
-    let executor = WasmExecutor::new().expect("engine init");
+fn wasm_executor_errors_when_no_path_set() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
 
     let cap = ExecutorCapability {
         capability_id: "no-path".to_string(),
@@ -80,17 +89,21 @@ fn wasm_executor_errors_when_no_path_set() {
         wasm_binary_path: None,
         wasm_checksum: None,
     };
-    let err = executor.execute(&cap, &json!({})).unwrap_err();
+    let err = expect_err(
+        executor.execute(&cap, &json!({})),
+        "expected BinaryLoadFailed",
+    )?;
 
     assert!(
         matches!(err, ExecutorError::BinaryLoadFailed(_)),
         "expected BinaryLoadFailed, got {err:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn wasm_executor_errors_on_missing_file() {
-    let executor = WasmExecutor::new().expect("engine init");
+fn wasm_executor_errors_on_missing_file() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
 
     let cap = ExecutorCapability {
         capability_id: "missing".to_string(),
@@ -98,17 +111,21 @@ fn wasm_executor_errors_on_missing_file() {
         wasm_binary_path: Some("/nonexistent/path/module.wasm".to_string()),
         wasm_checksum: None,
     };
-    let err = executor.execute(&cap, &json!({})).unwrap_err();
+    let err = expect_err(
+        executor.execute(&cap, &json!({})),
+        "expected BinaryLoadFailed",
+    )?;
 
     assert!(
         matches!(err, ExecutorError::BinaryLoadFailed(_)),
         "expected BinaryLoadFailed, got {err:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn wasm_executor_detects_checksum_mismatch() {
-    let executor = WasmExecutor::new().expect("engine init");
+fn wasm_executor_detects_checksum_mismatch() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
 
     // Build a minimal WAT module that just returns immediately
     let wat_src = r#"
@@ -117,11 +134,10 @@ fn wasm_executor_detects_checksum_mismatch() {
             (func $main (export "_start"))
         )
     "#;
-    let wasm_bytes = wat::parse_str(wat_src).expect("valid WAT");
+    let wasm_bytes = wat::parse_str(wat_src).map_err(|e| format!("WAT parse: {e}"))?;
 
-    // Write to a temp file
     let tmp = tempfile_path();
-    std::fs::write(&tmp, &wasm_bytes).expect("write temp wasm");
+    std::fs::write(&tmp, &wasm_bytes).map_err(|e| format!("write temp: {e}"))?;
 
     let cap = ExecutorCapability {
         capability_id: "checksum-test".to_string(),
@@ -132,18 +148,22 @@ fn wasm_executor_detects_checksum_mismatch() {
         ),
     };
 
-    let err = executor.execute(&cap, &json!({})).unwrap_err();
+    let err = expect_err(
+        executor.execute(&cap, &json!({})),
+        "expected ChecksumMismatch",
+    )?;
     std::fs::remove_file(&tmp).ok();
 
     assert!(
         matches!(err, ExecutorError::ChecksumMismatch { .. }),
         "expected ChecksumMismatch, got {err:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn wasm_executor_runs_echo_module() {
-    let executor = WasmExecutor::new().expect("engine init");
+fn wasm_executor_runs_echo_module() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
 
     // WAT module that reads stdin and writes it back to stdout (echo)
     // Uses WASI fd_read (fd=0) and fd_write (fd=1)
@@ -171,20 +191,19 @@ fn wasm_executor_runs_echo_module() {
         )
     "#;
 
-    let wasm_bytes = wat::parse_str(wat_src).expect("valid WAT");
+    let wasm_bytes = wat::parse_str(wat_src).map_err(|e| format!("WAT parse: {e}"))?;
     let input = json!({ "key": "value" });
 
-    let result = executor.run_bytes(&wasm_bytes, &input);
-    assert_eq!(
-        result,
-        Ok(input),
-        "echo module should return input unchanged"
-    );
+    let result = executor
+        .run_bytes(&wasm_bytes, &input)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(result, input, "echo module should return input unchanged");
+    Ok(())
 }
 
 #[test]
-fn wasm_executor_rejects_invalid_json_output() {
-    let executor = WasmExecutor::new().expect("engine init");
+fn wasm_executor_rejects_invalid_json_output() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
 
     // WAT module that writes "not-json" to stdout
     let wat_src = r#"
@@ -202,13 +221,17 @@ fn wasm_executor_rejects_invalid_json_output() {
         )
     "#;
 
-    let wasm_bytes = wat::parse_str(wat_src).expect("valid WAT");
-    let err = executor.run_bytes(&wasm_bytes, &json!({})).unwrap_err();
+    let wasm_bytes = wat::parse_str(wat_src).map_err(|e| format!("WAT parse: {e}"))?;
+    let err = expect_err(
+        executor.run_bytes(&wasm_bytes, &json!({})),
+        "expected OutputDeserializationFailed",
+    )?;
 
     assert!(
         matches!(err, ExecutorError::OutputDeserializationFailed(_)),
         "expected OutputDeserializationFailed, got {err:?}"
     );
+    Ok(())
 }
 
 // --- helpers ---
@@ -230,4 +253,12 @@ fn tempfile_path() -> String {
             .map(|d| d.as_nanos())
             .unwrap_or(0)
     )
+}
+
+/// Assert that `result` is `Err`, returning the error value or a descriptive `String` failure.
+fn expect_err<T: std::fmt::Debug, E>(result: Result<T, E>, msg: &str) -> Result<E, String> {
+    match result {
+        Err(e) => Ok(e),
+        Ok(v) => Err(format!("{msg}: got Ok({v:?})")),
+    }
 }
