@@ -2,8 +2,6 @@
 //!
 //! Governed by spec: 024-placement-constraint-evaluator
 
-use std::collections::HashMap;
-
 use traverse_contracts::{
     BinaryFormat, CapabilityContract, Condition, Entrypoint, EntrypointKind, Execution,
     ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
