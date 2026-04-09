@@ -234,6 +234,116 @@ fn wasm_executor_rejects_invalid_json_output() -> Result<(), String> {
     Ok(())
 }
 
+// --- ExecutorError Display coverage ---
+
+#[test]
+fn executor_error_display_covers_all_variants() {
+    let cases: &[(ExecutorError, &str)] = &[
+        (
+            ExecutorError::BinaryLoadFailed("oops".to_string()),
+            "binary load failed: oops",
+        ),
+        (
+            ExecutorError::ChecksumMismatch {
+                expected: "abc".to_string(),
+                actual: "def".to_string(),
+            },
+            "checksum mismatch: expected abc, got def",
+        ),
+        (
+            ExecutorError::RuntimeSetupFailed("bad linker".to_string()),
+            "runtime setup failed: bad linker",
+        ),
+        (
+            ExecutorError::ExecutionFailed("trapped".to_string()),
+            "execution failed: trapped",
+        ),
+        (
+            ExecutorError::OutputDeserializationFailed("not json".to_string()),
+            "output deserialization failed: not json",
+        ),
+        (
+            ExecutorError::UnsupportedArtifactType,
+            "unsupported artifact type for this executor",
+        ),
+    ];
+    for (err, expected_msg) in cases {
+        assert_eq!(
+            format!("{err}"),
+            *expected_msg,
+            "Display mismatch for {err:?}"
+        );
+    }
+}
+
+#[test]
+fn wasm_executor_full_execute_path_via_disk() -> Result<(), String> {
+    // Tests the execute() code path (file I/O + optional checksum) end-to-end.
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+
+    let wat_src = r#"
+        (module
+            (import "wasi_snapshot_preview1" "fd_read"
+                (func $fd_read (param i32 i32 i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "proc_exit"
+                (func $proc_exit (param i32)))
+            (memory (export "memory") 1)
+            (func $_start (export "_start")
+                (i32.store (i32.const 0) (i32.const 8))
+                (i32.store (i32.const 4) (i32.const 4096))
+                (drop (call $fd_read (i32.const 0) (i32.const 0) (i32.const 1) (i32.const 4100)))
+                (i32.store (i32.const 0) (i32.const 8))
+                (i32.store (i32.const 4) (i32.load (i32.const 4100)))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4104)))
+            )
+        )
+    "#;
+    let wasm_bytes = wat::parse_str(wat_src).map_err(|e| format!("WAT parse: {e}"))?;
+    let tmp = tempfile_path();
+    std::fs::write(&tmp, &wasm_bytes).map_err(|e| format!("write: {e}"))?;
+
+    let cap = ExecutorCapability {
+        capability_id: "disk-echo".to_string(),
+        artifact_type: ArtifactType::Wasm,
+        wasm_binary_path: Some(tmp.clone()),
+        wasm_checksum: None, // no checksum — exercises the skip-checksum branch
+    };
+
+    let input = json!({ "disk": true });
+    let result = executor.execute(&cap, &input).map_err(|e| format!("{e:?}"));
+    std::fs::remove_file(&tmp).ok();
+
+    assert_eq!(result, Ok(input));
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_invalid_binary_triggers_runtime_setup_failed() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+
+    // Write garbage bytes — not a valid WASM module
+    let tmp = tempfile_path();
+    std::fs::write(&tmp, b"not-a-wasm-binary").map_err(|e| format!("write: {e}"))?;
+
+    let cap = ExecutorCapability {
+        capability_id: "bad-binary".to_string(),
+        artifact_type: ArtifactType::Wasm,
+        wasm_binary_path: Some(tmp.clone()),
+        wasm_checksum: None,
+    };
+
+    let err = expect_err(executor.execute(&cap, &json!({})), "expected error")?;
+    std::fs::remove_file(&tmp).ok();
+
+    assert!(
+        matches!(err, ExecutorError::RuntimeSetupFailed(_)),
+        "expected RuntimeSetupFailed, got {err:?}"
+    );
+    Ok(())
+}
+
 // --- helpers ---
 
 fn native_capability(id: &str) -> ExecutorCapability {
