@@ -2,6 +2,7 @@
 
 mod workflows;
 pub use workflows::*;
+pub mod events;
 pub mod executor;
 pub mod placement;
 pub mod trace;
