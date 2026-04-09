@@ -12,6 +12,9 @@ use super::{
     types::{EventBroker, EventError, LifecycleStatus, TraverseEvent},
 };
 
+/// Subscriber handler type alias.
+type SubscriberFn = Box<dyn Fn(&TraverseEvent) + Send + Sync>;
+
 /// Synchronous, in-memory implementation of [`EventBroker`].
 ///
 /// Handlers are called synchronously inside [`publish`](Self::publish) on the
@@ -19,7 +22,7 @@ use super::{
 /// lifecycle rules.
 pub struct InProcessBroker {
     catalog: Arc<EventCatalog>,
-    subscribers: Mutex<HashMap<String, Vec<Box<dyn Fn(&TraverseEvent) + Send + Sync>>>>,
+    subscribers: Mutex<HashMap<String, Vec<SubscriberFn>>>,
 }
 
 impl std::fmt::Debug for InProcessBroker {
