@@ -26,7 +26,10 @@ fn native_executor_propagates_handler_error() {
     let cap = native_capability("fail");
     let err = executor.execute(&cap, &json!({})).unwrap_err();
 
-    assert_eq!(err, ExecutorError::ExecutionFailed("something went wrong".to_string()));
+    assert_eq!(
+        err,
+        ExecutorError::ExecutionFailed("something went wrong".to_string())
+    );
 }
 
 #[test]
@@ -124,7 +127,9 @@ fn wasm_executor_detects_checksum_mismatch() {
         capability_id: "checksum-test".to_string(),
         artifact_type: ArtifactType::Wasm,
         wasm_binary_path: Some(tmp.clone()),
-        wasm_checksum: Some("aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string()),
+        wasm_checksum: Some(
+            "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
+        ),
     };
 
     let err = executor.execute(&cap, &json!({})).unwrap_err();
@@ -170,7 +175,11 @@ fn wasm_executor_runs_echo_module() {
     let input = json!({ "key": "value" });
 
     let result = executor.run_bytes(&wasm_bytes, &input);
-    assert_eq!(result, Ok(input), "echo module should return input unchanged");
+    assert_eq!(
+        result,
+        Ok(input),
+        "echo module should return input unchanged"
+    );
 }
 
 #[test]
@@ -214,8 +223,11 @@ fn native_capability(id: &str) -> ExecutorCapability {
 }
 
 fn tempfile_path() -> String {
-    format!("/tmp/traverse-test-{}.wasm", std::time::SystemTime::now()
-        .duration_since(std::time::UNIX_EPOCH)
-        .map(|d| d.as_nanos())
-        .unwrap_or(0))
+    format!(
+        "/tmp/traverse-test-{}.wasm",
+        std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map(|d| d.as_nanos())
+            .unwrap_or(0)
+    )
 }

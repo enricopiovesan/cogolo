@@ -8,9 +8,9 @@ use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::fs;
 use wasmtime::{Engine, Linker, Module, Store};
+use wasmtime_wasi::WasiCtxBuilder;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
-use wasmtime_wasi::WasiCtxBuilder;
 
 use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
 
@@ -45,10 +45,9 @@ impl CapabilityExecutor for WasmExecutor {
         }
 
         // --- Load binary ---
-        let wasm_path = capability
-            .wasm_binary_path
-            .as_deref()
-            .ok_or_else(|| ExecutorError::BinaryLoadFailed("no wasm_binary_path set".to_string()))?;
+        let wasm_path = capability.wasm_binary_path.as_deref().ok_or_else(|| {
+            ExecutorError::BinaryLoadFailed("no wasm_binary_path set".to_string())
+        })?;
 
         let binary = fs::read(wasm_path).map_err(|e| {
             ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}"))
@@ -73,11 +72,7 @@ impl WasmExecutor {
     /// Execute pre-loaded WASM bytes with the given input.
     ///
     /// Exposed separately so tests can pass raw bytes without needing a file on disk.
-    pub fn run_bytes(
-        &self,
-        wasm_bytes: &[u8],
-        input: &Value,
-    ) -> Result<Value, ExecutorError> {
+    pub fn run_bytes(&self, wasm_bytes: &[u8], input: &Value) -> Result<Value, ExecutorError> {
         self.run_wasm(wasm_bytes, input)
     }
 

@@ -65,7 +65,9 @@ impl std::fmt::Display for ExecutorError {
             Self::OutputDeserializationFailed(msg) => {
                 write!(f, "output deserialization failed: {msg}")
             }
-            Self::UnsupportedArtifactType => write!(f, "unsupported artifact type for this executor"),
+            Self::UnsupportedArtifactType => {
+                write!(f, "unsupported artifact type for this executor")
+            }
         }
     }
 }
