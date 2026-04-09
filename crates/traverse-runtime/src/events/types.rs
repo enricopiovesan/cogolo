@@ -61,9 +61,18 @@ impl std::error::Error for EventError {}
 /// Pub/sub interface for in-process event delivery.
 pub trait EventBroker: Send + Sync {
     /// Publish an event. Fails if the event type is not `Active` in the catalog.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EventError::UnregisteredEventType`] if the event type is not in the catalog,
+    /// or [`EventError::LifecycleViolation`] if the catalog entry is not `Active`.
     fn publish(&self, event: TraverseEvent) -> Result<(), EventError>;
 
     /// Register a subscriber for a given event type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EventError::UnregisteredEventType`] if the event type is not in the catalog.
     fn subscribe(
         &self,
         event_type: &str,
@@ -71,5 +80,9 @@ pub trait EventBroker: Send + Sync {
     ) -> Result<(), EventError>;
 
     /// Remove all subscribers for a given event type.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EventError::UnregisteredEventType`] if the event type is not in the catalog.
     fn unsubscribe(&self, event_type: &str) -> Result<(), EventError>;
 }
