@@ -179,7 +179,7 @@ fn composability() -> ComposabilityMetadata {
     }
 }
 
-fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
+fn capability_registry_with_two_capabilities() -> Result<CapabilityRegistry, String> {
     let mut registry = CapabilityRegistry::new();
 
     let stateless_contract = capability_contract();
@@ -196,7 +196,7 @@ fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .unwrap_or_else(|_| assert!(false, "first registration should succeed"));
+        .map_err(|e| e.to_string())?;
 
     let subscribable_contract = subscribable_capability_contract();
     let subscribable_id = subscribable_contract.id.clone();
@@ -212,12 +212,12 @@ fn capability_registry_with_two_capabilities() -> CapabilityRegistry {
             governing_spec: "005-capability-registry".to_string(),
             validator_version: "v1".to_string(),
         })
-        .unwrap_or_else(|_| assert!(false, "second registration should succeed"));
+        .map_err(|e| e.to_string())?;
 
-    registry
+    Ok(registry)
 }
 
-fn event_catalog_with_one_entry() -> EventCatalog {
+fn event_catalog_with_one_entry() -> Result<EventCatalog, String> {
     let catalog = EventCatalog::new();
     catalog
         .register(EventCatalogEntry {
@@ -227,8 +227,8 @@ fn event_catalog_with_one_entry() -> EventCatalog {
             lifecycle_status: LifecycleStatus::Active,
             consumer_count: 0,
         })
-        .unwrap_or_else(|_| assert!(false, "catalog registration should succeed"));
-    catalog
+        .map_err(|e| e.to_string())?;
+    Ok(catalog)
 }
 
 fn trace_store_with_one_entry() -> (TraceStore, String) {
@@ -265,8 +265,8 @@ fn mcp_context(
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_capabilities_returns_all_when_no_filter() {
-    let registry = capability_registry_with_two_capabilities();
+fn list_capabilities_returns_all_when_no_filter() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
     let summaries = list_capabilities(&registry, None);
     assert_eq!(
         summaries.len(),
@@ -274,11 +274,12 @@ fn list_capabilities_returns_all_when_no_filter() {
         "expected 2 capabilities, got {}",
         summaries.len()
     );
+    Ok(())
 }
 
 #[test]
-fn list_capabilities_filters_by_service_type() {
-    let registry = capability_registry_with_two_capabilities();
+fn list_capabilities_filters_by_service_type() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
     let filter = CapabilityFilter {
         service_type: Some(ServiceType::Subscribable),
         permitted_targets: Vec::new(),
@@ -287,11 +288,12 @@ fn list_capabilities_filters_by_service_type() {
     assert_eq!(summaries.len(), 1, "expected 1 subscribable capability");
     assert_eq!(summaries[0].id, "content.comments.notify-subscriber");
     assert_eq!(summaries[0].service_type, ServiceType::Subscribable);
+    Ok(())
 }
 
 #[test]
-fn list_capabilities_filters_by_permitted_targets() {
-    let registry = capability_registry_with_two_capabilities();
+fn list_capabilities_filters_by_permitted_targets() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
     let filter = CapabilityFilter {
         service_type: None,
         permitted_targets: vec![ExecutionTarget::Cloud],
@@ -304,11 +306,12 @@ fn list_capabilities_filters_by_permitted_targets() {
         "expected 1 capability with Cloud target"
     );
     assert_eq!(summaries[0].id, "content.comments.create-comment-draft");
+    Ok(())
 }
 
 #[test]
-fn list_capabilities_returns_expected_fields() {
-    let registry = capability_registry_with_two_capabilities();
+fn list_capabilities_returns_expected_fields() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
     let filter = CapabilityFilter {
         service_type: Some(ServiceType::Stateless),
         permitted_targets: Vec::new(),
@@ -320,6 +323,7 @@ fn list_capabilities_returns_expected_fields() {
     assert_eq!(s.name, "create-comment-draft");
     assert!(!s.description.is_empty());
     assert!(!s.permitted_targets.is_empty());
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -327,35 +331,29 @@ fn list_capabilities_returns_expected_fields() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn get_capability_returns_full_contract_json() {
-    let registry = capability_registry_with_two_capabilities();
-    let result = match get_capability(&registry, "content.comments.create-comment-draft") {
-        Ok(result) => result,
-        Err(error) => {
-            assert!(false, "unexpected error: {error:?}");
-            return;
-        }
-    };
+fn get_capability_returns_full_contract_json() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
+    let result = get_capability(&registry, "content.comments.create-comment-draft")
+        .map_err(|e| format!("unexpected error: {e:?}"))?;
     assert_eq!(
         result["id"].as_str(),
         Some("content.comments.create-comment-draft")
     );
+    Ok(())
 }
 
 #[test]
-fn get_capability_returns_not_found_for_missing_id() {
-    let registry = capability_registry_with_two_capabilities();
+fn get_capability_returns_not_found_for_missing_id() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
     let err = match get_capability(&registry, "does.not.exist") {
-        Ok(_) => {
-            assert!(false, "should return error for missing capability");
-            return;
-        }
+        Ok(v) => return Err(format!("expected error but got Ok({v:?})")),
         Err(err) => err,
     };
     assert!(
         format!("{err:?}").contains("NotFound"),
         "expected NotFound, got {err:?}"
     );
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -363,12 +361,13 @@ fn get_capability_returns_not_found_for_missing_id() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_event_types_returns_all_catalog_entries() {
-    let catalog = event_catalog_with_one_entry();
+fn list_event_types_returns_all_catalog_entries() -> Result<(), String> {
+    let catalog = event_catalog_with_one_entry()?;
     let entries = list_event_types(&catalog);
     assert_eq!(entries.len(), 1, "expected 1 event type");
     assert_eq!(entries[0].event_type, "content.comments.draft-created");
     assert_eq!(entries[0].owner, "content.comments.create-comment-draft");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -376,24 +375,21 @@ fn list_event_types_returns_all_catalog_entries() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn get_event_type_returns_entry_for_known_type() {
-    let catalog = event_catalog_with_one_entry();
-    let entry = match get_event_type(&catalog, "content.comments.draft-created") {
-        Some(entry) => entry,
-        None => {
-            assert!(false, "expected Some but got None");
-            return;
-        }
-    };
+fn get_event_type_returns_entry_for_known_type() -> Result<(), String> {
+    let catalog = event_catalog_with_one_entry()?;
+    let entry = get_event_type(&catalog, "content.comments.draft-created")
+        .ok_or("expected Some but got None")?;
     assert_eq!(entry.event_type, "content.comments.draft-created");
     assert_eq!(entry.version, "1.0.0");
+    Ok(())
 }
 
 #[test]
-fn get_event_type_returns_none_for_unknown_type() {
-    let catalog = event_catalog_with_one_entry();
+fn get_event_type_returns_none_for_unknown_type() -> Result<(), String> {
+    let catalog = event_catalog_with_one_entry()?;
     let entry = get_event_type(&catalog, "does.not.exist");
     assert!(entry.is_none(), "expected None for unknown event type");
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -442,55 +438,41 @@ fn list_traces_filters_by_capability_id() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn get_trace_returns_public_entry_always() {
+fn get_trace_returns_public_entry_always() -> Result<(), String> {
     let (store, trace_id) = trace_store_with_one_entry();
-    let response = match get_trace(
+    let response = get_trace(
         &store,
         &GetTraceRequest {
             trace_id: trace_id.clone(),
             include_private: false,
         },
-    ) {
-        Some(response) => response,
-        None => {
-            assert!(false, "expected Some but got None");
-            return;
-        }
-    };
+    )
+    .ok_or("expected Some but got None")?;
     assert_eq!(response.public.id, trace_id);
     assert!(
         response.private.is_none(),
         "private should be None when include_private is false"
     );
+    Ok(())
 }
 
 #[test]
-fn get_trace_includes_private_when_flag_is_true() {
+fn get_trace_includes_private_when_flag_is_true() -> Result<(), String> {
     let (store, trace_id) = trace_store_with_one_entry();
-    let response = match get_trace(
+    let response = get_trace(
         &store,
         &GetTraceRequest {
             trace_id: trace_id.clone(),
             include_private: true,
         },
-    ) {
-        Some(response) => response,
-        None => {
-            assert!(false, "expected Some but got None");
-            return;
-        }
-    };
+    )
+    .ok_or("expected Some but got None")?;
     assert_eq!(response.public.id, trace_id);
-    let private = match response.private {
-        Some(private) => private,
-        None => {
-            assert!(false, "expected private entry but got None");
-            return;
-        }
-    };
+    let private = response.private.ok_or("expected private entry but got None")?;
     assert_eq!(private.trace_id, trace_id);
     assert!(!private.inputs_hash.is_empty());
     assert!(!private.outputs_hash.is_empty());
+    Ok(())
 }
 
 #[test]
@@ -511,9 +493,9 @@ fn get_trace_returns_none_for_unknown_trace_id() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn mcp_context_holds_injected_registries() {
-    let registry = capability_registry_with_two_capabilities();
-    let catalog = event_catalog_with_one_entry();
+fn mcp_context_holds_injected_registries() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
+    let catalog = event_catalog_with_one_entry()?;
     let (store, _) = trace_store_with_one_entry();
     let ctx = mcp_context(registry, catalog, store);
 
@@ -531,6 +513,7 @@ fn mcp_context_holds_injected_registries() {
         },
     );
     assert_eq!(traces.len(), 1);
+    Ok(())
 }
 
 // ---------------------------------------------------------------------------
@@ -538,41 +521,28 @@ fn mcp_context_holds_injected_registries() {
 // ---------------------------------------------------------------------------
 
 #[test]
-fn list_capabilities_serializes_to_valid_json() {
-    let registry = capability_registry_with_two_capabilities();
+fn list_capabilities_serializes_to_valid_json() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
     let summaries = list_capabilities(&registry, None);
-    let json = match serde_json::to_string(&summaries) {
-        Ok(json) => json,
-        Err(error) => {
-            assert!(false, "serialization failed: {error}");
-            return;
-        }
-    };
+    let json = serde_json::to_string(&summaries)
+        .map_err(|e| format!("serialization failed: {e}"))?;
     assert!(json.starts_with('['), "expected JSON array");
-    let parsed: serde_json::Value = match serde_json::from_str(&json) {
-        Ok(parsed) => parsed,
-        Err(error) => {
-            assert!(false, "parse failed: {error}");
-            return;
-        }
-    };
+    let parsed: serde_json::Value =
+        serde_json::from_str(&json).map_err(|e| format!("parse failed: {e}"))?;
     assert!(parsed.is_array());
+    Ok(())
 }
 
 #[test]
-fn get_capability_produces_valid_json_contract() {
-    let registry = capability_registry_with_two_capabilities();
-    let contract_json = match get_capability(&registry, "content.comments.create-comment-draft") {
-        Ok(contract_json) => contract_json,
-        Err(error) => {
-            assert!(false, "unexpected error: {error:?}");
-            return;
-        }
-    };
+fn get_capability_produces_valid_json_contract() -> Result<(), String> {
+    let registry = capability_registry_with_two_capabilities()?;
+    let contract_json = get_capability(&registry, "content.comments.create-comment-draft")
+        .map_err(|e| format!("unexpected error: {e:?}"))?;
     assert!(contract_json.is_object(), "expected JSON object");
     assert_eq!(
         contract_json["id"].as_str(),
         Some("content.comments.create-comment-draft")
     );
     assert_eq!(contract_json["service_type"].as_str(), Some("stateless"));
+    Ok(())
 }
