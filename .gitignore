@@ -3,3 +3,6 @@
 !.agents/skills/**
 target/
 .DS_Store
+*.profraw
+*.profdata
+coverage.profdata
