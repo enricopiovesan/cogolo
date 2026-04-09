@@ -26,6 +26,7 @@ pub struct PlacementRequest {
 }
 
 /// The result of a successful placement evaluation.
+#[derive(Debug)]
 pub struct PlacementDecision {
     pub target: ExecutionTarget,
     pub reason: PlacementReason,
@@ -33,6 +34,7 @@ pub struct PlacementDecision {
 }
 
 /// Why the selected target was chosen.
+#[derive(Debug)]
 pub enum PlacementReason {
     /// The caller's hint was accepted because it is a permitted target.
     CallerHintAccepted,
@@ -43,6 +45,7 @@ pub enum PlacementReason {
 }
 
 /// Confidence level derived from the selected target's load score.
+#[derive(Debug)]
 pub enum PlacementConfidence {
     /// load < 0.5
     High,

@@ -15,7 +15,7 @@ pub use wasm::WasmExecutor;
 use serde_json::Value;
 
 /// The artifact type recorded in a capability registration, used to route to the correct executor.
-#[derive(Debug, Clone, PartialEq, Eq)]
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArtifactType {
     /// Native Rust implementation — executed via [`NativeExecutor`].
     Native,
