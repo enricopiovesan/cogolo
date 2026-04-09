@@ -28,6 +28,14 @@ use traverse_runtime::{
 
 const TEST_SPEC: &str = "016-runtime-placement-router@1.0.0";
 
+/// Helper: assert result is Err and return the error without using `expect_err`.
+fn must_err<T: std::fmt::Debug, E>(result: Result<T, E>, msg: &str) -> Result<E, String> {
+    match result {
+        Err(e) => Ok(e),
+        Ok(v) => Err(format!("{msg}: got Ok({v:?})")),
+    }
+}
+
 fn base_contract(service_type: ServiceType) -> CapabilityContract {
     CapabilityContract {
         kind: "capability_contract".to_string(),
@@ -227,9 +235,7 @@ fn placement_failure_returns_error_and_no_trace() -> Result<(), String> {
         emitted_events: Vec::new(),
     };
 
-    let err = router
-        .execute(request)
-        .expect_err("expected placement error");
+    let err = must_err(router.execute(request), "expected placement error")?;
 
     assert_eq!(
         err,
@@ -275,9 +281,7 @@ fn missing_executor_returns_not_found_error() -> Result<(), String> {
         emitted_events: Vec::new(),
     };
 
-    let err = router
-        .execute(request)
-        .expect_err("expected executor-not-found error");
+    let err = must_err(router.execute(request), "expected executor-not-found error")?;
 
     assert!(
         matches!(err, RouterError::ExecutorNotFound(_)),
@@ -396,6 +400,27 @@ fn stateless_capability_does_not_publish_events() -> Result<(), String> {
 }
 
 // ---------------------------------------------------------------------------
+// Test: RouterError Display covers all variants
+// ---------------------------------------------------------------------------
+
+#[test]
+fn router_error_display_covers_all_variants() {
+    use traverse_runtime::router::RouterError;
+
+    let cases: Vec<RouterError> = vec![
+        RouterError::PlacementFailed(PlacementError::NoEligibleTarget),
+        RouterError::ExecutorNotFound("Wasm".to_string()),
+        RouterError::ExecutionFailed("test failure".to_string()),
+        RouterError::TraceLockPoisoned,
+    ];
+
+    for err in &cases {
+        let msg = err.to_string();
+        assert!(!msg.is_empty(), "Display must produce non-empty string for {err:?}");
+    }
+}
+
+// ---------------------------------------------------------------------------
 // Test: Executor error → ExecutionFailed, no trace written
 // ---------------------------------------------------------------------------
 
@@ -430,9 +455,7 @@ fn executor_error_returns_execution_failed() -> Result<(), String> {
         emitted_events: Vec::new(),
     };
 
-    let err = router
-        .execute(request)
-        .expect_err("expected execution error");
+    let err = must_err(router.execute(request), "expected execution error")?;
 
     assert!(
         matches!(err, RouterError::ExecutionFailed(_)),
