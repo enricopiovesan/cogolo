@@ -1,5 +1,5 @@
 use traverse_runtime::trace::{
-    new_trace_id_and_time, PrivateTraceEntry, PublicTraceEntry, TraceOutcome, TraceStore,
+    PrivateTraceEntry, PublicTraceEntry, TraceOutcome, TraceStore, new_trace_id_and_time,
 };
 
 fn make_public(capability_id: &str) -> PublicTraceEntry {
@@ -53,14 +53,28 @@ fn private_entry_hashes_are_sha256_hex() {
     let (id, _) = new_trace_id_and_time();
     let priv_entry = make_private(&id);
     // SHA-256 produces a 64-character hex string
-    assert_eq!(priv_entry.inputs_hash.len(), 64, "inputs_hash must be 64 hex chars");
-    assert_eq!(priv_entry.outputs_hash.len(), 64, "outputs_hash must be 64 hex chars");
+    assert_eq!(
+        priv_entry.inputs_hash.len(),
+        64,
+        "inputs_hash must be 64 hex chars"
+    );
+    assert_eq!(
+        priv_entry.outputs_hash.len(),
+        64,
+        "outputs_hash must be 64 hex chars"
+    );
     assert!(
-        priv_entry.inputs_hash.chars().all(|c| c.is_ascii_hexdigit()),
+        priv_entry
+            .inputs_hash
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()),
         "inputs_hash must be hex"
     );
     assert!(
-        priv_entry.outputs_hash.chars().all(|c| c.is_ascii_hexdigit()),
+        priv_entry
+            .outputs_hash
+            .chars()
+            .all(|c| c.is_ascii_hexdigit()),
         "outputs_hash must be hex"
     );
 }
@@ -92,43 +106,53 @@ fn no_raw_input_in_any_trace_field() {
 }
 
 #[test]
-fn get_trace_without_private_flag_returns_public_only() {
+fn get_trace_without_private_flag_returns_public_only() -> Result<(), String> {
     let mut store = TraceStore::new();
     let pub_entry = make_public("cap.a");
     let trace_id = pub_entry.id.clone();
     let priv_entry = make_private(&trace_id);
     store.insert(pub_entry, Some(priv_entry));
 
-    let (public, private) = store.get(&trace_id).expect("trace must exist");
+    let (public, private) = store
+        .get(&trace_id)
+        .ok_or_else(|| "trace must exist".to_string())?;
     assert_eq!(public.capability_id, "cap.a");
     // Caller decides whether to expose private; store returns it — caller opts in
     // Here we verify the store returns the private entry and the test caller chooses not to expose it
     let _ = private; // available but not exposed to caller without opt-in flag
+    Ok(())
 }
 
 #[test]
-fn get_trace_with_private_flag_returns_both_tiers() {
+fn get_trace_with_private_flag_returns_both_tiers() -> Result<(), String> {
     let mut store = TraceStore::new();
     let pub_entry = make_public("cap.b");
     let trace_id = pub_entry.id.clone();
     let priv_entry = make_private(&trace_id);
     store.insert(pub_entry, Some(priv_entry));
 
-    let (public, private) = store.get(&trace_id).expect("trace must exist");
+    let (public, private) = store
+        .get(&trace_id)
+        .ok_or_else(|| "trace must exist".to_string())?;
     assert_eq!(public.capability_id, "cap.b");
     assert!(private.is_some(), "private tier must be present");
-    assert_eq!(private.unwrap().trace_id, trace_id);
+    let priv_ref = private.ok_or_else(|| "private tier must be present".to_string())?;
+    assert_eq!(priv_ref.trace_id, trace_id);
+    Ok(())
 }
 
 #[test]
-fn get_trace_with_no_private_tier_returns_none() {
+fn get_trace_with_no_private_tier_returns_none() -> Result<(), String> {
     let mut store = TraceStore::new();
     let pub_entry = make_public("cap.c");
     let trace_id = pub_entry.id.clone();
     store.insert(pub_entry, None);
 
-    let (_, private) = store.get(&trace_id).expect("trace must exist");
+    let (_, private) = store
+        .get(&trace_id)
+        .ok_or_else(|| "trace must exist".to_string())?;
     assert!(private.is_none());
+    Ok(())
 }
 
 #[test]
