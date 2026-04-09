@@ -29,15 +29,17 @@ fn sample_event(event_type: &str) -> TraverseEvent {
     }
 }
 
-fn broker_with_active(event_type: &str) -> InProcessBroker {
+fn broker_with_active(event_type: &str) -> Result<InProcessBroker, String> {
     let catalog = Arc::new(EventCatalog::new());
-    catalog.register(active_entry(event_type)).unwrap();
-    InProcessBroker::new(catalog)
+    catalog
+        .register(active_entry(event_type))
+        .map_err(|e| e.to_string())?;
+    Ok(InProcessBroker::new(catalog))
 }
 
 #[test]
-fn publish_to_active_event_type_delivers_to_subscriber() {
-    let broker = broker_with_active("dev.traverse.test.happened");
+fn publish_to_active_event_type_delivers_to_subscriber() -> Result<(), String> {
+    let broker = broker_with_active("dev.traverse.test.happened")?;
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = Arc::clone(&received);
 
@@ -45,25 +47,25 @@ fn publish_to_active_event_type_delivers_to_subscriber() {
         .subscribe(
             "dev.traverse.test.happened",
             Box::new(move |event| {
-                received_clone
-                    .lock()
-                    .unwrap()
-                    .push(event.event_type.clone());
+                if let Ok(mut v) = received_clone.lock() {
+                    v.push(event.event_type.clone());
+                }
             }),
         )
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     broker
         .publish(sample_event("dev.traverse.test.happened"))
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    let got = received.lock().unwrap();
+    let got = received.lock().map_err(|e| format!("lock poisoned: {e}"))?;
     assert_eq!(got.len(), 1);
     assert_eq!(got[0], "dev.traverse.test.happened");
+    Ok(())
 }
 
 #[test]
-fn publishing_deprecated_event_returns_lifecycle_violation() {
+fn publishing_deprecated_event_returns_lifecycle_violation() -> Result<(), String> {
     let catalog = Arc::new(EventCatalog::new());
     catalog
         .register(EventCatalogEntry {
@@ -73,7 +75,7 @@ fn publishing_deprecated_event_returns_lifecycle_violation() {
             lifecycle_status: LifecycleStatus::Deprecated,
             consumer_count: 0,
         })
-        .unwrap();
+        .map_err(|e| e.to_string())?;
     let broker = InProcessBroker::new(catalog);
 
     let result = broker.publish(sample_event("dev.traverse.old.event"));
@@ -81,10 +83,11 @@ fn publishing_deprecated_event_returns_lifecycle_violation() {
         matches!(result, Err(EventError::LifecycleViolation(_))),
         "expected LifecycleViolation, got {result:?}"
     );
+    Ok(())
 }
 
 #[test]
-fn publishing_draft_event_returns_lifecycle_violation() {
+fn publishing_draft_event_returns_lifecycle_violation() -> Result<(), String> {
     let catalog = Arc::new(EventCatalog::new());
     catalog
         .register(EventCatalogEntry {
@@ -94,11 +97,12 @@ fn publishing_draft_event_returns_lifecycle_violation() {
             lifecycle_status: LifecycleStatus::Draft,
             consumer_count: 0,
         })
-        .unwrap();
+        .map_err(|e| e.to_string())?;
     let broker = InProcessBroker::new(catalog);
 
     let result = broker.publish(sample_event("dev.traverse.draft.event"));
     assert!(matches!(result, Err(EventError::LifecycleViolation(_))));
+    Ok(())
 }
 
 #[test]
@@ -114,49 +118,64 @@ fn publishing_unregistered_event_type_returns_error() {
 }
 
 #[test]
-fn catalog_consumer_count_increments_on_subscribe() {
+fn catalog_consumer_count_increments_on_subscribe() -> Result<(), String> {
     let catalog = Arc::new(EventCatalog::new());
-    catalog.register(active_entry("dev.traverse.counted")).unwrap();
+    catalog
+        .register(active_entry("dev.traverse.counted"))
+        .map_err(|e| e.to_string())?;
     let broker = InProcessBroker::new(Arc::clone(&catalog));
 
     broker
         .subscribe("dev.traverse.counted", Box::new(|_| {}))
-        .unwrap();
+        .map_err(|e| e.to_string())?;
     broker
         .subscribe("dev.traverse.counted", Box::new(|_| {}))
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    let entry = catalog.get("dev.traverse.counted").unwrap();
+    let entry = catalog
+        .get("dev.traverse.counted")
+        .ok_or_else(|| "entry not found in catalog".to_string())?;
     assert_eq!(entry.consumer_count, 2);
+    Ok(())
 }
 
 #[test]
-fn list_event_types_returns_all_catalog_entries() {
+fn list_event_types_returns_all_catalog_entries() -> Result<(), String> {
     let catalog = Arc::new(EventCatalog::new());
-    catalog.register(active_entry("dev.traverse.a")).unwrap();
-    catalog.register(active_entry("dev.traverse.b")).unwrap();
+    catalog
+        .register(active_entry("dev.traverse.a"))
+        .map_err(|e| e.to_string())?;
+    catalog
+        .register(active_entry("dev.traverse.b"))
+        .map_err(|e| e.to_string())?;
 
     let entries = catalog.list();
     assert_eq!(entries.len(), 2);
+    Ok(())
 }
 
 #[test]
-fn no_raw_event_data_in_catalog_entry() {
+fn no_raw_event_data_in_catalog_entry() -> Result<(), String> {
     let catalog = Arc::new(EventCatalog::new());
-    catalog.register(active_entry("dev.traverse.secret")).unwrap();
+    catalog
+        .register(active_entry("dev.traverse.secret"))
+        .map_err(|e| e.to_string())?;
 
-    let entry = catalog.get("dev.traverse.secret").unwrap();
+    let entry = catalog
+        .get("dev.traverse.secret")
+        .ok_or_else(|| "entry not found in catalog".to_string())?;
     let serialized = serde_json::to_string(&entry).unwrap_or_default();
     // Catalog entry must have no `.data` field at all
     assert!(
         !serialized.contains("\"data\""),
         "catalog entry must not contain a data field: {serialized}"
     );
+    Ok(())
 }
 
 #[test]
-fn unsubscribe_removes_all_handlers_for_event_type() {
-    let broker = broker_with_active("dev.traverse.removable");
+fn unsubscribe_removes_all_handlers_for_event_type() -> Result<(), String> {
+    let broker = broker_with_active("dev.traverse.removable")?;
     let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
     let received_clone = Arc::clone(&received);
 
@@ -164,18 +183,26 @@ fn unsubscribe_removes_all_handlers_for_event_type() {
         .subscribe(
             "dev.traverse.removable",
             Box::new(move |event| {
-                received_clone.lock().unwrap().push(event.id.clone());
+                if let Ok(mut v) = received_clone.lock() {
+                    v.push(event.id.clone());
+                }
             }),
         )
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
-    broker.unsubscribe("dev.traverse.removable").unwrap();
+    broker
+        .unsubscribe("dev.traverse.removable")
+        .map_err(|e| e.to_string())?;
     broker
         .publish(sample_event("dev.traverse.removable"))
-        .unwrap();
+        .map_err(|e| e.to_string())?;
 
     assert!(
-        received.lock().unwrap().is_empty(),
+        received
+            .lock()
+            .map_err(|e| format!("lock poisoned: {e}"))?
+            .is_empty(),
         "no events should be delivered after unsubscribe"
     );
+    Ok(())
 }
