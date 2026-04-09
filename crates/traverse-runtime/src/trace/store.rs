@@ -30,7 +30,7 @@ impl TraceStore {
     pub fn list_public(&self, capability_id: Option<&str>) -> Vec<&PublicTraceEntry> {
         self.entries
             .values()
-            .filter(|(pub_entry, _)| capability_id.map_or(true, |id| pub_entry.capability_id == id))
+            .filter(|(pub_entry, _)| capability_id.is_none_or(|id| pub_entry.capability_id == id))
             .map(|(pub_entry, _)| pub_entry)
             .collect()
     }
