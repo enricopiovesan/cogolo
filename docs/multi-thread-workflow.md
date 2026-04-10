@@ -67,6 +67,8 @@ If a ticket has an open PR, it must be labeled `in-progress` and its Project 1 i
 
 The backlog audit logic lives in [scripts/ci/project_board_audit.sh](/Users/piovese/Documents/cogolo/scripts/ci/project_board_audit.sh).
 
+When a PR is opened or refreshed, the linked ticket should be synced automatically by the backlog-sync workflow so the issue and Project 1 row move to `In Progress`. When that PR merges, the same workflow should move the issue and Project 1 row to `Done` without waiting for a manual PM pass.
+
 ## Required Parallel Work Rules
 
 For parallel work to be valid:

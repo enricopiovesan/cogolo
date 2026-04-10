@@ -27,9 +27,29 @@ Project 1 status meanings:
 
 Only tickets with real active execution should appear in this section.
 
-- none at the moment
+- [#213](https://github.com/enricopiovesan/Traverse/issues/213) `Implement multi-instance registry federation`
+  - area: `runtime`, `federation`
+  - status: federation foundation is being implemented in [PR #240](https://github.com/enricopiovesan/Traverse/pull/240)
+  - done when: peer registration, manual sync, peer routing, cross-peer provenance, and audit evidence are delivered end to end
+
+### `Done`
+
+- [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact`
+  - area: `documentation`, `quality`
+  - status: merged and closed
+  - done when: the release artifact definition is prepared, validated, and mapped to the documented first consumer path
+
+- [#156](https://github.com/enricopiovesan/Traverse/issues/156) `Implement core MCP execution and validation operations`
+  - area: `runtime`
+  - status: merged and closed
+  - done when: the dedicated MCP server can validate and execute a governed entrypoint
 
 ### `Ready`
+
+- [#213](https://github.com/enricopiovesan/Traverse/issues/213) `Implement multi-instance registry federation`
+  - area: `runtime`, `federation`
+  - status: federation spec `026-federation-registry-routing` is approved and [#212](https://github.com/enricopiovesan/Traverse/issues/212) is done
+  - done when: peer registration, manual sync, peer routing, cross-peer provenance, and audit evidence are delivered end to end
 
 - [#121](https://github.com/enricopiovesan/Traverse/issues/121) `Upgrade React browser demo to consume the live local browser adapter`
   - area: `runtime`
@@ -53,6 +73,36 @@ Only tickets with real active execution should appear in this section.
 
 - [#121](https://github.com/enricopiovesan/Traverse/issues/121) `Upgrade React browser demo to consume the live local browser adapter`
   - moved to `Ready`
+
+- [#241](https://github.com/enricopiovesan/Traverse/issues/241) `Implement manual federation sync and peer status surface`
+  - area: `runtime`, `federation`
+  - status: blocked on [#213](https://github.com/enricopiovesan/Traverse/issues/213)
+  - unblock path: finish the federation foundation and sync wiring first
+
+- [#242](https://github.com/enricopiovesan/Traverse/issues/242) `Implement remote registry validation and conflict audit evidence`
+  - area: `runtime`, `federation`
+  - status: blocked on [#241](https://github.com/enricopiovesan/Traverse/issues/241)
+  - unblock path: finish the peer listing and manual sync surface first
+
+- [#243](https://github.com/enricopiovesan/Traverse/issues/243) `Implement routed cross-peer capability invocation with trace provenance`
+  - area: `runtime`, `federation`
+  - status: blocked on [#242](https://github.com/enricopiovesan/Traverse/issues/242)
+  - unblock path: finish remote validation and conflict evidence first
+
+- [#244](https://github.com/enricopiovesan/Traverse/issues/244) `Implement public/private federation visibility enforcement`
+  - area: `contracts`, `federation`
+  - status: blocked on [#241](https://github.com/enricopiovesan/Traverse/issues/241) and [#242](https://github.com/enricopiovesan/Traverse/issues/242)
+  - unblock path: finish the sync validation surfaces first
+
+- [#214](https://github.com/enricopiovesan/Traverse/issues/214) `Implement cross-instance capability invocation`
+  - area: `runtime`, `placement`, `federation`
+  - status: blocked on [#213](https://github.com/enricopiovesan/Traverse/issues/213)
+  - unblock path: finish the peer federation registry sync foundation first
+
+- [#215](https://github.com/enricopiovesan/Traverse/issues/215) `Distributed governance and trust model`
+  - area: `contracts`, `federation`
+  - status: blocked on [#213](https://github.com/enricopiovesan/Traverse/issues/213) and [#214](https://github.com/enricopiovesan/Traverse/issues/214)
+  - unblock path: finish registry sync and cross-peer invocation before tightening the governance trust model
 
 ### `Blocked` + `Future`
 
@@ -132,6 +182,28 @@ Rules while a merge candidate exists:
 2. if the candidate is green and behind `main`, update it immediately
 3. do not build up a queue of "green but not merged" PRs
 4. clean ticket and project state in the same pass as the merge, not hours later
+
+## Federation Draft
+
+The blocked federation chain is now governed by:
+
+- [specs/026-federation-registry-routing/spec.md](/Users/piovese/Documents/cogolo/specs/026-federation-registry-routing/spec.md)
+- [specs/026-federation-registry-routing/data-model.md](/Users/piovese/Documents/cogolo/specs/026-federation-registry-routing/data-model.md)
+
+This draft covers the end-to-end peer federation slice for:
+
+- [#213](https://github.com/enricopiovesan/Traverse/issues/213)
+- [#214](https://github.com/enricopiovesan/Traverse/issues/214)
+- [#215](https://github.com/enricopiovesan/Traverse/issues/215)
+
+Anything beyond that first governed slice must be split into separate future tickets rather than folded into the current federation scope.
+
+Deferred federation extensions tracked as future tickets:
+
+- [#236](https://github.com/enricopiovesan/Traverse/issues/236) automatic federation sync after peer registration
+- [#237](https://github.com/enricopiovesan/Traverse/issues/237) central federation coordinator
+- [#238](https://github.com/enricopiovesan/Traverse/issues/238) federation conflict auto-resolution policy
+- [#239](https://github.com/enricopiovesan/Traverse/issues/239) streaming federation sync transport
 
 ## Quality Rules
 

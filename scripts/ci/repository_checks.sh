@@ -77,6 +77,7 @@ required_files=(
   "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
   "scripts/ci/mcp_real_agent_exercise_smoke.sh"
   "scripts/ci/project_board_audit.sh"
+  "scripts/ci/sync_backlog_on_merge.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -94,13 +95,15 @@ for file in "${required_files[@]}"; do
   test -s "$file"
 done
 
+stale_name_regex='C[o]g[o]l[o]|C[o]g[o]ll[o]'
+
 if command -v rg >/dev/null 2>&1; then
-  if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+  if rg -n "$stale_name_regex" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
     echo "Found stale project name references; expected 'Traverse'." >&2
     exit 1
   fi
 else
-  if grep -RInE --exclude='repository_checks.sh' --exclude-dir='.git' 'Cogollo|Cogolo' .; then
+  if grep -RInE --exclude='repository_checks.sh' --exclude-dir='.git' "$stale_name_regex" .; then
     echo "Found stale project name references; expected 'Traverse'." >&2
     exit 1
   fi
@@ -120,7 +123,9 @@ grep -q "in-progress" docs/project-management.md
 ! grep -q '^- `ready`$' docs/project-management.md
 grep -q 'Potential parallel candidates should stay `Ready`' docs/project-management.md
 grep -q "Project 1 status is the only actionability signal" docs/project-management.md
+grep -q 'new tickets should be moved directly to `Ready` or `Blocked`' docs/project-management.md
 grep -q "project_board_audit.sh" docs/project-management.md
+grep -q "backlog-sync workflow" docs/project-management.md
 grep -q "Note" docs/project-management.md
 grep -q "separate Codex threads" docs/project-management.md
 grep -q "Blocked" docs/planning-board.md
@@ -129,9 +134,11 @@ grep -q "Only tickets with real active execution" docs/planning-board.md
 grep -q "Note" docs/ticket-standard.md
 ! grep -q '^- `ready`$' docs/ticket-standard.md
 grep -q "Use Project 1 status for availability" docs/ticket-standard.md
+grep -q 'Do not leave newly created tickets in `Todo`' docs/ticket-standard.md
 grep -q "One Codex thread is one active worker" docs/multi-thread-workflow.md
 grep -q "Starter Prompts" docs/multi-thread-workflow.md
 grep -q "project_board_audit.sh" docs/multi-thread-workflow.md
+grep -q "backlog-sync workflow" docs/multi-thread-workflow.md
 grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
@@ -288,5 +295,7 @@ grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spe
 grep -q "Traverse runtime authority" specs/022-mcp-wasm-server/spec.md
 grep -q "MCP transport concerns" specs/022-mcp-wasm-server/spec.md
 grep -q "## Governing Spec" .github/pull_request_template.md
+test -f .github/workflows/backlog-sync.yml
+grep -q "Backlog Sync" .github/workflows/backlog-sync.yml
 
 echo "Repository checks passed."

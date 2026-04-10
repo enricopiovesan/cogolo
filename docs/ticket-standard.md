@@ -41,6 +41,8 @@ Use Project 1 status for availability:
 - `In Progress`: currently being worked on right now
 - `Blocked`: cannot continue until the blocker is removed
 
+Do not leave newly created tickets in `Todo`. If work cannot start yet, set the Project 1 item to `Blocked` and add a short blocker note. If it can start, set it to `Ready`.
+
 Do not move work to `in-progress` just because it is a candidate for parallel execution. Use `in-progress` only when there is real active execution, typically with an active branch, PR, or an explicitly assigned developer currently working the ticket.
 
 If a ticket has an open PR, `in-progress` should remain until that PR merges or is closed. Once the PR merges, the ticket should be closed or moved out of `in-progress` in the same cleanup pass.

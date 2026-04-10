@@ -170,6 +170,49 @@
       ]
     },
     {
+      "id": "020-downstream-integration-validation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/020-downstream-integration-validation/spec.md",
+      "governs": [
+        "quickstart.md",
+        "docs/",
+        "scripts/ci/",
+        "apps/"
+      ]
+    },
+    {
+      "id": "021-app-facing-operational-constraints",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/021-app-facing-operational-constraints/spec.md",
+      "governs": [
+        "docs/",
+        "scripts/ci/",
+        "crates/cogolo-mcp/",
+        "crates/traverse-mcp/",
+        "crates/cogolo-runtime/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "022-mcp-wasm-server-model",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/022-mcp-wasm-server-model/spec.md",
+      "governs": [
+        "crates/cogolo-mcp/",
+        "crates/traverse-mcp/",
+        "crates/cogolo-cli/",
+        "crates/traverse-cli/",
+        "examples/agents/",
+        "examples/expedition/"
+      ]
+    },
+    {
       "id": "017-ai-agent-packaging",
       "version": "1.0.0",
       "status": "approved",
@@ -294,6 +337,55 @@
       "governs": [
         "scripts/ci/",
         "specs/governance/"
+      ]
+    },
+    {
+      "id": "023-packaged-runtime-artifact",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/023-packaged-runtime-artifact/spec.md",
+      "governs": [
+        "docs/app-consumable-release-checklist.md",
+        "docs/youaskm3-integration-validation.md",
+        "docs/app-consumable-requirements-traceability.md",
+        "scripts/ci/"
+      ]
+    },
+    {
+      "id": "024-packaged-mcp-server-artifact",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/024-packaged-mcp-server-artifact/spec.md",
+      "governs": [
+        "docs/mcp-consumption-validation.md",
+        "docs/youaskm3-integration-validation.md",
+        "scripts/ci/"
+      ]
+    },
+    {
+      "id": "025-downstream-published-artifact-validation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/025-downstream-published-artifact-validation/spec.md",
+      "governs": [
+        "docs/youaskm3-integration-validation.md",
+        "docs/mcp-consumption-validation.md",
+        "scripts/ci/"
+      ]
+    },
+    {
+      "id": "026-federation-registry-routing",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/026-federation-registry-routing/spec.md",
+      "governs": [
+        "docs/planning-board.md",
+        "docs/project-management.md",
+        "docs/session-notes/"
       ]
     }
   ]
