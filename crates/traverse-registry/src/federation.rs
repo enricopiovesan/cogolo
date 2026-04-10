@@ -5,6 +5,16 @@ use crate::{
 use std::collections::{BTreeMap, BTreeSet};
 use traverse_contracts::{ErrorSeverity, Lifecycle};
 
+#[allow(
+    clippy::expect_used,
+    clippy::expect_err_used,
+    clippy::too_many_lines,
+    clippy::too_many_arguments,
+    clippy::uninlined_format_args,
+    clippy::must_use_candidate,
+    clippy::needless_pass_by_value
+)]
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FederationRegistryKind {
     Capability,
