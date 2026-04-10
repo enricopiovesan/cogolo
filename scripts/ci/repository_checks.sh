@@ -160,7 +160,7 @@ grep -q "## Known Limitations" quickstart.md
 grep -q "bash scripts/ci/youaskm3_integration_validation.sh" docs/youaskm3-integration-validation.md
 grep -q "consumer_name: youaskm3" docs/youaskm3-integration-validation.md
 grep -q "validated_flow_id: youaskm3_mcp_validation" docs/youaskm3-integration-validation.md
-grep -q "bash scripts/ci/project_state_audit.sh" docs/project-management.md
+grep -q "bash scripts/ci/project_board_audit.sh" docs/project-management.md
 grep -q "Open PR-backed tickets" docs/project-management.md
 grep -q 'must be labeled `in-progress`' docs/multi-thread-workflow.md
 grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spec.md
