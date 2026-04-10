@@ -951,6 +951,7 @@ fn federation_error(code: FederationErrorCode, target: &str, message: &str) -> F
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::expect_err_used, clippy::too_many_lines)]
 mod tests {
     use super::*;
     use crate::{
