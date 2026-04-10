@@ -47,12 +47,13 @@
       "status": "approved",
       "immutable": true,
       "path": "specs/004-spec-alignment-gate/spec.md",
-      "governs": [
-        ".github/workflows/ci.yml",
-        "scripts/ci/",
-        "specs/governance/"
-      ]
-    },
+    "governs": [
+      ".github/workflows/",
+      ".github/workflows/ci.yml",
+      "scripts/ci/",
+      "specs/governance/"
+    ]
+  },
     {
       "id": "005-capability-registry",
       "version": "1.0.0",
