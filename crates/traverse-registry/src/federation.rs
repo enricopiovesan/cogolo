@@ -1080,7 +1080,7 @@ mod tests {
 
     #[test]
     fn sync_reports_conflicts_for_divergent_private_entries() {
-        let local_capabilities = CapabilityRegistry::new();
+        let mut local_capabilities = CapabilityRegistry::new();
         let mut local_events = EventRegistry::new();
         let mut local_workflows = WorkflowRegistry::new();
         seed_capabilities(&mut local_capabilities);
@@ -1270,7 +1270,7 @@ mod tests {
             .expect("peer should register");
         let mut remote_capabilities = CapabilityRegistry::new();
         seed_capabilities(&mut remote_capabilities);
-        let mut local_capabilities = CapabilityRegistry::new();
+        let local_capabilities = CapabilityRegistry::new();
         let local_events = EventRegistry::new();
         let local_workflows = WorkflowRegistry::new();
         let capability_export = export_peer_state(
