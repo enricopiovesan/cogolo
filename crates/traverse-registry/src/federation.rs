@@ -324,13 +324,7 @@ impl FederationRegistry {
             route_failures: self
                 .invocations
                 .iter()
-                .filter(|invocation| {
-                    matches!(
-                        invocation.status,
-                        FederationInvocationStatus::Failure
-                            | FederationInvocationStatus::RetryableFailure
-                    )
-                })
+                .filter(|invocation| is_route_failure(invocation.status))
                 .count(),
         }
     }
@@ -573,24 +567,15 @@ impl FederationRegistry {
             .get(origin_peer_id)
             .expect("validated above");
 
-        let mut candidate: Option<(String, PeerRegistrySnapshot)> = None;
-        for snapshot in self.snapshots.values() {
-            if snapshot.registry_type != FederationRegistryKind::Capability {
-                continue;
-            }
-            if snapshot.entry_id != capability_id || snapshot.version != version {
-                continue;
-            }
-            if !scope_is_visible(snapshot.scope, trust, origin_peer) {
-                continue;
-            }
-            match &candidate {
-                Some((current_peer, _)) if snapshot.peer_id >= *current_peer => {}
-                _ => {
-                    candidate = Some((snapshot.peer_id.clone(), snapshot.clone()));
-                }
-            }
-        }
+        let candidate = self
+            .snapshots
+            .values()
+            .filter(|snapshot| snapshot.registry_type == FederationRegistryKind::Capability)
+            .filter(|snapshot| snapshot.entry_id == capability_id && snapshot.version == version)
+            .filter(|snapshot| scope_is_visible(snapshot.scope, trust, origin_peer))
+            .min_by(|left, right| left.peer_id.cmp(&right.peer_id))
+            .cloned()
+            .map(|snapshot| (snapshot.peer_id.clone(), snapshot));
 
         let Some((target_peer_id, target_snapshot)) = candidate else {
             return Err(FederationFailure {
@@ -903,6 +888,13 @@ fn approval_state_from_lifecycle(lifecycle: &Lifecycle) -> FederationApprovalSta
     }
 }
 
+fn is_route_failure(status: FederationInvocationStatus) -> bool {
+    matches!(
+        status,
+        FederationInvocationStatus::Failure | FederationInvocationStatus::RetryableFailure
+    )
+}
+
 fn scope_is_allowed(
     scope: RegistryScope,
     trust: &TrustRecord,
@@ -966,8 +958,13 @@ mod tests {
         federation
             .register_peer(peer.clone(), trust.clone())
             .expect("peer should register");
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("identical peer registration should be idempotent");
 
         assert_eq!(federation.list_peers(), vec![peer]);
+        assert!(federation.sync_sessions().is_empty());
+        assert!(federation.invocations().is_empty());
         let summary = federation.status_summary();
         assert_eq!(summary.peer_count, 1);
         assert_eq!(summary.trusted_peer_count, 1);
@@ -1087,6 +1084,443 @@ mod tests {
         assert_eq!(outcome.session.status, FederationSyncStatus::Partial);
         assert!(!outcome.conflicts.is_empty());
         assert_eq!(federation.conflicts().len(), outcome.conflicts.len());
+    }
+
+    #[test]
+    fn sync_reports_conflicts_for_permitted_but_divergent_private_capability_entries() {
+        let mut local_capabilities = CapabilityRegistry::new();
+        seed_capabilities(&mut local_capabilities);
+
+        let mut altered_contract = private_capability_contract();
+        altered_contract.summary = "altered private capability".to_string();
+        let mut remote_capabilities = CapabilityRegistry::new();
+        remote_capabilities
+            .register(capability_registration(
+                RegistryScope::Private,
+                altered_contract,
+            ))
+            .expect("remote private capability should register");
+
+        let peer = peer("peer-capability-divergent", "Peer Capability Divergent");
+        let trust = trust(
+            "peer-capability-divergent",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let export = export_peer_state(
+            peer,
+            trust,
+            &remote_capabilities,
+            &EventRegistry::new(),
+            &WorkflowRegistry::new(),
+        );
+        let outcome = federation
+            .sync_peer(
+                export,
+                &local_capabilities,
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:50:00Z",
+                "2026-04-09T20:51:00Z",
+                "evidence:divergent-private-capability",
+            )
+            .expect("sync should report permitted capability divergence as conflicts");
+
+        assert!(outcome
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.conflict_reason.contains("local capability record differs")));
+    }
+
+    #[test]
+    fn sync_peer_rejects_trust_and_peer_state_mismatches() {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-sync-guard", "Peer Sync Guard");
+        let trust = trust("peer-sync-guard", vec![RegistryScope::Public]);
+
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let export = FederationPeerExport {
+            peer: peer.clone(),
+            trust: trust.clone(),
+            capabilities: Vec::new(),
+            events: Vec::new(),
+            workflows: Vec::new(),
+        };
+
+        let mut mismatched_trust = export.clone();
+        mismatched_trust.trust.peer_id = "other-peer".to_string();
+        assert!(federation
+            .sync_peer(
+                mismatched_trust,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:20:00Z",
+                "2026-04-09T20:21:00Z",
+                "evidence:sync-mismatch",
+            )
+            .is_err());
+
+        federation.trust_records.remove("peer-sync-guard");
+        assert!(federation
+            .sync_peer(
+                export.clone(),
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:22:00Z",
+                "2026-04-09T20:23:00Z",
+                "evidence:sync-missing-trust",
+            )
+            .is_err());
+
+        federation.peers.remove("peer-sync-guard");
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should re-register");
+        if let Some(registered_peer) = federation.peers.get_mut("peer-sync-guard") {
+            registered_peer.sync_enabled = false;
+            registered_peer.trust_state = FederationTrustState::Pending;
+        }
+
+        assert!(federation
+            .sync_peer(
+                export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:24:00Z",
+                "2026-04-09T20:25:00Z",
+                "evidence:sync-disabled",
+            )
+            .is_err());
+    }
+
+    #[test]
+    fn sync_peer_reports_missing_local_registry_entries() {
+        let peer = peer("peer-missing", "Peer Missing");
+        let trust = trust("peer-missing", vec![RegistryScope::Public, RegistryScope::Private]);
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+        let mut remote_capabilities = CapabilityRegistry::new();
+        seed_capabilities(&mut remote_capabilities);
+        let mut local_capabilities = CapabilityRegistry::new();
+        let local_events = EventRegistry::new();
+        let local_workflows = WorkflowRegistry::new();
+        let capability_export = export_peer_state(
+            peer.clone(),
+            trust.clone(),
+            &remote_capabilities,
+            &EventRegistry::new(),
+            &WorkflowRegistry::new(),
+        );
+        let capability_outcome = federation
+            .sync_peer(
+                capability_export,
+                &local_capabilities,
+                &local_events,
+                &local_workflows,
+                "2026-04-09T20:30:00Z",
+                "2026-04-09T20:31:00Z",
+                "evidence:missing-capability",
+            )
+            .expect("sync should report missing capability as conflict");
+        assert!(capability_outcome
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.conflict_reason.contains("missing the exported capability")));
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+        let mut remote_events = EventRegistry::new();
+        seed_events(&mut remote_events);
+        let event_export = export_peer_state(
+            peer.clone(),
+            trust.clone(),
+            &CapabilityRegistry::new(),
+            &remote_events,
+            &WorkflowRegistry::new(),
+        );
+        let event_outcome = federation
+            .sync_peer(
+                event_export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:32:00Z",
+                "2026-04-09T20:33:00Z",
+                "evidence:missing-event",
+            )
+            .expect("sync should report missing event as conflict");
+        assert!(event_outcome
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.conflict_reason.contains("missing the exported event")));
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+        let mut remote_workflows = WorkflowRegistry::new();
+        let mut local_capabilities = CapabilityRegistry::new();
+        let mut local_events = EventRegistry::new();
+        seed_capabilities(&mut local_capabilities);
+        seed_events(&mut local_events);
+        seed_workflows(&mut remote_workflows, &local_capabilities);
+        let workflow_export = export_peer_state(
+            peer.clone(),
+            trust.clone(),
+            &CapabilityRegistry::new(),
+            &EventRegistry::new(),
+            &remote_workflows,
+        );
+        let workflow_outcome = federation
+            .sync_peer(
+                workflow_export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:34:00Z",
+                "2026-04-09T20:35:00Z",
+                "evidence:missing-workflow",
+            )
+            .expect("sync should report missing workflow as conflict");
+        assert!(workflow_outcome
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.conflict_reason.contains("missing the exported workflow")));
+    }
+
+    #[test]
+    fn sync_peer_marks_empty_exports_as_failed() {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-empty", "Peer Empty");
+        let trust = trust("peer-empty", vec![RegistryScope::Public]);
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let export = export_peer_state(
+            peer,
+            trust,
+            &CapabilityRegistry::new(),
+            &EventRegistry::new(),
+            &WorkflowRegistry::new(),
+        );
+        let outcome = federation
+            .sync_peer(
+                export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:40:00Z",
+                "2026-04-09T20:41:00Z",
+                "evidence:sync-empty",
+            )
+            .expect("empty export should still be accepted as a failed sync outcome");
+
+        assert_eq!(outcome.session.status, FederationSyncStatus::Failed);
+        assert!(outcome.accepted_snapshots.is_empty());
+        assert!(outcome.conflicts.is_empty());
+    }
+
+    #[test]
+    fn sync_peer_rejects_private_exports_without_scope_authority() {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-private", "Peer Private");
+        let trust = trust("peer-private", vec![RegistryScope::Public]);
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let mut remote_capabilities = CapabilityRegistry::new();
+        remote_capabilities
+            .register(capability_registration(
+                RegistryScope::Private,
+                private_capability_contract(),
+            ))
+            .expect("private capability should register");
+
+        let mut remote_events = EventRegistry::new();
+        remote_events
+            .register(event_registration(
+                RegistryScope::Private,
+                event_contract(),
+            ))
+            .expect("private event should register");
+
+        let mut workflow_capabilities = CapabilityRegistry::new();
+        seed_capabilities(&mut workflow_capabilities);
+        let mut remote_workflows = WorkflowRegistry::new();
+        remote_workflows
+            .register(
+                &workflow_capabilities,
+                workflow_registration(RegistryScope::Private, workflow_definition()),
+            )
+            .expect("private workflow should register");
+
+        let export = export_peer_state(
+            peer,
+            trust,
+            &remote_capabilities,
+            &remote_events,
+            &remote_workflows,
+        );
+        let outcome = federation
+            .sync_peer(
+                export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:42:00Z",
+                "2026-04-09T20:43:00Z",
+                "evidence:sync-private",
+            )
+            .expect("sync should report private-scope rejection as conflicts");
+
+        assert_eq!(outcome.session.status, FederationSyncStatus::Partial);
+        assert!(outcome
+            .conflicts
+            .iter()
+            .all(|conflict| conflict.conflict_reason.contains("does not authorize")));
+    }
+
+    #[test]
+    fn sync_reports_conflicts_for_divergent_private_event_and_workflow_entries() {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-divergent", "Peer Divergent");
+        let trust = trust("peer-divergent", vec![RegistryScope::Public, RegistryScope::Private]);
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let mut local_events = EventRegistry::new();
+        let mut remote_events = EventRegistry::new();
+        let mut local_event_contract = event_contract();
+        local_event_contract.summary = "local event".to_string();
+        local_events
+            .register(event_registration(
+                RegistryScope::Private,
+                local_event_contract.clone(),
+            ))
+            .expect("local private event should register");
+        let mut remote_event_contract = local_event_contract.clone();
+        remote_event_contract.summary = "remote event".to_string();
+        remote_events
+            .register(event_registration(
+                RegistryScope::Private,
+                remote_event_contract,
+            ))
+            .expect("remote private event should register");
+
+        let event_export = export_peer_state(
+            peer.clone(),
+            trust.clone(),
+            &CapabilityRegistry::new(),
+            &remote_events,
+            &WorkflowRegistry::new(),
+        );
+        let event_outcome = federation
+            .sync_peer(
+                event_export,
+                &CapabilityRegistry::new(),
+                &local_events,
+                &WorkflowRegistry::new(),
+                "2026-04-09T20:44:00Z",
+                "2026-04-09T20:45:00Z",
+                "evidence:divergent-event",
+            )
+            .expect("event divergence should report conflicts");
+        assert!(event_outcome
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.conflict_reason.contains("local event record differs")));
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+        let mut local_capabilities = CapabilityRegistry::new();
+        let mut remote_capabilities = CapabilityRegistry::new();
+        seed_capabilities(&mut local_capabilities);
+        seed_capabilities(&mut remote_capabilities);
+
+        let mut local_workflows = WorkflowRegistry::new();
+        let mut remote_workflows = WorkflowRegistry::new();
+        local_workflows
+            .register(
+                &local_capabilities,
+                workflow_registration(RegistryScope::Private, workflow_definition()),
+            )
+            .expect("local private workflow should register");
+        let mut remote_workflow_definition = workflow_definition();
+        remote_workflow_definition.summary = "remote workflow".to_string();
+        remote_workflows
+            .register(
+                &remote_capabilities,
+                workflow_registration(RegistryScope::Private, remote_workflow_definition),
+            )
+            .expect("remote private workflow should register");
+
+        let workflow_export = export_peer_state(
+            peer,
+            trust,
+            &remote_capabilities,
+            &EventRegistry::new(),
+            &remote_workflows,
+        );
+        let workflow_outcome = federation
+            .sync_peer(
+                workflow_export,
+                &local_capabilities,
+                &EventRegistry::new(),
+                &local_workflows,
+                "2026-04-09T20:46:00Z",
+                "2026-04-09T20:47:00Z",
+                "evidence:divergent-workflow",
+            )
+            .expect("workflow divergence should report conflicts");
+        assert!(workflow_outcome
+            .conflicts
+            .iter()
+            .any(|conflict| conflict.conflict_reason.contains("local workflow record differs")));
+    }
+
+    #[test]
+    fn route_capability_invocation_returns_error_without_matching_snapshot() {
+        let mut federation = FederationRegistry::new();
+        let origin_peer = peer("peer-route-empty", "Peer Route Empty");
+        let origin_trust = trust("peer-route-empty", vec![RegistryScope::Public]);
+        federation
+            .register_peer(origin_peer, origin_trust)
+            .expect("origin peer should register");
+
+        let failure = federation
+            .route_capability_invocation(
+                "peer-route-empty",
+                "federation.capability.missing",
+                "9.9.9",
+                "request:missing",
+                &BTreeSet::from([String::from("peer-route-empty")]),
+                "2026-04-09T20:48:00Z",
+                "evidence:missing-route",
+            )
+            .expect_err("missing snapshot should fail closed");
+
+        assert_eq!(failure.errors[0].code, FederationErrorCode::EntryValidationFailed);
     }
 
     #[test]
@@ -1290,13 +1724,64 @@ mod tests {
                 evidence_ref: "evidence:summary-route".to_string(),
             },
         });
+        federation.invocations.push(FederatedInvocation {
+            invocation_id: "invocation_peer-summary_federation.capability.echo_1.0.1".to_string(),
+            origin_peer_id: "peer-summary".to_string(),
+            target_peer_id: "peer-target".to_string(),
+            capability_id: "federation.capability.echo".to_string(),
+            request_ref: "request:summary-retryable".to_string(),
+            status: FederationInvocationStatus::RetryableFailure,
+            response_ref: None,
+            trace_provenance: CrossPeerTraceProvenance {
+                trace_id: "trace_peer-summary_federation.capability.echo_1.0.1".to_string(),
+                origin_peer_id: "peer-summary".to_string(),
+                owning_peer_id: "peer-target".to_string(),
+                route_reason: "retryable route".to_string(),
+                sync_session_ref: None,
+                response_status: FederationInvocationStatus::RetryableFailure,
+                evidence_ref: "evidence:summary-route-retryable".to_string(),
+            },
+        });
 
         let summary = federation.status_summary();
         assert_eq!(summary.peer_count, 1);
         assert_eq!(summary.trusted_peer_count, 1);
         assert_eq!(summary.last_sync_outcome, FederationSyncStatus::Partial);
         assert_eq!(summary.blocked_entries, 2);
-        assert_eq!(summary.route_failures, 1);
+        assert_eq!(summary.route_failures, 2);
+    }
+
+    #[test]
+    fn approval_state_from_lifecycle_covers_all_states() {
+        assert_eq!(
+            approval_state_from_lifecycle(&Lifecycle::Draft),
+            FederationApprovalState::Draft
+        );
+        assert_eq!(
+            approval_state_from_lifecycle(&Lifecycle::Active),
+            FederationApprovalState::Approved
+        );
+        assert_eq!(
+            approval_state_from_lifecycle(&Lifecycle::Deprecated),
+            FederationApprovalState::Deprecated
+        );
+        assert_eq!(
+            approval_state_from_lifecycle(&Lifecycle::Retired),
+            FederationApprovalState::Rejected
+        );
+        assert_eq!(
+            approval_state_from_lifecycle(&Lifecycle::Archived),
+            FederationApprovalState::Rejected
+        );
+    }
+
+    #[test]
+    fn is_route_failure_covers_failure_variants() {
+        assert!(!is_route_failure(FederationInvocationStatus::Success));
+        assert!(is_route_failure(FederationInvocationStatus::Failure));
+        assert!(is_route_failure(
+            FederationInvocationStatus::RetryableFailure
+        ));
     }
 
     fn peer(peer_id: &str, display_name: &str) -> FederationPeer {
