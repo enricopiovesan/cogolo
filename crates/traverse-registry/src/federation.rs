@@ -1006,7 +1006,7 @@ mod tests {
 
     #[test]
     fn syncs_peer_export_and_routes_invocation_to_owner() {
-        let local_capabilities = CapabilityRegistry::new();
+        let mut local_capabilities = CapabilityRegistry::new();
         let mut local_events = EventRegistry::new();
         let mut local_workflows = WorkflowRegistry::new();
         seed_capabilities(&mut local_capabilities);
@@ -1080,7 +1080,7 @@ mod tests {
 
     #[test]
     fn sync_reports_conflicts_for_divergent_private_entries() {
-        let mut local_capabilities = CapabilityRegistry::new();
+        let local_capabilities = CapabilityRegistry::new();
         let mut local_events = EventRegistry::new();
         let mut local_workflows = WorkflowRegistry::new();
         seed_capabilities(&mut local_capabilities);
