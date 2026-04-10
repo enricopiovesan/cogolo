@@ -14,7 +14,6 @@ use traverse_contracts::{ErrorSeverity, Lifecycle};
     clippy::must_use_candidate,
     clippy::needless_pass_by_value
 )]
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FederationRegistryKind {
     Capability,
