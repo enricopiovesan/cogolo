@@ -99,7 +99,7 @@ When a Project 1 item is marked `Blocked`, the project `Note` field should summa
 
 Potential parallel candidates should stay `Ready` until they are actually picked up. We should not use `In Progress` as a placeholder for work that is merely available to start.
 
-Open PR-backed tickets must be reflected as `In Progress` in both the issue labels and Project 1. The PM thread should treat any mismatch as a board-drift bug and fix it immediately. The `backlog-sync` workflow now automates the normal PR open and merge handoff so the issue and Project 1 row move to `In Progress` and then `Done` without waiting for a manual PM pass.
+Open PR-backed tickets must be reflected as `In Progress` in both the issue labels and Project 1. The PM thread should treat any mismatch as a board-drift bug and fix it immediately. The backlog-sync workflow now automates the normal PR open and merge handoff so the issue and Project 1 row move to `In Progress` and then `Done` without waiting for a manual PM pass.
 
 Only tickets with real active execution should appear on Project 1 as `In Progress`.
 

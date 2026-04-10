@@ -1,47 +1,50 @@
 # App-Consumable Requirements Traceability
 
-This document maps the first app-consumable Traverse requirements to the current GitHub issue and Project 1 state.
+This document maps the first app-consumable Traverse requirements to GitHub issues on [Project 1](https://github.com/users/enricopiovesan/projects/1/).
 
-Project 1 is the canonical task board for this work. Every requirement area below must have one or more tickets in that project, and the ticket state must make the release picture obvious without having to reconcile old notes manually.
+Project 1 is the canonical task board for this work. Every requirement area below must have one or more tickets in that project, with explicit indication of whether more governing spec work is needed.
 
 ## Functional Requirements
 
-| Requirement Area | Covered By Tickets | Current State |
+| Requirement Area | Covered By Tickets | Spec Signal |
 |---|---|---|
-| Root app-consumable onboarding | [#122](https://github.com/enricopiovesan/Traverse/issues/122), [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#143](https://github.com/enricopiovesan/Traverse/issues/143) | `Done` / `In Progress` |
-| Canonical docs entry path | [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#144](https://github.com/enricopiovesan/Traverse/issues/144) | `In Progress` / `Ready` |
-| Release checklist and release-readiness evidence | [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150) | `In Progress` / `In Progress` / `In Progress` |
-| Versioned consumer bundle and installation steps | [#176](https://github.com/enricopiovesan/Traverse/issues/176) | `Ready` |
-| Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `Done` |
-| Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `Done` |
-| Real browser-hosted `youaskm3` shell validation | [#179](https://github.com/enricopiovesan/Traverse/issues/179) | `In Progress` |
-| Published-artifact validation against packaged Traverse runtime and MCP artifacts | [#200](https://github.com/enricopiovesan/Traverse/issues/200) | `In Progress` |
-| MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | `Done` / `In Progress` / `Blocked` |
+| Public integration surface for downstream apps | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128) | `spec`, `needs-spec` |
+| Runtime execution for app consumers | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123), [#128](https://github.com/enricopiovesan/Traverse/issues/128) | `no-spec-needed`, `needs-spec` |
+| Eventing and subscriptions for the app | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `no-spec-needed` |
+| Browser adapter transport and live browser path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121) | `no-spec-needed` |
+| MCP consumption path for downstream apps | [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `needs-spec` |
+| Contracts and compatibility boundary for downstream apps | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#127](https://github.com/enricopiovesan/Traverse/issues/127) | `spec`, `needs-spec` |
+| Portable packaging for executable agents and capabilities | [#109](https://github.com/enricopiovesan/Traverse/pull/109), [#53](https://github.com/enricopiovesan/Traverse/issues/53), [#111](https://github.com/enricopiovesan/Traverse/issues/111) | implemented / `no-spec-needed` |
+| Developer workflow and app-consumable quickstart | [#122](https://github.com/enricopiovesan/Traverse/issues/122), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `no-spec-needed` |
+| Release/governance path for first external consumer use | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `spec`, `needs-spec` |
 
 ## Non-Functional Requirements
 
-| Requirement Area | Covered By Tickets | Current State |
+| Requirement Area | Covered By Tickets | Spec Signal |
 |---|---|---|
-| Documentation clarity for the first app-consumable path | [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#143](https://github.com/enricopiovesan/Traverse/issues/143), [#145](https://github.com/enricopiovesan/Traverse/issues/145) | `In Progress` / `Done` / `In Progress` |
-| Traceability from requirements to release artifacts | [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150), [#195](https://github.com/enricopiovesan/Traverse/issues/195) | `In Progress` / `Done` / `In Progress` |
-| Operational safety boundary for app consumers | [#131](https://github.com/enricopiovesan/Traverse/issues/131) | `Blocked` |
-| First app-consumable performance baseline | [#130](https://github.com/enricopiovesan/Traverse/issues/130) | `Blocked` |
+| Stability of public consumer surfaces | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#127](https://github.com/enricopiovesan/Traverse/issues/127) | `spec`, `needs-spec` |
+| Determinism of runtime updates and outcomes | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#123](https://github.com/enricopiovesan/Traverse/issues/123), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `no-spec-needed`, `needs-spec` |
+| Portability across browser, CLI, and future hosts | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#129](https://github.com/enricopiovesan/Traverse/issues/129), [#109](https://github.com/enricopiovesan/Traverse/pull/109) | `spec`, `needs-spec` |
+| Explainability of runtime, trace, and failures | [#123](https://github.com/enricopiovesan/Traverse/issues/123), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `no-spec-needed`, `needs-spec` |
+| Performance for the first app-consumable path | [#130](https://github.com/enricopiovesan/Traverse/issues/130) | `needs-spec` |
+| Reliability and repeatability of the supported flow | [#122](https://github.com/enricopiovesan/Traverse/issues/122), [#123](https://github.com/enricopiovesan/Traverse/issues/123), [#128](https://github.com/enricopiovesan/Traverse/issues/128) | `no-spec-needed`, `needs-spec` |
+| Testability under CI and protected gates | [#123](https://github.com/enricopiovesan/Traverse/issues/123), [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `no-spec-needed`, `needs-spec` |
+| Maintainability and public/internal boundary discipline | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#127](https://github.com/enricopiovesan/Traverse/issues/127) | `spec`, `needs-spec` |
+| Security and safety of browser/MCP consumer paths | [#131](https://github.com/enricopiovesan/Traverse/issues/131) | `needs-spec` |
+| Documentation quality for external app consumption | [#122](https://github.com/enricopiovesan/Traverse/issues/122), [#127](https://github.com/enricopiovesan/Traverse/issues/127) | `no-spec-needed`, `needs-spec` |
 
 ## Current Open First-Release Ticket Set
 
-- [#127](https://github.com/enricopiovesan/Traverse/issues/127) `Prepare the Traverse v0.1 release checklist for app consumers` - `In Progress`
-- [#142](https://github.com/enricopiovesan/Traverse/issues/142) `Refresh README for v0.1 release-candidate state` - `In Progress`
-- [#144](https://github.com/enricopiovesan/Traverse/issues/144) `Establish one canonical documentation entry path for humans and agents` - `Ready`
-- [#145](https://github.com/enricopiovesan/Traverse/issues/145) `Refresh release and requirements traceability docs for current v0.1 state` - `In Progress`
-- [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation` - `In Progress`
-- [#179](https://github.com/enricopiovesan/Traverse/issues/179) `Validate the real browser-hosted youaskm3 shell against released Traverse consumer artifacts` - `In Progress`
-- [#200](https://github.com/enricopiovesan/Traverse/issues/200) `Validate youaskm3 consumption against published Traverse runtime and MCP artifacts` - `In Progress`
-- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md) published-artifact validation doc
-- [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact` - `Done`
-- [#195](https://github.com/enricopiovesan/Traverse/issues/195) `Publish the first governed Traverse package artifact` - `In Progress`
-- [#176](https://github.com/enricopiovesan/Traverse/issues/176) `Publish versioned Traverse consumer bundle for downstream app integration` - `Ready`
-- [#130](https://github.com/enricopiovesan/Traverse/issues/130) `Define first app-consumable performance baseline` - `Blocked`
-- [#131](https://github.com/enricopiovesan/Traverse/issues/131) `Define app-facing security and safety boundary for browser and MCP consumers` - `Blocked`
+- [#120](https://github.com/enricopiovesan/Traverse/issues/120) `Implement local browser adapter transport for runtime subscriptions` - `no-spec-needed`
+- [#121](https://github.com/enricopiovesan/Traverse/issues/121) `Upgrade React browser demo to consume the live local browser adapter` - `no-spec-needed`
+- [#122](https://github.com/enricopiovesan/Traverse/issues/122) `Write the first app-consumable quickstart for Traverse v0.1` - `no-spec-needed`
+- [#123](https://github.com/enricopiovesan/Traverse/issues/123) `Add end-to-end acceptance validation for the first app-consumable flow` - `no-spec-needed`
+- [#126](https://github.com/enricopiovesan/Traverse/issues/126) `Define Traverse v0.1 downstream-consumer contract for youaskm3` - `spec`
+- [#127](https://github.com/enricopiovesan/Traverse/issues/127) `Prepare the Traverse v0.1 release checklist for app consumers` - `needs-spec`
+- [#128](https://github.com/enricopiovesan/Traverse/issues/128) `Validate the first real youaskm3 integration path against Traverse` - `needs-spec`
+- [#129](https://github.com/enricopiovesan/Traverse/issues/129) `Validate the first app-facing MCP consumption path for downstream apps` - `needs-spec`
+- [#130](https://github.com/enricopiovesan/Traverse/issues/130) `Define first app-consumable performance baseline` - `needs-spec`
+- [#131](https://github.com/enricopiovesan/Traverse/issues/131) `Define app-facing security and safety boundary for browser and MCP consumers` - `needs-spec`
 
 ## v0.1 Release Ordering
 
@@ -58,20 +61,13 @@ Project 1 is the canonical task board for this work. Every requirement area belo
 
 ### Should Have Soon After v0.1
 
-- [#142](https://github.com/enricopiovesan/Traverse/issues/142) README release-candidate refresh
-- [#144](https://github.com/enricopiovesan/Traverse/issues/144) canonical documentation entry path
-- [#145](https://github.com/enricopiovesan/Traverse/issues/145) requirements traceability refresh
-- [#158](https://github.com/enricopiovesan/Traverse/issues/158) dedicated MCP stdio server package foundation
-- [#150](https://github.com/enricopiovesan/Traverse/issues/150) release artifact and publication bundle
-- [#195](https://github.com/enricopiovesan/Traverse/issues/195) package release pointer
-- [#176](https://github.com/enricopiovesan/Traverse/issues/176) versioned consumer bundle and installation steps
-- [#200](https://github.com/enricopiovesan/Traverse/issues/200) published-artifact validation against packaged runtime and MCP artifacts
+- [#53](https://github.com/enricopiovesan/Traverse/issues/53) second WASM AI agent example
+- [#130](https://github.com/enricopiovesan/Traverse/issues/130) app-consumable performance baseline
+- [#131](https://github.com/enricopiovesan/Traverse/issues/131) app-facing security and safety boundary
 
 ### Later
 
-- [#130](https://github.com/enricopiovesan/Traverse/issues/130) first app-consumable performance baseline
-- [#131](https://github.com/enricopiovesan/Traverse/issues/131) app-facing security and safety boundary
-- [#148](https://github.com/enricopiovesan/Traverse/issues/148) downstream validation for the dedicated MCP WASM server
+- no additional app-consumable release tickets are intentionally placed here yet; future additions should be added only when they are outside the first release and the near-follow-up set above
 
 ## Rule
 

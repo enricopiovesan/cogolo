@@ -1,0 +1,35 @@
+name: Backlog Sync
+
+on:
+  pull_request:
+    types:
+      - opened
+      - reopened
+      - synchronize
+      - ready_for_review
+      - closed
+
+permissions:
+  contents: read
+  issues: write
+  pull-requests: read
+  projects: write
+
+jobs:
+  sync-pr-state:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Sync backlog state from PR event
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TRAVERSE_REPO: ${{ github.repository }}
+          PROJECT_OWNER: enricopiovesan
+          PROJECT_NUMBER: "1"
+          PR_NUMBER: ${{ github.event.pull_request.number }}
+          PR_EVENT_ACTION: ${{ github.event.action }}
+          PR_MERGED: ${{ github.event.pull_request.merged }}
+        run: bash scripts/ci/sync_backlog_on_merge.sh
