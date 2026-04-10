@@ -10,8 +10,8 @@ pr_event_action="${PR_EVENT_ACTION:-}"
 pr_merged="${PR_MERGED:-false}"
 
 if [[ -z "$pr_number" ]]; then
-  echo "PR_NUMBER is required" >&2
-  exit 1
+  echo "No PR_NUMBER provided; skipping backlog sync." >&2
+  exit 0
 fi
 
 if [[ "$pr_event_action" == "closed" && "$pr_merged" != "true" ]]; then
