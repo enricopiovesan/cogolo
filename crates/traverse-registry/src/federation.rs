@@ -264,7 +264,9 @@ impl FederationRegistry {
         }
 
         match self.peers.get(&peer.peer_id) {
-            Some(existing) if existing == &peer && self.trust_records.get(&peer.peer_id) == Some(&trust) => {
+            Some(existing)
+                if existing == &peer && self.trust_records.get(&peer.peer_id) == Some(&trust) =>
+            {
                 Ok(())
             }
             Some(_) => Err(FederationFailure {
@@ -320,7 +322,11 @@ impl FederationRegistry {
                 .unwrap_or(FederationSyncStatus::Unknown),
             sync_age: last_session.and_then(|session| session.finished_at.clone()),
             conflict_count: self.conflicts.len(),
-            blocked_entries: self.sync_sessions.iter().map(|session| session.rejected_entries).sum(),
+            blocked_entries: self
+                .sync_sessions
+                .iter()
+                .map(|session| session.rejected_entries)
+                .sum(),
             route_failures: self
                 .invocations
                 .iter()
@@ -471,7 +477,11 @@ impl FederationRegistry {
         };
 
         let session = FederationSyncSession {
-            session_id: format!("sync_{}_{}", export.peer.peer_id, self.sync_sessions.len() + 1),
+            session_id: format!(
+                "sync_{}_{}",
+                export.peer.peer_id,
+                self.sync_sessions.len() + 1
+            ),
             peer_id: export.peer.peer_id.clone(),
             started_at: started_at.to_string(),
             finished_at: Some(finished_at.to_string()),
@@ -595,7 +605,10 @@ impl FederationRegistry {
             .find(|session| session.peer_id == target_peer_id)
             .map(|session| session.evidence_ref.clone());
         let trace_id = format!("trace_{}_{}_{}", origin_peer_id, capability_id, version);
-        let invocation_id = format!("invocation_{}_{}_{}", origin_peer_id, capability_id, version);
+        let invocation_id = format!(
+            "invocation_{}_{}_{}",
+            origin_peer_id, capability_id, version
+        );
         let (status, response_ref, route_reason) = if available {
             (
                 FederationInvocationStatus::Success,
@@ -679,7 +692,9 @@ fn validate_capability_snapshot(
     }
 
     let lookup_scope = lookup_scope_for(export.record.scope);
-    let Some(local) = capabilities.find_exact(lookup_scope, &export.record.id, &export.record.version) else {
+    let Some(local) =
+        capabilities.find_exact(lookup_scope, &export.record.id, &export.record.version)
+    else {
         conflicts.push(build_conflict_record(
             peer.peer_id.as_str(),
             FederationRegistryKind::Capability,
@@ -713,7 +728,9 @@ fn validate_capability_snapshot(
         &export.record.contract_path,
         &format!(
             "{:?}:{}:{}",
-            export.record.provenance.source, export.record.provenance.author, export.record.provenance.created_at
+            export.record.provenance.source,
+            export.record.provenance.author,
+            export.record.provenance.created_at
         ),
     ))
 }
@@ -739,7 +756,8 @@ fn validate_event_snapshot(
     }
 
     let lookup_scope = lookup_scope_for(export.record.scope);
-    let Some(local) = events.find_exact(lookup_scope, &export.record.id, &export.record.version) else {
+    let Some(local) = events.find_exact(lookup_scope, &export.record.id, &export.record.version)
+    else {
         conflicts.push(build_conflict_record(
             peer.peer_id.as_str(),
             FederationRegistryKind::Event,
@@ -773,7 +791,9 @@ fn validate_event_snapshot(
         &export.record.contract_path,
         &format!(
             "{:?}:{}:{}",
-            export.record.provenance.source, export.record.provenance.author, export.record.provenance.created_at
+            export.record.provenance.source,
+            export.record.provenance.author,
+            export.record.provenance.created_at
         ),
     ))
 }
@@ -799,7 +819,8 @@ fn validate_workflow_snapshot(
     }
 
     let lookup_scope = lookup_scope_for(export.record.scope);
-    let Some(local) = workflows.find_exact(lookup_scope, &export.record.id, &export.record.version) else {
+    let Some(local) = workflows.find_exact(lookup_scope, &export.record.id, &export.record.version)
+    else {
         conflicts.push(build_conflict_record(
             peer.peer_id.as_str(),
             FederationRegistryKind::Workflow,
@@ -833,7 +854,9 @@ fn validate_workflow_snapshot(
         &export.record.workflow_path,
         &format!(
             "{}:{}:{}",
-            export.record.governing_spec, export.record.validator_version, export.record.registered_at
+            export.record.governing_spec,
+            export.record.validator_version,
+            export.record.registered_at
         ),
     ))
 }
@@ -895,11 +918,7 @@ fn is_route_failure(status: FederationInvocationStatus) -> bool {
     )
 }
 
-fn scope_is_allowed(
-    scope: RegistryScope,
-    trust: &TrustRecord,
-    peer: &FederationPeer,
-) -> bool {
+fn scope_is_allowed(scope: RegistryScope, trust: &TrustRecord, peer: &FederationPeer) -> bool {
     trust.allowed_scopes.contains(&scope) && peer.visible_registry_scopes.contains(&scope)
 }
 
@@ -937,23 +956,25 @@ mod tests {
     use crate::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
         CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
-        CompositionPattern, EventRegistry, ImplementationKind, RegistryProvenance,
-        RegistryScope, SourceKind, SourceReference, WorkflowRegistry, WorkflowRegistration,
-        WorkflowDefinition, WorkflowNode, WorkflowNodeInput, WorkflowNodeOutput,
-        export_peer_state,
+        CompositionPattern, EventRegistry, ImplementationKind, RegistryProvenance, RegistryScope,
+        SourceKind, SourceReference, WorkflowDefinition, WorkflowNode, WorkflowNodeInput,
+        WorkflowNodeOutput, WorkflowRegistration, WorkflowRegistry, export_peer_state,
     };
     use serde_json::json;
     use traverse_contracts::{
         CapabilityContract, Entrypoint, EntrypointKind, EventClassification, EventContract,
-        EventPayload, EventProvenance, EventProvenanceSource, EventReference, EventType,
-        Lifecycle, Owner, PayloadCompatibility, SchemaContainer, SideEffect, SideEffectKind,
+        EventPayload, EventProvenance, EventProvenanceSource, EventReference, EventType, Lifecycle,
+        Owner, PayloadCompatibility, SchemaContainer, SideEffect, SideEffectKind,
     };
 
     #[test]
     fn registers_trusted_peer_and_reports_status() {
         let mut federation = FederationRegistry::new();
         let peer = peer("peer-a", "Peer A");
-        let trust = trust("peer-a", vec![RegistryScope::Public, RegistryScope::Private]);
+        let trust = trust(
+            "peer-a",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
 
         federation
             .register_peer(peer.clone(), trust.clone())
@@ -981,7 +1002,10 @@ mod tests {
         seed_workflows(&mut local_workflows, &local_capabilities);
 
         let peer = peer("peer-b", "Peer B");
-        let trust = trust("peer-b", vec![RegistryScope::Public, RegistryScope::Private]);
+        let trust = trust(
+            "peer-b",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
         let export = export_peer_state(
             peer.clone(),
             trust.clone(),
@@ -1012,7 +1036,10 @@ mod tests {
         assert!(outcome.conflicts.is_empty());
 
         let origin_peer = self::peer("peer-a", "Peer A");
-        let origin_trust = self::trust("peer-a", vec![RegistryScope::Public, RegistryScope::Private]);
+        let origin_trust = self::trust(
+            "peer-a",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
         federation
             .register_peer(origin_peer, origin_trust)
             .expect("origin peer should register");
@@ -1033,7 +1060,10 @@ mod tests {
         assert_eq!(invocation.target_peer_id, "peer-b");
         assert_eq!(invocation.trace_provenance.origin_peer_id, "peer-a");
         assert_eq!(invocation.trace_provenance.owning_peer_id, "peer-b");
-        assert_eq!(invocation.response_ref.as_deref(), Some("response://peer-b/federation.capability.echo/1.0.0"));
+        assert_eq!(
+            invocation.response_ref.as_deref(),
+            Some("response://peer-b/federation.capability.echo/1.0.0")
+        );
     }
 
     #[test]
@@ -1049,7 +1079,10 @@ mod tests {
         let mut altered_contract = capability_contract();
         altered_contract.summary = "divergent export".to_string();
         remote_capabilities
-            .register(capability_registration(RegistryScope::Private, altered_contract))
+            .register(capability_registration(
+                RegistryScope::Private,
+                altered_contract,
+            ))
             .expect("remote capability should register");
         seed_events(&mut local_events);
         seed_workflows(&mut local_workflows, &local_capabilities);
@@ -1131,10 +1164,11 @@ mod tests {
             )
             .expect("sync should report permitted capability divergence as conflicts");
 
-        assert!(outcome
-            .conflicts
-            .iter()
-            .any(|conflict| conflict.conflict_reason.contains("local capability record differs")));
+        assert!(outcome.conflicts.iter().any(|conflict| {
+            conflict
+                .conflict_reason
+                .contains("local capability record differs")
+        }));
     }
 
     #[test]
@@ -1157,30 +1191,34 @@ mod tests {
 
         let mut mismatched_trust = export.clone();
         mismatched_trust.trust.peer_id = "other-peer".to_string();
-        assert!(federation
-            .sync_peer(
-                mismatched_trust,
-                &CapabilityRegistry::new(),
-                &EventRegistry::new(),
-                &WorkflowRegistry::new(),
-                "2026-04-09T20:20:00Z",
-                "2026-04-09T20:21:00Z",
-                "evidence:sync-mismatch",
-            )
-            .is_err());
+        assert!(
+            federation
+                .sync_peer(
+                    mismatched_trust,
+                    &CapabilityRegistry::new(),
+                    &EventRegistry::new(),
+                    &WorkflowRegistry::new(),
+                    "2026-04-09T20:20:00Z",
+                    "2026-04-09T20:21:00Z",
+                    "evidence:sync-mismatch",
+                )
+                .is_err()
+        );
 
         federation.trust_records.remove("peer-sync-guard");
-        assert!(federation
-            .sync_peer(
-                export.clone(),
-                &CapabilityRegistry::new(),
-                &EventRegistry::new(),
-                &WorkflowRegistry::new(),
-                "2026-04-09T20:22:00Z",
-                "2026-04-09T20:23:00Z",
-                "evidence:sync-missing-trust",
-            )
-            .is_err());
+        assert!(
+            federation
+                .sync_peer(
+                    export.clone(),
+                    &CapabilityRegistry::new(),
+                    &EventRegistry::new(),
+                    &WorkflowRegistry::new(),
+                    "2026-04-09T20:22:00Z",
+                    "2026-04-09T20:23:00Z",
+                    "evidence:sync-missing-trust",
+                )
+                .is_err()
+        );
 
         federation.peers.remove("peer-sync-guard");
         federation
@@ -1191,23 +1229,28 @@ mod tests {
             registered_peer.trust_state = FederationTrustState::Pending;
         }
 
-        assert!(federation
-            .sync_peer(
-                export,
-                &CapabilityRegistry::new(),
-                &EventRegistry::new(),
-                &WorkflowRegistry::new(),
-                "2026-04-09T20:24:00Z",
-                "2026-04-09T20:25:00Z",
-                "evidence:sync-disabled",
-            )
-            .is_err());
+        assert!(
+            federation
+                .sync_peer(
+                    export,
+                    &CapabilityRegistry::new(),
+                    &EventRegistry::new(),
+                    &WorkflowRegistry::new(),
+                    "2026-04-09T20:24:00Z",
+                    "2026-04-09T20:25:00Z",
+                    "evidence:sync-disabled",
+                )
+                .is_err()
+        );
     }
 
     #[test]
     fn sync_peer_reports_missing_local_registry_entries() {
         let peer = peer("peer-missing", "Peer Missing");
-        let trust = trust("peer-missing", vec![RegistryScope::Public, RegistryScope::Private]);
+        let trust = trust(
+            "peer-missing",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
 
         let mut federation = FederationRegistry::new();
         federation
@@ -1236,10 +1279,11 @@ mod tests {
                 "evidence:missing-capability",
             )
             .expect("sync should report missing capability as conflict");
-        assert!(capability_outcome
-            .conflicts
-            .iter()
-            .any(|conflict| conflict.conflict_reason.contains("missing the exported capability")));
+        assert!(capability_outcome.conflicts.iter().any(|conflict| {
+            conflict
+                .conflict_reason
+                .contains("missing the exported capability")
+        }));
 
         let mut federation = FederationRegistry::new();
         federation
@@ -1265,10 +1309,11 @@ mod tests {
                 "evidence:missing-event",
             )
             .expect("sync should report missing event as conflict");
-        assert!(event_outcome
-            .conflicts
-            .iter()
-            .any(|conflict| conflict.conflict_reason.contains("missing the exported event")));
+        assert!(event_outcome.conflicts.iter().any(|conflict| {
+            conflict
+                .conflict_reason
+                .contains("missing the exported event")
+        }));
 
         let mut federation = FederationRegistry::new();
         federation
@@ -1298,10 +1343,11 @@ mod tests {
                 "evidence:missing-workflow",
             )
             .expect("sync should report missing workflow as conflict");
-        assert!(workflow_outcome
-            .conflicts
-            .iter()
-            .any(|conflict| conflict.conflict_reason.contains("missing the exported workflow")));
+        assert!(workflow_outcome.conflicts.iter().any(|conflict| {
+            conflict
+                .conflict_reason
+                .contains("missing the exported workflow")
+        }));
     }
 
     #[test]
@@ -1356,10 +1402,7 @@ mod tests {
 
         let mut remote_events = EventRegistry::new();
         remote_events
-            .register(event_registration(
-                RegistryScope::Private,
-                event_contract(),
-            ))
+            .register(event_registration(RegistryScope::Private, event_contract()))
             .expect("private event should register");
 
         let mut workflow_capabilities = CapabilityRegistry::new();
@@ -1392,17 +1435,22 @@ mod tests {
             .expect("sync should report private-scope rejection as conflicts");
 
         assert_eq!(outcome.session.status, FederationSyncStatus::Partial);
-        assert!(outcome
-            .conflicts
-            .iter()
-            .all(|conflict| conflict.conflict_reason.contains("does not authorize")));
+        assert!(
+            outcome
+                .conflicts
+                .iter()
+                .all(|conflict| conflict.conflict_reason.contains("does not authorize"))
+        );
     }
 
     #[test]
     fn sync_reports_conflicts_for_divergent_private_event_and_workflow_entries() {
         let mut federation = FederationRegistry::new();
         let peer = peer("peer-divergent", "Peer Divergent");
-        let trust = trust("peer-divergent", vec![RegistryScope::Public, RegistryScope::Private]);
+        let trust = trust(
+            "peer-divergent",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
         federation
             .register_peer(peer.clone(), trust.clone())
             .expect("peer should register");
@@ -1444,10 +1492,11 @@ mod tests {
                 "evidence:divergent-event",
             )
             .expect("event divergence should report conflicts");
-        assert!(event_outcome
-            .conflicts
-            .iter()
-            .any(|conflict| conflict.conflict_reason.contains("local event record differs")));
+        assert!(event_outcome.conflicts.iter().any(|conflict| {
+            conflict
+                .conflict_reason
+                .contains("local event record differs")
+        }));
 
         let mut federation = FederationRegistry::new();
         federation
@@ -1493,10 +1542,11 @@ mod tests {
                 "evidence:divergent-workflow",
             )
             .expect("workflow divergence should report conflicts");
-        assert!(workflow_outcome
-            .conflicts
-            .iter()
-            .any(|conflict| conflict.conflict_reason.contains("local workflow record differs")));
+        assert!(workflow_outcome.conflicts.iter().any(|conflict| {
+            conflict
+                .conflict_reason
+                .contains("local workflow record differs")
+        }));
     }
 
     #[test]
@@ -1520,7 +1570,10 @@ mod tests {
             )
             .expect_err("missing snapshot should fail closed");
 
-        assert_eq!(failure.errors[0].code, FederationErrorCode::EntryValidationFailed);
+        assert_eq!(
+            failure.errors[0].code,
+            FederationErrorCode::EntryValidationFailed
+        );
     }
 
     #[test]
@@ -1543,7 +1596,11 @@ mod tests {
             revoked_at: None,
         };
 
-        assert!(federation.register_peer(invalid_peer, invalid_trust).is_err());
+        assert!(
+            federation
+                .register_peer(invalid_peer, invalid_trust)
+                .is_err()
+        );
 
         let peer = peer("peer-dup", "Peer Dup");
         let trust = trust("peer-dup", vec![RegistryScope::Public]);
@@ -1576,17 +1633,19 @@ mod tests {
             workflows: Vec::new(),
         };
 
-        assert!(federation
-            .sync_peer(
-                export.clone(),
-                &local_capabilities,
-                &local_events,
-                &local_workflows,
-                "",
-                "",
-                "",
-            )
-            .is_err());
+        assert!(
+            federation
+                .sync_peer(
+                    export.clone(),
+                    &local_capabilities,
+                    &local_events,
+                    &local_workflows,
+                    "",
+                    "",
+                    "",
+                )
+                .is_err()
+        );
 
         let mut bad_peer = peer("peer-sync-bad", "Peer Sync Bad");
         bad_peer.sync_enabled = false;
@@ -1605,17 +1664,19 @@ mod tests {
             workflows: Vec::new(),
         };
 
-        assert!(federation
-            .sync_peer(
-                bad_export,
-                &local_capabilities,
-                &local_events,
-                &local_workflows,
-                "2026-04-09T20:00:00Z",
-                "2026-04-09T20:01:00Z",
-                "evidence:sync-invalid",
-            )
-            .is_err());
+        assert!(
+            federation
+                .sync_peer(
+                    bad_export,
+                    &local_capabilities,
+                    &local_events,
+                    &local_workflows,
+                    "2026-04-09T20:00:00Z",
+                    "2026-04-09T20:01:00Z",
+                    "evidence:sync-invalid",
+                )
+                .is_err()
+        );
     }
 
     #[test]
@@ -1627,17 +1688,11 @@ mod tests {
             .register_peer(origin_peer.clone(), origin_trust)
             .expect("origin peer should register");
 
-        assert!(federation
-            .route_capability_invocation(
-                "",
-                "",
-                "",
-                "",
-                &BTreeSet::new(),
-                "",
-                "",
-            )
-            .is_err());
+        assert!(
+            federation
+                .route_capability_invocation("", "", "", "", &BTreeSet::new(), "", "",)
+                .is_err()
+        );
 
         let mut local_capabilities = CapabilityRegistry::new();
         let mut local_events = EventRegistry::new();
@@ -1647,7 +1702,10 @@ mod tests {
         seed_workflows(&mut local_workflows, &local_capabilities);
 
         let target_peer = peer("peer-target", "Peer Target");
-        let target_trust = trust("peer-target", vec![RegistryScope::Public, RegistryScope::Private]);
+        let target_trust = trust(
+            "peer-target",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
         let export = export_peer_state(
             target_peer.clone(),
             target_trust.clone(),
@@ -1683,7 +1741,10 @@ mod tests {
             )
             .expect("route should return retryable failure rather than error");
 
-        assert_eq!(invocation.status, FederationInvocationStatus::RetryableFailure);
+        assert_eq!(
+            invocation.status,
+            FederationInvocationStatus::RetryableFailure
+        );
         assert!(invocation.response_ref.is_none());
     }
 
@@ -1825,10 +1886,7 @@ mod tests {
 
     fn seed_events(registry: &mut EventRegistry) {
         registry
-            .register(event_registration(
-                RegistryScope::Public,
-                event_contract(),
-            ))
+            .register(event_registration(RegistryScope::Public, event_contract()))
             .expect("event should register");
     }
 
@@ -2050,7 +2108,10 @@ mod tests {
         }
     }
 
-    fn event_registration(scope: RegistryScope, contract: EventContract) -> crate::EventRegistration {
+    fn event_registration(
+        scope: RegistryScope,
+        contract: EventContract,
+    ) -> crate::EventRegistration {
         crate::EventRegistration {
             scope,
             contract,
@@ -2074,7 +2135,8 @@ mod tests {
         WorkflowRegistration {
             scope,
             definition,
-            workflow_path: "registry/public/federation.workflow.route/1.0.0/workflow.json".to_string(),
+            workflow_path: "registry/public/federation.workflow.route/1.0.0/workflow.json"
+                .to_string(),
             registered_at: "2026-04-09T19:00:00Z".to_string(),
             validator_version: "registry-test".to_string(),
         }
