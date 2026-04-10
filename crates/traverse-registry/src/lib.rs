@@ -1,13 +1,13 @@
 //! Registry support for Traverse.
 
 mod bundle;
-mod federation;
 mod events;
+mod federation;
 mod graph;
 mod workflows;
 pub use bundle::*;
-pub use federation::*;
 pub use events::*;
+pub use federation::*;
 pub use graph::*;
 pub use workflows::*;
 
