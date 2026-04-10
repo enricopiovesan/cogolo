@@ -962,7 +962,7 @@ fn federation_error(code: FederationErrorCode, target: &str, message: &str) -> F
 }
 
 #[cfg(test)]
-#[allow(clippy::expect_used, clippy::expect_err_used, clippy::too_many_lines)]
+#[allow(clippy::expect_used, clippy::too_many_lines)]
 mod tests {
     use super::*;
     use crate::{
@@ -1006,7 +1006,7 @@ mod tests {
 
     #[test]
     fn syncs_peer_export_and_routes_invocation_to_owner() {
-        let mut local_capabilities = CapabilityRegistry::new();
+        let local_capabilities = CapabilityRegistry::new();
         let mut local_events = EventRegistry::new();
         let mut local_workflows = WorkflowRegistry::new();
         seed_capabilities(&mut local_capabilities);
