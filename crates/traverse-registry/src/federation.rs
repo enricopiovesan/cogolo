@@ -997,10 +997,18 @@ fn approved_spec_registry_contains(spec_id: &str) -> bool {
 }
 
 fn load_approved_spec_ids() -> BTreeSet<String> {
-    let Ok(contents) = fs::read_to_string(APPROVED_SPECS_REGISTRY_PATH) else {
+    load_approved_spec_ids_from_path(APPROVED_SPECS_REGISTRY_PATH)
+}
+
+fn load_approved_spec_ids_from_path(path: &str) -> BTreeSet<String> {
+    let Ok(contents) = fs::read_to_string(path) else {
         return BTreeSet::new();
     };
 
+    parse_approved_spec_ids(&contents)
+}
+
+fn parse_approved_spec_ids(contents: &str) -> BTreeSet<String> {
     let Ok(payload) = serde_json::from_str::<Value>(&contents) else {
         return BTreeSet::new();
     };
@@ -1657,6 +1665,14 @@ mod tests {
                 .iter()
                 .any(|conflict| { conflict.conflict_reason.contains("approved spec registry") })
         );
+    }
+
+    #[test]
+    fn approved_spec_loader_returns_empty_for_missing_or_invalid_inputs() {
+        assert!(
+            load_approved_spec_ids_from_path("/definitely-missing/approved-specs.json").is_empty()
+        );
+        assert!(parse_approved_spec_ids("{not-json").is_empty());
     }
 
     #[test]
