@@ -2426,9 +2426,10 @@ mod tests {
             )
             .expect_err("private snapshot should be denied for unauthorized origin peers");
 
-        assert_eq!(
-            failure.errors[0].message,
-            "requested capability exists but is not visible to the origin peer under the current trust model"
+        assert!(
+            failure.errors[0]
+                .message
+                .contains("requested capability requires PeerTrusted visibility")
         );
         assert!(federation.conflicts().iter().any(|conflict| {
             conflict.entry_key == "Capability:federation.capability.private-echo@1.0.0"
