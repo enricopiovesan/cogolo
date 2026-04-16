@@ -14,8 +14,18 @@ use crate::{
     CapabilityRegistry, EventRegistry, LookupScope, RegistryScope, ResolvedCapability,
     ResolvedEvent, ResolvedWorkflow, WorkflowRegistry,
 };
+use serde_json::Value;
 use std::collections::{BTreeMap, BTreeSet};
+use std::fs;
+use std::sync::OnceLock;
 use traverse_contracts::{ErrorSeverity, Lifecycle};
+
+const APPROVED_SPECS_REGISTRY_PATH: &str = concat!(
+    env!("CARGO_MANIFEST_DIR"),
+    "/../../specs/governance/approved-specs.json"
+);
+
+static APPROVED_SPEC_IDS: OnceLock<BTreeSet<String>> = OnceLock::new();
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum FederationRegistryKind {
     Capability,
@@ -702,6 +712,18 @@ fn validate_capability_snapshot(
         return None;
     }
 
+    if !approved_spec_registry_contains(&export.record.evidence.governing_spec) {
+        conflicts.push(build_conflict_record(
+            peer.peer_id.as_str(),
+            FederationRegistryKind::Capability,
+            &export.record.id,
+            &export.record.version,
+            "exported capability governing spec is not approved in the local approved spec registry",
+            evidence_ref,
+        ));
+        return None;
+    }
+
     let lookup_scope = lookup_scope_for(export.record.scope);
     let Some(local) =
         capabilities.find_exact(lookup_scope, &export.record.id, &export.record.version)
@@ -766,6 +788,18 @@ fn validate_event_snapshot(
         return None;
     }
 
+    if !approved_spec_registry_contains(&export.record.validation_evidence.governing_spec) {
+        conflicts.push(build_conflict_record(
+            peer.peer_id.as_str(),
+            FederationRegistryKind::Event,
+            &export.record.id,
+            &export.record.version,
+            "exported event governing spec is not approved in the local approved spec registry",
+            evidence_ref,
+        ));
+        return None;
+    }
+
     let lookup_scope = lookup_scope_for(export.record.scope);
     let Some(local) = events.find_exact(lookup_scope, &export.record.id, &export.record.version)
     else {
@@ -824,6 +858,18 @@ fn validate_workflow_snapshot(
             &export.record.id,
             &export.record.version,
             "peer trust does not authorize the exported scope",
+            evidence_ref,
+        ));
+        return None;
+    }
+
+    if !approved_spec_registry_contains(&export.record.governing_spec) {
+        conflicts.push(build_conflict_record(
+            peer.peer_id.as_str(),
+            FederationRegistryKind::Workflow,
+            &export.record.id,
+            &export.record.version,
+            "exported workflow governing spec is not approved in the local approved spec registry",
             evidence_ref,
         ));
         return None;
@@ -942,6 +988,39 @@ fn lookup_scope_for(scope: RegistryScope) -> LookupScope {
         RegistryScope::Public => LookupScope::PublicOnly,
         RegistryScope::Private => LookupScope::PreferPrivate,
     }
+}
+
+fn approved_spec_registry_contains(spec_id: &str) -> bool {
+    APPROVED_SPEC_IDS
+        .get_or_init(load_approved_spec_ids)
+        .contains(spec_id)
+}
+
+fn load_approved_spec_ids() -> BTreeSet<String> {
+    load_approved_spec_ids_from_path(APPROVED_SPECS_REGISTRY_PATH)
+}
+
+fn load_approved_spec_ids_from_path(path: &str) -> BTreeSet<String> {
+    let Ok(contents) = fs::read_to_string(path) else {
+        return BTreeSet::new();
+    };
+
+    parse_approved_spec_ids(&contents)
+}
+
+fn parse_approved_spec_ids(contents: &str) -> BTreeSet<String> {
+    let Ok(payload) = serde_json::from_str::<Value>(contents) else {
+        return BTreeSet::new();
+    };
+
+    payload
+        .get("specs")
+        .and_then(Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(|entry| entry.get("id").and_then(Value::as_str))
+        .map(str::to_string)
+        .collect()
 }
 
 fn synced_registry_types(snapshots: &[PeerRegistrySnapshot]) -> Vec<FederationRegistryKind> {
@@ -1562,6 +1641,41 @@ mod tests {
     }
 
     #[test]
+    fn sync_rejects_unapproved_governing_specs_with_audit_evidence() {
+        let capability_outcome = sync_with_unapproved_capability_spec();
+        assert!(
+            capability_outcome
+                .conflicts
+                .iter()
+                .any(|conflict| { conflict.conflict_reason.contains("approved spec registry") })
+        );
+
+        let event_outcome = sync_with_unapproved_event_spec();
+        assert!(
+            event_outcome
+                .conflicts
+                .iter()
+                .any(|conflict| { conflict.conflict_reason.contains("approved spec registry") })
+        );
+
+        let workflow_outcome = sync_with_unapproved_workflow_spec();
+        assert!(
+            workflow_outcome
+                .conflicts
+                .iter()
+                .any(|conflict| { conflict.conflict_reason.contains("approved spec registry") })
+        );
+    }
+
+    #[test]
+    fn approved_spec_loader_returns_empty_for_missing_or_invalid_inputs() {
+        assert!(
+            load_approved_spec_ids_from_path("/definitely-missing/approved-specs.json").is_empty()
+        );
+        assert!(parse_approved_spec_ids("{not-json").is_empty());
+    }
+
+    #[test]
     fn route_capability_invocation_returns_error_without_matching_snapshot() {
         let mut federation = FederationRegistry::new();
         let origin_peer = peer("peer-route-empty", "Peer Route Empty");
@@ -2159,5 +2273,133 @@ mod tests {
             RegistryScope::Public => "public",
             RegistryScope::Private => "private",
         }
+    }
+
+    fn sync_with_unapproved_capability_spec() -> FederationSyncOutcome {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-unapproved-capability", "Peer Unapproved Capability");
+        let trust = trust(
+            "peer-unapproved-capability",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let mut remote_capabilities = CapabilityRegistry::new();
+        remote_capabilities
+            .register(capability_registration(
+                RegistryScope::Public,
+                capability_contract(),
+            ))
+            .expect("capability should register");
+
+        let mut capability_export = export_peer_state(
+            peer,
+            trust,
+            &remote_capabilities,
+            &EventRegistry::new(),
+            &WorkflowRegistry::new(),
+        );
+        capability_export.capabilities[0]
+            .record
+            .evidence
+            .governing_spec = "999-unapproved-spec".to_string();
+
+        federation
+            .sync_peer(
+                capability_export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-16T14:00:00Z",
+                "2026-04-16T14:01:00Z",
+                "evidence:unapproved-capability",
+            )
+            .expect("unapproved capability spec should report a conflict")
+    }
+
+    fn sync_with_unapproved_event_spec() -> FederationSyncOutcome {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-unapproved-event", "Peer Unapproved Event");
+        let trust = trust(
+            "peer-unapproved-event",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let mut remote_events = EventRegistry::new();
+        remote_events
+            .register(event_registration(RegistryScope::Public, event_contract()))
+            .expect("event should register");
+
+        let mut event_export = export_peer_state(
+            peer,
+            trust,
+            &CapabilityRegistry::new(),
+            &remote_events,
+            &WorkflowRegistry::new(),
+        );
+        event_export.events[0]
+            .record
+            .validation_evidence
+            .governing_spec = "999-unapproved-spec".to_string();
+
+        federation
+            .sync_peer(
+                event_export,
+                &CapabilityRegistry::new(),
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-16T14:02:00Z",
+                "2026-04-16T14:03:00Z",
+                "evidence:unapproved-event",
+            )
+            .expect("unapproved event spec should report a conflict")
+    }
+
+    fn sync_with_unapproved_workflow_spec() -> FederationSyncOutcome {
+        let mut federation = FederationRegistry::new();
+        let peer = peer("peer-unapproved-workflow", "Peer Unapproved Workflow");
+        let trust = trust(
+            "peer-unapproved-workflow",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+
+        let mut workflow_capabilities = CapabilityRegistry::new();
+        seed_capabilities(&mut workflow_capabilities);
+        let mut remote_workflows = WorkflowRegistry::new();
+        remote_workflows
+            .register(
+                &workflow_capabilities,
+                workflow_registration(RegistryScope::Public, workflow_definition()),
+            )
+            .expect("workflow should register");
+
+        let mut workflow_export = export_peer_state(
+            peer,
+            trust,
+            &workflow_capabilities,
+            &EventRegistry::new(),
+            &remote_workflows,
+        );
+        workflow_export.workflows[0].record.governing_spec = "999-unapproved-spec".to_string();
+
+        federation
+            .sync_peer(
+                workflow_export,
+                &workflow_capabilities,
+                &EventRegistry::new(),
+                &WorkflowRegistry::new(),
+                "2026-04-16T14:04:00Z",
+                "2026-04-16T14:05:00Z",
+                "evidence:unapproved-workflow",
+            )
+            .expect("unapproved workflow spec should report a conflict")
     }
 }
