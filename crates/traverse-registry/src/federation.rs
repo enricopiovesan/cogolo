@@ -1009,7 +1009,7 @@ fn load_approved_spec_ids_from_path(path: &str) -> BTreeSet<String> {
 }
 
 fn parse_approved_spec_ids(contents: &str) -> BTreeSet<String> {
-    let Ok(payload) = serde_json::from_str::<Value>(&contents) else {
+    let Ok(payload) = serde_json::from_str::<Value>(contents) else {
         return BTreeSet::new();
     };
 
