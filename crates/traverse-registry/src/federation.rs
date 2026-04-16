@@ -609,6 +609,30 @@ impl FederationRegistry {
             .map(|snapshot| (snapshot.peer_id.clone(), snapshot));
 
         let Some((target_peer_id, target_snapshot)) = candidate else {
+            if self.snapshots.values().any(|snapshot| {
+                snapshot.registry_type == FederationRegistryKind::Capability
+                    && snapshot.entry_id == capability_id
+                    && snapshot.version == version
+                    && snapshot.scope == RegistryScope::Private
+                    && !scope_is_visible(snapshot.scope, trust, origin_peer)
+            }) {
+                self.conflicts.push(build_conflict_record(
+                    origin_peer_id,
+                    FederationRegistryKind::Capability,
+                    capability_id,
+                    version,
+                    "private capability invocation was denied because the origin peer is not authorized to view the target snapshot",
+                    evidence_ref,
+                ));
+                return Err(FederationFailure {
+                    errors: vec![federation_error(
+                        FederationErrorCode::EntryValidationFailed,
+                        "$.capability_id",
+                        "requested capability exists but is not visible to the origin peer under the current trust model",
+                    )],
+                });
+            }
+
             return Err(FederationFailure {
                 errors: vec![federation_error(
                     FederationErrorCode::EntryValidationFailed,
@@ -1872,6 +1896,75 @@ mod tests {
             FederationInvocationStatus::RetryableFailure
         );
         assert!(invocation.response_ref.is_none());
+    }
+
+    #[test]
+    fn route_capability_invocation_denies_private_snapshots_with_explicit_evidence() {
+        let mut federation = FederationRegistry::new();
+        let origin_peer = peer("peer-private-route", "Peer Private Route");
+        let origin_trust = trust("peer-private-route", vec![RegistryScope::Public]);
+        federation
+            .register_peer(origin_peer, origin_trust)
+            .expect("origin peer should register");
+
+        let target_peer = peer("peer-private-owner", "Peer Private Owner");
+        let target_trust = trust(
+            "peer-private-owner",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+        federation
+            .register_peer(target_peer.clone(), target_trust.clone())
+            .expect("target peer should register");
+
+        let mut local_capabilities = CapabilityRegistry::new();
+        let mut local_events = EventRegistry::new();
+        let mut local_workflows = WorkflowRegistry::new();
+        seed_capabilities(&mut local_capabilities);
+        seed_events(&mut local_events);
+        seed_workflows(&mut local_workflows, &local_capabilities);
+
+        let export = export_peer_state(
+            target_peer,
+            target_trust,
+            &local_capabilities,
+            &local_events,
+            &local_workflows,
+        );
+        federation
+            .sync_peer(
+                export,
+                &local_capabilities,
+                &local_events,
+                &local_workflows,
+                "2026-04-16T21:30:00Z",
+                "2026-04-16T21:31:00Z",
+                "evidence:sync-private-route",
+            )
+            .expect("sync should succeed");
+
+        let failure = federation
+            .route_capability_invocation(
+                "peer-private-route",
+                "federation.capability.private-echo",
+                "1.0.0",
+                "request:private-route",
+                &BTreeSet::from([String::from("peer-private-owner")]),
+                "2026-04-16T21:32:00Z",
+                "evidence:private-route-denied",
+            )
+            .expect_err("private snapshot should be denied for unauthorized origin peers");
+
+        assert_eq!(
+            failure.errors[0].message,
+            "requested capability exists but is not visible to the origin peer under the current trust model"
+        );
+        assert!(federation.conflicts().iter().any(|conflict| {
+            conflict.entry_key == "Capability:federation.capability.private-echo@1.0.0"
+                && conflict.audit_ref == "evidence:private-route-denied"
+                && conflict
+                    .conflict_reason
+                    .contains("not authorized to view the target snapshot")
+        }));
     }
 
     #[test]
