@@ -1,8 +1,12 @@
 mod agent_packages;
 mod browser_adapter;
+mod federation_operator;
 
 use agent_packages::load_agent_package;
 use browser_adapter::serve_local_browser_adapter;
+use federation_operator::{
+    render_federation_peers, render_federation_status, render_federation_sync,
+};
 use serde_json::Value;
 use std::env;
 use std::fs;
@@ -42,6 +46,15 @@ enum Command {
     AgentExecute {
         manifest_path: PathBuf,
         request_path: PathBuf,
+    },
+    FederationPeers {
+        manifest_path: PathBuf,
+    },
+    FederationSync {
+        manifest_path: PathBuf,
+    },
+    FederationStatus {
+        manifest_path: PathBuf,
     },
     ExpeditionExecute {
         request_path: PathBuf,
@@ -96,6 +109,9 @@ fn run_command(command: Command) -> Result<String, String> {
             manifest_path,
             request_path,
         } => execute_agent(&manifest_path, &request_path),
+        Command::FederationPeers { manifest_path } => render_federation_peers(&manifest_path),
+        Command::FederationSync { manifest_path } => render_federation_sync(&manifest_path),
+        Command::FederationStatus { manifest_path } => render_federation_status(&manifest_path),
         Command::ExpeditionExecute {
             request_path,
             trace_output_path,
@@ -112,6 +128,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         args.get(2).map(String::as_str),
     ) {
         (Some("browser-adapter"), Some("serve")) => parse_browser_adapter_command(args),
+        (Some("federation"), Some(_)) => parse_federation_command(args),
         (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
         _ => parse_fixed_arity_command(args),
@@ -145,6 +162,15 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
         ("agent", "inspect") => Ok(Command::AgentInspect {
             manifest_path: PathBuf::from(&args[3]),
         }),
+        ("federation", "peers") => Ok(Command::FederationPeers {
+            manifest_path: PathBuf::from(&args[3]),
+        }),
+        ("federation", "sync") => Ok(Command::FederationSync {
+            manifest_path: PathBuf::from(&args[3]),
+        }),
+        ("federation", "status") => Ok(Command::FederationStatus {
+            manifest_path: PathBuf::from(&args[3]),
+        }),
         ("event", "inspect") => Ok(Command::Event {
             contract_path: PathBuf::from(&args[3]),
         }),
@@ -163,6 +189,21 @@ fn parse_agent_execute_command(args: &[String]) -> Result<Command, String> {
         [_, _, _, manifest_path, request_path] => Ok(Command::AgentExecute {
             manifest_path: PathBuf::from(manifest_path),
             request_path: PathBuf::from(request_path),
+        }),
+        _ => Err(usage()),
+    }
+}
+
+fn parse_federation_command(args: &[String]) -> Result<Command, String> {
+    match args {
+        [_, _, _, manifest_path] if args[2] == "peers" => Ok(Command::FederationPeers {
+            manifest_path: PathBuf::from(manifest_path),
+        }),
+        [_, _, _, manifest_path] if args[2] == "sync" => Ok(Command::FederationSync {
+            manifest_path: PathBuf::from(manifest_path),
+        }),
+        [_, _, _, manifest_path] if args[2] == "status" => Ok(Command::FederationStatus {
+            manifest_path: PathBuf::from(manifest_path),
         }),
         _ => Err(usage()),
     }
@@ -607,7 +648,7 @@ fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
 }
 
 fn usage() -> String {
-    "usage: traverse-cli <bundle|agent|event|trace|workflow|expedition> <inspect|register|execute> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>]".to_string()
+    "usage: traverse-cli <bundle|agent|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>]".to_string()
 }
 
 fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), String> {
@@ -649,6 +690,7 @@ fn debug_enum_to_snake_case(value: &str) -> String {
 struct RegisteredBundle {
     bundle: RegistryBundle,
     capability_registry: CapabilityRegistry,
+    event_registry: EventRegistry,
     workflow_registry: WorkflowRegistry,
     capability_records: Vec<String>,
     event_records: Vec<String>,
@@ -788,6 +830,7 @@ fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, Stri
     Ok(RegisteredBundle {
         bundle,
         capability_registry,
+        event_registry,
         workflow_registry,
         capability_records,
         event_records,
