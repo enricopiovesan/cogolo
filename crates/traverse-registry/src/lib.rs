@@ -2,10 +2,12 @@
 
 mod bundle;
 mod events;
+mod federation;
 mod graph;
 mod workflows;
 pub use bundle::*;
 pub use events::*;
+pub use federation::*;
 pub use graph::*;
 pub use workflows::*;
 
