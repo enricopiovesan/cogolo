@@ -7,6 +7,7 @@ This is the canonical documentation path for humans and coding agents working on
 1. Read the repository root [README.md](../README.md)
 2. Open [quickstart.md](../quickstart.md)
 3. Use the relevant deeper docs only after the quickstart path is clear:
+   - [docs/cli-reference.md](cli-reference.md)
    - [docs/app-consumable-acceptance.md](app-consumable-acceptance.md)
    - [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md)
    - [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md)
@@ -26,6 +27,7 @@ If a new human or agent asks where to begin, point them to the README first and 
 
 - The README is the front door.
 - The quickstart is the first executable consumer path.
+- The CLI reference explains the supported command surface and separates public commands from internal/test-only paths.
 - The versioned consumer bundle explains what a downstream app installs and which released surfaces it may rely on.
 - The package release pointer explains how the governed app-consumable package release is identified downstream.
 - The published-artifact validation explains how `youaskm3` consumes the released runtime and MCP artifacts.
