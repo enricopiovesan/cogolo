@@ -4,19 +4,19 @@ This is the canonical documentation path for humans and coding agents working on
 
 ## Start Here
 
-1. Read the repository root [README.md](/Users/piovese/Documents/cogolo/README.md)
-2. Open [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
+1. Read the repository root [README.md](../README.md)
+2. Open [quickstart.md](../quickstart.md)
 3. Use the relevant deeper docs only after the quickstart path is clear:
-   - [docs/app-consumable-acceptance.md](/Users/piovese/Documents/cogolo/docs/app-consumable-acceptance.md)
-   - [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
-   - [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
-   - [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md)
-   - [docs/app-consumable-requirements-traceability.md](/Users/piovese/Documents/cogolo/docs/app-consumable-requirements-traceability.md)
-   - [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
-   - [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md)
-   - [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
-   - [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md)
-   - [apps/browser-consumer/README.md](/Users/piovese/Documents/cogolo/apps/browser-consumer/README.md)
+   - [docs/app-consumable-acceptance.md](app-consumable-acceptance.md)
+   - [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md)
+   - [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md)
+   - [docs/app-consumable-package-release-pointer.md](app-consumable-package-release-pointer.md)
+   - [docs/app-consumable-requirements-traceability.md](app-consumable-requirements-traceability.md)
+   - [docs/youaskm3-integration-validation.md](youaskm3-integration-validation.md)
+   - [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md)
+   - [docs/youaskm3-compatibility-conformance-suite.md](youaskm3-compatibility-conformance-suite.md)
+   - [docs/youaskm3-real-shell-validation.md](youaskm3-real-shell-validation.md)
+   - [apps/browser-consumer/README.md](../apps/browser-consumer/README.md)
 
 ## Canonical Rule
 

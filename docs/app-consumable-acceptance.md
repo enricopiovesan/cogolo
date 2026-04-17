@@ -38,6 +38,6 @@ The acceptance path fails deterministically when:
 
 ## Related Docs
 
-- [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
-- [apps/react-demo/README.md](/Users/piovese/Documents/cogolo/apps/react-demo/README.md)
-- [docs/expedition-example-smoke.md](/Users/piovese/Documents/cogolo/docs/expedition-example-smoke.md)
+- [quickstart.md](../quickstart.md)
+- [apps/react-demo/README.md](../apps/react-demo/README.md)
+- [docs/expedition-example-smoke.md](expedition-example-smoke.md)

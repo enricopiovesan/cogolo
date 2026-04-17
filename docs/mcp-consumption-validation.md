@@ -2,11 +2,11 @@
 
 Traverse uses `youaskm3` as the first proving downstream app for the app-facing MCP substrate.
 
-For the shortest local start path before you run this downstream validation, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
+For the shortest local start path before you run this downstream validation, begin with [quickstart.md](../quickstart.md).
 
-For the dedicated Traverse MCP server package foundation, begin with [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md).
+For the dedicated Traverse MCP server package foundation, begin with [docs/mcp-stdio-server.md](mcp-stdio-server.md).
 
-For the packaged MCP server artifact, see [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md).
+For the packaged MCP server artifact, see [docs/packaged-traverse-mcp-server-artifact.md](packaged-traverse-mcp-server-artifact.md).
 
 This validation path is governed by:
 
@@ -14,9 +14,9 @@ This validation path is governed by:
 - `specs/020-downstream-integration-validation/spec.md`
 - `specs/021-app-facing-operational-constraints/spec.md`
 
-For the first real downstream browser + MCP integration path, also see [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md), [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md), and the browser-targeted consumer package at [apps/browser-consumer/README.md](/Users/piovese/Documents/cogolo/apps/browser-consumer/README.md).
+For the first real downstream browser + MCP integration path, also see [docs/youaskm3-integration-validation.md](youaskm3-integration-validation.md), [docs/youaskm3-compatibility-conformance-suite.md](youaskm3-compatibility-conformance-suite.md), and the browser-targeted consumer package at [apps/browser-consumer/README.md](../apps/browser-consumer/README.md).
 
-For the real-agent exercise against the same MCP substrate, also see [docs/mcp-real-agent-exercise.md](/Users/piovese/Documents/cogolo/docs/mcp-real-agent-exercise.md).
+For the real-agent exercise against the same MCP substrate, also see [docs/mcp-real-agent-exercise.md](mcp-real-agent-exercise.md).
 
 ## Validation Path
 

@@ -2,12 +2,12 @@
 
 This document defines what the first Traverse v0.1 app-consumable release actually publishes.
 
-The release checklist at [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md) explains when the release is allowed. This document explains what the release artifact is once that checklist is satisfied.
-The package release pointer is defined in [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
-The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](/Users/piovese/Documents/cogolo/specs/023-downstream-publication-strategy/spec.md).
-For the packaged runtime artifact itself, see [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md).
-For the packaged MCP server artifact itself, see [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md).
-For the downstream published-artifact validation path, see [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md).
+The release checklist at [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md) explains when the release is allowed. This document explains what the release artifact is once that checklist is satisfied.
+The package release pointer is defined in [docs/app-consumable-package-release-pointer.md](app-consumable-package-release-pointer.md).
+The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](../specs/023-downstream-publication-strategy/spec.md).
+For the packaged runtime artifact itself, see [docs/packaged-traverse-runtime-artifact.md](packaged-traverse-runtime-artifact.md).
+For the packaged MCP server artifact itself, see [docs/packaged-traverse-mcp-server-artifact.md](packaged-traverse-mcp-server-artifact.md).
+For the downstream published-artifact validation path, see [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md).
 
 ## Publication Shape
 

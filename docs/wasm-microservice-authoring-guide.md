@@ -6,10 +6,10 @@ Traverse does not currently treat a microservice as a separate runtime category 
 
 Use the checked-in examples and references as the source of truth:
 
-- [`examples/templates/executable-capability-package/manifest.template.json`](/Users/piovese/Documents/cogolo/examples/templates/executable-capability-package/manifest.template.json)
-- [`docs/adapter-boundaries.md`](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md)
-- [`docs/compatibility-policy.md`](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md)
-- [`docs/oss-pattern-extraction.md`](/Users/piovese/Documents/cogolo/docs/oss-pattern-extraction.md)
+- [`examples/templates/executable-capability-package/manifest.template.json`](../examples/templates/executable-capability-package/manifest.template.json)
+- [`docs/adapter-boundaries.md`](adapter-boundaries.md)
+- [`docs/compatibility-policy.md`](compatibility-policy.md)
+- [`docs/oss-pattern-extraction.md`](oss-pattern-extraction.md)
 
 ## Start From a Governed Package
 

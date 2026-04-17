@@ -16,8 +16,8 @@ This is the default Traverse operating rule for spec slices, implementation slic
 
 Ticket quality rules are defined in:
 
-- [docs/ticket-standard.md](/Users/piovese/Documents/cogolo/docs/ticket-standard.md)
-- [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
+- [docs/ticket-standard.md](ticket-standard.md)
+- [docs/multi-thread-workflow.md](multi-thread-workflow.md)
 
 ## Preferred Flow
 
@@ -104,7 +104,7 @@ Only tickets with real active execution should appear on Project 1 as `In Progre
 
 For true parallel execution, use separate Codex threads with separate issues, branches, and PRs. The operating model is documented in:
 
-- [docs/multi-thread-workflow.md](/Users/piovese/Documents/cogolo/docs/multi-thread-workflow.md)
+- [docs/multi-thread-workflow.md](multi-thread-workflow.md)
 
 Run the board audit when you change issue labels, Project 1 status, or PR state:
 
@@ -112,4 +112,4 @@ Run the board audit when you change issue labels, Project 1 status, or PR state:
 bash scripts/ci/project_board_audit.sh
 ```
 
-The board audit logic lives in [scripts/ci/project_board_audit.sh](/Users/piovese/Documents/cogolo/scripts/ci/project_board_audit.sh).
+The board audit logic lives in [scripts/ci/project_board_audit.sh](../scripts/ci/project_board_audit.sh).

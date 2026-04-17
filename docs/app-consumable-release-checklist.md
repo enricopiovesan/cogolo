@@ -14,18 +14,18 @@ It does not redefine the downstream contract or the validation specs. It only st
 
 Traverse MUST NOT claim `app-consumable v0.1` unless all of the following are satisfied:
 
-- [ ] The governed browser consumer path exists and is documented in [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
-- [ ] The live local browser adapter path passes [scripts/ci/react_demo_live_adapter_smoke.sh](/Users/piovese/Documents/cogolo/scripts/ci/react_demo_live_adapter_smoke.sh).
-- [ ] The browser demo path is documented as a real live adapter consumer in [apps/react-demo/README.md](/Users/piovese/Documents/cogolo/apps/react-demo/README.md).
-- [ ] The first versioned Traverse consumer bundle is documented in [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md).
-- [ ] The downstream MCP consumption path exists and passes [scripts/ci/mcp_consumption_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/mcp_consumption_validation.sh).
-- [ ] The first real `youaskm3` integration path exists and passes [scripts/ci/youaskm3_integration_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_integration_validation.sh).
-- [ ] The real browser-hosted `youaskm3` shell validation exists and passes [scripts/ci/youaskm3_real_shell_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_real_shell_validation.sh).
-- [ ] The published-artifact validation path exists and passes [scripts/ci/youaskm3_published_artifact_validation.sh](/Users/piovese/Documents/cogolo/scripts/ci/youaskm3_published_artifact_validation.sh).
-- [ ] The published-artifact validation path is documented in [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md).
-- [ ] The end-to-end acceptance path exists and passes [scripts/ci/app_consumable_acceptance.sh](/Users/piovese/Documents/cogolo/scripts/ci/app_consumable_acceptance.sh).
-- [ ] The package release pointer exists and is documented in [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
-- [ ] The operational constraints for app-facing browser and MCP surfaces are documented in [docs/adapter-boundaries.md](/Users/piovese/Documents/cogolo/docs/adapter-boundaries.md) and [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md).
+- [ ] The governed browser consumer path exists and is documented in [quickstart.md](../quickstart.md).
+- [ ] The live local browser adapter path passes [scripts/ci/react_demo_live_adapter_smoke.sh](../scripts/ci/react_demo_live_adapter_smoke.sh).
+- [ ] The browser demo path is documented as a real live adapter consumer in [apps/react-demo/README.md](../apps/react-demo/README.md).
+- [ ] The first versioned Traverse consumer bundle is documented in [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md).
+- [ ] The downstream MCP consumption path exists and passes [scripts/ci/mcp_consumption_validation.sh](../scripts/ci/mcp_consumption_validation.sh).
+- [ ] The first real `youaskm3` integration path exists and passes [scripts/ci/youaskm3_integration_validation.sh](../scripts/ci/youaskm3_integration_validation.sh).
+- [ ] The real browser-hosted `youaskm3` shell validation exists and passes [scripts/ci/youaskm3_real_shell_validation.sh](../scripts/ci/youaskm3_real_shell_validation.sh).
+- [ ] The published-artifact validation path exists and passes [scripts/ci/youaskm3_published_artifact_validation.sh](../scripts/ci/youaskm3_published_artifact_validation.sh).
+- [ ] The published-artifact validation path is documented in [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md).
+- [ ] The end-to-end acceptance path exists and passes [scripts/ci/app_consumable_acceptance.sh](../scripts/ci/app_consumable_acceptance.sh).
+- [ ] The package release pointer exists and is documented in [docs/app-consumable-package-release-pointer.md](app-consumable-package-release-pointer.md).
+- [ ] The operational constraints for app-facing browser and MCP surfaces are documented in [docs/adapter-boundaries.md](adapter-boundaries.md) and [docs/compatibility-policy.md](compatibility-policy.md).
 - [ ] The consumer contract and integration-validation model remain aligned with approved governing specs.
 
 If any item above is unchecked, `app-consumable v0.1` is blocked.

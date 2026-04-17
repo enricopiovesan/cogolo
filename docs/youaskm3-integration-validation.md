@@ -11,13 +11,13 @@ It stays on governed public Traverse surfaces only:
 - the versioned Traverse consumer bundle
 - the real-agent MCP exercise guide
 - the published-artifact validation path for the released Traverse runtime and MCP artifacts
-- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md)
-- [docs/youaskm3-compatibility-conformance-suite.md](/Users/piovese/Documents/cogolo/docs/youaskm3-compatibility-conformance-suite.md)
+- [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md)
+- [docs/youaskm3-compatibility-conformance-suite.md](youaskm3-compatibility-conformance-suite.md)
 - the `youaskm3` compatibility conformance suite
-- [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md)
+- [docs/youaskm3-real-shell-validation.md](youaskm3-real-shell-validation.md)
 - the `youaskm3` real shell validation
 
-For the shortest Traverse-side start path, begin with [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md).
+For the shortest Traverse-side start path, begin with [quickstart.md](../quickstart.md).
 
 ## Governing Spec
 

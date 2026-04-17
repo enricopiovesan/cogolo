@@ -2,7 +2,7 @@
 
 The dedicated Traverse MCP WASM server package is the thin, governed host-facing surface for the app-consumable MCP path.
 
-The packaged MCP server artifact is defined in [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md).
+The packaged MCP server artifact is defined in [docs/packaged-traverse-mcp-server-artifact.md](packaged-traverse-mcp-server-artifact.md).
 
 It is intentionally narrow:
 

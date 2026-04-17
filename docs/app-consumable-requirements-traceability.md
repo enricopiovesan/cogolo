@@ -15,20 +15,20 @@ Project 1 remains the coordination surface for the work, but this document is no
 | Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | The browser adapter and live demo path are the supported consumable path for the published release. |
 | Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | The consumer contract and validation path define what downstream apps may rely on. |
 | Real browser-hosted `youaskm3` shell validation | [#179](https://github.com/enricopiovesan/Traverse/issues/179) | The real downstream shell validation proves the published bundle works in a browser-hosted consumer. |
-| Published-artifact validation against packaged Traverse runtime and MCP artifacts | [#200](https://github.com/enricopiovesan/Traverse/issues/200), [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md) | This is the published-artifact proof path for the released runtime and MCP artifacts. |
+| Published-artifact validation against packaged Traverse runtime and MCP artifacts | [#200](https://github.com/enricopiovesan/Traverse/issues/200), [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md) | This is the published-artifact proof path for the released runtime and MCP artifacts. |
 | MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | The MCP surface is now part of the published v0.1 app-consumable release story. |
 
 ## Published Release Bundle
 
 The published release picture is anchored by these docs:
 
-- [docs/app-consumable-release-artifact.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-artifact.md)
-- [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
-- [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md)
-- [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
-- [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md)
-- [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md)
-- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md)
+- [docs/app-consumable-release-artifact.md](app-consumable-release-artifact.md)
+- [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md)
+- [docs/app-consumable-package-release-pointer.md](app-consumable-package-release-pointer.md)
+- [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md)
+- [docs/packaged-traverse-runtime-artifact.md](packaged-traverse-runtime-artifact.md)
+- [docs/packaged-traverse-mcp-server-artifact.md](packaged-traverse-mcp-server-artifact.md)
+- [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md)
 
 The release artifact and publication bundle are the bridge between the runtime and MCP artifact docs, the consumer bundle, the quickstart, and the published-artifact validation path.
 

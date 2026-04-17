@@ -17,9 +17,9 @@ The goal is to prove that a real agent can connect to the governed `traverse-mcp
 
 The real-agent exercise should use the same public surfaces documented in:
 
-- [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md)
-- [docs/mcp-consumption-validation.md](/Users/piovese/Documents/cogolo/docs/mcp-consumption-validation.md)
-- [docs/youaskm3-integration-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-integration-validation.md)
+- [docs/mcp-stdio-server.md](mcp-stdio-server.md)
+- [docs/mcp-consumption-validation.md](mcp-consumption-validation.md)
+- [docs/youaskm3-integration-validation.md](youaskm3-integration-validation.md)
 
 The real-agent exercise should validate the following entry points:
 
