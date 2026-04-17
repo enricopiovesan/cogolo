@@ -22,7 +22,8 @@ Use it in sequence unless you already know the slice you need:
 16. [docs/compatibility-policy.md](compatibility-policy.md)
 17. [docs/multi-thread-workflow.md](multi-thread-workflow.md)
 18. [docs/project-management.md](project-management.md)
-19. [docs/adr/README.md](adr/README.md)
+19. [docs/troubleshooting.md](troubleshooting.md)
+20. [docs/adr/README.md](adr/README.md)
 
 ## How To Read It
 
@@ -33,3 +34,5 @@ If your goal is the first app-consumable browser flow, continue through `quickst
 If your goal is downstream app support such as `youaskm3`, continue into the app-consumable and validation docs after that.
 
 If your goal is documentation hygiene, onboarding, or process work, finish with the standards, compatibility, workflow, and project-management docs.
+
+If any step fails while you are following this sequence, jump to [docs/troubleshooting.md](troubleshooting.md) before guessing.

@@ -231,3 +231,5 @@ Use these in order:
 3. [docs/expedition-example-authoring.md](./expedition-example-authoring.md) for the full governed expedition artifact set
 4. [docs/wasm-agent-authoring-guide.md](./wasm-agent-authoring-guide.md) for packaged WASM agent authoring
 5. [docs/wasm-microservice-authoring-guide.md](./wasm-microservice-authoring-guide.md) for packaged WASM microservice authoring
+
+If a local command or CI check fails while you work through those paths, use [docs/troubleshooting.md](./troubleshooting.md).
