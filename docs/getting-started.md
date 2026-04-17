@@ -226,7 +226,8 @@ After this guide, you should be able to answer:
 
 Use these in order:
 
-1. [quickstart.md](../quickstart.md) for the first browser-consumable flow
-2. [docs/expedition-example-authoring.md](./expedition-example-authoring.md) for the full governed expedition artifact set
-3. [docs/wasm-agent-authoring-guide.md](./wasm-agent-authoring-guide.md) for packaged WASM agent authoring
-4. [docs/wasm-microservice-authoring-guide.md](./wasm-microservice-authoring-guide.md) for packaged WASM microservice authoring
+1. [examples/hello-world/README.md](../examples/hello-world/README.md) for the smallest runnable Traverse example
+2. [quickstart.md](../quickstart.md) for the first browser-consumable flow
+3. [docs/expedition-example-authoring.md](./expedition-example-authoring.md) for the full governed expedition artifact set
+4. [docs/wasm-agent-authoring-guide.md](./wasm-agent-authoring-guide.md) for packaged WASM agent authoring
+5. [docs/wasm-microservice-authoring-guide.md](./wasm-microservice-authoring-guide.md) for packaged WASM microservice authoring

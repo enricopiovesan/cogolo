@@ -1,0 +1,21 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "hello-world-say-hello-001",
+  "intent": {
+    "capability_id": "hello.world.say-hello",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "name": "Traverse"
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "hello-world-example"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

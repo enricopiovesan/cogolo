@@ -590,6 +590,14 @@ fn render_agent_execution_summary(
                 lines.push(format!("required_actions: {joined}"));
             }
         }
+        "hello.world.say-hello" => {
+            if let Some(name) = output.get("name").and_then(Value::as_str) {
+                lines.push(format!("name: {name}"));
+            }
+            if let Some(greeting) = output.get("greeting").and_then(Value::as_str) {
+                lines.push(format!("greeting: {greeting}"));
+            }
+        }
         _ => {}
     }
 
@@ -737,6 +745,7 @@ impl LocalExecutor for AgentPackageExampleExecutor {
         input: &Value,
     ) -> Result<Value, LocalExecutionFailure> {
         match capability.contract.id.as_str() {
+            "hello.world.say-hello" => execute_hello_world(input),
             "expedition.planning.interpret-expedition-intent" => {
                 execute_interpret_expedition_intent(input)
             }
@@ -1210,6 +1219,16 @@ fn execute_assemble_expedition_plan(input: &Value) -> Result<Value, LocalExecuti
     }))
 }
 
+fn execute_hello_world(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let name = required_string(map, "name")?;
+
+    Ok(serde_json::json!({
+        "name": name,
+        "greeting": format!("Hello, {name}!"),
+    }))
+}
+
 fn event_ref(event_id: &str) -> Value {
     serde_json::json!({
         "event_id": event_id,
@@ -1553,6 +1572,33 @@ mod tests {
     }
 
     #[test]
+    fn inspect_agent_renders_hello_world_package() {
+        let fixture = create_hello_world_agent_fixture();
+
+        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+
+        assert!(output.contains("package_id: hello.world.say-hello-agent"));
+        assert!(output.contains("capability_id: hello.world.say-hello"));
+        assert!(output.contains("binary_digest: fnv1a64:"));
+        assert!(output.contains("workflow_refs: hello.world.say-hello@1.0.0"));
+    }
+
+    #[test]
+    fn execute_agent_runs_hello_world_request() {
+        let fixture = create_hello_world_agent_fixture();
+        let request_path = repo_root().join("examples/hello-world/runtime-requests/say-hello.json");
+
+        let output = execute_agent(&fixture.manifest_path, &request_path)
+            .expect("hello-world agent execution should succeed");
+
+        assert!(output.contains("package_id: hello.world.say-hello-agent"));
+        assert!(output.contains("capability_id: hello.world.say-hello"));
+        assert!(output.contains("status: completed"));
+        assert!(output.contains("name: Traverse"));
+        assert!(output.contains("greeting: Hello, Traverse!"));
+    }
+
+    #[test]
     fn execute_expedition_writes_trace_artifact_when_requested() {
         let request_path =
             repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
@@ -1721,6 +1767,7 @@ mod tests {
             "contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
             "expedition-intent-interpretation-v1",
             "Interpret free-form expedition planning intent into governed route preferences and assumptions.",
+            "expedition.planning.plan-expedition",
         )
     }
 
@@ -1733,6 +1780,20 @@ mod tests {
             "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
             "expedition-readiness-validation-v1",
             "Validate expedition team readiness against governed objective, conditions, and team profile context.",
+            "expedition.planning.plan-expedition",
+        )
+    }
+
+    fn create_hello_world_agent_fixture() -> AgentFixture {
+        create_agent_package_fixture(
+            "hello.world.say-hello-agent",
+            "hello.world.say-hello",
+            "say-hello-agent.wasm",
+            "Minimal governed hello-world agent package for Traverse onboarding.",
+            "contracts/examples/hello-world/capabilities/say-hello/contract.json",
+            "hello-world-greeting-v1",
+            "Produce a simple deterministic greeting string for onboarding validation.",
+            "hello.world.say-hello",
         )
     }
 
@@ -1744,6 +1805,7 @@ mod tests {
         contract_path: &str,
         model_interface: &str,
         model_purpose: &str,
+        workflow_id: &str,
     ) -> AgentFixture {
         let temp_dir = unique_temp_dir();
         let package_dir = temp_dir.join("agent");
@@ -1779,7 +1841,7 @@ mod tests {
   }},
   "workflow_refs": [
     {{
-      "workflow_id": "expedition.planning.plan-expedition",
+      "workflow_id": "{}",
       "workflow_version": "1.0.0"
     }}
   ],
@@ -1809,6 +1871,7 @@ mod tests {
             summary,
             capability_id,
             repo_root.join(contract_path).display(),
+            workflow_id,
             binary_name,
             fnv1a64(&wasm_bytes),
             model_interface,
