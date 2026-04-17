@@ -52,6 +52,8 @@ cargo run -p traverse-cli     # run the CLI
 
 **Requirements**: Rust 1.94+
 
+New to Traverse authoring? Start with [docs/getting-started.md](docs/getting-started.md) for the first capability path, then come back to [quickstart.md](quickstart.md) for the first app-consumable browser flow.
+
 ### What it does
 
 - Define a **capability contract** — one meaningful business action with explicit inputs, outputs, and side effects
@@ -151,6 +153,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 
 ### Key docs
 
+- [docs/getting-started.md](docs/getting-started.md) — first capability path for new developers
 - [quickstart.md](quickstart.md) — start here for the first runnable flow
 - [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) — first app-consumable flow
 - [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
