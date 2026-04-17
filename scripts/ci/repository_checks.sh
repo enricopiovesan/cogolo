@@ -48,6 +48,7 @@ required_files=(
   "quickstart.md"
   "examples/expedition/runtime-requests/plan-expedition.json"
   "docs/exception-process.md"
+  "docs/getting-started.md"
   "docs/project-management.md"
   "docs/multi-thread-workflow.md"
   "docs/ticket-standard.md"
@@ -110,6 +111,7 @@ grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
 grep -q "docs/adapter-boundaries.md" README.md
+grep -q "docs/getting-started.md" README.md
 grep -q "quickstart.md" README.md
 grep -q "Definition of Done" docs/ticket-standard.md
 grep -q "in-progress" docs/ticket-standard.md
@@ -229,6 +231,11 @@ grep -q "cargo run -p traverse-cli -- trace inspect" docs/expedition-example-aut
 grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/registry-bundle/manifest.json" docs/expedition-example-authoring.md
 grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
 grep -q ".traverse/local/" docs/expedition-example-authoring.md
+grep -q "capture-expedition-objective/contract.json" docs/getting-started.md
+grep -q "cargo run -p traverse-cli -- bundle register" docs/getting-started.md
+grep -q "cargo run -p traverse-cli -- expedition execute" docs/getting-started.md
+grep -q "cargo run -p traverse-cli -- trace inspect" docs/getting-started.md
+grep -q "bash scripts/ci/expedition_golden_path.sh" docs/getting-started.md
 grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
