@@ -54,6 +54,20 @@ cargo run -p traverse-cli     # run the CLI
 
 New to Traverse? Start with [docs/tutorial-index.md](docs/tutorial-index.md) for the ordered onboarding path, then use [docs/getting-started.md](docs/getting-started.md) for the first capability path and [quickstart.md](quickstart.md) for the first app-consumable browser flow.
 
+### Documentation Map
+
+Use this as the human and agent navigation hub for the supported docs:
+
+| Goal | Start Here | Continue With |
+|---|---|---|
+| Learn the core Traverse path | [docs/getting-started.md](docs/getting-started.md) | [docs/expedition-example-authoring.md](docs/expedition-example-authoring.md) |
+| Follow the full onboarding sequence | [docs/tutorial-index.md](docs/tutorial-index.md) | [quickstart.md](quickstart.md) |
+| Run the first app-consumable flow | [quickstart.md](quickstart.md) | [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) |
+| Build WASM-hosted capabilities | [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) | [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) |
+| Integrate a downstream app like `youaskm3` | [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) | [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) |
+| Review runtime and MCP release surfaces | [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) | [docs/packaged-traverse-mcp-server-artifact.md](docs/packaged-traverse-mcp-server-artifact.md) |
+| Review standards, workflow, and governance | [docs/quality-standards.md](docs/quality-standards.md) | [docs/project-management.md](docs/project-management.md) |
+
 ### What it does
 
 - Define a **capability contract** — one meaningful business action with explicit inputs, outputs, and side effects
@@ -153,23 +167,35 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 
 ### Key docs
 
+#### Onboarding and tutorial path
+
+- [docs/tutorial-index.md](docs/tutorial-index.md) — ordered onboarding path for developers and agents
 - [docs/getting-started.md](docs/getting-started.md) — first capability path for new developers
-- [docs/tutorial-index.md](docs/tutorial-index.md) — ordered onboarding path for new developers and agents
-- [quickstart.md](quickstart.md) — start here for the first runnable flow
-- [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) — first app-consumable flow
-- [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
-- [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
-- [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
-- [docs/packaged-traverse-mcp-server-artifact.md](docs/packaged-traverse-mcp-server-artifact.md) — packaged MCP server artifact
-- [docs/mcp-real-agent-exercise.md](docs/mcp-real-agent-exercise.md) — real AI agent exercise for the Traverse MCP surface
+- [quickstart.md](quickstart.md) — first runnable app-consumable flow
+- [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) — browser-hosted consumer path
+
+#### Build and authoring guides
+
+- [docs/expedition-example-authoring.md](docs/expedition-example-authoring.md) — canonical example authoring flow
 - [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) — how to create new WASM agents
 - [docs/wasm-agent-team-readiness-example.md](docs/wasm-agent-team-readiness-example.md) — second governed WASM AI agent example
 - [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) — how to create new WASM microservices
+- [docs/mcp-real-agent-exercise.md](docs/mcp-real-agent-exercise.md) — real AI agent exercise for the Traverse MCP surface
+
+#### Consumer and release surfaces
+
+- [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
+- [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
 - [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) — packaged runtime artifact
-- [docs/youaskm3-published-artifact-validation.md](docs/youaskm3-published-artifact-validation.md) — published-artifact validation for youaskm3
+- [docs/packaged-traverse-mcp-server-artifact.md](docs/packaged-traverse-mcp-server-artifact.md) — packaged MCP server artifact
 - [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation
+- [docs/youaskm3-published-artifact-validation.md](docs/youaskm3-published-artifact-validation.md) — published-artifact validation for youaskm3
 - [docs/youaskm3-compatibility-conformance-suite.md](docs/youaskm3-compatibility-conformance-suite.md) — youaskm3 compatibility conformance suite
 - [docs/youaskm3-real-shell-validation.md](docs/youaskm3-real-shell-validation.md) — youaskm3 real shell validation
+
+#### Reference and governance
+
+- [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
 - [docs/quality-standards.md](docs/quality-standards.md) — non-negotiable quality rules
 - [docs/compatibility-policy.md](docs/compatibility-policy.md) — versioning and compatibility
 - [docs/multi-thread-workflow.md](docs/multi-thread-workflow.md) — parallel agent workflow
