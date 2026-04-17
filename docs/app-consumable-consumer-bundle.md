@@ -3,9 +3,9 @@
 This document defines the first versioned Traverse consumer bundle for downstream app integration.
 
 The bundle is the release-facing adoption package for downstream apps such as `youaskm3`. It tells a downstream team what to install, which Traverse release tag to pin, and which public surfaces are supported together.
-The bundle is paired with the package release pointer at [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md).
-The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](/Users/piovese/Documents/cogolo/specs/023-downstream-publication-strategy/spec.md).
-The packaged runtime artifact is defined in [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md).
+The bundle is paired with the package release pointer at [docs/app-consumable-package-release-pointer.md](app-consumable-package-release-pointer.md).
+The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](../specs/023-downstream-publication-strategy/spec.md).
+The packaged runtime artifact is defined in [docs/packaged-traverse-runtime-artifact.md](packaged-traverse-runtime-artifact.md).
 
 ## Bundle Purpose
 
@@ -17,9 +17,9 @@ It is a versioned compatibility record, not a new runtime behavior layer.
 
 For the first app-consumable release, the supported bundle points to:
 
-- the browser-targeted consumer package at [apps/browser-consumer/README.md](/Users/piovese/Documents/cogolo/apps/browser-consumer/README.md)
-- the dedicated MCP stdio server package at [docs/mcp-stdio-server.md](/Users/piovese/Documents/cogolo/docs/mcp-stdio-server.md)
-- the live browser adapter path described in [quickstart.md](/Users/piovese/Documents/cogolo/quickstart.md)
+- the browser-targeted consumer package at [apps/browser-consumer/README.md](../apps/browser-consumer/README.md)
+- the dedicated MCP stdio server package at [docs/mcp-stdio-server.md](mcp-stdio-server.md)
+- the live browser adapter path described in [quickstart.md](../quickstart.md)
 - the downstream integration and validation docs for `youaskm3`
 
 Those surfaces must be consumed as one versioned release set.

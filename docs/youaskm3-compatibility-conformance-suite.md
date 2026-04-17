@@ -3,7 +3,7 @@
 This document defines the first deterministic compatibility and conformance suite for Traverse and `youaskm3`.
 
 The suite exists so a reviewer can prove that the released Traverse surfaces remain consumable by `youaskm3` without depending on repo archaeology, ad hoc environment setup, or private Traverse internals.
-The real browser-hosted shell validation is documented separately in [docs/youaskm3-real-shell-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-real-shell-validation.md).
+The real browser-hosted shell validation is documented separately in [docs/youaskm3-real-shell-validation.md](youaskm3-real-shell-validation.md).
 
 This youaskm3 compatibility conformance suite is the release-aligned proof path for the downstream consumer contract.
 

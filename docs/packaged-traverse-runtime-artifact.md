@@ -4,7 +4,7 @@ This document defines the first governed packaged Traverse runtime artifact for 
 
 The published runtime artifact is the runtime-facing release form that downstream consumers can obtain and run without relying on source checkout details or repo archaeology.
 
-The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](/Users/piovese/Documents/cogolo/specs/023-downstream-publication-strategy/spec.md).
+The downstream publication strategy for packaged Traverse runtime and MCP artifacts is defined in [specs/023-downstream-publication-strategy/spec.md](../specs/023-downstream-publication-strategy/spec.md).
 
 ## Publication Shape
 

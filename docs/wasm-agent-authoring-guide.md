@@ -4,9 +4,9 @@ This guide shows how to create a new governed WASM agent in Traverse without inv
 
 Use the checked-in examples as the source of truth:
 
-- [`examples/templates/executable-capability-package/manifest.template.json`](/Users/piovese/Documents/cogolo/examples/templates/executable-capability-package/manifest.template.json)
-- [`examples/agents/expedition-intent-agent/manifest.json`](/Users/piovese/Documents/cogolo/examples/agents/expedition-intent-agent/manifest.json)
-- [`examples/agents/team-readiness-agent/manifest.json`](/Users/piovese/Documents/cogolo/examples/agents/team-readiness-agent/manifest.json)
+- [`examples/templates/executable-capability-package/manifest.template.json`](../examples/templates/executable-capability-package/manifest.template.json)
+- [`examples/agents/expedition-intent-agent/manifest.json`](../examples/agents/expedition-intent-agent/manifest.json)
+- [`examples/agents/team-readiness-agent/manifest.json`](../examples/agents/team-readiness-agent/manifest.json)
 
 ## Start From a Governed Package
 
