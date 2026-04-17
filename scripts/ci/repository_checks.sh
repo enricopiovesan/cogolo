@@ -45,10 +45,16 @@ required_files=(
   "docs/app-consumable-entry-path.md"
   "docs/executable-package-template.md"
   "docs/local-runtime-home.md"
+  "docs/getting-started.md"
   "quickstart.md"
   "examples/expedition/runtime-requests/plan-expedition.json"
+  "examples/hello-world/README.md"
+  "examples/hello-world/runtime-requests/say-hello.json"
+  "examples/hello-world/say-hello-agent/manifest.json"
+  "examples/hello-world/say-hello-agent/build-fixture.sh"
+  "contracts/examples/hello-world/capabilities/say-hello/contract.json"
+  "workflows/examples/hello-world/say-hello/workflow.json"
   "docs/exception-process.md"
-  "docs/getting-started.md"
   "docs/project-management.md"
   "docs/multi-thread-workflow.md"
   "docs/ticket-standard.md"
@@ -69,6 +75,7 @@ required_files=(
   "scripts/ci/app_consumable_release_prep.sh"
   "scripts/ci/app_consumable_package_release_pointer.sh"
   "scripts/ci/wasm_agent_authoring_guide_smoke.sh"
+  "scripts/ci/hello_world_example_smoke.sh"
   "scripts/ci/wasm_microservice_authoring_guide_smoke.sh"
   "scripts/ci/downstream_publication_strategy_smoke.sh"
   "scripts/ci/mcp_stdio_server_smoke.sh"
@@ -232,10 +239,13 @@ grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/regist
 grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
 grep -q ".traverse/local/" docs/expedition-example-authoring.md
 grep -q "capture-expedition-objective/contract.json" docs/getting-started.md
+grep -q "examples/hello-world/README.md" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- bundle register" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- expedition execute" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- trace inspect" docs/getting-started.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/getting-started.md
+grep -q "cargo run -p traverse-cli -- agent execute" examples/hello-world/README.md
+grep -q "hello.world.say-hello" examples/hello-world/README.md
 grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml

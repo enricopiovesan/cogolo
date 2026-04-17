@@ -1,0 +1,39 @@
+{
+  "kind": "agent_package",
+  "schema_version": "1.0.0",
+  "package_id": "hello.world.say-hello-agent",
+  "version": "1.0.0",
+  "summary": "Minimal governed hello-world agent package for Traverse onboarding.",
+  "capability_ref": {
+    "id": "hello.world.say-hello",
+    "version": "1.0.0",
+    "contract_path": "../../../contracts/examples/hello-world/capabilities/say-hello/contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "hello.world.say-hello",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/say-hello-agent.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:dffc31d6401c84d6"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": [
+    {
+      "interface": "hello-world-greeting-v1",
+      "purpose": "Produce a simple deterministic greeting string for onboarding validation."
+    }
+  ]
+}

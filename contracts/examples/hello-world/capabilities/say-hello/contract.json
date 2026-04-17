@@ -1,0 +1,112 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "hello.world.say-hello",
+  "namespace": "hello.world",
+  "name": "say-hello",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Return a deterministic greeting for one provided name.",
+  "description": "Minimal governed hello-world capability for Traverse onboarding that proves the contract, package, request, and runtime path without requiring the larger expedition example domain.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "greeting"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "greeting": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "preconditions": [
+    {
+      "id": "name-provided",
+      "description": "The caller provides a non-empty name string."
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "greeting-produced",
+      "description": "The capability returns a deterministic greeting that includes the provided name."
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Produces one deterministic greeting payload for the provided name."
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "hello.world.say-hello"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "manual-approval-required"
+    }
+  ],
+  "dependencies": [],
+  "provenance": {
+    "source": "greenfield",
+    "author": "enricopiovesan",
+    "created_at": "2026-04-16T00:00:00Z",
+    "spec_ref": "001-foundation-v0-1@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "cloud",
+    "edge",
+    "device"
+  ],
+  "artifact_type": "native"
+}

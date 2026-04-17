@@ -1,0 +1,74 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "hello.world.say-hello",
+  "name": "say-hello",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "enrico.piovesan10@gmail.com"
+  },
+  "summary": "Run the minimal hello-world greeting flow as one governed workflow-backed example.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "name"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "name",
+        "greeting"
+      ],
+      "properties": {
+        "name": {
+          "type": "string"
+        },
+        "greeting": {
+          "type": "string"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "say_hello",
+      "capability_id": "hello.world.say-hello",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "name"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "name",
+          "greeting"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "say_hello",
+  "terminal_nodes": [
+    "say_hello"
+  ],
+  "tags": [
+    "hello-world",
+    "onboarding",
+    "example-domain"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}

@@ -590,6 +590,14 @@ fn render_agent_execution_summary(
                 lines.push(format!("required_actions: {joined}"));
             }
         }
+        "hello.world.say-hello" => {
+            if let Some(name) = output.get("name").and_then(Value::as_str) {
+                lines.push(format!("name: {name}"));
+            }
+            if let Some(greeting) = output.get("greeting").and_then(Value::as_str) {
+                lines.push(format!("greeting: {greeting}"));
+            }
+        }
         _ => {}
     }
 
@@ -737,6 +745,7 @@ impl LocalExecutor for AgentPackageExampleExecutor {
         input: &Value,
     ) -> Result<Value, LocalExecutionFailure> {
         match capability.contract.id.as_str() {
+            "hello.world.say-hello" => execute_hello_world(input),
             "expedition.planning.interpret-expedition-intent" => {
                 execute_interpret_expedition_intent(input)
             }
@@ -1210,6 +1219,16 @@ fn execute_assemble_expedition_plan(input: &Value) -> Result<Value, LocalExecuti
     }))
 }
 
+fn execute_hello_world(input: &Value) -> Result<Value, LocalExecutionFailure> {
+    let map = input_object(input)?;
+    let name = required_string(map, "name")?;
+
+    Ok(serde_json::json!({
+        "name": name,
+        "greeting": format!("Hello, {name}!"),
+    }))
+}
+
 fn event_ref(event_id: &str) -> Value {
     serde_json::json!({
         "event_id": event_id,
@@ -1553,6 +1572,33 @@ mod tests {
     }
 
     #[test]
+    fn inspect_agent_renders_hello_world_package() {
+        let fixture = create_hello_world_agent_fixture();
+
+        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+
+        assert!(output.contains("package_id: hello.world.say-hello-agent"));
+        assert!(output.contains("capability_id: hello.world.say-hello"));
+        assert!(output.contains("binary_digest: fnv1a64:"));
+        assert!(output.contains("workflow_refs: hello.world.say-hello@1.0.0"));
+    }
+
+    #[test]
+    fn execute_agent_runs_hello_world_request() {
+        let fixture = create_hello_world_agent_fixture();
+        let request_path = repo_root().join("examples/hello-world/runtime-requests/say-hello.json");
+
+        let output = execute_agent(&fixture.manifest_path, &request_path)
+            .expect("hello-world agent execution should succeed");
+
+        assert!(output.contains("package_id: hello.world.say-hello-agent"));
+        assert!(output.contains("capability_id: hello.world.say-hello"));
+        assert!(output.contains("status: completed"));
+        assert!(output.contains("name: Traverse"));
+        assert!(output.contains("greeting: Hello, Traverse!"));
+    }
+
+    #[test]
     fn execute_expedition_writes_trace_artifact_when_requested() {
         let request_path =
             repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
@@ -1713,38 +1759,56 @@ mod tests {
     }
 
     fn create_interpret_expedition_intent_agent_fixture() -> AgentFixture {
-        create_agent_package_fixture(
-            "expedition.planning.interpret-expedition-intent-agent",
-            "expedition.planning.interpret-expedition-intent",
-            "interpret-expedition-intent-agent.wasm",
-            "Governed WASM AI agent example for expedition intent interpretation.",
-            "contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
-            "expedition-intent-interpretation-v1",
-            "Interpret free-form expedition planning intent into governed route preferences and assumptions.",
-        )
+        create_agent_package_fixture(&AgentPackageFixtureSpec {
+            package_id: "expedition.planning.interpret-expedition-intent-agent",
+            capability_id: "expedition.planning.interpret-expedition-intent",
+            binary_name: "interpret-expedition-intent-agent.wasm",
+            summary: "Governed WASM AI agent example for expedition intent interpretation.",
+            contract_path: "contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
+            model_interface: "expedition-intent-interpretation-v1",
+            model_purpose: "Interpret free-form expedition planning intent into governed route preferences and assumptions.",
+            workflow_id: "expedition.planning.plan-expedition",
+        })
     }
 
     fn create_validate_team_readiness_agent_fixture() -> AgentFixture {
-        create_agent_package_fixture(
-            "expedition.planning.validate-team-readiness-agent",
-            "expedition.planning.validate-team-readiness",
-            "validate-team-readiness-agent.wasm",
-            "Governed WASM AI agent example for expedition readiness validation.",
-            "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
-            "expedition-readiness-validation-v1",
-            "Validate expedition team readiness against governed objective, conditions, and team profile context.",
-        )
+        create_agent_package_fixture(&AgentPackageFixtureSpec {
+            package_id: "expedition.planning.validate-team-readiness-agent",
+            capability_id: "expedition.planning.validate-team-readiness",
+            binary_name: "validate-team-readiness-agent.wasm",
+            summary: "Governed WASM AI agent example for expedition readiness validation.",
+            contract_path: "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
+            model_interface: "expedition-readiness-validation-v1",
+            model_purpose: "Validate expedition team readiness against governed objective, conditions, and team profile context.",
+            workflow_id: "expedition.planning.plan-expedition",
+        })
     }
 
-    fn create_agent_package_fixture(
-        package_id: &str,
-        capability_id: &str,
-        binary_name: &str,
-        summary: &str,
-        contract_path: &str,
-        model_interface: &str,
-        model_purpose: &str,
-    ) -> AgentFixture {
+    fn create_hello_world_agent_fixture() -> AgentFixture {
+        create_agent_package_fixture(&AgentPackageFixtureSpec {
+            package_id: "hello.world.say-hello-agent",
+            capability_id: "hello.world.say-hello",
+            binary_name: "say-hello-agent.wasm",
+            summary: "Minimal governed hello-world agent package for Traverse onboarding.",
+            contract_path: "contracts/examples/hello-world/capabilities/say-hello/contract.json",
+            model_interface: "hello-world-greeting-v1",
+            model_purpose: "Produce a simple deterministic greeting string for onboarding validation.",
+            workflow_id: "hello.world.say-hello",
+        })
+    }
+
+    struct AgentPackageFixtureSpec<'a> {
+        package_id: &'a str,
+        capability_id: &'a str,
+        binary_name: &'a str,
+        summary: &'a str,
+        contract_path: &'a str,
+        model_interface: &'a str,
+        model_purpose: &'a str,
+        workflow_id: &'a str,
+    }
+
+    fn create_agent_package_fixture(spec: &AgentPackageFixtureSpec<'_>) -> AgentFixture {
         let temp_dir = unique_temp_dir();
         let package_dir = temp_dir.join("agent");
         let artifact_dir = package_dir.join("artifacts");
@@ -1755,11 +1819,14 @@ mod tests {
         let wasm_bytes = hex_to_bytes(
             "0061736d0100000001040160000003020100070a01065f737461727400000a040102000b",
         );
-        let binary_path = artifact_dir.join(binary_name);
+        let binary_path = artifact_dir.join(spec.binary_name);
         fs::write(&binary_path, &wasm_bytes).expect("wasm binary should write");
         fs::write(
             source_dir.join("agent.rs"),
-            format!("pub fn run() -> &'static str {{ \"{capability_id}\" }}\n"),
+            format!(
+                "pub fn run() -> &'static str {{ \"{}\" }}\n",
+                spec.capability_id
+            ),
         )
         .expect("source file should write");
 
@@ -1779,7 +1846,7 @@ mod tests {
   }},
   "workflow_refs": [
     {{
-      "workflow_id": "expedition.planning.plan-expedition",
+      "workflow_id": "{}",
       "workflow_version": "1.0.0"
     }}
   ],
@@ -1805,14 +1872,15 @@ mod tests {
     }}
   ]
 }}"#,
-            package_id,
-            summary,
-            capability_id,
-            repo_root.join(contract_path).display(),
-            binary_name,
+            spec.package_id,
+            spec.summary,
+            spec.capability_id,
+            repo_root.join(spec.contract_path).display(),
+            spec.workflow_id,
+            spec.binary_name,
             fnv1a64(&wasm_bytes),
-            model_interface,
-            model_purpose
+            spec.model_interface,
+            spec.model_purpose
         );
         fs::write(&manifest_path, manifest).expect("manifest should write");
 
