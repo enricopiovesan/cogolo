@@ -1,78 +1,52 @@
 # App-Consumable Requirements Traceability
 
-This document maps the first app-consumable Traverse requirements to the current GitHub issue and Project 1 state.
+This document maps the published Traverse v0.1 app-consumable state to the release-facing docs, validation paths, and the issue trail that now describes the shipped path.
 
-Project 1 is the canonical task board for this work. Every requirement area below must have one or more tickets in that project, and the ticket state must make the release picture obvious without having to reconcile old notes manually.
+Project 1 remains the coordination surface for the work, but this document is no longer a planning-time backlog view. It is the published-state trace map for the first app-consumable release set.
 
-## Functional Requirements
+## Published v0.1 Traceability Map
 
-| Requirement Area | Covered By Tickets | Current State |
+| Requirement Area | Published Evidence | Traceability Note |
 |---|---|---|
-| Root app-consumable onboarding | [#122](https://github.com/enricopiovesan/Traverse/issues/122), [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#143](https://github.com/enricopiovesan/Traverse/issues/143) | `Done` / `In Progress` |
-| Canonical docs entry path | [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#144](https://github.com/enricopiovesan/Traverse/issues/144) | `In Progress` / `Ready` |
-| Release checklist and release-readiness evidence | [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150) | `In Progress` / `In Progress` / `In Progress` |
-| Versioned consumer bundle and installation steps | [#176](https://github.com/enricopiovesan/Traverse/issues/176) | `Ready` |
-| Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | `Done` |
-| Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | `Done` |
-| Real browser-hosted `youaskm3` shell validation | [#179](https://github.com/enricopiovesan/Traverse/issues/179) | `In Progress` |
-| Published-artifact validation against packaged Traverse runtime and MCP artifacts | [#200](https://github.com/enricopiovesan/Traverse/issues/200) | `In Progress` |
-| MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | `Done` / `In Progress` / `Blocked` |
+| Root app-consumable onboarding | [#122](https://github.com/enricopiovesan/Traverse/issues/122), [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#143](https://github.com/enricopiovesan/Traverse/issues/143) | The first onboarding path is represented by the root docs, the release checklist, and the acceptance walkthrough. |
+| Canonical docs entry path | [#144](https://github.com/enricopiovesan/Traverse/issues/144), [#267](https://github.com/enricopiovesan/Traverse/issues/267) | The README and quickstart now provide the canonical starting path instead of a planning-only entrypoint. |
+| Release checklist and release-readiness evidence | [#127](https://github.com/enricopiovesan/Traverse/issues/127), [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150) | The release checklist, the release artifact, and the release-prep evidence describe the published v0.1 bundle. |
+| Versioned consumer bundle and installation steps | [#176](https://github.com/enricopiovesan/Traverse/issues/176) | The versioned consumer bundle is the supported downstream install surface for app consumers. |
+| Live browser-consumer path | [#120](https://github.com/enricopiovesan/Traverse/issues/120), [#121](https://github.com/enricopiovesan/Traverse/issues/121), [#123](https://github.com/enricopiovesan/Traverse/issues/123) | The browser adapter and live demo path are the supported consumable path for the published release. |
+| Downstream consumer contract and app-facing validation | [#126](https://github.com/enricopiovesan/Traverse/issues/126), [#128](https://github.com/enricopiovesan/Traverse/issues/128), [#129](https://github.com/enricopiovesan/Traverse/issues/129) | The consumer contract and validation path define what downstream apps may rely on. |
+| Real browser-hosted `youaskm3` shell validation | [#179](https://github.com/enricopiovesan/Traverse/issues/179) | The real downstream shell validation proves the published bundle works in a browser-hosted consumer. |
+| Published-artifact validation against packaged Traverse runtime and MCP artifacts | [#200](https://github.com/enricopiovesan/Traverse/issues/200), [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md) | This is the published-artifact proof path for the released runtime and MCP artifacts. |
+| MCP WASM server model and validation | [#146](https://github.com/enricopiovesan/Traverse/issues/146), [#158](https://github.com/enricopiovesan/Traverse/issues/158), [#148](https://github.com/enricopiovesan/Traverse/issues/148) | The MCP surface is now part of the published v0.1 app-consumable release story. |
 
-## Non-Functional Requirements
+## Published Release Bundle
 
-| Requirement Area | Covered By Tickets | Current State |
-|---|---|---|
-| Documentation clarity for the first app-consumable path | [#142](https://github.com/enricopiovesan/Traverse/issues/142), [#143](https://github.com/enricopiovesan/Traverse/issues/143), [#145](https://github.com/enricopiovesan/Traverse/issues/145) | `In Progress` / `Done` / `In Progress` |
-| Traceability from requirements to release artifacts | [#145](https://github.com/enricopiovesan/Traverse/issues/145), [#150](https://github.com/enricopiovesan/Traverse/issues/150), [#195](https://github.com/enricopiovesan/Traverse/issues/195) | `In Progress` / `Done` / `In Progress` |
-| Operational safety boundary for app consumers | [#131](https://github.com/enricopiovesan/Traverse/issues/131) | `Blocked` |
-| First app-consumable performance baseline | [#130](https://github.com/enricopiovesan/Traverse/issues/130) | `Blocked` |
+The published release picture is anchored by these docs:
 
-## Current Open First-Release Ticket Set
+- [docs/app-consumable-release-artifact.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-artifact.md)
+- [docs/app-consumable-consumer-bundle.md](/Users/piovese/Documents/cogolo/docs/app-consumable-consumer-bundle.md)
+- [docs/app-consumable-package-release-pointer.md](/Users/piovese/Documents/cogolo/docs/app-consumable-package-release-pointer.md)
+- [docs/app-consumable-release-checklist.md](/Users/piovese/Documents/cogolo/docs/app-consumable-release-checklist.md)
+- [docs/packaged-traverse-runtime-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-runtime-artifact.md)
+- [docs/packaged-traverse-mcp-server-artifact.md](/Users/piovese/Documents/cogolo/docs/packaged-traverse-mcp-server-artifact.md)
+- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md)
 
-- [#127](https://github.com/enricopiovesan/Traverse/issues/127) `Prepare the Traverse v0.1 release checklist for app consumers` - `In Progress`
-- [#142](https://github.com/enricopiovesan/Traverse/issues/142) `Refresh README for v0.1 release-candidate state` - `In Progress`
-- [#144](https://github.com/enricopiovesan/Traverse/issues/144) `Establish one canonical documentation entry path for humans and agents` - `Ready`
-- [#145](https://github.com/enricopiovesan/Traverse/issues/145) `Refresh release and requirements traceability docs for current v0.1 state` - `In Progress`
-- [#158](https://github.com/enricopiovesan/Traverse/issues/158) `Implement MCP stdio server package foundation` - `In Progress`
-- [#179](https://github.com/enricopiovesan/Traverse/issues/179) `Validate the real browser-hosted youaskm3 shell against released Traverse consumer artifacts` - `In Progress`
-- [#200](https://github.com/enricopiovesan/Traverse/issues/200) `Validate youaskm3 consumption against published Traverse runtime and MCP artifacts` - `In Progress`
-- [docs/youaskm3-published-artifact-validation.md](/Users/piovese/Documents/cogolo/docs/youaskm3-published-artifact-validation.md) published-artifact validation doc
-- [#150](https://github.com/enricopiovesan/Traverse/issues/150) `Prepare and validate the first Traverse v0.1 GitHub release artifact` - `Done`
-- [#195](https://github.com/enricopiovesan/Traverse/issues/195) `Publish the first governed Traverse package artifact` - `In Progress`
-- [#176](https://github.com/enricopiovesan/Traverse/issues/176) `Publish versioned Traverse consumer bundle for downstream app integration` - `Ready`
-- [#130](https://github.com/enricopiovesan/Traverse/issues/130) `Define first app-consumable performance baseline` - `Blocked`
-- [#131](https://github.com/enricopiovesan/Traverse/issues/131) `Define app-facing security and safety boundary for browser and MCP consumers` - `Blocked`
+The release artifact and publication bundle are the bridge between the runtime and MCP artifact docs, the consumer bundle, the quickstart, and the published-artifact validation path.
 
-## v0.1 Release Ordering
+## Historical Planning Language
 
-### Must Have For v0.1
+The old `needs-spec` and `open-first-release` wording is historical planning language from before the v0.1 release view was published. It is no longer the primary way this work is described.
 
-- [#120](https://github.com/enricopiovesan/Traverse/issues/120) local browser adapter transport
-- [#121](https://github.com/enricopiovesan/Traverse/issues/121) live browser demo over the adapter
-- [#122](https://github.com/enricopiovesan/Traverse/issues/122) app-consumable quickstart
-- [#123](https://github.com/enricopiovesan/Traverse/issues/123) end-to-end acceptance validation
-- [#126](https://github.com/enricopiovesan/Traverse/issues/126) downstream-consumer contract
-- [#127](https://github.com/enricopiovesan/Traverse/issues/127) release checklist
-- [#128](https://github.com/enricopiovesan/Traverse/issues/128) real `youaskm3` integration validation
-- [#129](https://github.com/enricopiovesan/Traverse/issues/129) app-facing MCP consumption validation
+The current published-state vocabulary uses release artifacts, consumer bundles, package pointers, and validation evidence instead of backlog-era planning labels.
 
-### Should Have Soon After v0.1
+## Deferred Follow-Up
 
-- [#142](https://github.com/enricopiovesan/Traverse/issues/142) README release-candidate refresh
-- [#144](https://github.com/enricopiovesan/Traverse/issues/144) canonical documentation entry path
-- [#145](https://github.com/enricopiovesan/Traverse/issues/145) requirements traceability refresh
-- [#158](https://github.com/enricopiovesan/Traverse/issues/158) dedicated MCP stdio server package foundation
-- [#150](https://github.com/enricopiovesan/Traverse/issues/150) release artifact and publication bundle
-- [#195](https://github.com/enricopiovesan/Traverse/issues/195) package release pointer
-- [#176](https://github.com/enricopiovesan/Traverse/issues/176) versioned consumer bundle and installation steps
-- [#200](https://github.com/enricopiovesan/Traverse/issues/200) published-artifact validation against packaged runtime and MCP artifacts
+The following items are still valid follow-up topics after the published v0.1 release set:
 
-### Later
-
-- [#130](https://github.com/enricopiovesan/Traverse/issues/130) first app-consumable performance baseline
-- [#131](https://github.com/enricopiovesan/Traverse/issues/131) app-facing security and safety boundary
-- [#148](https://github.com/enricopiovesan/Traverse/issues/148) downstream validation for the dedicated MCP WASM server
+- broader packaging polish beyond the supported consumer path
+- future host-model experiments
+- broader performance baselines beyond the first app-consumable release needs
+- future consumer templates and extra downstream apps
 
 ## Rule
 
-If a new app-consumable requirement appears and cannot be mapped to one or more tickets above, create the missing issue first and add it to Project 1 before calling the release backlog complete.
+If a new app-consumable requirement appears and cannot be mapped to one or more published trace items above, create the missing issue first and add it to Project 1 before calling the release backlog complete.
