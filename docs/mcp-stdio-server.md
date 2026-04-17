@@ -11,6 +11,23 @@ It is intentionally narrow:
 - it exposes discovery, description, validation, execution, and execution-report rendering through one stdio command surface
 - it is documented and runnable locally
 
+## Supported Bootstrap Path
+
+The supported developer bootstrap path for the dedicated MCP server is:
+
+```bash
+cargo run -p traverse-mcp -- stdio
+```
+
+That `stdio` command is the only supported bootstrap mode in the current app-consumable release path.
+
+Unsupported bootstrap attempts fail loudly:
+
+- omitting the command prints the usage line and exits non-zero
+- using any command other than `stdio` prints `Unsupported command: <command>` and exits non-zero
+
+Developers and agents should treat other bootstrap ideas as unsupported unless they are explicitly documented in this page or in the packaged artifact docs.
+
 ## Start The Server
 
 From the repository root:
