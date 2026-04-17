@@ -7,6 +7,7 @@ Use the checked-in examples as the source of truth:
 - [`examples/templates/executable-capability-package/manifest.template.json`](../examples/templates/executable-capability-package/manifest.template.json)
 - [`examples/agents/expedition-intent-agent/manifest.json`](../examples/agents/expedition-intent-agent/manifest.json)
 - [`examples/agents/team-readiness-agent/manifest.json`](../examples/agents/team-readiness-agent/manifest.json)
+- [`docs/wasm-io-contract.md`](wasm-io-contract.md)
 
 ## Start From a Governed Package
 
@@ -35,6 +36,9 @@ A new agent package should make these fields obvious:
 - `model_dependencies`
 
 The package must remain a portable WASM-backed artifact bundle, not a generic host-bound executable.
+
+Its execution boundary is the governed stdin/stdout JSON contract documented in
+[`docs/wasm-io-contract.md`](wasm-io-contract.md).
 
 ## Authoring Steps
 
