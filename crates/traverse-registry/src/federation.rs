@@ -50,6 +50,13 @@ pub enum FederationTrustState {
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum FederationTrustLevel {
+    LocalOnly,
+    PeerTrusted,
+    PubliclyTrusted,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum FederationSyncStatus {
     Unknown,
     Success,
@@ -94,6 +101,20 @@ pub struct TrustRecord {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ApprovalChainEntry {
+    pub spec_ref: String,
+    pub approved_at: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct FederatedContractProvenance {
+    pub origin_peer_id: String,
+    pub source_ref: String,
+    pub validation_evidence_ref: String,
+    pub approval_chain: Vec<ApprovalChainEntry>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FederationPeerExport {
     pub peer: FederationPeer,
     pub trust: TrustRecord,
@@ -123,9 +144,10 @@ pub struct PeerRegistrySnapshot {
     pub entry_id: String,
     pub version: String,
     pub scope: RegistryScope,
+    pub trust_level: FederationTrustLevel,
     pub approval_state: FederationApprovalState,
     pub contract_ref: String,
-    pub provenance_ref: String,
+    pub provenance: FederatedContractProvenance,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -133,6 +155,7 @@ pub struct CrossPeerTraceProvenance {
     pub trace_id: String,
     pub origin_peer_id: String,
     pub owning_peer_id: String,
+    pub trust_level: FederationTrustLevel,
     pub route_reason: String,
     pub sync_session_ref: Option<String>,
     pub response_status: FederationInvocationStatus,
@@ -157,9 +180,40 @@ pub struct ConflictRecord {
     pub peer_ids: Vec<String>,
     pub registry_type: FederationRegistryKind,
     pub entry_key: String,
+    pub trust_level: FederationTrustLevel,
     pub conflict_reason: String,
     pub resolution_state: FederationConflictResolutionState,
     pub audit_ref: String,
+    pub provenance: Option<FederatedContractProvenance>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GovernanceDecisionKind {
+    PeerRegistration,
+    SnapshotAcceptance,
+    SnapshotRejection,
+    InvocationAuthorization,
+    InvocationDenial,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum GovernanceDecisionOutcome {
+    Approved,
+    Rejected,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct GovernanceDecisionRecord {
+    pub decision_id: String,
+    pub peer_id: String,
+    pub registry_type: Option<FederationRegistryKind>,
+    pub entry_key: Option<String>,
+    pub trust_level: FederationTrustLevel,
+    pub decision_kind: GovernanceDecisionKind,
+    pub outcome: GovernanceDecisionOutcome,
+    pub rationale: String,
+    pub evidence_ref: String,
+    pub provenance: Option<FederatedContractProvenance>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -210,6 +264,7 @@ pub struct FederationRegistry {
     sync_sessions: Vec<FederationSyncSession>,
     invocations: Vec<FederatedInvocation>,
     conflicts: Vec<ConflictRecord>,
+    governance_decisions: Vec<GovernanceDecisionRecord>,
 }
 
 impl FederationRegistry {
@@ -298,8 +353,24 @@ impl FederationRegistry {
                 )],
             }),
             None => {
-                self.trust_records.insert(peer.peer_id.clone(), trust);
-                self.peers.insert(peer.peer_id.clone(), peer);
+                self.trust_records
+                    .insert(peer.peer_id.clone(), trust.clone());
+                self.peers.insert(peer.peer_id.clone(), peer.clone());
+                self.governance_decisions.push(GovernanceDecisionRecord {
+                    decision_id: format!("decision_peer_registration_{}", peer.peer_id),
+                    peer_id: peer.peer_id.clone(),
+                    registry_type: None,
+                    entry_key: None,
+                    trust_level: highest_authorized_trust_level(&trust),
+                    decision_kind: GovernanceDecisionKind::PeerRegistration,
+                    outcome: GovernanceDecisionOutcome::Approved,
+                    rationale: format!(
+                        "peer registered with trust model {} and approved specs {:?}",
+                        trust.trust_model, trust.approved_spec_refs
+                    ),
+                    evidence_ref: format!("trust://{}", peer.peer_id),
+                    provenance: None,
+                });
                 Ok(())
             }
         }
@@ -315,6 +386,11 @@ impl FederationRegistry {
     #[must_use]
     pub fn conflicts(&self) -> &[ConflictRecord] {
         &self.conflicts
+    }
+
+    #[must_use]
+    pub fn governance_decisions(&self) -> &[GovernanceDecisionRecord] {
+        &self.governance_decisions
     }
 
     #[must_use]
@@ -488,6 +564,12 @@ impl FederationRegistry {
             self.snapshots.insert(key, snapshot.clone());
         }
         self.conflicts.extend(conflict_records.clone());
+        self.governance_decisions.extend(
+            accepted_snapshots
+                .iter()
+                .map(snapshot_acceptance_decision)
+                .chain(conflict_records.iter().map(snapshot_rejection_decision)),
+        );
 
         let status = if accepted_snapshots.is_empty() && conflict_records.is_empty() {
             FederationSyncStatus::Failed
@@ -598,41 +680,63 @@ impl FederationRegistry {
             .get(origin_peer_id)
             .expect("validated above");
 
-        let candidate = self
+        let exact_matches = self
             .snapshots
             .values()
             .filter(|snapshot| snapshot.registry_type == FederationRegistryKind::Capability)
             .filter(|snapshot| snapshot.entry_id == capability_id && snapshot.version == version)
+            .cloned()
+            .collect::<Vec<_>>();
+        let candidate = exact_matches
+            .iter()
             .filter(|snapshot| scope_is_visible(snapshot.scope, trust, origin_peer))
             .min_by(|left, right| left.peer_id.cmp(&right.peer_id))
             .cloned()
             .map(|snapshot| (snapshot.peer_id.clone(), snapshot));
 
         let Some((target_peer_id, target_snapshot)) = candidate else {
-            if self.snapshots.values().any(|snapshot| {
-                snapshot.registry_type == FederationRegistryKind::Capability
-                    && snapshot.entry_id == capability_id
-                    && snapshot.version == version
-                    && snapshot.scope == RegistryScope::Private
-                    && !scope_is_visible(snapshot.scope, trust, origin_peer)
-            }) {
+            if let Some(denied_snapshot) = exact_matches
+                .iter()
+                .min_by(|left, right| left.peer_id.cmp(&right.peer_id))
+                .cloned()
+            {
+                let denial_reason = format!(
+                    "requested capability requires {:?} visibility and is not authorized for the origin peer under trust model {}",
+                    denied_snapshot.trust_level, trust.trust_model
+                );
                 self.conflicts.push(build_conflict_record(
                     origin_peer_id,
                     FederationRegistryKind::Capability,
                     capability_id,
                     version,
+                    denied_snapshot.trust_level,
                     "private capability invocation was denied because the origin peer is not authorized to view the target snapshot",
                     evidence_ref,
+                    Some(denied_snapshot.provenance.clone()),
                 ));
+                self.governance_decisions.push(GovernanceDecisionRecord {
+                    decision_id: format!(
+                        "decision_invocation_denial_{}_{}_{}",
+                        origin_peer_id, capability_id, version
+                    ),
+                    peer_id: origin_peer_id.to_string(),
+                    registry_type: Some(FederationRegistryKind::Capability),
+                    entry_key: Some(denied_snapshot.entry_key()),
+                    trust_level: denied_snapshot.trust_level,
+                    decision_kind: GovernanceDecisionKind::InvocationDenial,
+                    outcome: GovernanceDecisionOutcome::Rejected,
+                    rationale: denial_reason.clone(),
+                    evidence_ref: evidence_ref.to_string(),
+                    provenance: Some(denied_snapshot.provenance.clone()),
+                });
                 return Err(FederationFailure {
                     errors: vec![federation_error(
                         FederationErrorCode::EntryValidationFailed,
                         "$.capability_id",
-                        "requested capability exists but is not visible to the origin peer under the current trust model",
+                        denial_reason.as_str(),
                     )],
                 });
             }
-
             return Err(FederationFailure {
                 errors: vec![federation_error(
                     FederationErrorCode::EntryValidationFailed,
@@ -689,6 +793,7 @@ impl FederationRegistry {
                 trace_id,
                 origin_peer_id: origin_peer_id.to_string(),
                 owning_peer_id: target_snapshot.peer_id,
+                trust_level: target_snapshot.trust_level,
                 route_reason,
                 sync_session_ref,
                 response_status: status,
@@ -696,6 +801,8 @@ impl FederationRegistry {
             },
         };
         self.invocations.push(invocation.clone());
+        self.governance_decisions
+            .push(invocation_governance_decision(&invocation));
         Ok(invocation)
     }
 }
@@ -730,8 +837,15 @@ fn validate_capability_snapshot(
             FederationRegistryKind::Capability,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "peer trust does not authorize the exported scope",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     }
@@ -742,8 +856,15 @@ fn validate_capability_snapshot(
             FederationRegistryKind::Capability,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "exported capability governing spec is not approved in the local approved spec registry",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     }
@@ -757,8 +878,15 @@ fn validate_capability_snapshot(
             FederationRegistryKind::Capability,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "local approved registry is missing the exported capability",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     };
@@ -769,8 +897,15 @@ fn validate_capability_snapshot(
             FederationRegistryKind::Capability,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "local capability record differs from the exported peer record",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     }
@@ -783,11 +918,16 @@ fn validate_capability_snapshot(
         export.record.scope,
         export.record.lifecycle.clone(),
         &export.record.contract_path,
-        &format!(
-            "{:?}:{}:{}",
-            export.record.provenance.source,
-            export.record.provenance.author,
-            export.record.provenance.created_at
+        build_provenance(
+            peer,
+            trust,
+            &format!(
+                "{:?}:{}:{}",
+                export.record.provenance.source,
+                export.record.provenance.author,
+                export.record.provenance.created_at
+            ),
+            &export.record.evidence.evidence_id,
         ),
     ))
 }
@@ -806,8 +946,20 @@ fn validate_event_snapshot(
             FederationRegistryKind::Event,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "peer trust does not authorize the exported scope",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &format!(
+                    "{}:{}:{}",
+                    export.record.validation_evidence.kind,
+                    export.record.validation_evidence.governing_spec,
+                    export.record.validation_evidence.validated_at
+                ),
+            )),
         ));
         return None;
     }
@@ -818,8 +970,20 @@ fn validate_event_snapshot(
             FederationRegistryKind::Event,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "exported event governing spec is not approved in the local approved spec registry",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &format!(
+                    "{}:{}:{}",
+                    export.record.validation_evidence.kind,
+                    export.record.validation_evidence.governing_spec,
+                    export.record.validation_evidence.validated_at
+                ),
+            )),
         ));
         return None;
     }
@@ -832,8 +996,20 @@ fn validate_event_snapshot(
             FederationRegistryKind::Event,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "local approved registry is missing the exported event",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &format!(
+                    "{}:{}:{}",
+                    export.record.validation_evidence.kind,
+                    export.record.validation_evidence.governing_spec,
+                    export.record.validation_evidence.validated_at
+                ),
+            )),
         ));
         return None;
     };
@@ -844,8 +1020,20 @@ fn validate_event_snapshot(
             FederationRegistryKind::Event,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "local event record differs from the exported peer record",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.contract_path,
+                &format!(
+                    "{}:{}:{}",
+                    export.record.validation_evidence.kind,
+                    export.record.validation_evidence.governing_spec,
+                    export.record.validation_evidence.validated_at
+                ),
+            )),
         ));
         return None;
     }
@@ -858,11 +1046,21 @@ fn validate_event_snapshot(
         export.record.scope,
         export.record.lifecycle.clone(),
         &export.record.contract_path,
-        &format!(
-            "{:?}:{}:{}",
-            export.record.provenance.source,
-            export.record.provenance.author,
-            export.record.provenance.created_at
+        build_provenance(
+            peer,
+            trust,
+            &format!(
+                "{:?}:{}:{}",
+                export.record.provenance.source,
+                export.record.provenance.author,
+                export.record.provenance.created_at
+            ),
+            &format!(
+                "{}:{}:{}",
+                export.record.validation_evidence.kind,
+                export.record.validation_evidence.governing_spec,
+                export.record.validation_evidence.validated_at
+            ),
         ),
     ))
 }
@@ -881,8 +1079,15 @@ fn validate_workflow_snapshot(
             FederationRegistryKind::Workflow,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "peer trust does not authorize the exported scope",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.workflow_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     }
@@ -893,8 +1098,15 @@ fn validate_workflow_snapshot(
             FederationRegistryKind::Workflow,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "exported workflow governing spec is not approved in the local approved spec registry",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.workflow_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     }
@@ -907,8 +1119,15 @@ fn validate_workflow_snapshot(
             FederationRegistryKind::Workflow,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "local approved registry is missing the exported workflow",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.workflow_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     };
@@ -919,8 +1138,15 @@ fn validate_workflow_snapshot(
             FederationRegistryKind::Workflow,
             &export.record.id,
             &export.record.version,
+            trust_level_for_scope(export.record.scope),
             "local workflow record differs from the exported peer record",
             evidence_ref,
+            Some(build_provenance(
+                peer,
+                trust,
+                &export.record.workflow_path,
+                &export.record.evidence.evidence_id,
+            )),
         ));
         return None;
     }
@@ -933,11 +1159,11 @@ fn validate_workflow_snapshot(
         export.record.scope,
         export.record.lifecycle.clone(),
         &export.record.workflow_path,
-        &format!(
-            "{}:{}:{}",
-            export.record.governing_spec,
-            export.record.validator_version,
-            export.record.registered_at
+        build_provenance(
+            peer,
+            trust,
+            &export.record.workflow_path,
+            &export.record.evidence.evidence_id,
         ),
     ))
 }
@@ -950,7 +1176,7 @@ fn build_snapshot(
     scope: RegistryScope,
     lifecycle: Lifecycle,
     contract_ref: &str,
-    provenance_ref: &str,
+    provenance: FederatedContractProvenance,
 ) -> PeerRegistrySnapshot {
     PeerRegistrySnapshot {
         peer_id: peer.peer_id.clone(),
@@ -958,9 +1184,10 @@ fn build_snapshot(
         entry_id: entry_id.to_string(),
         version: version.to_string(),
         scope,
+        trust_level: trust_level_for_scope(scope),
         approval_state: approval_state_from_lifecycle(&lifecycle),
         contract_ref: contract_ref.to_string(),
-        provenance_ref: provenance_ref.to_string(),
+        provenance,
     }
 }
 
@@ -969,17 +1196,42 @@ fn build_conflict_record(
     registry_type: FederationRegistryKind,
     entry_id: &str,
     version: &str,
+    trust_level: FederationTrustLevel,
     reason: &str,
     audit_ref: &str,
+    provenance: Option<FederatedContractProvenance>,
 ) -> ConflictRecord {
     ConflictRecord {
         conflict_id: format!("conflict_{}_{}_{}", peer_id, entry_id, version),
         peer_ids: vec![peer_id.to_string()],
         registry_type,
         entry_key: format!("{registry_type:?}:{entry_id}@{version}"),
+        trust_level,
         conflict_reason: reason.to_string(),
         resolution_state: FederationConflictResolutionState::Open,
         audit_ref: audit_ref.to_string(),
+        provenance,
+    }
+}
+
+fn build_provenance(
+    peer: &FederationPeer,
+    trust: &TrustRecord,
+    source_ref: &str,
+    validation_evidence_ref: &str,
+) -> FederatedContractProvenance {
+    FederatedContractProvenance {
+        origin_peer_id: peer.peer_id.clone(),
+        source_ref: source_ref.to_string(),
+        validation_evidence_ref: validation_evidence_ref.to_string(),
+        approval_chain: trust
+            .approved_spec_refs
+            .iter()
+            .map(|spec_ref| ApprovalChainEntry {
+                spec_ref: spec_ref.clone(),
+                approved_at: trust.approved_at.clone(),
+            })
+            .collect(),
     }
 }
 
@@ -997,6 +1249,23 @@ fn is_route_failure(status: FederationInvocationStatus) -> bool {
         status,
         FederationInvocationStatus::Failure | FederationInvocationStatus::RetryableFailure
     )
+}
+
+fn trust_level_for_scope(scope: RegistryScope) -> FederationTrustLevel {
+    match scope {
+        RegistryScope::Public => FederationTrustLevel::PubliclyTrusted,
+        RegistryScope::Private => FederationTrustLevel::PeerTrusted,
+    }
+}
+
+fn highest_authorized_trust_level(trust: &TrustRecord) -> FederationTrustLevel {
+    if trust.allowed_scopes.contains(&RegistryScope::Private) {
+        FederationTrustLevel::PeerTrusted
+    } else if trust.allowed_scopes.contains(&RegistryScope::Public) {
+        FederationTrustLevel::PubliclyTrusted
+    } else {
+        FederationTrustLevel::LocalOnly
+    }
 }
 
 fn scope_is_allowed(scope: RegistryScope, trust: &TrustRecord, peer: &FederationPeer) -> bool {
@@ -1030,6 +1299,80 @@ fn load_approved_spec_ids_from_path(path: &str) -> BTreeSet<String> {
     };
 
     parse_approved_spec_ids(&contents)
+}
+
+fn snapshot_acceptance_decision(snapshot: &PeerRegistrySnapshot) -> GovernanceDecisionRecord {
+    GovernanceDecisionRecord {
+        decision_id: format!(
+            "decision_snapshot_acceptance_{}_{}_{}",
+            snapshot.peer_id, snapshot.entry_id, snapshot.version
+        ),
+        peer_id: snapshot.peer_id.clone(),
+        registry_type: Some(snapshot.registry_type),
+        entry_key: Some(snapshot.entry_key()),
+        trust_level: snapshot.trust_level,
+        decision_kind: GovernanceDecisionKind::SnapshotAcceptance,
+        outcome: GovernanceDecisionOutcome::Approved,
+        rationale:
+            "remote entry was accepted after trust, visibility, and approved-spec validation"
+                .to_string(),
+        evidence_ref: snapshot.provenance.validation_evidence_ref.clone(),
+        provenance: Some(snapshot.provenance.clone()),
+    }
+}
+
+fn snapshot_rejection_decision(conflict: &ConflictRecord) -> GovernanceDecisionRecord {
+    GovernanceDecisionRecord {
+        decision_id: format!("decision_{}", conflict.conflict_id),
+        peer_id: conflict.peer_ids.first().cloned().unwrap_or_default(),
+        registry_type: Some(conflict.registry_type),
+        entry_key: Some(conflict.entry_key.clone()),
+        trust_level: conflict.trust_level,
+        decision_kind: GovernanceDecisionKind::SnapshotRejection,
+        outcome: GovernanceDecisionOutcome::Rejected,
+        rationale: conflict.conflict_reason.clone(),
+        evidence_ref: conflict.audit_ref.clone(),
+        provenance: conflict.provenance.clone(),
+    }
+}
+
+fn invocation_governance_decision(invocation: &FederatedInvocation) -> GovernanceDecisionRecord {
+    let (decision_kind, outcome) = match invocation.status {
+        FederationInvocationStatus::Success => (
+            GovernanceDecisionKind::InvocationAuthorization,
+            GovernanceDecisionOutcome::Approved,
+        ),
+        FederationInvocationStatus::Failure | FederationInvocationStatus::RetryableFailure => (
+            GovernanceDecisionKind::InvocationDenial,
+            GovernanceDecisionOutcome::Rejected,
+        ),
+    };
+    GovernanceDecisionRecord {
+        decision_id: format!("decision_{}", invocation.invocation_id),
+        peer_id: invocation.origin_peer_id.clone(),
+        registry_type: Some(FederationRegistryKind::Capability),
+        entry_key: Some(format!(
+            "{:?}:{}@{}",
+            FederationRegistryKind::Capability,
+            invocation.capability_id,
+            invocation.trace_provenance.trace_id
+        )),
+        trust_level: invocation.trace_provenance.trust_level,
+        decision_kind,
+        outcome,
+        rationale: invocation.trace_provenance.route_reason.clone(),
+        evidence_ref: invocation.trace_provenance.evidence_ref.clone(),
+        provenance: None,
+    }
+}
+
+impl PeerRegistrySnapshot {
+    fn entry_key(&self) -> String {
+        format!(
+            "{:?}:{}@{}",
+            self.registry_type, self.entry_id, self.version
+        )
+    }
 }
 
 fn parse_approved_spec_ids(contents: &str) -> BTreeSet<String> {
@@ -1896,6 +2239,135 @@ mod tests {
             FederationInvocationStatus::RetryableFailure
         );
         assert!(invocation.response_ref.is_none());
+        assert!(federation.governance_decisions().iter().any(|decision| {
+            decision.decision_kind == GovernanceDecisionKind::InvocationDenial
+                && decision.evidence_ref == "evidence:route-unavailable"
+        }));
+    }
+
+    #[test]
+    fn sync_records_structured_provenance_and_governance_decisions() {
+        let mut local_capabilities = CapabilityRegistry::new();
+        let mut local_events = EventRegistry::new();
+        let mut local_workflows = WorkflowRegistry::new();
+        seed_capabilities(&mut local_capabilities);
+        seed_events(&mut local_events);
+        seed_workflows(&mut local_workflows, &local_capabilities);
+
+        let peer = peer("peer-governed", "Peer Governed");
+        let trust = trust(
+            "peer-governed",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(peer.clone(), trust.clone())
+            .expect("peer should register");
+        let export = export_peer_state(
+            peer,
+            trust,
+            &local_capabilities,
+            &local_events,
+            &local_workflows,
+        );
+        let outcome = federation
+            .sync_peer(
+                export,
+                &local_capabilities,
+                &local_events,
+                &local_workflows,
+                "2026-04-09T21:10:00Z",
+                "2026-04-09T21:11:00Z",
+                "evidence:governed-sync",
+            )
+            .expect("sync should succeed");
+
+        let private_snapshot = outcome
+            .accepted_snapshots
+            .iter()
+            .find(|snapshot| snapshot.scope == RegistryScope::Private)
+            .expect("private snapshot should exist");
+        assert_eq!(
+            private_snapshot.trust_level,
+            FederationTrustLevel::PeerTrusted
+        );
+        assert_eq!(private_snapshot.provenance.origin_peer_id, "peer-governed");
+        assert_eq!(
+            private_snapshot.provenance.approval_chain[0].spec_ref,
+            "026-federation-registry-routing"
+        );
+        assert!(federation.governance_decisions().iter().any(|decision| {
+            decision.decision_kind == GovernanceDecisionKind::SnapshotAcceptance
+                && decision.provenance.is_some()
+                && decision.peer_id == "peer-governed"
+        }));
+    }
+
+    #[test]
+    fn route_denies_private_snapshot_without_private_scope_authority() {
+        let mut local_capabilities = CapabilityRegistry::new();
+        seed_capabilities(&mut local_capabilities);
+
+        let mut local_events = EventRegistry::new();
+        seed_events(&mut local_events);
+        let mut local_workflows = WorkflowRegistry::new();
+        seed_workflows(&mut local_workflows, &local_capabilities);
+
+        let target_peer = peer("peer-private-target", "Peer Private Target");
+        let target_trust = trust(
+            "peer-private-target",
+            vec![RegistryScope::Public, RegistryScope::Private],
+        );
+        let export = export_peer_state(
+            target_peer.clone(),
+            target_trust.clone(),
+            &local_capabilities,
+            &local_events,
+            &local_workflows,
+        );
+
+        let mut federation = FederationRegistry::new();
+        federation
+            .register_peer(target_peer, target_trust)
+            .expect("target peer should register");
+        federation
+            .sync_peer(
+                export,
+                &local_capabilities,
+                &local_events,
+                &local_workflows,
+                "2026-04-09T21:20:00Z",
+                "2026-04-09T21:21:00Z",
+                "evidence:private-sync",
+            )
+            .expect("sync should succeed");
+
+        let origin_peer = peer("peer-public-origin", "Peer Public Origin");
+        let origin_trust = trust("peer-public-origin", vec![RegistryScope::Public]);
+        federation
+            .register_peer(origin_peer, origin_trust)
+            .expect("origin peer should register");
+
+        let failure = federation
+            .route_capability_invocation(
+                "peer-public-origin",
+                "federation.capability.private-echo",
+                "1.0.0",
+                "request:private-denial",
+                &BTreeSet::from([String::from("peer-private-target")]),
+                "2026-04-09T21:22:00Z",
+                "evidence:private-denial",
+            )
+            .expect_err("private capability should be denied for public-only origin");
+
+        assert!(failure.errors[0].message.contains("PeerTrusted visibility"));
+        assert!(federation.governance_decisions().iter().any(|decision| {
+            decision.decision_kind == GovernanceDecisionKind::InvocationDenial
+                && decision.trust_level == FederationTrustLevel::PeerTrusted
+                && decision.evidence_ref == "evidence:private-denial"
+                && decision.provenance.is_some()
+        }));
     }
 
     #[test]
@@ -1954,9 +2426,10 @@ mod tests {
             )
             .expect_err("private snapshot should be denied for unauthorized origin peers");
 
-        assert_eq!(
-            failure.errors[0].message,
-            "requested capability exists but is not visible to the origin peer under the current trust model"
+        assert!(
+            failure.errors[0]
+                .message
+                .contains("requested capability requires PeerTrusted visibility")
         );
         assert!(federation.conflicts().iter().any(|conflict| {
             conflict.entry_key == "Capability:federation.capability.private-echo@1.0.0"
@@ -1998,6 +2471,7 @@ mod tests {
                 trace_id: "trace_peer-summary_federation.capability.echo_1.0.0".to_string(),
                 origin_peer_id: "peer-summary".to_string(),
                 owning_peer_id: "peer-target".to_string(),
+                trust_level: FederationTrustLevel::PubliclyTrusted,
                 route_reason: "test route".to_string(),
                 sync_session_ref: None,
                 response_status: FederationInvocationStatus::Failure,
@@ -2016,6 +2490,7 @@ mod tests {
                 trace_id: "trace_peer-summary_federation.capability.echo_1.0.1".to_string(),
                 origin_peer_id: "peer-summary".to_string(),
                 owning_peer_id: "peer-target".to_string(),
+                trust_level: FederationTrustLevel::PubliclyTrusted,
                 route_reason: "retryable route".to_string(),
                 sync_session_ref: None,
                 response_status: FederationInvocationStatus::RetryableFailure,
@@ -2052,6 +2527,29 @@ mod tests {
         assert_eq!(
             approval_state_from_lifecycle(&Lifecycle::Archived),
             FederationApprovalState::Rejected
+        );
+    }
+
+    #[test]
+    fn highest_authorized_trust_level_covers_all_paths() {
+        assert_eq!(
+            highest_authorized_trust_level(&trust("peer-private", vec![RegistryScope::Private])),
+            FederationTrustLevel::PeerTrusted
+        );
+        assert_eq!(
+            highest_authorized_trust_level(&trust("peer-public", vec![RegistryScope::Public])),
+            FederationTrustLevel::PubliclyTrusted
+        );
+        assert_eq!(
+            highest_authorized_trust_level(&TrustRecord {
+                peer_id: "peer-local".to_string(),
+                trust_model: "local-only".to_string(),
+                allowed_scopes: Vec::new(),
+                approved_spec_refs: vec!["026-federation-registry-routing".to_string()],
+                approved_at: "2026-04-09T19:30:00Z".to_string(),
+                revoked_at: None,
+            }),
+            FederationTrustLevel::LocalOnly
         );
     }
 
