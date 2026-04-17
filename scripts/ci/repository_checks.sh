@@ -244,11 +244,8 @@ grep -q "cargo run -p traverse-cli -- bundle register" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- expedition execute" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- trace inspect" docs/getting-started.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/getting-started.md
-<<<<<<< HEAD
-=======
 grep -q "cargo run -p traverse-cli -- agent execute" examples/hello-world/README.md
 grep -q "hello.world.say-hello" examples/hello-world/README.md
->>>>>>> 6bb7be9 (Add hello-world onboarding example)
 grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
