@@ -97,11 +97,9 @@ impl CliError {
     fn exit_code(&self) -> ExitCode {
         ExitCode::from(match self.kind {
             CliErrorKind::Usage => 64,
-            CliErrorKind::InvalidInput => 2,
-            CliErrorKind::NotFound => 4,
+            CliErrorKind::InvalidInput | CliErrorKind::Validation => 2,
+            CliErrorKind::NotFound | CliErrorKind::Io => 4,
             CliErrorKind::Conflict => 3,
-            CliErrorKind::Validation => 2,
-            CliErrorKind::Io => 4,
             CliErrorKind::SpecAlignment => 5,
             CliErrorKind::ExecutionFailed => 1,
             CliErrorKind::Internal => 70,
