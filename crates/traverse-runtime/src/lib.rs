@@ -82,7 +82,20 @@ pub struct LocalExecutionFailure {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum LocalExecutionFailureCode {
+    /// The executor failed for an unclassified reason. Retryable with caution.
     ExecutionFailed,
+    /// The execution did not complete within the allowed time window.
+    /// Transient — retryable with exponential backoff.
+    Timeout,
+    /// The input provided to the capability was invalid or malformed.
+    /// Fatal — do not retry; fix the input before resubmitting.
+    InvalidInput,
+    /// A required resource (memory, CPU, file handles, etc.) was exhausted.
+    /// Transient — retry with a longer backoff interval.
+    ResourceExhausted,
+    /// A capability contract constraint (precondition, postcondition, or policy) was violated.
+    /// Fatal — do not retry; the request violates the contract.
+    ConstraintViolated,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -272,6 +285,38 @@ pub struct RuntimeTrace {
     pub result: TraceResultRecord,
 }
 
+impl RuntimeTrace {
+    /// Returns the ID of the selected capability, or `None` if no capability was selected.
+    #[must_use]
+    pub fn selected_capability_id(&self) -> Option<&str> {
+        self.selection.selected_capability_id.as_deref()
+    }
+
+    /// Returns the error from the terminal outcome, or `None` if execution succeeded.
+    #[must_use]
+    pub fn errors(&self) -> Option<&RuntimeError> {
+        self.terminal_outcome.error.as_ref()
+    }
+
+    /// Returns all events emitted during execution.
+    #[must_use]
+    pub fn emitted_events(&self) -> &[traverse_contracts::EventReference] {
+        self.emitted_events.as_slice()
+    }
+
+    /// Returns the output value produced by execution, or `None` if unavailable.
+    #[must_use]
+    pub fn output(&self) -> Option<&serde_json::Value> {
+        self.result.output.as_ref()
+    }
+
+    /// Returns `true` if the execution completed successfully.
+    #[must_use]
+    pub fn is_success(&self) -> bool {
+        self.terminal_outcome.runtime_status == RuntimeResultStatus::Completed
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceDecisionEvidence {
     pub candidate_collection: CandidateCollectionRecord,
@@ -410,6 +455,8 @@ pub enum ExecutionFailureReason {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TraceResultRecord {
     pub status: RuntimeResultStatus,
+    #[serde(default)]
+    pub output: Option<serde_json::Value>,
     #[serde(default)]
     pub error: Option<RuntimeError>,
 }
@@ -1032,6 +1079,7 @@ fn terminal_failure(context: FailureContext) -> RuntimeExecutionOutcome {
         execution: context.execution,
         result: TraceResultRecord {
             status: RuntimeResultStatus::Error,
+            output: None,
             error: Some(context.error.clone()),
         },
     };
@@ -1511,6 +1559,7 @@ fn successful_execution_outcome(
         execution,
         result: TraceResultRecord {
             status: RuntimeResultStatus::Completed,
+            output: Some(execution_output.clone()),
             error: None,
         },
     };
@@ -3039,5 +3088,95 @@ mod tests {
         ) -> Result<serde_json::Value, super::LocalExecutionFailure> {
             Ok(json!({"draft_id": "draft"}))
         }
+    }
+
+    struct FailingExecutor;
+
+    impl super::LocalExecutor for FailingExecutor {
+        fn execute(
+            &self,
+            _capability: &ResolvedCapability,
+            _input: &serde_json::Value,
+        ) -> Result<serde_json::Value, super::LocalExecutionFailure> {
+            Err(super::LocalExecutionFailure {
+                code: super::LocalExecutionFailureCode::ExecutionFailed,
+                message: "forced failure".to_string(),
+            })
+        }
+    }
+
+    fn successful_trace() -> super::RuntimeTrace {
+        let mut registry = CapabilityRegistry::new();
+        assert!(registry.register(public_registration()).is_ok());
+        let runtime = Runtime::new(registry, NoopExecutor);
+        runtime.execute(valid_request()).trace
+    }
+
+    fn failed_trace() -> super::RuntimeTrace {
+        let mut registry = CapabilityRegistry::new();
+        assert!(registry.register(public_registration()).is_ok());
+        let runtime = Runtime::new(registry, FailingExecutor);
+        runtime.execute(valid_request()).trace
+    }
+
+    #[test]
+    fn selected_capability_id_returns_id_on_success() {
+        let trace = successful_trace();
+        assert_eq!(
+            trace.selected_capability_id(),
+            Some("content.comments.create-comment-draft")
+        );
+    }
+
+    #[test]
+    fn selected_capability_id_returns_none_when_no_selection() {
+        let registry = CapabilityRegistry::new();
+        // empty registry — no capability matches
+        let runtime = Runtime::new(registry, NoopExecutor);
+        let trace = runtime.execute(valid_request()).trace;
+        assert!(trace.selected_capability_id().is_none());
+    }
+
+    #[test]
+    fn errors_returns_none_on_success() {
+        let trace = successful_trace();
+        assert!(trace.errors().is_none());
+    }
+
+    #[test]
+    fn errors_returns_error_on_failure() {
+        let trace = failed_trace();
+        assert!(trace.errors().is_some());
+    }
+
+    #[test]
+    fn emitted_events_returns_slice() {
+        let trace = successful_trace();
+        // NoopExecutor emits no events; method must not panic and slice is valid
+        let _ = trace.emitted_events();
+    }
+
+    #[test]
+    fn output_returns_value_on_success() {
+        let trace = successful_trace();
+        assert_eq!(trace.output(), Some(&json!({"draft_id": "draft"})));
+    }
+
+    #[test]
+    fn output_returns_none_on_failure() {
+        let trace = failed_trace();
+        assert!(trace.output().is_none());
+    }
+
+    #[test]
+    fn is_success_true_on_completed() {
+        let trace = successful_trace();
+        assert!(trace.is_success());
+    }
+
+    #[test]
+    fn is_success_false_on_error() {
+        let trace = failed_trace();
+        assert!(!trace.is_success());
     }
 }
