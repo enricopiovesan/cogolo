@@ -155,3 +155,46 @@ bash scripts/ci/repository_checks.sh
 - [`docs/event-contract-authoring-guide.md`](event-contract-authoring-guide.md) — how to write the event contracts referenced in the bundle
 - [`docs/workflow-contract-authoring-guide.md`](workflow-contract-authoring-guide.md) — how to write the workflow definitions referenced in the bundle
 - [`docs/cli-reference.md`](cli-reference.md) — full CLI command reference
+
+---
+
+## Registration Idempotency
+
+`CapabilityRegistry::register()` is **idempotent** when the same version and digest are submitted more than once.
+
+### Same version, same digest → succeeds silently
+
+If a capability is re-registered with the exact same contract digest and artifact metadata as the version already in the registry, the call returns the existing `RegistrationOutcome` unchanged. The `already_registered` field on the outcome is set to `true` so callers can distinguish this path from a fresh registration.
+
+No state is mutated. The operation is safe to retry any number of times.
+
+### Same version, different digest → `ImmutableVersionConflict`
+
+If the same version is submitted with a different contract digest or artifact metadata, the registry rejects it with `ImmutableVersionConflict`. Published versions are immutable. To ship a correction, publish a new semver version.
+
+### Agent retry pattern
+
+A common failure scenario: an agent registers a capability, then crashes before persisting the outcome. On restart it does not know whether registration succeeded.
+
+Recommended pattern:
+
+1. Attempt registration unconditionally.
+2. If the result is `Ok(outcome)` and `outcome.already_registered == true`, log "already registered — continuing" and proceed.
+3. If the result is `Ok(outcome)` and `outcome.already_registered == false`, this is a fresh registration — persist the outcome and proceed.
+4. If the result is `Err(ImmutableVersionConflict)`, the same version was registered with a different digest. This is a real conflict and requires human review.
+
+```rust
+match registry.register(request) {
+    Ok(outcome) if outcome.already_registered => {
+        // safe to continue — idempotent retry
+    }
+    Ok(outcome) => {
+        // first registration — persist outcome
+    }
+    Err(failure) => {
+        // surface the error
+    }
+}
+```
+
+This pattern means agents never need a separate "check-then-register" round-trip, which would introduce a TOCTOU window.
