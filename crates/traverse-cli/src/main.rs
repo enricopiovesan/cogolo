@@ -1927,7 +1927,10 @@ mod tests {
         for (raw, expected_family) in cases {
             let args: Vec<String> = raw.into_iter().map(String::from).collect();
             let result = parse_command(&args);
-            assert!(result.is_err(), "expected Err for --help on family {expected_family}");
+            assert!(
+                result.is_err(),
+                "expected Err for --help on family {expected_family}"
+            );
             let text = result.err().unwrap_or_default();
             assert!(
                 text.contains(expected_family),
