@@ -1,6 +1,20 @@
 # Traverse Tutorial Index
 
-This is the ordered onboarding path for new Traverse developers and coding agents.
+This is the single entry point for new Traverse developers and coding agents.
+
+## Choose Your Path
+
+Pick the path that matches your goal before reading further:
+
+| Goal | Start here |
+|---|---|
+| Register and invoke a capability end to end | [docs/getting-started.md](getting-started.md) |
+| Consume Traverse from a browser app | [quickstart.md](../quickstart.md) |
+| Follow the full ordered onboarding sequence | Continue below |
+
+All three paths are documented in this repo. The descriptions above tell you which one to open first; the ordered sequence below links them all together when you are ready for more.
+
+## Full Ordered Sequence
 
 Use it in sequence unless you already know the slice you need:
 
@@ -40,3 +54,4 @@ If your goal is downstream app support such as `youaskm3`, continue into the app
 If your goal is documentation hygiene, onboarding, or process work, finish with the standards, compatibility, workflow, and project-management docs.
 
 If any step fails while you are following this sequence, jump to [docs/troubleshooting.md](troubleshooting.md) before guessing.
+

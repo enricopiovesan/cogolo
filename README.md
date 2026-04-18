@@ -52,7 +52,7 @@ cargo run -p traverse-cli     # run the CLI
 
 **Requirements**: Rust 1.94+
 
-New to Traverse? Start with [docs/tutorial-index.md](docs/tutorial-index.md) for the ordered onboarding path, then use [docs/getting-started.md](docs/getting-started.md) for the first capability path and [quickstart.md](quickstart.md) for the first app-consumable browser flow.
+New to Traverse? Start with **[docs/tutorial-index.md](docs/tutorial-index.md)**. That page describes three paths and tells you which one fits your goal.
 
 ### Documentation Map
 
