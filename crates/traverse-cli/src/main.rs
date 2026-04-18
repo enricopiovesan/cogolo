@@ -123,16 +123,333 @@ fn run_command(command: Command) -> Result<String, String> {
 }
 
 fn parse_command(args: &[String]) -> Result<Command, String> {
-    match (
-        args.get(1).map(String::as_str),
-        args.get(2).map(String::as_str),
-    ) {
+    // Handle global --help / help
+    if args.get(1).map(String::as_str) == Some("--help")
+        || args.get(1).map(String::as_str) == Some("help")
+    {
+        return Err(usage());
+    }
+
+    // Handle per-subcommand --help
+    let family = args.get(1).map(String::as_str);
+    let subcommand = args.get(2).map(String::as_str);
+    let has_help_flag = args.iter().any(|a| a == "--help");
+
+    if has_help_flag {
+        return Err(subcommand_help(family, subcommand));
+    }
+
+    match (family, subcommand) {
         (Some("browser-adapter"), Some("serve")) => parse_browser_adapter_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
         (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
         _ => parse_fixed_arity_command(args),
     }
+}
+
+fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
+    match (family, subcommand) {
+        (Some("bundle"), Some("inspect")) => help_bundle_inspect(),
+        (Some("bundle"), Some("register")) => help_bundle_register(),
+        (Some("bundle"), _) => help_bundle(),
+        (Some("agent"), Some("inspect")) => help_agent_inspect(),
+        (Some("agent"), Some("execute")) => help_agent_execute(),
+        (Some("agent"), _) => help_agent(),
+        (Some("workflow"), Some("inspect")) => help_workflow_inspect(),
+        (Some("workflow"), _) => help_workflow(),
+        (Some("expedition"), Some("execute")) => help_expedition_execute(),
+        (Some("expedition"), _) => help_expedition(),
+        (Some("capability"), Some("inspect")) => help_capability_inspect(),
+        (Some("capability"), _) => help_capability(),
+        (Some("event"), Some("inspect")) => help_event_inspect(),
+        (Some("event"), _) => help_event(),
+        (Some("trace"), Some("inspect")) => help_trace_inspect(),
+        (Some("trace"), _) => help_trace(),
+        (Some("browser-adapter"), Some("serve")) => help_browser_adapter_serve(),
+        (Some("browser-adapter"), _) => help_browser_adapter(),
+        _ => usage(),
+    }
+}
+
+fn help_bundle_inspect() -> String {
+    "traverse-cli bundle inspect <manifest-path>
+
+  Purpose:
+    Validate and summarize a registry bundle manifest. Reads the manifest JSON,
+    resolves all declared capability/event/workflow artifact paths, and prints a
+    structured summary of the bundle without registering anything.
+
+  Required arguments:
+    <manifest-path>   Path to the registry bundle manifest.json file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli bundle inspect examples/expedition/registry-bundle/manifest.json"
+        .to_string()
+}
+
+fn help_bundle_register() -> String {
+    "traverse-cli bundle register <manifest-path>
+
+  Purpose:
+    Load a registry bundle and register its capabilities, events, and workflows
+    into in-memory registries. Validates all artifact contracts and reports the
+    set of records that would be committed.
+
+  Required arguments:
+    <manifest-path>   Path to the registry bundle manifest.json file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli bundle register examples/expedition/registry-bundle/manifest.json"
+        .to_string()
+}
+
+fn help_bundle() -> String {
+    "traverse-cli bundle <subcommand> [options]
+
+  Subcommands:
+    inspect <manifest-path>    Validate and summarize a bundle manifest.
+    register <manifest-path>   Register bundle artifacts into in-memory registries.
+
+  Run `traverse-cli bundle <subcommand> --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_agent_inspect() -> String {
+    "traverse-cli agent inspect <manifest-path>
+
+  Purpose:
+    Load and summarize a governed WASM agent package manifest. Verifies the
+    binary digest, resolves the capability contract, and prints package metadata
+    including model dependencies and workflow references.
+
+  Required arguments:
+    <manifest-path>   Path to the agent package manifest.json file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli agent inspect examples/agents/expedition-intent-agent/manifest.json"
+        .to_string()
+}
+
+fn help_agent_execute() -> String {
+    "traverse-cli agent execute <manifest-path> <request-path>
+
+  Purpose:
+    Load a governed WASM agent package and execute it against a runtime request.
+    Validates the package binary digest, registers the capability, and runs the
+    request through the Traverse runtime.
+
+  Required arguments:
+    <manifest-path>   Path to the agent package manifest.json file.
+    <request-path>    Path to the runtime request JSON file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli agent execute \\
+      examples/agents/expedition-intent-agent/manifest.json \\
+      examples/agents/runtime-requests/interpret-expedition-intent.json"
+        .to_string()
+}
+
+fn help_agent() -> String {
+    "traverse-cli agent <subcommand> [options]
+
+  Subcommands:
+    inspect <manifest-path>                      Summarize a governed agent package.
+    execute <manifest-path> <request-path>       Execute an agent against a runtime request.
+
+  Run `traverse-cli agent <subcommand> --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_workflow_inspect() -> String {
+    "traverse-cli workflow inspect <workflow-path>
+
+  Purpose:
+    Parse and summarize a workflow definition artifact. Prints the workflow id,
+    version, lifecycle, start/terminal nodes, node-to-capability mappings, and
+    edge topology.
+
+  Required arguments:
+    <workflow-path>   Path to the workflow definition JSON file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli workflow inspect workflows/examples/expedition/plan-expedition/workflow.json"
+        .to_string()
+}
+
+fn help_workflow() -> String {
+    "traverse-cli workflow <subcommand> [options]
+
+  Subcommands:
+    inspect <workflow-path>    Parse and summarize a workflow definition.
+
+  Run `traverse-cli workflow inspect --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_expedition_execute() -> String {
+    "traverse-cli expedition execute <request-path> [--trace-out <trace-path>]
+
+  Purpose:
+    Execute the canonical expedition workflow through the Traverse runtime.
+    Loads the built-in expedition registry bundle, runs the request, and prints
+    a structured execution summary. Optionally writes the full runtime trace to
+    a JSON file for later inspection with `trace inspect`.
+
+  Required arguments:
+    <request-path>          Path to the runtime request JSON file.
+
+  Optional flags:
+    --trace-out <path>      Write the runtime trace artifact to this path.
+    --help                  Print this help text.
+
+  Example:
+    traverse-cli expedition execute \\
+      examples/expedition/runtime-requests/plan-expedition.json \\
+      --trace-out target/traces/plan-expedition.json"
+        .to_string()
+}
+
+fn help_expedition() -> String {
+    "traverse-cli expedition <subcommand> [options]
+
+  Subcommands:
+    execute <request-path> [--trace-out <path>]  Run the expedition workflow.
+
+  Run `traverse-cli expedition execute --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_capability_inspect() -> String {
+    "traverse-cli capability inspect <contract-path>
+
+  Purpose:
+    Parse and validate a capability contract file. Prints contract metadata
+    including id, version, lifecycle, input/output schema references, and
+    provenance information.
+
+  Required arguments:
+    <contract-path>   Path to the capability contract JSON file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli capability inspect \\
+      contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
+        .to_string()
+}
+
+fn help_capability() -> String {
+    "traverse-cli capability <subcommand> [options]
+
+  Subcommands:
+    inspect <contract-path>   Parse and validate a capability contract.
+
+  Run `traverse-cli capability inspect --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_event_inspect() -> String {
+    "traverse-cli event inspect <contract-path>
+
+  Purpose:
+    Parse and validate an event contract file. Prints the event id, version,
+    lifecycle, classification (domain/event-type), publisher and subscriber
+    capability bindings, and tags.
+
+  Required arguments:
+    <contract-path>   Path to the event contract JSON file.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli event inspect \\
+      contracts/examples/expedition/events/expedition-objective-captured/contract.json"
+        .to_string()
+}
+
+fn help_event() -> String {
+    "traverse-cli event <subcommand> [options]
+
+  Subcommands:
+    inspect <contract-path>   Parse and validate an event contract.
+
+  Run `traverse-cli event inspect --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_trace_inspect() -> String {
+    "traverse-cli trace inspect <trace-path>
+
+  Purpose:
+    Parse and summarize a runtime trace artifact produced by `expedition execute
+    --trace-out`. Prints trace metadata, state-machine validation results, the
+    candidate collection summary, the selected capability, and the terminal state
+    transition.
+
+  Required arguments:
+    <trace-path>   Path to the runtime trace JSON file.
+
+  Optional flags:
+    --help         Print this help text.
+
+  Example:
+    traverse-cli trace inspect target/traces/plan-expedition.json"
+        .to_string()
+}
+
+fn help_trace() -> String {
+    "traverse-cli trace <subcommand> [options]
+
+  Subcommands:
+    inspect <trace-path>   Parse and summarize a runtime trace artifact.
+
+  Run `traverse-cli trace inspect --help` for subcommand-specific help."
+        .to_string()
+}
+
+fn help_browser_adapter_serve() -> String {
+    "traverse-cli browser-adapter serve [--bind <address>]
+
+  Purpose:
+    Start the local browser adapter proxy. The adapter bridges browser-side
+    consumers to the local Traverse runtime over a same-origin HTTP endpoint.
+    Stays running until stopped (Ctrl-C).
+
+  Optional flags:
+    --bind <address>   Address and port to listen on (default: 127.0.0.1:0).
+    --help             Print this help text.
+
+  Example:
+    traverse-cli browser-adapter serve --bind 127.0.0.1:4174"
+        .to_string()
+}
+
+fn help_browser_adapter() -> String {
+    "traverse-cli browser-adapter <subcommand> [options]
+
+  Subcommands:
+    serve [--bind <address>]   Start the local browser adapter proxy.
+
+  Run `traverse-cli browser-adapter serve --help` for subcommand-specific help."
+        .to_string()
 }
 
 fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
@@ -1414,6 +1731,202 @@ mod tests {
         assert!(result.is_err());
         let error = result.err().unwrap_or_default();
         assert!(error.contains("usage: traverse-cli"));
+    }
+
+    #[test]
+    fn parse_command_returns_bundle_inspect_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "bundle".to_string(),
+            "inspect".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(
+            text.contains("bundle inspect"),
+            "expected 'bundle inspect' in help text"
+        );
+        assert!(
+            text.contains("<manifest-path>"),
+            "expected '<manifest-path>' in help text"
+        );
+        assert!(
+            text.contains("Example:"),
+            "expected 'Example:' in help text"
+        );
+    }
+
+    #[test]
+    fn parse_command_returns_bundle_register_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "bundle".to_string(),
+            "register".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("bundle register"));
+        assert!(text.contains("<manifest-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_agent_inspect_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "agent".to_string(),
+            "inspect".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("agent inspect"));
+        assert!(text.contains("<manifest-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_agent_execute_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "agent".to_string(),
+            "execute".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("agent execute"));
+        assert!(text.contains("<manifest-path>"));
+        assert!(text.contains("<request-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_workflow_inspect_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "workflow".to_string(),
+            "inspect".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("workflow inspect"));
+        assert!(text.contains("<workflow-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_expedition_execute_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "expedition".to_string(),
+            "execute".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("expedition execute"));
+        assert!(text.contains("<request-path>"));
+        assert!(text.contains("--trace-out"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_capability_inspect_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "capability".to_string(),
+            "inspect".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("capability inspect"));
+        assert!(text.contains("<contract-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_event_inspect_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "event".to_string(),
+            "inspect".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("event inspect"));
+        assert!(text.contains("<contract-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_trace_inspect_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "trace".to_string(),
+            "inspect".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("trace inspect"));
+        assert!(text.contains("<trace-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_browser_adapter_serve_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "browser-adapter".to_string(),
+            "serve".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("browser-adapter serve"));
+        assert!(text.contains("--bind"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_family_help_when_only_family_and_help_flag() {
+        let cases = vec![
+            (vec!["traverse-cli", "bundle", "--help"], "bundle"),
+            (vec!["traverse-cli", "agent", "--help"], "agent"),
+            (vec!["traverse-cli", "workflow", "--help"], "workflow"),
+            (vec!["traverse-cli", "expedition", "--help"], "expedition"),
+            (vec!["traverse-cli", "event", "--help"], "event"),
+            (vec!["traverse-cli", "trace", "--help"], "trace"),
+        ];
+        for (raw, expected_family) in cases {
+            let args: Vec<String> = raw.into_iter().map(String::from).collect();
+            let result = parse_command(&args);
+            assert!(
+                result.is_err(),
+                "expected Err for --help on family {expected_family}"
+            );
+            let text = result.err().unwrap_or_default();
+            assert!(
+                text.contains(expected_family),
+                "expected '{expected_family}' in family help text"
+            );
+        }
     }
 
     #[test]

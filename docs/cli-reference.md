@@ -6,16 +6,44 @@ It is meant to be a stable reference for humans and agents. It distinguishes the
 
 ## Help Behavior
 
-The current binary exposes a single top-level usage string.
+The binary exposes per-subcommand help text. Pass `--help` at any level to see
+the purpose, required arguments, optional flags, and an example invocation.
 
-These invocations all print the same usage synopsis today:
+Global help (top-level usage synopsis):
 
-- `cargo run -p traverse-cli -- --help`
-- `cargo run -p traverse-cli -- help`
-- `cargo run -p traverse-cli -- agent --help`
-- `cargo run -p traverse-cli -- browser-adapter serve --help`
+```
+traverse-cli --help
+traverse-cli help
+```
 
-There is not yet a nested help tree with per-subcommand long-form help pages.
+Family-level help (lists available subcommands):
+
+```
+traverse-cli bundle --help
+traverse-cli agent --help
+traverse-cli workflow --help
+traverse-cli expedition --help
+traverse-cli event --help
+traverse-cli trace --help
+traverse-cli browser-adapter --help
+```
+
+Subcommand-level help (full per-command detail with flags and examples):
+
+```
+traverse-cli bundle inspect --help
+traverse-cli bundle register --help
+traverse-cli agent inspect --help
+traverse-cli agent execute --help
+traverse-cli workflow inspect --help
+traverse-cli expedition execute --help
+traverse-cli event inspect --help
+traverse-cli trace inspect --help
+traverse-cli browser-adapter serve --help
+```
+
+Help output is written to stderr and the process exits with a non-zero code,
+consistent with error output behaviour across the CLI.
 
 ## Supported Commands
 
@@ -72,7 +100,14 @@ This reference was checked against the live CLI behavior with:
 
 - `cargo run -p traverse-cli -- --help`
 - `cargo run -p traverse-cli -- help`
-- `cargo run -p traverse-cli -- agent --help`
+- `cargo run -p traverse-cli -- bundle inspect --help`
+- `cargo run -p traverse-cli -- bundle register --help`
+- `cargo run -p traverse-cli -- agent inspect --help`
+- `cargo run -p traverse-cli -- agent execute --help`
+- `cargo run -p traverse-cli -- workflow inspect --help`
+- `cargo run -p traverse-cli -- expedition execute --help`
+- `cargo run -p traverse-cli -- event inspect --help`
+- `cargo run -p traverse-cli -- trace inspect --help`
 - `cargo run -p traverse-cli -- browser-adapter serve --help`
 
 It should also remain consistent with:
