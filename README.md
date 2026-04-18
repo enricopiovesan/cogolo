@@ -202,6 +202,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 - [docs/compatibility-policy.md](docs/compatibility-policy.md) — versioning and compatibility
 - [docs/troubleshooting.md](docs/troubleshooting.md) — shortest path through common local and CI failures
 - [docs/what-can-i-build.md](docs/what-can-i-build.md) — concrete app and integration patterns supported today
+- [docs/spec-numbering.md](docs/spec-numbering.md) — how spec ids, paths, and versions relate
 - [docs/multi-thread-workflow.md](docs/multi-thread-workflow.md) — parallel agent workflow
 - [docs/project-management.md](docs/project-management.md) — issue and board rules
 - [docs/adr/README.md](docs/adr/README.md) — architecture decision records
