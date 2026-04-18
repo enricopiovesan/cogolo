@@ -1734,7 +1734,7 @@ mod tests {
     }
 
     #[test]
-    fn parse_command_returns_bundle_inspect_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_bundle_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "bundle".to_string(),
@@ -1756,11 +1756,10 @@ mod tests {
             text.contains("Example:"),
             "expected 'Example:' in help text"
         );
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_bundle_register_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_bundle_register_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "bundle".to_string(),
@@ -1773,11 +1772,10 @@ mod tests {
         assert!(text.contains("bundle register"));
         assert!(text.contains("<manifest-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_agent_inspect_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_agent_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "agent".to_string(),
@@ -1790,11 +1788,10 @@ mod tests {
         assert!(text.contains("agent inspect"));
         assert!(text.contains("<manifest-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_agent_execute_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_agent_execute_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "agent".to_string(),
@@ -1808,11 +1805,10 @@ mod tests {
         assert!(text.contains("<manifest-path>"));
         assert!(text.contains("<request-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_workflow_inspect_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_workflow_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "workflow".to_string(),
@@ -1825,11 +1821,10 @@ mod tests {
         assert!(text.contains("workflow inspect"));
         assert!(text.contains("<workflow-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_expedition_execute_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_expedition_execute_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "expedition".to_string(),
@@ -1843,11 +1838,10 @@ mod tests {
         assert!(text.contains("<request-path>"));
         assert!(text.contains("--trace-out"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_capability_inspect_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_capability_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "capability".to_string(),
@@ -1860,11 +1854,10 @@ mod tests {
         assert!(text.contains("capability inspect"));
         assert!(text.contains("<contract-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_event_inspect_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_event_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "event".to_string(),
@@ -1877,11 +1870,10 @@ mod tests {
         assert!(text.contains("event inspect"));
         assert!(text.contains("<contract-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_trace_inspect_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_trace_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "trace".to_string(),
@@ -1894,11 +1886,10 @@ mod tests {
         assert!(text.contains("trace inspect"));
         assert!(text.contains("<trace-path>"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_browser_adapter_serve_help_on_help_flag() -> Result<(), String> {
+    fn parse_command_returns_browser_adapter_serve_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
             "browser-adapter".to_string(),
@@ -1911,11 +1902,10 @@ mod tests {
         assert!(text.contains("browser-adapter serve"));
         assert!(text.contains("--bind"));
         assert!(text.contains("Example:"));
-        Ok(())
     }
 
     #[test]
-    fn parse_command_returns_family_help_when_only_family_and_help_flag() -> Result<(), String> {
+    fn parse_command_returns_family_help_when_only_family_and_help_flag() {
         let cases = vec![
             (vec!["traverse-cli", "bundle", "--help"], "bundle"),
             (vec!["traverse-cli", "agent", "--help"], "agent"),
@@ -1937,7 +1927,6 @@ mod tests {
                 "expected '{expected_family}' in family help text"
             );
         }
-        Ok(())
     }
 
     #[test]
