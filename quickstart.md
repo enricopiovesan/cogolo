@@ -19,6 +19,12 @@ It is intentionally narrow. Use this path when you want one approved end-to-end 
 - Two terminals
 - The repository checked out with the approved browser adapter and browser demo implementation already merged
 
+Confirm the local environment first:
+
+```bash
+bash scripts/validate-setup.sh
+```
+
 ## Start The Live Browser Adapter
 
 From the repository root:
