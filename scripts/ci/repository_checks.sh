@@ -48,6 +48,7 @@ required_files=(
   "docs/local-runtime-home.md"
   "docs/getting-started.md"
   "quickstart.md"
+  "scripts/validate-setup.sh"
   "examples/expedition/runtime-requests/plan-expedition.json"
   "examples/hello-world/README.md"
   "examples/hello-world/runtime-requests/say-hello.json"
@@ -122,6 +123,8 @@ grep -q "docs/adapter-boundaries.md" README.md
 grep -q "docs/troubleshooting.md" README.md
 grep -q "docs/getting-started.md" README.md
 grep -q "quickstart.md" README.md
+grep -q "bash scripts/validate-setup.sh" docs/getting-started.md
+grep -q "bash scripts/validate-setup.sh" quickstart.md
 grep -q "Definition of Done" docs/ticket-standard.md
 grep -q "in-progress" docs/ticket-standard.md
 grep -q "active branch, PR, or an explicitly assigned developer" docs/ticket-standard.md

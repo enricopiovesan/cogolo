@@ -20,6 +20,7 @@ This is intentionally narrower than [quickstart.md](../quickstart.md). `quicksta
 From the repository root, confirm the workspace builds:
 
 ```bash
+bash scripts/validate-setup.sh
 cargo build
 ```
 
@@ -208,6 +209,7 @@ What you should see:
 Run the canonical expedition example smoke and repository checks:
 
 ```bash
+bash scripts/validate-setup.sh
 bash scripts/ci/expedition_golden_path.sh
 bash scripts/ci/repository_checks.sh
 ```
