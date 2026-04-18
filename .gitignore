@@ -6,3 +6,8 @@ target/
 *.profraw
 *.profdata
 coverage.profdata
+
+# Local-only agent tooling and scratch workspaces (must not enter the repo).
+.claude/
+external/
+references/
