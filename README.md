@@ -177,6 +177,12 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 #### Build and authoring guides
 
 - [docs/expedition-example-authoring.md](docs/expedition-example-authoring.md) — canonical example authoring flow
+- [docs/workflow-composition-guide.md](docs/workflow-composition-guide.md) — beginner guide to chaining two capabilities into a workflow
+- [docs/tutorial-index.md](docs/tutorial-index.md) — ordered onboarding path for new developers and agents
+- [quickstart.md](quickstart.md) — start here for the first runnable flow
+- [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) — first app-consumable flow
+- [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
+- [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
 - [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
 - [docs/mcp-stdio-server.md](docs/mcp-stdio-server.md) — supported MCP server bootstrap path and command surface
 - [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) — how to create new WASM agents
