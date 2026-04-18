@@ -1,0 +1,21 @@
+# Build artifacts — never index these
+target/
+*.profraw
+*.profdata
+coverage.profdata
+
+# Lock files — large, machine-generated, not useful for reasoning
+Cargo.lock
+
+# Coverage and test output
+lcov.info
+tarpaulin-report.html
+coverage/
+
+# Worktrees managed by Claude — avoid recursive indexing
+.claude/worktrees/
+
+# IDE and OS noise
+.DS_Store
+.idea/
+.vscode/

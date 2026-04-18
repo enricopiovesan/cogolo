@@ -9,9 +9,28 @@
 
 # Traverse
 
-**Business logic should be portable. Traverse makes it executable anywhere and composable with everything.**
+**Run one governed business capability across browser, edge, and cloud without rewriting it.**
 
-Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows — across browser, edge, cloud, and device environments.
+Traverse is a contract-driven runtime for discovering, validating, and composing portable business capabilities through events, policies, constraints, and graph-based workflows.
+
+## Why Should I Care?
+
+Most systems are portable at the container boundary, but not at the business behavior boundary. The moment you need the same governed behavior to run in multiple hosts (browser, edge, cloud, device), you typically end up with duplicated implementations and behavior drift.
+
+Traverse is built to make the capability contract the source of truth, and make execution traceable and governed regardless of where it runs.
+
+**Killer use case (first target):** a portable knowledge workflow that runs offline in the browser and can also run in cloud/edge contexts, without splitting the business behavior into separate implementations. See: [docs/killer-use-case-portable-knowledge-app.md](docs/killer-use-case-portable-knowledge-app.md).
+
+### What’s Proven Today
+
+- A spec-governed runtime with deterministic CI gates and versioned governing specs
+- “App-consumable” release surfaces with downstream validation (see: [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) and [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md))
+
+### Who It’s For (and Not For)
+
+Traverse is for teams that must run the same governed behavior across multiple host environments and want contract-first portability, traceability, and governance.
+
+Traverse is not a replacement for Docker-orchestrated services when “portable enough” means “runs in a container in one environment”, and you do not need host-level portability or capability-level governance.
 
 This is personal research and development by [Enrico Piovesan](https://enricopiovesan.com), built to prove in code the ideas behind [Universal Microservices Architecture (UMA)](https://github.com/enricopiovesan/UMA-code-examples).
 
@@ -64,10 +83,7 @@ Use this as the human and agent navigation hub for the supported docs:
 | Follow the full onboarding sequence | [docs/tutorial-index.md](docs/tutorial-index.md) | [quickstart.md](quickstart.md) |
 | Run the first app-consumable flow | [quickstart.md](quickstart.md) | [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) |
 | Author your first capability contract | [docs/capability-contract-authoring-guide.md](docs/capability-contract-authoring-guide.md) | [docs/getting-started.md](docs/getting-started.md) |
-<<<<<<< HEAD
-=======
 | Author your first event contract | [docs/event-contract-authoring-guide.md](docs/event-contract-authoring-guide.md) | [docs/event-publishing-tutorial.md](docs/event-publishing-tutorial.md) |
->>>>>>> main
 | Build WASM-hosted capabilities | [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) | [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) |
 | Integrate a downstream app like `youaskm3` | [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) | [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) |
 | Review runtime and MCP release surfaces | [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) | [docs/packaged-traverse-mcp-server-artifact.md](docs/packaged-traverse-mcp-server-artifact.md) |
