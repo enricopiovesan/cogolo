@@ -1,6 +1,6 @@
 # Capability Contract Authoring Guide
 
-This guide covers how to author a valid capability contract for Traverse and explains every governed field in `execution.constraints`.
+This guide covers how to author a valid capability contract for Traverse, including a copy-pasteable minimal template and a complete reference for `execution.constraints`.
 
 Use the checked-in examples as living references:
 
@@ -17,19 +17,89 @@ A capability contract is a `contract.json` artifact placed under `contracts/`. T
 - `id`, `namespace`, `name` — identity triple; `id` must equal `namespace.name`
 - `version` — semantic version `MAJOR.MINOR.PATCH`
 - `lifecycle` — see lifecycle enum below
+- `inputs` / `outputs` — JSON Schemas used for deterministic validation
 - `execution` — binary format, entrypoint, preferred targets, and constraints
+
+## Minimal Working Template
+
+This is a minimal contract you can copy, edit, and validate locally. It intentionally avoids events and dependencies so you can focus on structure first.
+
+```json
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "demo.echo",
+  "namespace": "demo",
+  "name": "echo",
+  "version": "1.0.0",
+  "lifecycle": "draft",
+  "owner": { "team": "your-team", "contact": "you@example.com" },
+  "summary": "Echo the request payload.",
+  "description": "Minimal contract used to validate authoring and registration wiring.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": ["message"],
+      "properties": { "message": { "type": "string" } },
+      "additionalProperties": false
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": ["message"],
+      "properties": { "message": { "type": "string" } },
+      "additionalProperties": false
+    }
+  },
+  "preconditions": [{ "id": "input-provided", "description": "A message is provided." }],
+  "postconditions": [{ "id": "echo-produced", "description": "The output contains the same message." }],
+  "side_effects": [{ "kind": "none", "description": "No side effects." }],
+  "emits": [],
+  "consumes": [],
+  "permissions": [{ "id": "demo.echo.execute" }],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": { "kind": "wasi-command", "command": "run" },
+    "preferred_targets": ["local"],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [{ "id": "manual-approval-required" }],
+  "dependencies": [],
+  "provenance": {
+    "source": "greenfield",
+    "author": "your-handle",
+    "created_at": "2026-04-18T00:00:00Z",
+    "spec_ref": "002-capability-contracts@1.0.0",
+    "adr_refs": [],
+    "exception_refs": []
+  },
+  "evidence": [],
+  "service_type": "stateless",
+  "permitted_targets": ["local", "cloud", "edge", "device"]
+}
+```
+
+Notes:
+
+- `service_type` defaults to `stateless` if omitted, but setting it explicitly makes author intent clearer.
+- If you set `host_api_access` to `exception_required`, validation requires at least one entry in `provenance.exception_refs`.
 
 ## Lifecycle Values
 
-| Value        | Meaning                                              |
-|--------------|------------------------------------------------------|
-| `draft`      | Not publishable for runtime use                      |
-| `active`     | Eligible for runtime use                             |
-| `deprecated` | Still valid but discouraged for new composition      |
-| `retired`    | No longer eligible for new runtime selection         |
-| `archived`   | Retained as historical record only                   |
+| Value        | Meaning                                         |
+|--------------|-------------------------------------------------|
+| `draft`      | Not publishable for runtime use                 |
+| `active`     | Eligible for runtime use                        |
+| `deprecated` | Still valid but discouraged for new composition |
+| `retired`    | No longer eligible for new runtime selection    |
+| `archived`   | Retained as historical record only              |
 
-Only `active` and `deprecated` are considered runtime-eligible.
+Only `active` and `deprecated` are runtime-eligible.
 
 ## Constraint Reference
 
@@ -43,91 +113,86 @@ Every capability contract's `execution` block must include a `constraints` objec
 }
 ```
 
-The following tables document all valid values, their runtime meaning, and whether the runtime enforces the constraint or treats it as a declaration.
+The tables below document all valid values, their meaning, and whether the runtime enforces the constraint or treats it as a declaration.
 
 ### `host_api_access`
 
 Controls whether the WASM module may call host-provided APIs beyond standard WASI.
 
-| Value                | Description                                                                                              | Runtime enforcement |
-|----------------------|----------------------------------------------------------------------------------------------------------|---------------------|
-| `none`               | The capability makes no calls to host-specific APIs. Fully portable across all execution targets.        | Documentation-only in v0.1. The runtime does not inspect WASM imports at execution time; authors are responsible for keeping the binary portable. |
-| `exception_required` | The capability requires host API access for a justified reason. An approved portability exception reference must be present in `provenance.exception_refs`. | Structurally enforced: validation rejects any contract that declares `exception_required` without at least one entry in `provenance.exception_refs`. |
+| Value                | Description                                                                                       | Runtime enforcement |
+|----------------------|---------------------------------------------------------------------------------------------------|---------------------|
+| `none`               | No host-specific API access. Fully portable across all execution targets.                         | Documentation-only in v0.1. The runtime does not inspect WASM imports at execution time. |
+| `exception_required` | Host API access is required and must be justified by an approved portability exception reference. | Structurally enforced: validation rejects this without at least one entry in `provenance.exception_refs`. |
 
-**Source**: Formally defined in spec `002-capability-contracts` (`data-model.md`, field `execution.constraints.host_api_access`) and implemented as `enum HostApiAccess` in `crates/traverse-contracts/src/lib.rs`.
-
-**Design note**: `none` is the default and required value for all portable capabilities. `exception_required` triggers a governance checkpoint — the approved exception reference must identify the reason and scope of the host dependency.
-
----
+**Source**: Defined in spec `002-capability-contracts` and implemented as `enum HostApiAccess` in `crates/traverse-contracts/src/lib.rs`.
 
 ### `network_access`
 
 Controls whether the WASM module may open outbound network connections.
 
-| Value       | Description                                                                                          | Runtime enforcement |
-|-------------|------------------------------------------------------------------------------------------------------|---------------------|
-| `forbidden` | The capability must not make outbound network calls. Required for all portability-first capabilities. | Documentation-only in v0.1. The runtime does not apply a WASI network sandbox at execution time; the binary must not call network APIs. |
-| `required`  | The capability explicitly requires outbound network access to function.                               | Documentation-only in v0.1. Authors must justify this in `description` and avoid co-locating with `host_api_access: none` without deliberate design intent. |
+| Value       | Description                                                            | Runtime enforcement |
+|-------------|------------------------------------------------------------------------|---------------------|
+| `forbidden` | No outbound network calls. Expected for portability-first capabilities. | Documentation-only in v0.1. The runtime does not apply a WASI network sandbox automatically. |
+| `required`  | Outbound network calls are required for correct behavior.               | Documentation-only in v0.1. Authors must justify this in the capability description and governance material. |
 
-**Source**: Formally defined in spec `002-capability-contracts` (`data-model.md`, field `execution.constraints.network_access`) and implemented as `enum NetworkAccess` in `crates/traverse-contracts/src/lib.rs`.
-
-**Design note**: All existing expedition and hello-world example contracts use `"network_access": "forbidden"`. This is the expected value for pure computation capabilities that receive all needed data through their JSON input schema.
-
----
+**Source**: Defined in spec `002-capability-contracts` and implemented as `enum NetworkAccess` in `crates/traverse-contracts/src/lib.rs`.
 
 ### `filesystem_access`
 
 Controls whether the WASM module may access the host filesystem.
 
-| Value          | Description                                                                                                           | Runtime enforcement |
-|----------------|-----------------------------------------------------------------------------------------------------------------------|---------------------|
-| `none`         | The capability does not access the filesystem. Fully portable across execution targets with no filesystem assumption.   | Documentation-only in v0.1. The runtime does not pre-open directories or restrict filesystem WASI imports; authors must ensure the binary does not call filesystem APIs. |
-| `sandbox_only` | The capability may access a sandboxed directory provided by the host runtime, scoped to the current execution context. | Documentation-only in v0.1. The specific sandbox path or directory pre-open policy is defined by the host executing environment, not by the contract itself. |
+| Value          | Description                                                                               | Runtime enforcement |
+|----------------|-------------------------------------------------------------------------------------------|---------------------|
+| `none`         | No filesystem access. Fully portable with no host filesystem assumptions.                  | Documentation-only in v0.1. The runtime does not pre-open directories or restrict filesystem WASI imports automatically. |
+| `sandbox_only` | Filesystem access is allowed only within a sandbox directory provided by the host runtime. | Documentation-only in v0.1. The sandbox directory policy is defined by the host environment, not the contract itself. |
 
-**Source**: Formally defined in spec `002-capability-contracts` (`data-model.md`, field `execution.constraints.filesystem_access`) and implemented as `enum FilesystemAccess` in `crates/traverse-contracts/src/lib.rs`.
+**Source**: Defined in spec `002-capability-contracts` and implemented as `enum FilesystemAccess` in `crates/traverse-contracts/src/lib.rs`.
 
-**Design note**: All existing example contracts use `"filesystem_access": "none"`. Authors declaring `sandbox_only` must document the expected sandbox layout in the capability's `description` or a companion `README.md`.
+## Authoring Steps (Create → Validate → Register)
 
----
+1. Choose `namespace`, `name`, and compute `id = namespace.name`.
+2. Start with `lifecycle: draft`.
+3. Define strict `inputs.schema` and `outputs.schema` (avoid permissive `additionalProperties` unless you truly need it).
+4. Fill in `preconditions`, `postconditions`, and `side_effects` so the full boundary is explicit.
+5. Set `execution.binary_format: wasm`, `execution.entrypoint.kind: wasi-command`, and `command: run`.
+6. Choose `execution.preferred_targets` (at minimum `["local"]`) and set all three constraint fields.
+7. Validate locally:
 
-### Summary table
+```bash
+cargo test -p traverse-contracts
+```
 
-| Field               | Valid values                          | Required | Formally specified in |
-|---------------------|---------------------------------------|----------|-----------------------|
-| `host_api_access`   | `none`, `exception_required`          | Yes      | `002-capability-contracts` spec + Rust enum |
-| `network_access`    | `forbidden`, `required`               | Yes      | `002-capability-contracts` spec + Rust enum |
-| `filesystem_access` | `none`, `sandbox_only`                | Yes      | `002-capability-contracts` spec + Rust enum |
+8. Add the contract to a bundle manifest and inspect the bundle:
 
-All three fields were inferred from both the spec data model and the Rust implementation in `crates/traverse-contracts/src/lib.rs`. No constraint values in v0.1 were inferred from examples alone; all are formally enumerated in the governing spec.
+```bash
+cargo run -p traverse-cli -- bundle inspect <path-to-manifest.json>
+```
 
-### Portability rule
+9. Register the bundle:
 
-If `host_api_access` is set to `exception_required`, validation will reject the contract unless `provenance.exception_refs` contains at least one non-empty reference string. This is the only constraint field that produces a hard validation error at authoring time rather than a documentation-only declaration.
+```bash
+cargo run -p traverse-cli -- bundle register <path-to-manifest.json>
+```
 
-### v0.1 enforcement status
+## Common Mistakes
 
-In v0.1, constraint fields are structural declarations — the runtime does not apply WASM import filtering, network sandboxing, or filesystem directory restrictions automatically. Authors are responsible for ensuring their compiled WASM binary matches its declared constraints. Full runtime enforcement is deferred to a future governed slice.
-
-## Authoring Steps
-
-1. Start from the identity triple: choose `namespace`, `name`, and compute `id = namespace.name`.
-2. Set `lifecycle: draft` until the contract passes validation.
-3. Fill in `inputs`, `outputs`, `preconditions`, `postconditions`, and `side_effects` to describe the full business boundary.
-4. Set `execution.binary_format: wasm` (only supported value in v0.1).
-5. Set `execution.entrypoint.kind: wasi-command` and `command: run`.
-6. Choose `execution.preferred_targets` — at minimum `["local"]`.
-7. Set all three `execution.constraints` fields using the values documented above.
-8. If `host_api_access: exception_required`, add the exception reference to `provenance.exception_refs`.
-9. Run `cargo run -p traverse-cli -- validate contracts/path/to/contract.json` to confirm the contract passes structural and semantic validation.
-10. Run `bash scripts/ci/spec_alignment_check.sh` before opening a PR.
+- Leaving schemas permissive (for example, `additionalProperties: true`) and then expecting deterministic validation and stable tool behavior.
+- Declaring side effects implicitly but forgetting to declare `side_effects` and event edges (`emits` / `consumes`).
+- Using `host_api_access: exception_required` without adding an exception reference in `provenance.exception_refs`.
+- Treating `preconditions` / `postconditions` as executable policy. They are documentation, not runtime code.
 
 ## Validation
 
-Run the spec-alignment gate before merging any contract change:
+For doc-only PRs, validate the repo state with:
 
 ```bash
-bash scripts/ci/spec_alignment_check.sh
 bash scripts/ci/repository_checks.sh
+```
+
+For contract changes, also run:
+
+```bash
+cargo test -p traverse-contracts
 ```
 
 ## Related Documents
@@ -137,3 +202,4 @@ bash scripts/ci/repository_checks.sh
 - [`docs/wasm-io-contract.md`](wasm-io-contract.md)
 - [`docs/wasm-agent-authoring-guide.md`](wasm-agent-authoring-guide.md)
 - [`docs/wasm-microservice-authoring-guide.md`](wasm-microservice-authoring-guide.md)
+
