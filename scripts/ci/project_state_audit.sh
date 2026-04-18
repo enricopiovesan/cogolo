@@ -4,28 +4,39 @@ set -euo pipefail
 
 repo="enricopiovesan/Traverse"
 
-open_in_progress_issue_numbers=$(
-  gh issue list --repo "$repo" --state open --json number,labels \
-    | jq -r '.[] | select(any(.labels[]?; .name == "in-progress")) | .number'
-)
-
-project_items_json=$(gh project item-list 1 --owner enricopiovesan --limit 200 --format json)
+project_items_json=$(gh project item-list 1 --owner enricopiovesan --limit 500 --format json)
 
 failures=0
 
-for issue_number in $open_in_progress_issue_numbers; do
-  project_status=$(
-    jq -r --argjson issue_number "$issue_number" '
-      .items[]
-      | select(.content.number == $issue_number)
-      | .status
-    ' <<<"$project_items_json" | head -n 1
-  )
+todo_issue_numbers=$(
+  jq -r '
+    .items[]
+    | select(.content.type == "Issue")
+    | select(.content.repository == "'"$repo"'")
+    | select(.status == "Todo")
+    | .content.number
+  ' <<<"$project_items_json"
+)
 
-  if [[ "$project_status" != "In Progress" ]]; then
-    echo "Issue #$issue_number is labeled in-progress but Project 1 status is '${project_status:-missing}'" >&2
-    failures=$((failures + 1))
-  fi
+for issue_number in $todo_issue_numbers; do
+  echo "Issue #$issue_number is still 'Todo'. Open issues must be moved to 'Ready', 'Blocked', or 'In Progress'." >&2
+  failures=$((failures + 1))
+done
+
+blocked_without_note_issue_numbers=$(
+  jq -r '
+    .items[]
+    | select(.content.type == "Issue")
+    | select(.content.repository == "'"$repo"'")
+    | select(.status == "Blocked")
+    | select((.note // "") | gsub("[[:space:]]+"; "") == "")
+    | .content.number
+  ' <<<"$project_items_json"
+)
+
+for issue_number in $blocked_without_note_issue_numbers; do
+  echo "Issue #$issue_number is 'Blocked' but has no Note. Blocked items must explain the blocker in Project 1's Note field." >&2
+  failures=$((failures + 1))
 done
 
 open_pr_bodies=$(
@@ -37,22 +48,35 @@ while IFS= read -r pr_body; do
   [[ -z "$pr_body" ]] && continue
 
   issue_number=$(
+    set +o pipefail
     grep -Eo 'Project Item[[:space:]]*[-:][[:space:]]*#[0-9]+' <<<"$pr_body" \
       | grep -Eo '[0-9]+' \
-      | head -n 1
+      | head -n 1 \
+      || true
   )
 
   if [[ -z "${issue_number:-}" ]]; then
     continue
   fi
 
-  issue_labels=$(
-    gh issue view "$issue_number" --repo "$repo" --json labels \
-      | jq -r '.labels[].name'
+  project_status=$(
+    jq -r --argjson issue_number "$issue_number" '
+      .items[]
+      | select(.content.type == "Issue")
+      | select(.content.repository == "'"$repo"'")
+      | select(.content.number == $issue_number)
+      | .status
+    ' <<<"$project_items_json" | head -n 1
   )
 
-  if ! grep -qx "in-progress" <<<"$issue_labels"; then
-    echo "Open PR for issue #$issue_number exists but the issue is not labeled in-progress" >&2
+  if [[ -z "${project_status:-}" ]]; then
+    echo "Open PR references issue #$issue_number but that issue is missing from Project 1." >&2
+    failures=$((failures + 1))
+    continue
+  fi
+
+  if [[ "$project_status" != "In Progress" ]]; then
+    echo "Open PR references issue #$issue_number but Project 1 status is '${project_status}'. It must be 'In Progress' while a PR is open." >&2
     failures=$((failures + 1))
   fi
 done <<<"$open_pr_bodies"

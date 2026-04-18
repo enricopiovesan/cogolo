@@ -26,6 +26,9 @@ jobs:
       - name: Run expedition golden path
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_golden_path.sh
 
+      - name: Run zero-to-hero acceptance
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/zero_to_hero_acceptance.sh
+
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
 
