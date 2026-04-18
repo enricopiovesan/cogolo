@@ -108,8 +108,8 @@ pub fn render_federation_status(manifest_path: &Path) -> Result<String, String> 
 fn load_context(manifest_path: &Path) -> Result<LoadedFederationContext, String> {
     let manifest = load_manifest(manifest_path)?;
     let bundle_manifest_path = resolve_relative_path(manifest_path, &manifest.bundle_manifest_path);
-    let registered_bundle = super::load_registered_bundle(&bundle_manifest_path)
-        .map_err(|error| error.to_string())?;
+    let registered_bundle =
+        super::load_registered_bundle(&bundle_manifest_path).map_err(|error| error.to_string())?;
     let peer = manifest.peer.clone().into_peer();
     let trust = manifest.trust.clone().into_trust();
     let mut federation = FederationRegistry::new();

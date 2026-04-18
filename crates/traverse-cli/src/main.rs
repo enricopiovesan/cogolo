@@ -652,14 +652,12 @@ fn register_bundle(manifest_path: &Path) -> Result<String, CliError> {
 }
 
 fn inspect_agent(manifest_path: &Path) -> Result<String, CliError> {
-    let package =
-        load_agent_package(manifest_path).map_err(cli_error_from_agent_package_error)?;
+    let package = load_agent_package(manifest_path).map_err(cli_error_from_agent_package_error)?;
     Ok(package.render_summary())
 }
 
 fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, CliError> {
-    let package =
-        load_agent_package(manifest_path).map_err(cli_error_from_agent_package_error)?;
+    let package = load_agent_package(manifest_path).map_err(cli_error_from_agent_package_error)?;
     let request = load_runtime_request(request_path)?;
     let mut registry = CapabilityRegistry::new();
     registry
@@ -1540,7 +1538,8 @@ fn event_registry_failure_kind(failure: &traverse_registry::EventRegistryFailure
     if failure.errors.iter().any(|error| {
         matches!(
             error.code,
-            EventRegistryErrorCode::DuplicateItem | EventRegistryErrorCode::ImmutableVersionConflict
+            EventRegistryErrorCode::DuplicateItem
+                | EventRegistryErrorCode::ImmutableVersionConflict
         )
     }) {
         return CliErrorKind::Conflict;
@@ -2259,7 +2258,11 @@ mod tests {
             register_bundle(&manifest_path).expect_err("duplicate bundle entries should fail");
 
         assert_eq!(error.exit_code(), ExitCode::from(2));
-        assert!(error.message.contains("duplicate capability artifact entry"));
+        assert!(
+            error
+                .message
+                .contains("duplicate capability artifact entry")
+        );
     }
 
     #[test]
@@ -2426,7 +2429,11 @@ mod tests {
 
         assert_eq!(error.exit_code(), ExitCode::from(1));
         assert!(error.message.contains("runtime execution failed"));
-        assert!(error.message.contains("runtime request input does not satisfy"));
+        assert!(
+            error
+                .message
+                .contains("runtime request input does not satisfy")
+        );
     }
 
     #[test]
