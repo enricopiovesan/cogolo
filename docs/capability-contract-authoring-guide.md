@@ -203,3 +203,154 @@ cargo test -p traverse-contracts
 - [`docs/wasm-agent-authoring-guide.md`](wasm-agent-authoring-guide.md)
 - [`docs/wasm-microservice-authoring-guide.md`](wasm-microservice-authoring-guide.md)
 
+---
+
+## Authoring a Capability Contract From Scratch (#286)
+
+### Minimal working template
+
+The following is the smallest valid `contract.json` you can author. Every field is required unless marked optional.
+
+```json
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "examples.hello-world.say-hello",
+  "namespace": "examples.hello-world",
+  "name": "say-hello",
+  "version": "0.1.0",
+  "lifecycle": "active",
+  "service_type": "stateless",
+  "artifact_type": "native",
+  "description": "Greets a named subject and returns the greeting string.",
+  "input_schema": {
+    "type": "object",
+    "required": ["subject"],
+    "properties": {
+      "subject": { "type": "string", "description": "Name to greet" }
+    }
+  },
+  "output_schema": {
+    "type": "object",
+    "required": ["greeting"],
+    "properties": {
+      "greeting": { "type": "string", "description": "The greeting message" }
+    }
+  },
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": { "kind": "wasi-command", "command": "run" },
+    "preferred_targets": ["local"],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "provenance": {
+    "spec_refs": ["002-capability-contracts"],
+    "exception_refs": []
+  }
+}
+```
+
+### Field-by-field explanation
+
+| Field | Required | Description |
+|-------|----------|-------------|
+| `kind` | Yes | Always `"capability_contract"` |
+| `schema_version` | Yes | Always `"1.0.0"` in v0.x |
+| `id` | Yes | Must equal `namespace + "." + name` |
+| `namespace` | Yes | Dot-separated domain path (e.g. `"examples.hello-world"`) |
+| `name` | Yes | Short identifier within the namespace |
+| `version` | Yes | Semver `MAJOR.MINOR.PATCH` — immutable once registered |
+| `lifecycle` | Yes | Start with `"draft"` until ready, then `"active"` (see Lifecycle section) |
+| `service_type` | Yes | See service_type reference below |
+| `artifact_type` | Yes | `"native"` for WASM binaries, `"wasm"` for explicit WASM-only |
+| `description` | Yes | Human-readable summary of what the capability does |
+| `input_schema` | Yes | JSON Schema object describing the input payload |
+| `output_schema` | Yes | JSON Schema object describing the output payload |
+| `execution` | Yes | Binary format, entrypoint, targets, constraints |
+| `provenance.spec_refs` | Yes | Must include `"002-capability-contracts"` |
+| `provenance.exception_refs` | Yes | Empty array unless `host_api_access: exception_required` |
+
+### Optional fields
+
+| Field | Description |
+|-------|-------------|
+| `emits` | Array of event contract IDs this capability may publish at runtime |
+| `consumes` | Array of event contract IDs this capability subscribes to |
+| `preconditions` | Documentation-only assertions that must hold before invocation (not enforced) |
+| `postconditions` | Documentation-only assertions that must hold after invocation (not enforced) |
+| `side_effects` | Description of observable side effects beyond the output schema |
+
+### `emits` and `consumes` — connecting to event contracts
+
+The `emits` array declares which events this capability may publish via `broker.publish()` at runtime. The runtime validates that the emitted event type is declared here; publishing an undeclared event type causes an `EventError::PolicyViolation`.
+
+```json
+"emits": ["examples.hello-world.greeted"],
+"consumes": []
+```
+
+See [`docs/event-contract-authoring-guide.md`](event-contract-authoring-guide.md) for how to define the event contract itself.
+
+### `preconditions` and `postconditions` — documentation only
+
+These fields hold assertions about the state of the world before and after capability execution:
+
+```json
+"preconditions": [
+  { "id": "pre-001", "description": "Subject name must be non-empty" }
+],
+"postconditions": [
+  { "id": "post-001", "description": "Greeting string is non-empty and contains the subject name" }
+]
+```
+
+**These are not enforced by the runtime in v0.x.** The runtime does not evaluate preconditions before execution or postconditions after. They are purely documentation — useful for human review, spec coverage, and future tooling. State this explicitly to consumers of your contract.
+
+---
+
+## `service_type` Reference (#295)
+
+| Value | Meaning | Runtime implications |
+|-------|---------|---------------------|
+| `"stateless"` | Each invocation is independent; no state persists between calls | Runtime may freely re-invoke in any order; no session affinity required |
+| `"stateful"` | The capability maintains internal state across invocations | Runtime must respect session affinity if applicable; state management is the author's responsibility |
+| `"idempotent"` | Repeated invocation with identical inputs produces identical outputs with no side effects | Runtime may safely retry on transient failure |
+
+**All expedition and hello-world examples use `"stateless"`**, which is the correct value for pure-computation WASM capabilities that receive all state through their input JSON.
+
+Use `"stateful"` only for capabilities that explicitly manage a persistent resource (e.g. a database connection, file handle, or accumulated session). Document the state lifecycle in `description`.
+
+---
+
+## Validate Before Registering (#298)
+
+Before opening a PR or registering a contract, run the spec-alignment gate against your contract:
+
+```bash
+# From repo root
+bash scripts/ci/spec_alignment_check.sh
+
+# Full repository check (includes contract schema validation)
+bash scripts/ci/repository_checks.sh
+```
+
+If you want to validate a single contract file's JSON structure locally:
+
+```bash
+cargo run -p traverse-cli -- bundle inspect contracts/path/to/your/bundle/manifest.json
+```
+
+The bundle inspect command will surface any structural issues (missing required fields, unknown values) before you attempt registration.
+
+Common validation errors and fixes:
+
+| Error | Fix |
+|-------|-----|
+| `missing required field 'service_type'` | Add `"service_type": "stateless"` to the contract root |
+| `missing required field 'artifact_type'` | Add `"artifact_type": "native"` to the contract root |
+| `host_api_access: exception_required but no exception_refs` | Add at least one entry to `provenance.exception_refs` |
+| `id does not match namespace.name` | Set `id` to exactly `namespace + "." + name` |

@@ -68,3 +68,111 @@ That smoke path confirms the guide points at the governed template, the approved
 - treating the example as a general microservice instead of a governed agent package
 - forgetting to link the agent package to a workflow reference
 - changing the binary digest without rebuilding the fixture
+
+---
+
+## Template Stub vs. Real Implementation (#289)
+
+The package template at `examples/templates/executable-capability-package/src/implementation.rs` contains a minimal stub:
+
+```rust
+pub fn run() -> &'static str { "" }
+```
+
+This is a placeholder **not a starting point for logic**. A real WASM agent reads a JSON payload from stdin, processes it, and writes a JSON result to stdout. The expedition agent (`crates/traverse-expedition-wasm/src/main.rs`) is the canonical reference for a complete implementation.
+
+### Minimal real WASM agent
+
+```rust
+use std::io::{self, Read, Write};
+
+fn main() {
+    // Read entire stdin as JSON input
+    let mut input = String::new();
+    io::stdin().read_to_string(&mut input).unwrap_or_default();
+
+    let request: serde_json::Value = serde_json::from_str(&input)
+        .unwrap_or(serde_json::Value::Null);
+
+    // Process — replace with your logic
+    let subject = request
+        .get("subject")
+        .and_then(|v| v.as_str())
+        .unwrap_or("world");
+
+    let output = serde_json::json!({ "greeting": format!("Hello, {}!", subject) });
+
+    // Write JSON result to stdout
+    let _ = io::stdout().write_all(output.to_string().as_bytes());
+}
+```
+
+The stdin/stdout JSON I/O contract is documented in [`docs/wasm-io-contract.md`](wasm-io-contract.md).
+
+### Building for WASM
+
+```bash
+cargo build \
+  --manifest-path examples/your-agent/Cargo.toml \
+  --target wasm32-wasip1 \
+  --release
+```
+
+The output binary is at `target/wasm32-wasip1/release/your-agent.wasm`.
+
+---
+
+## `build-fixture.sh` Scripts (#299)
+
+Example agents include a `build-fixture.sh` script (e.g. `examples/hello-world/say-hello-agent/build-fixture.sh`). This script:
+
+1. Compiles the WASM binary from source using `cargo build --target wasm32-wasip1`
+2. Copies the output to a deterministic `fixture/` path inside the example directory
+3. Updates the expected SHA-256 digest in the agent's `manifest.json`
+
+**Why fixtures matter**: The capability registry enforces immutability — once a version is registered, its digest must not change. If you rebuild a WASM binary and the digest changes, re-registration of the same version will fail with `ImmutableVersionConflict`. Fixtures ensure the checked-in binary and digest are always in sync.
+
+**Do all agents need one?** Only agents with integration tests or CI smoke paths. If your agent is only used locally and not part of the CI smoke path, you do not need a fixture script. But any agent included in `scripts/ci/` smoke paths must have a deterministic fixture.
+
+### Minimal `build-fixture.sh` template
+
+```bash
+#!/usr/bin/env bash
+set -euo pipefail
+
+AGENT_DIR="$(cd "$(dirname "$0")" && pwd)"
+MANIFEST="$AGENT_DIR/manifest.json"
+
+# Build the WASM binary
+cargo build \
+  --manifest-path "$AGENT_DIR/Cargo.toml" \
+  --target wasm32-wasip1 \
+  --release 2>&1
+
+# Copy to fixture location
+mkdir -p "$AGENT_DIR/fixture"
+cp "target/wasm32-wasip1/release/$(basename "$AGENT_DIR").wasm" \
+   "$AGENT_DIR/fixture/agent.wasm"
+
+# Print the new digest for manual update of manifest.json
+shasum -a 256 "$AGENT_DIR/fixture/agent.wasm"
+echo "Update manifest.json binary.digest with the value above."
+```
+
+---
+
+## `model_dependencies` (#296)
+
+Agent manifests may declare `model_dependencies` — abstract interface names that describe which language model interfaces the agent relies on:
+
+```json
+"model_dependencies": [
+  "expedition-intent-interpretation-v1"
+]
+```
+
+**What they are**: Named contracts for LLM interface behaviour (e.g. "given this prompt format, return this JSON shape"). They are abstract — not tied to a specific model provider.
+
+**How the runtime uses them**: In v0.1, `model_dependencies` are **documentation-only**. The runtime records them in the agent manifest but does not resolve or inject a model implementation automatically. The agent is responsible for calling the appropriate model API inside its WASM binary.
+
+**How to declare a new interface**: Choose a name that describes the capability + version (e.g. `"my-domain-classification-v1"`). Document the expected prompt format and output schema in a companion markdown file alongside the agent. There is no central interface registry in v0.1; naming is by convention.
