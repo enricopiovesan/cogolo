@@ -64,6 +64,7 @@ Use this as the human and agent navigation hub for the supported docs:
 | Follow the full onboarding sequence | [docs/tutorial-index.md](docs/tutorial-index.md) | [quickstart.md](quickstart.md) |
 | Run the first app-consumable flow | [quickstart.md](quickstart.md) | [docs/app-consumable-entry-path.md](docs/app-consumable-entry-path.md) |
 | Author your first capability contract | [docs/capability-contract-authoring-guide.md](docs/capability-contract-authoring-guide.md) | [docs/getting-started.md](docs/getting-started.md) |
+| Author your first event contract | [docs/event-contract-authoring-guide.md](docs/event-contract-authoring-guide.md) | [docs/event-publishing-tutorial.md](docs/event-publishing-tutorial.md) |
 | Build WASM-hosted capabilities | [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) | [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) |
 | Integrate a downstream app like `youaskm3` | [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) | [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) |
 | Review runtime and MCP release surfaces | [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) | [docs/packaged-traverse-mcp-server-artifact.md](docs/packaged-traverse-mcp-server-artifact.md) |
