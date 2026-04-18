@@ -152,7 +152,7 @@ This project supports AI-assisted development with Codex and Claude Code running
 | `traverse-contracts` | Contract definitions, parsing, and validation |
 | `traverse-registry` | Capability and event registries with deterministic traversal |
 | `traverse-cli` | Command-line interface: register, list, validate, run |
-| `traverse-mcp` | Model Context Protocol surface (in progress) |
+| `traverse-mcp` | Model Context Protocol stdio server and governed MCP-facing surface |
 
 ### Governance
 
@@ -177,6 +177,8 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 #### Build and authoring guides
 
 - [docs/expedition-example-authoring.md](docs/expedition-example-authoring.md) — canonical example authoring flow
+- [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
+- [docs/mcp-stdio-server.md](docs/mcp-stdio-server.md) — supported MCP server bootstrap path and command surface
 - [docs/wasm-agent-authoring-guide.md](docs/wasm-agent-authoring-guide.md) — how to create new WASM agents
 - [docs/wasm-agent-team-readiness-example.md](docs/wasm-agent-team-readiness-example.md) — second governed WASM AI agent example
 - [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) — how to create new WASM microservices
