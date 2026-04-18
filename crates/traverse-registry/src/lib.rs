@@ -186,6 +186,10 @@ pub struct RegistrationOutcome {
     pub artifact: CapabilityArtifactRecord,
     pub index_entry: DiscoveryIndexEntry,
     pub evidence: RegistrationEvidence,
+    /// `true` when the exact same version and digest were already in the
+    /// registry — the call was a no-op (idempotent).  `false` on first
+    /// registration of this version.
+    pub already_registered: bool,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -283,6 +287,20 @@ impl CapabilityRegistry {
     }
 
     /// Registers a capability publication into the registry.
+    ///
+    /// # Idempotency
+    ///
+    /// Re-registering the same version with the same digest and metadata
+    /// succeeds silently and returns the existing record with
+    /// [`RegistrationOutcome::already_registered`] set to `true`.  No state
+    /// is mutated.  This means an agent that crashes after registering but
+    /// before recording the outcome can safely retry — the retry will succeed
+    /// and produce the same `RegistrationOutcome` as the original call.
+    ///
+    /// Re-registering the same version with a *different* digest or metadata
+    /// returns [`RegistryErrorCode::ImmutableVersionConflict`].  Published
+    /// versions are immutable; to ship a correction, publish a new semver
+    /// version.
     ///
     /// # Errors
     ///
@@ -393,6 +411,7 @@ impl CapabilityRegistry {
             record,
             artifact,
             index_entry,
+            already_registered: false,
         })
     }
 
@@ -501,6 +520,7 @@ impl CapabilityRegistry {
                 record: existing.clone(),
                 artifact: existing_artifact.clone(),
                 index_entry: existing_index.clone(),
+                already_registered: true,
             });
         }
 
