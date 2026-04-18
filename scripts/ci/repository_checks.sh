@@ -14,6 +14,7 @@ required_files=(
   ".specify/memory/constitution.md"
   "docs/quality-standards.md"
   "docs/compatibility-policy.md"
+  "docs/troubleshooting.md"
   "docs/adapter-boundaries.md"
   "docs/contract-publication-policy.md"
   "docs/expedition-example-authoring.md"
@@ -118,6 +119,7 @@ grep -q "GitHub Project 1" README.md
 grep -q "Apache-2.0" README.md
 grep -q "personal research" README.md
 grep -q "docs/adapter-boundaries.md" README.md
+grep -q "docs/troubleshooting.md" README.md
 grep -q "docs/getting-started.md" README.md
 grep -q "quickstart.md" README.md
 grep -q "Definition of Done" docs/ticket-standard.md
@@ -239,11 +241,19 @@ grep -q "cargo run -p traverse-cli -- bundle register examples/expedition/regist
 grep -q "workflows/examples/expedition/plan-expedition/workflow.json" docs/expedition-example-authoring.md
 grep -q ".traverse/local/" docs/expedition-example-authoring.md
 grep -q "capture-expedition-objective/contract.json" docs/getting-started.md
+grep -q "docs/troubleshooting.md" docs/getting-started.md
 grep -q "examples/hello-world/README.md" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- bundle register" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- expedition execute" docs/getting-started.md
 grep -q "cargo run -p traverse-cli -- trace inspect" docs/getting-started.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/getting-started.md
+grep -q "docs/troubleshooting.md" quickstart.md
+grep -q "docs/troubleshooting.md" docs/tutorial-index.md
+grep -q "Repository Checks" docs/troubleshooting.md
+grep -q "Rust Checks" docs/troubleshooting.md
+grep -q "Coverage Gate" docs/troubleshooting.md
+grep -q "Spec Alignment" docs/troubleshooting.md
+grep -q "Generated Local State And Safe Cleanup" docs/troubleshooting.md
 grep -q "cargo run -p traverse-cli -- agent execute" examples/hello-world/README.md
 grep -q "hello.world.say-hello" examples/hello-world/README.md
 grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md

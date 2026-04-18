@@ -200,6 +200,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 - [docs/adapter-boundaries.md](docs/adapter-boundaries.md) — adapter and portability boundaries
 - [docs/quality-standards.md](docs/quality-standards.md) — non-negotiable quality rules
 - [docs/compatibility-policy.md](docs/compatibility-policy.md) — versioning and compatibility
+- [docs/troubleshooting.md](docs/troubleshooting.md) — shortest path through common local and CI failures
 - [docs/multi-thread-workflow.md](docs/multi-thread-workflow.md) — parallel agent workflow
 - [docs/project-management.md](docs/project-management.md) — issue and board rules
 - [docs/adr/README.md](docs/adr/README.md) — architecture decision records

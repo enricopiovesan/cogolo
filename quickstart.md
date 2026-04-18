@@ -90,3 +90,5 @@ Run repository checks:
 ```bash
 bash scripts/ci/repository_checks.sh
 ```
+
+If one of those commands fails and you need the shortest diagnosis path, use [docs/troubleshooting.md](docs/troubleshooting.md).
