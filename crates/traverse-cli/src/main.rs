@@ -19,9 +19,10 @@ use traverse_contracts::{
 use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
-    CompositionPattern, EventRegistration, EventRegistry, ImplementationKind, RegistryBundle,
-    RegistryProvenance, SourceKind, SourceReference, WorkflowDefinition, WorkflowReference,
-    WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
+    CompositionPattern, DiscoveryQuery, EventRegistration, EventRegistry, ImplementationKind,
+    LookupScope, RegistryBundle, RegistryProvenance, SourceKind, SourceReference,
+    WorkflowDefinition, WorkflowReference, WorkflowRegistration, WorkflowRegistry,
+    load_registry_bundle,
 };
 use traverse_runtime::{
     LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, Runtime,
@@ -33,9 +34,11 @@ use traverse_runtime::{
 enum Command {
     BundleInspect {
         manifest_path: PathBuf,
+        json_output: bool,
     },
     BundleRegister {
         manifest_path: PathBuf,
+        json_output: bool,
     },
     BrowserAdapterServe {
         bind_address: String,
@@ -59,6 +62,12 @@ enum Command {
     ExpeditionExecute {
         request_path: PathBuf,
         trace_output_path: Option<PathBuf>,
+        json_output: bool,
+        validate_only: bool,
+    },
+    CapabilityDiscover {
+        manifest_path: PathBuf,
+        json_output: bool,
     },
     Event {
         contract_path: PathBuf,
@@ -69,6 +78,33 @@ enum Command {
     Workflow {
         workflow_path: PathBuf,
     },
+}
+
+#[derive(Debug)]
+enum CliError {
+    ExecutionFailed(String),
+    ValidationFailed(String),
+    RegistrationConflict(String),
+    IoError(String),
+    UsageError(String),
+}
+
+impl CliError {
+    fn message(&self) -> &str {
+        match self {
+            CliError::ExecutionFailed(m)
+            | CliError::ValidationFailed(m)
+            | CliError::RegistrationConflict(m)
+            | CliError::IoError(m)
+            | CliError::UsageError(m) => m,
+        }
+    }
+}
+
+impl std::fmt::Display for CliError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
 }
 
 fn main() -> ExitCode {
@@ -87,35 +123,74 @@ fn main() -> ExitCode {
                 println!("{output}");
                 ExitCode::SUCCESS
             }
-            Err(error) => {
-                eprintln!("{error}");
-                ExitCode::FAILURE
+            Err(CliError::ExecutionFailed(msg)) => {
+                eprintln!("{msg}");
+                ExitCode::from(1)
+            }
+            Err(CliError::ValidationFailed(msg)) => {
+                eprintln!("{msg}");
+                ExitCode::from(2)
+            }
+            Err(CliError::RegistrationConflict(msg)) => {
+                eprintln!("{msg}");
+                ExitCode::from(3)
+            }
+            Err(CliError::IoError(msg)) => {
+                eprintln!("{msg}");
+                ExitCode::from(4)
+            }
+            Err(CliError::UsageError(msg)) => {
+                eprintln!("{msg}");
+                ExitCode::from(5)
             }
         },
         Err(error) => {
             eprintln!("{error}");
-            ExitCode::FAILURE
+            ExitCode::from(5)
         }
     }
 }
 
-fn run_command(command: Command) -> Result<String, String> {
+fn run_command(command: Command) -> Result<String, CliError> {
     match command {
-        Command::BundleInspect { manifest_path } => inspect_bundle(&manifest_path),
-        Command::BundleRegister { manifest_path } => register_bundle(&manifest_path),
-        Command::BrowserAdapterServe { .. } => Err(usage()),
+        Command::BundleInspect {
+            manifest_path,
+            json_output,
+        } => inspect_bundle(&manifest_path, json_output),
+        Command::BundleRegister {
+            manifest_path,
+            json_output,
+        } => register_bundle(&manifest_path, json_output),
+        Command::BrowserAdapterServe { .. } => Err(CliError::UsageError(usage())),
         Command::AgentInspect { manifest_path } => inspect_agent(&manifest_path),
         Command::AgentExecute {
             manifest_path,
             request_path,
         } => execute_agent(&manifest_path, &request_path),
-        Command::FederationPeers { manifest_path } => render_federation_peers(&manifest_path),
-        Command::FederationSync { manifest_path } => render_federation_sync(&manifest_path),
-        Command::FederationStatus { manifest_path } => render_federation_status(&manifest_path),
+        Command::FederationPeers { manifest_path } => {
+            render_federation_peers(&manifest_path).map_err(CliError::IoError)
+        }
+        Command::FederationSync { manifest_path } => {
+            render_federation_sync(&manifest_path).map_err(CliError::IoError)
+        }
+        Command::FederationStatus { manifest_path } => {
+            render_federation_status(&manifest_path).map_err(CliError::IoError)
+        }
         Command::ExpeditionExecute {
             request_path,
             trace_output_path,
-        } => execute_expedition(&request_path, trace_output_path.as_deref()),
+            json_output,
+            validate_only,
+        } => execute_expedition(
+            &request_path,
+            trace_output_path.as_deref(),
+            json_output,
+            validate_only,
+        ),
+        Command::CapabilityDiscover {
+            manifest_path,
+            json_output,
+        } => discover_capabilities(&manifest_path, json_output),
         Command::Event { contract_path } => inspect_event(&contract_path),
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::Workflow { workflow_path } => inspect_workflow(&workflow_path),
@@ -144,6 +219,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("federation"), Some(_)) => parse_federation_command(args),
         (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
+        (Some("capability"), Some("discover")) => parse_capability_discover_command(args),
         _ => parse_fixed_arity_command(args),
     }
 }
@@ -161,6 +237,7 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("expedition"), Some("execute")) => help_expedition_execute(),
         (Some("expedition"), _) => help_expedition(),
         (Some("capability"), Some("inspect")) => help_capability_inspect(),
+        (Some("capability"), Some("discover")) => help_capability_discover(),
         (Some("capability"), _) => help_capability(),
         (Some("event"), Some("inspect")) => help_event_inspect(),
         (Some("event"), _) => help_event(),
@@ -355,13 +432,35 @@ fn help_capability_inspect() -> String {
         .to_string()
 }
 
+fn help_capability_discover() -> String {
+    "traverse-cli capability discover <manifest-path> [--json]
+
+  Purpose:
+    Load a registry bundle and list all discovered capabilities from the
+    in-memory registry. Outputs capability IDs and versions in human-readable
+    or JSON format.
+
+  Required arguments:
+    <manifest-path>   Path to the registry bundle manifest.json file.
+
+  Optional flags:
+    --json            Output structured JSON instead of human-readable text.
+    --help            Print this help text.
+
+  Example:
+    traverse-cli capability discover examples/expedition/registry-bundle/manifest.json
+    traverse-cli capability discover examples/expedition/registry-bundle/manifest.json --json"
+        .to_string()
+}
+
 fn help_capability() -> String {
     "traverse-cli capability <subcommand> [options]
 
   Subcommands:
-    inspect <contract-path>   Parse and validate a capability contract.
+    inspect <contract-path>         Parse and validate a capability contract.
+    discover <manifest-path>        List capabilities from a registry bundle.
 
-  Run `traverse-cli capability inspect --help` for subcommand-specific help."
+  Run `traverse-cli capability <subcommand> --help` for subcommand-specific help."
         .to_string()
 }
 
@@ -465,37 +564,46 @@ fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
 }
 
 fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
-    if args.len() != 4 {
+    let json_output = args.iter().any(|a| a == "--json");
+
+    // Allow optional --json flag: 4 args (no flag) or 5 args (with --json)
+    let positional_count = args.len() - usize::from(json_output);
+    if positional_count != 4 {
         return Err(usage());
     }
 
-    match (args[1].as_str(), args[2].as_str()) {
+    // Collect positional args (skip the --json flag)
+    let positional: Vec<&String> = args.iter().filter(|a| a.as_str() != "--json").collect();
+
+    match (positional[1].as_str(), positional[2].as_str()) {
         ("bundle", "inspect") => Ok(Command::BundleInspect {
-            manifest_path: PathBuf::from(&args[3]),
+            manifest_path: PathBuf::from(positional[3]),
+            json_output,
         }),
         ("bundle", "register") => Ok(Command::BundleRegister {
-            manifest_path: PathBuf::from(&args[3]),
+            manifest_path: PathBuf::from(positional[3]),
+            json_output,
         }),
         ("agent", "inspect") => Ok(Command::AgentInspect {
-            manifest_path: PathBuf::from(&args[3]),
+            manifest_path: PathBuf::from(positional[3]),
         }),
         ("federation", "peers") => Ok(Command::FederationPeers {
-            manifest_path: PathBuf::from(&args[3]),
+            manifest_path: PathBuf::from(positional[3]),
         }),
         ("federation", "sync") => Ok(Command::FederationSync {
-            manifest_path: PathBuf::from(&args[3]),
+            manifest_path: PathBuf::from(positional[3]),
         }),
         ("federation", "status") => Ok(Command::FederationStatus {
-            manifest_path: PathBuf::from(&args[3]),
+            manifest_path: PathBuf::from(positional[3]),
         }),
         ("event", "inspect") => Ok(Command::Event {
-            contract_path: PathBuf::from(&args[3]),
+            contract_path: PathBuf::from(positional[3]),
         }),
         ("trace", "inspect") => Ok(Command::TraceInspect {
-            trace_path: PathBuf::from(&args[3]),
+            trace_path: PathBuf::from(positional[3]),
         }),
         ("workflow", "inspect") => Ok(Command::Workflow {
-            workflow_path: PathBuf::from(&args[3]),
+            workflow_path: PathBuf::from(positional[3]),
         }),
         _ => Err(usage()),
     }
@@ -527,54 +635,141 @@ fn parse_federation_command(args: &[String]) -> Result<Command, String> {
 }
 
 fn parse_expedition_execute_command(args: &[String]) -> Result<Command, String> {
-    match args {
+    let json_output = args.iter().any(|a| a == "--json");
+    let validate_only = args.iter().any(|a| a == "--validate-only");
+
+    // Collect positional args (skip --json and --validate-only flags)
+    let positional: Vec<&String> = args
+        .iter()
+        .filter(|a| a.as_str() != "--json" && a.as_str() != "--validate-only")
+        .collect();
+
+    match positional.as_slice() {
         [_, _, _, request_path] => Ok(Command::ExpeditionExecute {
-            request_path: PathBuf::from(request_path),
+            request_path: PathBuf::from(*request_path),
             trace_output_path: None,
+            json_output,
+            validate_only,
         }),
-        [_, _, _, request_path, flag, trace_output_path] if flag == "--trace-out" => {
+        [_, _, _, request_path, flag, trace_output_path] if flag.as_str() == "--trace-out" => {
             Ok(Command::ExpeditionExecute {
-                request_path: PathBuf::from(request_path),
-                trace_output_path: Some(PathBuf::from(trace_output_path)),
+                request_path: PathBuf::from(*request_path),
+                trace_output_path: Some(PathBuf::from(*trace_output_path)),
+                json_output,
+                validate_only,
             })
         }
         _ => Err(usage()),
     }
 }
 
-fn inspect_bundle(manifest_path: &Path) -> Result<String, String> {
-    let bundle =
-        load_registry_bundle(manifest_path).map_err(|failure| failure.errors[0].message.clone())?;
-    Ok(render_bundle_summary(&bundle))
+fn parse_capability_discover_command(args: &[String]) -> Result<Command, String> {
+    let json_output = args.iter().any(|a| a == "--json");
+    let positional: Vec<&String> = args.iter().filter(|a| a.as_str() != "--json").collect();
+
+    match positional.as_slice() {
+        [_, _, _, manifest_path] => Ok(Command::CapabilityDiscover {
+            manifest_path: PathBuf::from(*manifest_path),
+            json_output,
+        }),
+        _ => Err(usage()),
+    }
 }
 
-fn register_bundle(manifest_path: &Path) -> Result<String, String> {
+fn inspect_bundle(manifest_path: &Path, json_output: bool) -> Result<String, CliError> {
+    let bundle = load_registry_bundle(manifest_path)
+        .map_err(|failure| CliError::IoError(failure.errors[0].message.clone()))?;
+    if json_output {
+        let json = serde_json::json!({
+            "bundle_id": bundle.bundle_id,
+            "version": bundle.version,
+            "scope": format!("{:?}", bundle.scope).to_lowercase(),
+            "capabilities": bundle.capabilities.len(),
+            "events": bundle.events.len(),
+            "workflows": bundle.workflows.len(),
+            "capability_ids": bundle.capabilities.iter().map(|c| format!("{}@{}", c.manifest.id, c.manifest.version)).collect::<Vec<_>>(),
+            "event_ids": bundle.events.iter().map(|e| format!("{}@{}", e.manifest.id, e.manifest.version)).collect::<Vec<_>>(),
+            "workflow_ids": bundle.workflows.iter().map(|w| format!("{}@{}", w.manifest.id, w.manifest.version)).collect::<Vec<_>>(),
+        });
+        serde_json::to_string_pretty(&json)
+            .map_err(|e| CliError::IoError(format!("failed to serialize bundle summary: {e}")))
+    } else {
+        Ok(render_bundle_summary(&bundle))
+    }
+}
+
+fn register_bundle(manifest_path: &Path, json_output: bool) -> Result<String, CliError> {
     let registered = load_registered_bundle(manifest_path)?;
-    Ok(render_bundle_registration_summary(
-        &registered.bundle,
-        &registered.capability_records,
-        &registered.event_records,
-        &registered.workflow_records,
-    ))
+    if json_output {
+        let json = serde_json::json!({
+            "registered_capabilities": registered.capability_records.len(),
+            "registered_events": registered.event_records.len(),
+            "registered_workflows": registered.workflow_records.len(),
+        });
+        serde_json::to_string_pretty(&json).map_err(|e| {
+            CliError::IoError(format!("failed to serialize registration summary: {e}"))
+        })
+    } else {
+        Ok(render_bundle_registration_summary(
+            &registered.bundle,
+            &registered.capability_records,
+            &registered.event_records,
+            &registered.workflow_records,
+        ))
+    }
 }
 
-fn inspect_agent(manifest_path: &Path) -> Result<String, String> {
-    let package = load_agent_package(manifest_path)?;
+fn discover_capabilities(manifest_path: &Path, json_output: bool) -> Result<String, CliError> {
+    let registered = load_registered_bundle(manifest_path)?;
+    let entries = registered
+        .capability_registry
+        .discover(LookupScope::PreferPrivate, &DiscoveryQuery::default());
+
+    if json_output {
+        let json_entries: Vec<serde_json::Value> = entries
+            .iter()
+            .map(|entry| {
+                serde_json::json!({
+                    "id": entry.id,
+                    "version": entry.version,
+                    "scope": format!("{:?}", entry.scope).to_lowercase(),
+                    "lifecycle": format!("{:?}", entry.lifecycle).to_lowercase(),
+                    "implementation_kind": format!("{:?}", entry.implementation_kind).to_lowercase(),
+                    "summary": entry.summary,
+                    "tags": entry.tags,
+                })
+            })
+            .collect();
+        serde_json::to_string_pretty(&serde_json::Value::Array(json_entries))
+            .map_err(|e| CliError::IoError(format!("failed to serialize discovery results: {e}")))
+    } else {
+        let lines: Vec<String> = entries
+            .iter()
+            .map(|entry| format!("{}@{}", entry.id, entry.version))
+            .collect();
+        Ok(lines.join("\n"))
+    }
+}
+
+fn inspect_agent(manifest_path: &Path) -> Result<String, CliError> {
+    let package = load_agent_package(manifest_path).map_err(CliError::IoError)?;
     Ok(package.render_summary())
 }
 
-fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, String> {
-    let package = load_agent_package(manifest_path)?;
+fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, CliError> {
+    let package = load_agent_package(manifest_path).map_err(CliError::IoError)?;
     let request = load_runtime_request(request_path)?;
     let mut registry = CapabilityRegistry::new();
     registry
         .register(package.capability_registration())
-        .map_err(render_registry_failure)?;
+        .map_err(|f| CliError::RegistrationConflict(render_registry_failure(f)))?;
     let runtime = Runtime::new(registry, AgentPackageExampleExecutor);
     let outcome = runtime.execute(request);
 
     if outcome.result.status == RuntimeResultStatus::Error {
-        return Err(render_runtime_execution_failure(&outcome));
+        return Err(CliError::ExecutionFailed(render_runtime_execution_failure(
+            &outcome,
+        )));
     }
 
     Ok(render_agent_execution_summary(
@@ -587,31 +782,83 @@ fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, St
 fn execute_expedition(
     request_path: &Path,
     trace_output_path: Option<&Path>,
-) -> Result<String, String> {
+    json_output: bool,
+    validate_only: bool,
+) -> Result<String, CliError> {
+    if validate_only {
+        return validate_expedition_request(request_path);
+    }
+
     let outcome = execute_expedition_outcome(request_path)?;
 
     if outcome.result.status == RuntimeResultStatus::Error {
-        return Err(render_runtime_execution_failure(&outcome));
+        return Err(CliError::ExecutionFailed(render_runtime_execution_failure(
+            &outcome,
+        )));
     }
 
     if let Some(path) = trace_output_path {
         write_trace_artifact(path, &outcome.trace)?;
     }
 
-    Ok(render_runtime_execution_summary(
-        &outcome,
-        trace_output_path,
+    if json_output {
+        serde_json::to_string_pretty(&outcome.trace)
+            .map_err(|e| CliError::IoError(format!("failed to serialize runtime trace: {e}")))
+    } else {
+        Ok(render_runtime_execution_summary(
+            &outcome,
+            trace_output_path,
+        ))
+    }
+}
+
+fn validate_expedition_request(request_path: &Path) -> Result<String, CliError> {
+    let request = load_runtime_request(request_path)?;
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
+
+    let capability_id = request
+        .intent
+        .capability_id
+        .as_deref()
+        .unwrap_or("expedition.planning.plan-expedition");
+    let capability_version = request
+        .intent
+        .capability_version
+        .as_deref()
+        .unwrap_or("1.0.0");
+
+    if registered
+        .capability_registry
+        .find_exact(
+            LookupScope::PreferPrivate,
+            capability_id,
+            capability_version,
+        )
+        .is_none()
+    {
+        return Err(CliError::ValidationFailed(format!(
+            "capability {capability_id}@{capability_version} not found in registry"
+        )));
+    }
+
+    Ok(format!(
+        "validation passed: {capability_id}@{capability_version} is registered"
     ))
 }
 
-fn canonical_expedition_runtime_outcome() -> Result<RuntimeExecutionOutcome, String> {
+fn canonical_expedition_runtime_outcome() -> Result<RuntimeExecutionOutcome, CliError> {
     execute_expedition_outcome(&canonical_expedition_request_path())
 }
 
-fn inspect_event(contract_path: &Path) -> Result<String, String> {
+fn inspect_event(contract_path: &Path) -> Result<String, CliError> {
     let contents = read_text_file(contract_path, "event contract")?;
-    let parsed = parse_event_contract(&contents)
-        .map_err(|failure| render_validation_failure("event contract", contract_path, failure))?;
+    let parsed = parse_event_contract(&contents).map_err(|failure| {
+        CliError::ValidationFailed(render_validation_failure(
+            "event contract",
+            contract_path,
+            failure,
+        ))
+    })?;
     let validated = validate_event_contract(
         parsed,
         &EventValidationContext {
@@ -620,38 +867,48 @@ fn inspect_event(contract_path: &Path) -> Result<String, String> {
             existing_published: None,
         },
     )
-    .map_err(|failure| render_validation_failure("event contract", contract_path, failure))?;
+    .map_err(|failure| {
+        CliError::ValidationFailed(render_validation_failure(
+            "event contract",
+            contract_path,
+            failure,
+        ))
+    })?;
 
     Ok(render_event_summary(contract_path, &validated.normalized))
 }
 
-fn inspect_workflow(workflow_path: &Path) -> Result<String, String> {
+fn inspect_workflow(workflow_path: &Path) -> Result<String, CliError> {
     let contents = read_text_file(workflow_path, "workflow artifact")?;
     let definition = serde_json::from_str::<WorkflowDefinition>(&contents).map_err(|error| {
-        format!(
+        CliError::ValidationFailed(format!(
             "failed to parse workflow artifact {}: {error}",
             workflow_path.display()
-        )
+        ))
     })?;
 
     Ok(render_workflow_summary(workflow_path, &definition))
 }
 
-fn inspect_trace(trace_path: &Path) -> Result<String, String> {
+fn inspect_trace(trace_path: &Path) -> Result<String, CliError> {
     let contents = read_text_file(trace_path, "runtime trace")?;
     let trace = serde_json::from_str::<RuntimeTrace>(&contents).map_err(|error| {
-        format!(
+        CliError::ValidationFailed(format!(
             "failed to parse runtime trace {}: {error}",
             trace_path.display()
-        )
+        ))
     })?;
 
     Ok(render_trace_summary(trace_path, &trace))
 }
 
-fn read_text_file(path: &Path, artifact_kind: &str) -> Result<String, String> {
-    fs::read_to_string(path)
-        .map_err(|error| format!("failed to read {artifact_kind} {}: {error}", path.display()))
+fn read_text_file(path: &Path, artifact_kind: &str) -> Result<String, CliError> {
+    fs::read_to_string(path).map_err(|error| {
+        CliError::IoError(format!(
+            "failed to read {artifact_kind} {}: {error}",
+            path.display()
+        ))
+    })
 }
 
 fn render_validation_failure(
@@ -976,24 +1233,28 @@ fn usage() -> String {
     "usage: traverse-cli <bundle|agent|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>]".to_string()
 }
 
-fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), String> {
+fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), CliError> {
     if let Some(parent) = path.parent() {
         fs::create_dir_all(parent).map_err(|error| {
-            format!(
+            CliError::IoError(format!(
                 "failed to create trace artifact directory {}: {error}",
                 parent.display()
-            )
+            ))
         })?;
     }
 
     let serialized = serde_json::to_string_pretty(trace).map_err(|error| {
-        format!(
+        CliError::IoError(format!(
             "failed to serialize runtime trace {}: {error}",
             path.display()
-        )
+        ))
     })?;
-    fs::write(path, format!("{serialized}\n"))
-        .map_err(|error| format!("failed to write runtime trace {}: {error}", path.display()))
+    fs::write(path, format!("{serialized}\n")).map_err(|error| {
+        CliError::IoError(format!(
+            "failed to write runtime trace {}: {error}",
+            path.display()
+        ))
+    })
 }
 
 fn debug_enum_to_snake_case(value: &str) -> String {
@@ -1077,7 +1338,7 @@ impl LocalExecutor for AgentPackageExampleExecutor {
 fn build_capability_registration(
     bundle: &RegistryBundle,
     capability: &traverse_registry::CapabilityBundleArtifact,
-) -> Result<CapabilityRegistration, String> {
+) -> Result<CapabilityRegistration, CliError> {
     let raw_contract = read_text_file(&capability.path, "capability contract")?;
     let envelope =
         parse_capability_registration_envelope(&raw_contract, capability.path.as_path())?;
@@ -1100,9 +1361,11 @@ fn build_capability_registration(
     })
 }
 
-fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, String> {
-    let bundle =
-        load_registry_bundle(manifest_path).map_err(|failure| failure.errors[0].message.clone())?;
+fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, CliError> {
+    let bundle = load_registry_bundle(manifest_path).map_err(|failure| {
+        let msg = failure.errors[0].message.clone();
+        CliError::IoError(msg)
+    })?;
 
     let mut capability_registry = CapabilityRegistry::new();
     let mut event_registry = EventRegistry::new();
@@ -1113,9 +1376,10 @@ fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, Stri
 
     for capability in &bundle.capabilities {
         let request = build_capability_registration(&bundle, capability)?;
-        let outcome = capability_registry
-            .register(request)
-            .map_err(render_registry_failure)?;
+        let outcome = capability_registry.register(request).map_err(|f| {
+            let msg = render_registry_failure(f.clone());
+            map_registry_failure(&f, msg)
+        })?;
         capability_records.push(format_capability_record(
             &outcome.record.id,
             &outcome.record.version,
@@ -1133,7 +1397,7 @@ fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, Stri
                 governing_spec: "011-event-registry".to_string(),
                 validator_version: env!("CARGO_PKG_VERSION").to_string(),
             })
-            .map_err(render_event_registry_failure)?;
+            .map_err(|f| CliError::RegistrationConflict(render_event_registry_failure(f)))?;
         event_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
     }
 
@@ -1149,7 +1413,7 @@ fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, Stri
                     validator_version: env!("CARGO_PKG_VERSION").to_string(),
                 },
             )
-            .map_err(render_workflow_failure)?;
+            .map_err(|f| CliError::ValidationFailed(render_workflow_failure(f)))?;
         workflow_records.push(format!("{}@{}", outcome.record.id, outcome.record.version));
     }
 
@@ -1164,25 +1428,47 @@ fn load_registered_bundle(manifest_path: &Path) -> Result<RegisteredBundle, Stri
     })
 }
 
-fn load_runtime_request(request_path: &Path) -> Result<RuntimeRequest, String> {
+fn map_registry_failure(failure: &traverse_registry::RegistryFailure, msg: String) -> CliError {
+    use traverse_registry::RegistryErrorCode;
+    if failure.errors.iter().any(|e| {
+        matches!(
+            e.code,
+            RegistryErrorCode::ImmutableVersionConflict
+                | RegistryErrorCode::DuplicateItem
+                | RegistryErrorCode::ArtifactConflict
+        )
+    }) {
+        CliError::RegistrationConflict(msg)
+    } else if failure
+        .errors
+        .iter()
+        .any(|e| matches!(e.code, RegistryErrorCode::ContractValidationFailed))
+    {
+        CliError::ValidationFailed(msg)
+    } else {
+        CliError::IoError(msg)
+    }
+}
+
+fn load_runtime_request(request_path: &Path) -> Result<RuntimeRequest, CliError> {
     let contents = read_text_file(request_path, "runtime request")?;
     parse_runtime_request(&contents).map_err(|error| {
-        format!(
+        CliError::ValidationFailed(format!(
             "failed to parse runtime request {}: {error}",
             request_path.display()
-        )
+        ))
     })
 }
 
 fn parse_capability_registration_envelope(
     raw_contract: &str,
     path: &Path,
-) -> Result<Value, String> {
+) -> Result<Value, CliError> {
     serde_json::from_str::<Value>(raw_contract).map_err(|error| {
-        format!(
+        CliError::ValidationFailed(format!(
             "failed to parse capability registration metadata {}: {error}",
             path.display()
-        )
+        ))
     })
 }
 
@@ -1198,7 +1484,7 @@ fn derive_implementation_kind(composability_value: Option<&Value>) -> Implementa
 
 fn derive_workflow_ref(
     composability_value: Option<&Value>,
-) -> Result<Option<WorkflowReference>, String> {
+) -> Result<Option<WorkflowReference>, CliError> {
     composability_value
         .and_then(|composability| composability.get("workflow_ref"))
         .map(parse_workflow_ref)
@@ -1209,7 +1495,7 @@ fn derive_composability_metadata(
     implementation_kind: ImplementationKind,
     workflow_ref: Option<&WorkflowReference>,
     capability: &traverse_registry::CapabilityBundleArtifact,
-) -> Result<ComposabilityMetadata, String> {
+) -> Result<ComposabilityMetadata, CliError> {
     let requires = capability
         .contract
         .consumes
@@ -1220,10 +1506,10 @@ fn derive_composability_metadata(
     match implementation_kind {
         ImplementationKind::Workflow => {
             if workflow_ref.is_none() {
-                return Err(format!(
+                return Err(CliError::ValidationFailed(format!(
                     "workflow-backed capability {} must declare workflow_ref",
                     capability.contract.id
-                ));
+                )));
             }
             Ok(ComposabilityMetadata {
                 kind: CompositionKind::Composite,
@@ -1293,15 +1579,19 @@ fn bundle_registered_at(bundle: &RegistryBundle) -> String {
     format!("bundle:{}@{}", bundle.bundle_id, bundle.version)
 }
 
-fn parse_workflow_ref(value: &Value) -> Result<WorkflowReference, String> {
+fn parse_workflow_ref(value: &Value) -> Result<WorkflowReference, CliError> {
     let workflow_id = value
         .get("workflow_id")
         .and_then(Value::as_str)
-        .ok_or_else(|| "workflow_ref.workflow_id must be a string".to_string())?;
+        .ok_or_else(|| {
+            CliError::ValidationFailed("workflow_ref.workflow_id must be a string".to_string())
+        })?;
     let workflow_version = value
         .get("workflow_version")
         .and_then(Value::as_str)
-        .ok_or_else(|| "workflow_ref.workflow_version must be a string".to_string())?;
+        .ok_or_else(|| {
+            CliError::ValidationFailed("workflow_ref.workflow_version must be a string".to_string())
+        })?;
     Ok(WorkflowReference {
         workflow_id: workflow_id.to_string(),
         workflow_version: workflow_version.to_string(),
@@ -1326,7 +1616,7 @@ fn canonical_expedition_request_path() -> PathBuf {
     repo_root().join("examples/expedition/runtime-requests/plan-expedition.json")
 }
 
-fn execute_expedition_outcome(request_path: &Path) -> Result<RuntimeExecutionOutcome, String> {
+fn execute_expedition_outcome(request_path: &Path) -> Result<RuntimeExecutionOutcome, CliError> {
     let request = load_runtime_request(request_path)?;
     let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
     let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
@@ -1933,7 +2223,7 @@ mod tests {
     fn inspect_bundle_renders_canonical_example_bundle() {
         let manifest_path = repo_root().join("examples/expedition/registry-bundle/manifest.json");
 
-        let output = inspect_bundle(&manifest_path).expect("bundle inspect should succeed");
+        let output = inspect_bundle(&manifest_path, false).expect("bundle inspect should succeed");
 
         assert!(output.contains("bundle_id: expedition.planning.seed-bundle"));
         assert!(output.contains("event_ids:"));
@@ -1963,15 +2253,17 @@ mod tests {
         )
         .expect("manifest should write");
 
-        let error = inspect_bundle(&manifest_path).expect_err("missing artifact path should fail");
-        assert!(error.contains("missing artifact file"));
+        let error =
+            inspect_bundle(&manifest_path, false).expect_err("missing artifact path should fail");
+        assert!(error.message().contains("missing artifact file"));
     }
 
     #[test]
     fn register_bundle_registers_canonical_expedition_artifacts() {
         let manifest_path = repo_root().join("examples/expedition/registry-bundle/manifest.json");
 
-        let output = register_bundle(&manifest_path).expect("bundle register should succeed");
+        let output =
+            register_bundle(&manifest_path, false).expect("bundle register should succeed");
 
         assert!(output.contains("registered_capabilities: 6"));
         assert!(output.contains("registered_events: 5"));
@@ -2007,10 +2299,14 @@ mod tests {
         )
         .expect("manifest should write");
 
-        let error =
-            register_bundle(&manifest_path).expect_err("duplicate bundle entries should fail");
+        let error = register_bundle(&manifest_path, false)
+            .expect_err("duplicate bundle entries should fail");
 
-        assert!(error.contains("duplicate capability artifact entry"));
+        assert!(
+            error
+                .message()
+                .contains("duplicate capability artifact entry")
+        );
     }
 
     #[test]
@@ -2018,8 +2314,8 @@ mod tests {
         let request_path =
             repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
 
-        let output =
-            execute_expedition(&request_path, None).expect("expedition execution should succeed");
+        let output = execute_expedition(&request_path, None, false, false)
+            .expect("expedition execution should succeed");
 
         assert!(output.contains("capability_id: expedition.planning.plan-expedition"));
         assert!(output.contains("status: completed"));
@@ -2118,7 +2414,7 @@ mod tests {
         let temp_dir = unique_temp_dir();
         let trace_path = temp_dir.join("plan-expedition-trace.json");
 
-        let output = execute_expedition(&request_path, Some(&trace_path))
+        let output = execute_expedition(&request_path, Some(&trace_path), false, false)
             .expect("expedition execution with trace output should succeed");
 
         assert!(output.contains(&format!("trace_path: {}", trace_path.display())));
@@ -2172,11 +2468,15 @@ mod tests {
         )
         .expect("runtime request should write");
 
-        let error =
-            execute_expedition(&path, None).expect_err("invalid expedition execution should fail");
+        let error = execute_expedition(&path, None, false, false)
+            .expect_err("invalid expedition execution should fail");
 
-        assert!(error.contains("runtime execution failed"));
-        assert!(error.contains("runtime request input does not satisfy"));
+        assert!(error.message().contains("runtime execution failed"));
+        assert!(
+            error
+                .message()
+                .contains("runtime request input does not satisfy")
+        );
     }
 
     #[test]
@@ -2186,7 +2486,7 @@ mod tests {
         let temp_dir = unique_temp_dir();
         let trace_path = temp_dir.join("plan-expedition-trace.json");
 
-        execute_expedition(&request_path, Some(&trace_path))
+        execute_expedition(&request_path, Some(&trace_path), false, false)
             .expect("expedition execution with trace output should succeed");
 
         let output = inspect_trace(&trace_path).expect("trace inspect should succeed");
@@ -2204,7 +2504,7 @@ mod tests {
 
         let error = inspect_trace(&path).expect_err("malformed trace should fail");
 
-        assert!(error.contains("failed to parse runtime trace"));
+        assert!(error.message().contains("failed to parse runtime trace"));
     }
 
     #[test]
@@ -2228,7 +2528,11 @@ mod tests {
 
         let error = inspect_event(&path).expect_err("malformed event contract should fail");
 
-        assert!(error.contains("failed to validate event contract"));
+        assert!(
+            error
+                .message()
+                .contains("failed to validate event contract")
+        );
     }
 
     #[test]
@@ -2250,7 +2554,11 @@ mod tests {
 
         let error = inspect_workflow(&path).expect_err("malformed workflow should fail");
 
-        assert!(error.contains("failed to parse workflow artifact"));
+        assert!(
+            error
+                .message()
+                .contains("failed to parse workflow artifact")
+        );
     }
 
     fn repo_root() -> PathBuf {

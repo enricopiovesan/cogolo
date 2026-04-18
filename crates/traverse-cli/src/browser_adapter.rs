@@ -33,7 +33,7 @@ struct LocalBrowserAdapter {
 }
 
 pub fn serve_local_browser_adapter(bind_address: &str) -> Result<(), String> {
-    let outcome = crate::canonical_expedition_runtime_outcome()?;
+    let outcome = crate::canonical_expedition_runtime_outcome().map_err(|e| e.to_string())?;
     let listener = TcpListener::bind(bind_address).map_err(|error| {
         format!("failed to bind local browser adapter at {bind_address}: {error}")
     })?;
