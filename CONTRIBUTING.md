@@ -9,6 +9,7 @@ Please read:
 - [README.md](/Users/piovese/Documents/cogolo/README.md)
 - [.specify/memory/constitution.md](/Users/piovese/Documents/cogolo/.specify/memory/constitution.md)
 - [docs/quality-standards.md](/Users/piovese/Documents/cogolo/docs/quality-standards.md)
+- [docs/antipatterns.md](/Users/piovese/Documents/cogolo/docs/antipatterns.md)
 - [docs/compatibility-policy.md](/Users/piovese/Documents/cogolo/docs/compatibility-policy.md)
 - [docs/exception-process.md](/Users/piovese/Documents/cogolo/docs/exception-process.md)
 
