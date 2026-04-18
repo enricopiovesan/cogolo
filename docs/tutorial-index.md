@@ -21,7 +21,6 @@ Use it in sequence unless you already know the slice you need:
 1. [README.md](../README.md)
 2. [docs/getting-started.md](getting-started.md)
 3. [docs/capability-contract-authoring-guide.md](capability-contract-authoring-guide.md)
-<<<<<<< HEAD
 4. [docs/workflow-composition-guide.md](workflow-composition-guide.md)
 5. [docs/event-publishing-tutorial.md](event-publishing-tutorial.md)
 6. [quickstart.md](../quickstart.md)
@@ -43,7 +42,6 @@ Use it in sequence unless you already know the slice you need:
 22. [docs/project-management.md](project-management.md)
 23. [docs/troubleshooting.md](troubleshooting.md)
 24. [docs/adr/README.md](adr/README.md)
-=======
 4. [docs/event-contract-authoring-guide.md](event-contract-authoring-guide.md)
 5. [docs/workflow-composition-guide.md](workflow-composition-guide.md)
 6. [docs/event-publishing-tutorial.md](event-publishing-tutorial.md)
@@ -66,7 +64,6 @@ Use it in sequence unless you already know the slice you need:
 23. [docs/project-management.md](project-management.md)
 24. [docs/troubleshooting.md](troubleshooting.md)
 25. [docs/adr/README.md](adr/README.md)
->>>>>>> main
 
 ## How To Read It
 
@@ -80,3 +77,13 @@ If your goal is documentation hygiene, onboarding, or process work, finish with 
 
 If any step fails while you are following this sequence, jump to [docs/troubleshooting.md](troubleshooting.md) before guessing.
 
+## Reference Docs (Authoring and Architecture)
+
+These docs are not part of the linear onboarding sequence but are essential references when authoring new capabilities, contracts, or agents:
+
+- [docs/architecture-execution-models.md](architecture-execution-models.md) — WASM, MCP, and browser adapter: when to use each
+- [docs/capability-contract-authoring-guide.md](capability-contract-authoring-guide.md) — full field reference, authoring steps, constraint and lifecycle tables
+- [docs/event-contract-authoring-guide.md](event-contract-authoring-guide.md) — how to author an event contract from scratch
+- [docs/workflow-contract-authoring-guide.md](workflow-contract-authoring-guide.md) — node/edge model, direct vs event edges, authoring steps
+- [docs/registry-bundle-authoring-guide.md](registry-bundle-authoring-guide.md) — how to author a bundle manifest for a new domain
+- [docs/wasm-agent-authoring-guide.md](wasm-agent-authoring-guide.md) — stub vs. real implementation, build-fixture.sh, model_dependencies

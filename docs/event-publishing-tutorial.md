@@ -360,3 +360,52 @@ bash scripts/ci/event_driven_workflow_smoke.sh
 - [`docs/multi-thread-workflow.md`](multi-thread-workflow.md) — parallel agent workflow coordination
 - [`specs/003-event-contracts/spec.md`](../specs/003-event-contracts/spec.md) — governing spec for event contract artifacts
 - [`specs/018-event-driven-composition/spec.md`](../specs/018-event-driven-composition/spec.md) — governing spec for event-driven workflow progression
+
+---
+
+## Connecting Contract Declaration to Runtime Emission (#292)
+
+The `emits` and `consumes` fields in a capability contract are the governance bridge between what a contract declares and what the runtime enforces at execution time.
+
+### The same event from three perspectives
+
+**1. Contract declaration** — in `contracts/your-domain/capabilities/say-hello/contract.json`:
+```json
+{
+  "emits": ["examples.hello-world.greeted"],
+  "consumes": []
+}
+```
+This declares that this capability _may_ publish the `examples.hello-world.greeted` event. It is a promise to the registry.
+
+**2. Runtime emission** — inside the WASM binary or native executor:
+```rust
+let event = TraverseEvent {
+    event_type: "examples.hello-world.greeted".to_string(),
+    payload: serde_json::json!({ "subject": "Alice", "greeting": "Hello, Alice!" }),
+    // ...
+};
+broker.publish(event)?;
+```
+At runtime, `broker.publish()` checks the active event catalog. If `examples.hello-world.greeted` is not registered in the catalog, it returns `EventError::UnknownEventType`. If it _is_ registered but the capability contract does not declare it in `emits`, it returns `EventError::PolicyViolation`.
+
+**3. Subscriber registration** — a downstream capability or handler:
+```rust
+broker.subscribe("examples.hello-world.greeted", Box::new(|event| {
+    // handle the event
+}));
+```
+Subscribers are registered before execution begins. The runtime delivers published events synchronously to all registered subscribers in registration order.
+
+### What the runtime validates at each stage
+
+| Stage | Validation |
+|-------|------------|
+| Bundle registration | `emits` event IDs must exist in the event catalog |
+| Contract parse | `emits` and `consumes` must be valid event contract ID strings |
+| `broker.publish()` | Event type must be in catalog AND declared in capability's `emits` |
+| Subscription | No validation — subscribers are registered independently |
+
+### Common mistake: publishing without declaring
+
+If your capability calls `broker.publish("my.event")` but the contract does not list `"my.event"` in `emits`, the runtime returns `EventError::PolicyViolation`. Always keep `emits` in the contract in sync with `broker.publish()` calls in the implementation.

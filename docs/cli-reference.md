@@ -113,3 +113,21 @@ This reference was checked against the live CLI behavior with:
 It should also remain consistent with:
 
 - `bash scripts/ci/repository_checks.sh`
+
+## Federation Commands (Not Yet Implemented)
+
+The `federation` command family appears in the CLI codebase as a planned surface but is **not yet fully implemented** in v0.1. The following subcommands are listed here for completeness but should not be used in production:
+
+| Subcommand              | Status           |
+|-------------------------|------------------|
+| `federation peers`      | Partial — peer listing and status only |
+| `federation sync`       | Partial — manual sync trigger only |
+| `federation status`     | Partial — peer sync summary only |
+
+Automatic federation sync, conflict resolution, and the central federation coordinator are tracked in:
+- [#236 Automatic federation sync after peer registration](https://github.com/enricopiovesan/Traverse/issues/236)
+- [#237 Central federation coordinator](https://github.com/enricopiovesan/Traverse/issues/237)
+- [#238 Federation conflict auto-resolution policy](https://github.com/enricopiovesan/Traverse/issues/238)
+- [#239 Streaming federation sync transport](https://github.com/enricopiovesan/Traverse/issues/239)
+
+Do not build workflows that depend on federation behavior until these issues are resolved.
