@@ -10,6 +10,7 @@ Use the checked-in examples and references as the source of truth:
 - [`docs/adapter-boundaries.md`](adapter-boundaries.md)
 - [`docs/compatibility-policy.md`](compatibility-policy.md)
 - [`docs/oss-pattern-extraction.md`](oss-pattern-extraction.md)
+- [`docs/wasm-io-contract.md`](wasm-io-contract.md)
 
 ## Start From a Governed Package
 
@@ -38,6 +39,9 @@ A new WASM microservice package should make these fields obvious:
 - `model_dependencies`
 
 The package must remain portable and governed. It should not depend on a hidden host process or a separately managed deployment topology to make sense.
+
+Its execution boundary is the governed stdin/stdout JSON contract documented in
+[`docs/wasm-io-contract.md`](wasm-io-contract.md).
 
 ## Authoring Steps
 
