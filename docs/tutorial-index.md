@@ -42,28 +42,6 @@ Use it in sequence unless you already know the slice you need:
 22. [docs/project-management.md](project-management.md)
 23. [docs/troubleshooting.md](troubleshooting.md)
 24. [docs/adr/README.md](adr/README.md)
-4. [docs/event-contract-authoring-guide.md](event-contract-authoring-guide.md)
-5. [docs/workflow-composition-guide.md](workflow-composition-guide.md)
-6. [docs/event-publishing-tutorial.md](event-publishing-tutorial.md)
-7. [quickstart.md](../quickstart.md)
-8. [docs/app-consumable-entry-path.md](app-consumable-entry-path.md)
-9. [docs/browser-adapter.md](browser-adapter.md)
-10. [docs/expedition-example-authoring.md](expedition-example-authoring.md)
-11. [docs/wasm-agent-authoring-guide.md](wasm-agent-authoring-guide.md)
-12. [docs/wasm-microservice-authoring-guide.md](wasm-microservice-authoring-guide.md)
-13. [docs/app-consumable-acceptance.md](app-consumable-acceptance.md)
-14. [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md)
-15. [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md)
-16. [docs/youaskm3-integration-validation.md](youaskm3-integration-validation.md)
-17. [docs/youaskm3-published-artifact-validation.md](youaskm3-published-artifact-validation.md)
-18. [docs/youaskm3-compatibility-conformance-suite.md](youaskm3-compatibility-conformance-suite.md)
-19. [docs/youaskm3-real-shell-validation.md](youaskm3-real-shell-validation.md)
-20. [docs/quality-standards.md](quality-standards.md)
-21. [docs/compatibility-policy.md](compatibility-policy.md)
-22. [docs/multi-thread-workflow.md](multi-thread-workflow.md)
-23. [docs/project-management.md](project-management.md)
-24. [docs/troubleshooting.md](troubleshooting.md)
-25. [docs/adr/README.md](adr/README.md)
 
 ## How To Read It
 
@@ -82,6 +60,7 @@ If any step fails while you are following this sequence, jump to [docs/troublesh
 These docs are not part of the linear onboarding sequence but are essential references when authoring new capabilities, contracts, or agents:
 
 - [docs/architecture-execution-models.md](architecture-execution-models.md) — WASM, MCP, and browser adapter: when to use each
+- [docs/unified-architectural-blueprint.md](unified-architectural-blueprint.md) — cross-spec interfaces (skeleton)
 - [docs/capability-contract-authoring-guide.md](capability-contract-authoring-guide.md) — full field reference, authoring steps, constraint and lifecycle tables
 - [docs/event-contract-authoring-guide.md](event-contract-authoring-guide.md) — how to author an event contract from scratch
 - [docs/workflow-contract-authoring-guide.md](workflow-contract-authoring-guide.md) — node/edge model, direct vs event edges, authoring steps
