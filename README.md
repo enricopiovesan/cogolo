@@ -188,6 +188,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 
 - [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
 - [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
+- [docs/event-publishing-tutorial.md](docs/event-publishing-tutorial.md) — how to emit and receive governed events from a capability
 - [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) — packaged runtime artifact
 - [docs/packaged-traverse-mcp-server-artifact.md](docs/packaged-traverse-mcp-server-artifact.md) — packaged MCP server artifact
 - [docs/youaskm3-integration-validation.md](docs/youaskm3-integration-validation.md) — youaskm3 integration validation

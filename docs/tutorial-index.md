@@ -12,6 +12,10 @@ Use it in sequence unless you already know the slice you need:
 6. [docs/expedition-example-authoring.md](expedition-example-authoring.md)
 7. [docs/wasm-agent-authoring-guide.md](wasm-agent-authoring-guide.md)
 8. [docs/wasm-microservice-authoring-guide.md](wasm-microservice-authoring-guide.md)
+5. [docs/expedition-example-authoring.md](expedition-example-authoring.md)
+6. [docs/wasm-agent-authoring-guide.md](wasm-agent-authoring-guide.md)
+7. [docs/wasm-microservice-authoring-guide.md](wasm-microservice-authoring-guide.md)
+8. [docs/event-publishing-tutorial.md](event-publishing-tutorial.md)
 9. [docs/app-consumable-acceptance.md](app-consumable-acceptance.md)
 10. [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md)
 11. [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md)
@@ -25,6 +29,7 @@ Use it in sequence unless you already know the slice you need:
 19. [docs/project-management.md](project-management.md)
 20. [docs/troubleshooting.md](troubleshooting.md)
 21. [docs/adr/README.md](adr/README.md)
+20. [docs/adr/README.md](adr/README.md)
 
 ## How To Read It
 
