@@ -45,6 +45,22 @@ traverse-cli browser-adapter serve --help
 Help output is written to stderr and the process exits with a non-zero code,
 consistent with error output behaviour across the CLI.
 
+## Exit Codes
+
+`traverse-cli` uses stable exit codes so humans and agents can classify error
+families without parsing stderr output.
+
+| Exit Code | Meaning | Notes |
+|---:|---|---|
+| 0 | Success | Command completed successfully. |
+| 1 | Execution failure | Runtime execution failed (for example a workflow/capability returned an error result). |
+| 2 | Validation / contract failure | Contract, workflow, trace, or bundle validation failed. Includes malformed JSON for governed artifacts. |
+| 3 | Registration conflict | Registry registration conflicted with an immutable publication rule or a duplicate entry. |
+| 4 | File I/O error | Failed to read or write a local file (missing file, permission error, etc). |
+| 5 | Spec alignment failure | Reserved for spec-alignment and governance gates (typically enforced by CI scripts). |
+| 64 | Usage / help | Help text or usage output (including `--help`). |
+| 70 | Internal error | Unexpected internal failure (bug). |
+
 ## Supported Commands
 
 | Command | Purpose | Example | Expected Output |
