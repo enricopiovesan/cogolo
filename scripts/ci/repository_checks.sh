@@ -105,12 +105,24 @@ for file in "${required_files[@]}"; do
 done
 
 if command -v rg >/dev/null 2>&1; then
-  if rg -n "Cogollo|Cogolo" . --hidden -g '!.git' -g '!scripts/ci/repository_checks.sh'; then
+  if rg -n "Cogollo|Cogolo" . \
+    --hidden \
+    -g '!.git' \
+    -g '!.claude' \
+    -g '!external' \
+    -g '!references' \
+    -g '!scripts/ci/repository_checks.sh'; then
     echo "Found stale project name references; expected 'Traverse'." >&2
     exit 1
   fi
 else
-  if grep -RInE --exclude='repository_checks.sh' --exclude-dir='.git' 'Cogollo|Cogolo' .; then
+  if grep -RInE \
+    --exclude='repository_checks.sh' \
+    --exclude-dir='.git' \
+    --exclude-dir='.claude' \
+    --exclude-dir='external' \
+    --exclude-dir='references' \
+    'Cogollo|Cogolo' .; then
     echo "Found stale project name references; expected 'Traverse'." >&2
     exit 1
   fi
