@@ -295,6 +295,175 @@
         "scripts/ci/",
         "specs/governance/"
       ]
+    },
+    {
+      "id": "029-integrated-observability",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/029-integrated-observability/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-mcp/"
+      ]
+    },
+    {
+      "id": "030-security-identity-model",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/030-security-identity-model/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-contracts/",
+        "crates/traverse-cli/"
+      ]
+    },
+    {
+      "id": "031-supply-chain-hardening",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/031-supply-chain-hardening/spec.md",
+      "governs": [
+        "scripts/ci/",
+        ".github/workflows/",
+        "Cargo.toml"
+      ]
+    },
+    {
+      "id": "032-universal-data-access",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/032-universal-data-access/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-contracts/"
+      ]
+    },
+    {
+      "id": "033-http-json-api",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/033-http-json-api/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "034-programmatic-registration",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/034-programmatic-registration/spec.md",
+      "governs": [
+        "crates/traverse-registry/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "035-multi-agent-isolation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/035-multi-agent-isolation/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-registry/"
+      ]
+    },
+    {
+      "id": "036-event-subscription-replay",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/036-event-subscription-replay/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-registry/"
+      ]
+    },
+    {
+      "id": "037-semver-range-resolution",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/037-semver-range-resolution/spec.md",
+      "governs": [
+        "crates/traverse-registry/",
+        "crates/traverse-runtime/"
+      ]
+    },
+    {
+      "id": "038-wasi-host-insulation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/038-wasi-host-insulation/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "Cargo.toml"
+      ]
+    },
+    {
+      "id": "039-connector-plugin-architecture",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/039-connector-plugin-architecture/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "crates/traverse-registry/"
+      ]
+    },
+    {
+      "id": "040-contractual-enforcement-gate",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/040-contractual-enforcement-gate/spec.md",
+      "governs": [
+        "scripts/ci/",
+        "crates/traverse-runtime/",
+        "crates/traverse-contracts/",
+        "specs/governance/"
+      ]
+    },
+    {
+      "id": "041-workflow-composition-api",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/041-workflow-composition-api/spec.md",
+      "governs": [
+        "crates/traverse-registry/",
+        "crates/traverse-runtime/",
+        "crates/traverse-cli/"
+      ]
+    },
+    {
+      "id": "042-mcp-library-surface",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/042-mcp-library-surface/spec.md",
+      "governs": [
+        "crates/traverse-mcp/"
+      ]
+    },
+    {
+      "id": "043-module-dependency-management",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/043-module-dependency-management/spec.md",
+      "governs": [
+        "crates/traverse-registry/",
+        "crates/traverse-contracts/"
+      ]
     }
   ]
 }
