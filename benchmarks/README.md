@@ -34,6 +34,16 @@ Results are written to `benchmarks/results/summary.json`.
 
 See `benchmarks/results/baseline-reference.md` for the Docker comparison methodology.
 
+## Regression Gate
+
+After running `benchmarks/run.sh`, check for latency regressions against the checked-in baseline:
+
+```bash
+bash benchmarks/check-regression.sh
+```
+
+To update the baseline after an intentional change: `bash benchmarks/update-baseline.sh`
+
 ## See Also
 
 - [`docs/benchmarks.md`](../docs/benchmarks.md) — interpretation guide

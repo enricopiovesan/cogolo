@@ -15,3 +15,4 @@ references/
 # Benchmark results — gitignored; check in manually when publishing
 benchmarks/results/*.json
 benchmarks/results/*.csv
+!benchmarks/results/baseline.json
