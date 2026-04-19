@@ -1,0 +1,8 @@
+{
+  "created_at": "2026-04-19T00:00:00Z",
+  "git_sha": "initial-baseline",
+  "platform": "ubuntu-latest",
+  "note": "Initial conservative baseline. Update with: bash benchmarks/update-baseline.sh",
+  "cold_start_ms": { "mean": 5000, "max": 10000 },
+  "steady_state_ms": { "mean": 2000, "max": 5000 }
+}

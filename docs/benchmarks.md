@@ -62,3 +62,18 @@ See [`docs/why-not-docker.md`](why-not-docker.md) for the full decision matrix.
 - No network calls during measurement
 - `benchmarks/results/summary.json` is gitignored — check it in manually when publishing
 - Re-run with `bash benchmarks/run.sh` to regenerate
+
+## Regression Gate
+
+`benchmarks/check-regression.sh` reads the checked-in baseline (`benchmarks/results/baseline.json`) and compares it against the current `summary.json` produced by `run.sh`.
+
+- Default threshold: 15% mean increase per metric
+- Override threshold: `TRAVERSE_BENCH_THRESHOLD_PCT=10 bash benchmarks/check-regression.sh`
+- To update the baseline after an intentional performance change: `bash benchmarks/update-baseline.sh`
+
+The gate is currently optional (not a required CI check). Run it manually before merging changes to the runtime:
+
+```bash
+bash benchmarks/run.sh
+bash benchmarks/check-regression.sh
+```
