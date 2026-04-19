@@ -48,7 +48,7 @@
       "immutable": true,
       "path": "specs/004-spec-alignment-gate/spec.md",
       "governs": [
-        ".github/workflows/ci.yml",
+        ".github/workflows/",
         "scripts/ci/",
         "specs/governance/"
       ]

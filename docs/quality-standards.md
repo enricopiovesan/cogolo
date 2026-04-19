@@ -105,6 +105,25 @@ A change must not merge when any of the following are true:
 - a material architecture change lacks a required ADR
 - the change lacks the required traceability artifacts under the project-management policy
 
+## Nightly CI Gate
+
+In addition to PR-gated checks, a nightly scheduled CI job runs the full golden-path acceptance suite independently of any PR activity.
+
+**Schedule**: daily at 06:00 UTC (`.github/workflows/nightly.yml`)
+
+**What it validates**:
+- Zero-to-hero acceptance path (`scripts/ci/zero_to_hero_acceptance.sh`)
+- Hello-world example smoke (`scripts/ci/hello_world_example_smoke.sh`)
+- Expedition golden path (`scripts/ci/expedition_golden_path.sh`)
+- Repository structure checks (`scripts/ci/repository_checks.sh`)
+- Rust quality checks (fmt, clippy, tests)
+
+**SLA**: any nightly failure must be investigated and resolved within 24 hours. A broken nightly that sits for more than 24 hours is a P1 issue.
+
+**Manual trigger**: the workflow supports `workflow_dispatch` — trigger it from the GitHub Actions tab to validate a fix before the next scheduled run.
+
+**Notification**: GitHub Actions sends an email to the repository owner on failure by default. No additional configuration required.
+
 ## Problem Handling Rule
 
 When active work reveals a problem:

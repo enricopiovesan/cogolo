@@ -1,0 +1,38 @@
+name: Nightly
+
+on:
+  schedule:
+    - cron: '0 6 * * *'   # 06:00 UTC daily
+  workflow_dispatch:        # manual trigger
+
+jobs:
+  golden-path:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Run zero-to-hero acceptance
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/zero_to_hero_acceptance.sh
+
+      - name: Run hello-world smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/hello_world_example_smoke.sh
+
+      - name: Run expedition golden path
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_golden_path.sh
+
+      - name: Run repository checks
+        run: bash scripts/ci/repository_checks.sh
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+          components: rustfmt, clippy
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run Rust checks
+        run: bash scripts/ci/rust_checks.sh
