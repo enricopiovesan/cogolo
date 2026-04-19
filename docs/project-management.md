@@ -113,3 +113,36 @@ bash scripts/ci/project_board_audit.sh
 ```
 
 The board audit logic lives in [scripts/ci/project_board_audit.sh](../scripts/ci/project_board_audit.sh).
+
+---
+
+## External Review Gate for Governing Specs
+
+Every new governing spec must go through a time-boxed external review before being marked `approved` in `specs/governance/approved-specs.json`.
+
+### Policy
+
+- **Reviewers requested**: 3 external reviewers per spec
+- **Review window**: 72 hours from the first review request
+- **Quorum**: if fewer than 3 reviews arrive within the window, the host maintainer reviews the feedback received and makes the call — work proceeds
+- **Format**: asynchronous; no meetings required
+- **Template**: use [`docs/spec-reviewer-guide.md`](spec-reviewer-guide.md) to structure the review request
+
+### Process
+
+1. Author completes the spec draft and opens a PR.
+2. Author fills in the reviewer guide template and posts it as a PR comment.
+3. Author tags 3 reviewers and sets a 72-hour deadline in the comment.
+4. Reviewers respond with Yes / Approve with changes / Reject using the checklist in the template.
+5. After the window closes, the host maintainer resolves feedback and merges or revises.
+
+### Spec Tickets That Require This Gate
+
+Add a checklist item to each new spec issue:
+
+```
+- [ ] External review requested (3 reviewers, 72h window started YYYY-MM-DD HH:MM UTC)
+- [ ] Review window closed / host maintainer decision recorded
+```
+
+This applies to: #329, #330, #331, #332, #335, #337, #338, #339, and any future spec tickets.

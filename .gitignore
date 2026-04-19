@@ -11,3 +11,7 @@ coverage.profdata
 .claude/
 external/
 references/
+
+# Benchmark results — gitignored; check in manually when publishing
+benchmarks/results/*.json
+benchmarks/results/*.csv
