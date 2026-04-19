@@ -9,6 +9,31 @@ Use the checked-in examples as the source of truth:
 - [`examples/agents/team-readiness-agent/manifest.json`](../examples/agents/team-readiness-agent/manifest.json)
 - [`docs/wasm-io-contract.md`](wasm-io-contract.md)
 
+## From Hello World to Your First Custom Capability
+
+If you've completed the zero-to-hero path, you have a working `say-hello` agent. This section walks you from that starting point to a capability with your own interface.
+
+### Generate a capability scaffold
+
+```bash
+bash scripts/scaffold/new-capability.sh \
+  --name my-classifier \
+  --namespace acme.ml \
+  --output-dir ./my-classifier
+```
+
+This generates a complete directory with a valid contract stub, compilable Rust source, and a test request. You only need to fill in the TODOs.
+
+### What to change
+
+1. **`contract.json`** — replace `input_schema` and `output_schema` with your actual fields. The `description` field is required.
+2. **`src/main.rs`** — replace the stub logic with your computation. Read JSON from stdin, write JSON to stdout.
+3. **Build and verify** — `bash my-classifier/build-fixture.sh` compiles to WASM and prints the digest.
+
+### Common mistake
+
+Do not skip the contract edit. The runtime validates inputs and outputs against the schema before executing. A permissive schema (`additionalProperties: true`) will pass validation but defeat governance.
+
 ## Start From a Governed Package
 
 Begin with the executable capability package template, then specialize it for the new agent:

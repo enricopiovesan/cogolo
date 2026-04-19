@@ -90,6 +90,8 @@ required_files=(
   "scripts/ci/mcp_real_agent_exercise_smoke.sh"
   "scripts/ci/project_board_audit.sh"
   "scripts/scaffold/hello_world_agent_scaffold.sh"
+  "scripts/scaffold/new-capability.sh"
+  "scripts/ci/new_capability_scaffold_smoke.sh"
   ".github/ISSUE_TEMPLATE/task.yml"
   "specs/001-foundation-v0-1/spec.md"
   "specs/001-foundation-v0-1/plan.md"
@@ -333,5 +335,8 @@ grep -q "Dedicated Traverse MCP WASM Server Model" specs/022-mcp-wasm-server/spe
 grep -q "Traverse runtime authority" specs/022-mcp-wasm-server/spec.md
 grep -q "MCP transport concerns" specs/022-mcp-wasm-server/spec.md
 grep -q "## Governing Spec" .github/pull_request_template.md
+
+echo "Running new-capability scaffold smoke..."
+TRAVERSE_REPO_ROOT="$(pwd)" bash "$(pwd)/scripts/ci/new_capability_scaffold_smoke.sh"
 
 echo "Repository checks passed."
