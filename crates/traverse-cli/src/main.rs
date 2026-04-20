@@ -1,6 +1,7 @@
 mod agent_packages;
 mod browser_adapter;
 mod federation_operator;
+mod http_api;
 
 use agent_packages::load_agent_package;
 use browser_adapter::serve_local_browser_adapter;
@@ -78,6 +79,10 @@ enum Command {
     Workflow {
         workflow_path: PathBuf,
     },
+    Serve {
+        port: u16,
+        allow_unauthenticated: bool,
+    },
 }
 
 #[derive(Debug)]
@@ -112,6 +117,17 @@ fn main() -> ExitCode {
     match parse_command(&args) {
         Ok(Command::BrowserAdapterServe { bind_address }) => {
             if let Err(error) = serve_local_browser_adapter(&bind_address) {
+                eprintln!("{error}");
+                ExitCode::FAILURE
+            } else {
+                ExitCode::SUCCESS
+            }
+        }
+        Ok(Command::Serve {
+            port,
+            allow_unauthenticated,
+        }) => {
+            if let Err(error) = run_serve(port, allow_unauthenticated) {
                 eprintln!("{error}");
                 ExitCode::FAILURE
             } else {
@@ -194,6 +210,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
         Command::Event { contract_path } => inspect_event(&contract_path),
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::Workflow { workflow_path } => inspect_workflow(&workflow_path),
+        Command::Serve { .. } => Err(CliError::UsageError(usage())),
     }
 }
 
@@ -216,6 +233,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
 
     match (family, subcommand) {
         (Some("browser-adapter"), Some("serve")) => parse_browser_adapter_command(args),
+        (Some("serve"), _) => parse_serve_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
         (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
@@ -245,6 +263,7 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("trace"), _) => help_trace(),
         (Some("browser-adapter"), Some("serve")) => help_browser_adapter_serve(),
         (Some("browser-adapter"), _) => help_browser_adapter(),
+        (Some("serve"), _) => help_serve(),
         _ => usage(),
     }
 }
@@ -561,6 +580,68 @@ fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
         }),
         _ => Err(usage()),
     }
+}
+
+fn help_serve() -> String {
+    "traverse-cli serve [--port <port>] [--allow-unauthenticated]
+
+  Purpose:
+    Start a long-running HTTP/JSON API server on 0.0.0.0:<port>. Exposes three
+    endpoints under /v1/:
+      GET  /v1/health                  Returns {\"status\":\"ok\"}.
+      GET  /v1/capabilities            Returns JSON array of registered capabilities.
+      POST /v1/capabilities/execute    Accepts RuntimeRequest JSON, returns trace + result.
+
+    Loopback callers (127.0.0.1 / ::1) are allowed without authentication. All
+    other callers must supply an Authorization: Bearer <token> header unless
+    --allow-unauthenticated is set.
+
+  Optional flags:
+    --port <N>                 Port to listen on (default: 8080).
+    --allow-unauthenticated    Accept unauthenticated requests from non-loopback
+                               addresses. Prints a warning to stderr. Unsafe in
+                               production.
+    --help                     Print this help text.
+
+  Example:
+    traverse-cli serve
+    traverse-cli serve --port 9090
+    traverse-cli serve --port 9090 --allow-unauthenticated"
+        .to_string()
+}
+
+fn parse_serve_command(args: &[String]) -> Result<Command, String> {
+    let allow_unauthenticated = args.iter().any(|a| a == "--allow-unauthenticated");
+
+    let port_flag_pos = args.iter().position(|a| a == "--port");
+    let port: u16 = if let Some(pos) = port_flag_pos {
+        args.get(pos + 1)
+            .ok_or_else(|| "--port requires a value".to_string())?
+            .parse::<u16>()
+            .map_err(|_| "--port value must be a valid port number (0-65535)".to_string())?
+    } else {
+        8080
+    };
+
+    Ok(Command::Serve {
+        port,
+        allow_unauthenticated,
+    })
+}
+
+fn run_serve(port: u16, allow_unauthenticated: bool) -> Result<(), String> {
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())
+        .map_err(|e| e.to_string())?;
+
+    let config = http_api::ApiServerConfig {
+        port,
+        allow_unauthenticated,
+        capability_registry: registered.capability_registry,
+        workflow_registry: registered.workflow_registry,
+        executor: ExpeditionExampleExecutor,
+    };
+
+    http_api::serve_http_api(config).map_err(|e| e.to_string())
 }
 
 fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
@@ -1230,7 +1311,7 @@ fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
 }
 
 fn usage() -> String {
-    "usage: traverse-cli <bundle|agent|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>]".to_string()
+    "usage: traverse-cli <bundle|agent|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>] | traverse-cli serve [--port <N>] [--allow-unauthenticated]".to_string()
 }
 
 fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), CliError> {
