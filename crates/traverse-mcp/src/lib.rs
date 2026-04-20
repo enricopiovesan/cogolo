@@ -1,6 +1,6 @@
 //! MCP-facing surfaces for Traverse.
 //!
-//! Governed by spec 015-capability-discovery-mcp
+//! Governed by spec 015-capability-discovery-mcp and spec 042-mcp-library-surface
 
 mod stdio_server;
 
@@ -11,6 +11,7 @@ pub mod tools;
 pub use context::McpContext;
 pub use stdio_server::*;
 
+use std::collections::HashMap;
 use traverse_registry::{
     CapabilityRegistry, DiscoveryQuery, EventRegistry, LookupScope, RegistryScope,
     ResolvedCapability, ResolvedEvent, ResolvedWorkflow, WorkflowRegistry,
@@ -19,6 +20,114 @@ use traverse_runtime::{
     LocalExecutor, Runtime, RuntimeErrorCode, RuntimeExecutionOutcome, RuntimeRequest,
     RuntimeResult, RuntimeStateEvent, RuntimeTrace,
 };
+
+// ---------------------------------------------------------------------------
+// Spec 042-mcp-library-surface: free functions
+// ---------------------------------------------------------------------------
+
+/// Returns a JSON array summarising every capability visible in `registry`.
+///
+/// Uses `LookupScope::PreferPrivate` so private overrides are preferred over
+/// public entries when both exist for the same id.
+#[must_use]
+pub fn discover_capabilities(registry: &CapabilityRegistry) -> serde_json::Value {
+    let entries = registry.discover(LookupScope::PreferPrivate, &DiscoveryQuery::default());
+    let summaries: Vec<serde_json::Value> = entries
+        .into_iter()
+        .map(|e| {
+            serde_json::json!({
+                "id": e.id,
+                "version": e.version,
+                "lifecycle": lifecycle_name(&e.lifecycle),
+                "summary": e.summary,
+                "tags": e.tags,
+            })
+        })
+        .collect();
+    serde_json::Value::Array(summaries)
+}
+
+/// Returns `Some(JSON object)` for the capability with the given `id`, or
+/// `None` when the id is not found in `registry`.
+///
+/// Resolves the latest registered version using `LookupScope::PreferPrivate`.
+#[must_use]
+pub fn get_capability(registry: &CapabilityRegistry, id: &str) -> Option<serde_json::Value> {
+    let entries = registry.discover(LookupScope::PreferPrivate, &DiscoveryQuery::default());
+    let entry = entries.into_iter().find(|e| e.id == id)?;
+    let resolved = registry.find_exact(LookupScope::PreferPrivate, &entry.id, &entry.version)?;
+    serde_json::to_value(&resolved.contract).ok()
+}
+
+/// Executes `request` through `runtime` and returns a JSON summary of the
+/// outcome, including result status, execution id, and any error.
+#[must_use]
+pub fn execute_capability<E: LocalExecutor>(
+    runtime: &Runtime<E>,
+    request: RuntimeRequest,
+) -> serde_json::Value {
+    let outcome = runtime.execute(request);
+    serde_json::json!({
+        "status": outcome.result.status,
+        "request_id": outcome.result.request_id,
+        "execution_id": outcome.result.execution_id,
+        "error": outcome.result.error,
+    })
+}
+
+// ---------------------------------------------------------------------------
+// Spec 042-mcp-library-surface: McpToolRegistry
+// ---------------------------------------------------------------------------
+
+/// A runtime registry that maps MCP tool names to handler functions.
+///
+/// Enables third-party MCP servers to embed Traverse tools without taking a
+/// direct dependency on `TraverseMcp`.  Each handler receives a
+/// `serde_json::Value` argument bag and returns a `serde_json::Value` result.
+pub struct McpToolRegistry {
+    handlers: HashMap<String, Box<dyn Fn(serde_json::Value) -> serde_json::Value + Send + Sync>>,
+}
+
+impl McpToolRegistry {
+    /// Create an empty registry.
+    #[must_use]
+    pub fn new() -> Self {
+        Self {
+            handlers: HashMap::new(),
+        }
+    }
+
+    /// Register `handler` under `name`.  A second call with the same `name`
+    /// replaces the previous handler.
+    pub fn register_tool<F>(&mut self, name: impl Into<String>, handler: F)
+    where
+        F: Fn(serde_json::Value) -> serde_json::Value + Send + Sync + 'static,
+    {
+        self.handlers.insert(name.into(), Box::new(handler));
+    }
+
+    /// Dispatch `args` to the handler registered under `tool_name`.
+    ///
+    /// Returns `Some(result)` when a handler is found, `None` otherwise.
+    #[must_use]
+    pub fn dispatch(&self, tool_name: &str, args: serde_json::Value) -> Option<serde_json::Value> {
+        self.handlers.get(tool_name).map(|handler| handler(args))
+    }
+}
+
+impl Default for McpToolRegistry {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
+impl std::fmt::Debug for McpToolRegistry {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.debug_struct("McpToolRegistry")
+            .field("tool_count", &self.handlers.len())
+            .finish()
+    }
+}
 
 #[derive(Debug)]
 pub struct TraverseMcp<'a, E> {
@@ -1022,5 +1131,98 @@ mod tests {
         ) -> Result<Value, LocalExecutionFailure> {
             Ok(json!({"draft_id": "draft-001"}))
         }
+    }
+
+    // -----------------------------------------------------------------------
+    // Spec 042-mcp-library-surface: free-function and McpToolRegistry tests
+    // -----------------------------------------------------------------------
+
+    #[test]
+    fn discover_capabilities_returns_json_array_with_expected_structure() {
+        let registry = capability_registry_fixture();
+        let result = super::discover_capabilities(&registry);
+        let arr = result.as_array().expect("must be a JSON array");
+        assert_eq!(arr.len(), 1);
+        let entry = &arr[0];
+        assert_eq!(
+            entry["id"].as_str(),
+            Some("content.comments.create-comment-draft")
+        );
+        assert!(entry.get("version").is_some(), "entry must have version");
+        assert!(entry.get("summary").is_some(), "entry must have summary");
+        assert!(entry.get("tags").is_some(), "entry must have tags");
+    }
+
+    #[test]
+    fn discover_capabilities_returns_empty_array_for_empty_registry() {
+        let registry = CapabilityRegistry::new();
+        let result = super::discover_capabilities(&registry);
+        let arr = result.as_array().expect("must be a JSON array");
+        assert!(arr.is_empty());
+    }
+
+    #[test]
+    fn get_capability_returns_some_for_known_id() {
+        let registry = capability_registry_fixture();
+        let result = super::get_capability(&registry, "content.comments.create-comment-draft");
+        assert!(result.is_some(), "expected Some for known capability id");
+        let contract = result.expect("guarded by is_some");
+        assert_eq!(
+            contract["id"].as_str(),
+            Some("content.comments.create-comment-draft")
+        );
+    }
+
+    #[test]
+    fn get_capability_returns_none_for_unknown_id() {
+        let registry = capability_registry_fixture();
+        let result = super::get_capability(&registry, "does.not.exist");
+        assert!(result.is_none(), "expected None for unknown capability id");
+    }
+
+    #[test]
+    fn execute_capability_returns_json_with_status_and_ids() {
+        let registry = capability_registry_fixture();
+        let workflow_registry = workflow_registry_fixture(&registry);
+        let runtime =
+            Runtime::new(registry, EchoExecutor).with_workflow_registry(workflow_registry);
+        let result = super::execute_capability(&runtime, runtime_request());
+        assert!(result.get("status").is_some(), "must include status");
+        assert!(
+            result.get("execution_id").is_some(),
+            "must include execution_id"
+        );
+        assert!(
+            result.get("request_id").is_some(),
+            "must include request_id"
+        );
+        assert_eq!(result["request_id"].as_str(), Some("req-mcp-1"));
+    }
+
+    #[test]
+    fn mcp_tool_registry_dispatch_routes_to_registered_handler() {
+        let mut reg = McpToolRegistry::new();
+        reg.register_tool("echo", |args| json!({ "echoed": args }));
+        let input = json!({ "msg": "hello" });
+        let output = reg.dispatch("echo", input.clone());
+        assert!(output.is_some(), "expected Some for registered tool");
+        let output = output.expect("guarded by is_some");
+        assert_eq!(output["echoed"], input);
+    }
+
+    #[test]
+    fn mcp_tool_registry_dispatch_returns_none_for_unknown_tool() {
+        let reg = McpToolRegistry::new();
+        let result = reg.dispatch("no_such_tool", json!({}));
+        assert!(result.is_none(), "expected None for unregistered tool");
+    }
+
+    #[test]
+    fn mcp_tool_registry_second_register_replaces_handler() {
+        let mut reg = McpToolRegistry::new();
+        reg.register_tool("tool", |_| json!("first"));
+        reg.register_tool("tool", |_| json!("second"));
+        let result = reg.dispatch("tool", json!({}));
+        assert_eq!(result, Some(json!("second")));
     }
 }
