@@ -1164,8 +1164,7 @@ mod tests {
     #[test]
     fn get_capability_returns_some_for_known_id() {
         let registry = capability_registry_fixture();
-        let result =
-            super::get_capability(&registry, "content.comments.create-comment-draft");
+        let result = super::get_capability(&registry, "content.comments.create-comment-draft");
         assert!(result.is_some(), "expected Some for known capability id");
         let contract = result.expect("guarded by is_some");
         assert_eq!(
@@ -1185,8 +1184,8 @@ mod tests {
     fn execute_capability_returns_json_with_status_and_ids() {
         let registry = capability_registry_fixture();
         let workflow_registry = workflow_registry_fixture(&registry);
-        let runtime = Runtime::new(registry, EchoExecutor)
-            .with_workflow_registry(workflow_registry);
+        let runtime =
+            Runtime::new(registry, EchoExecutor).with_workflow_registry(workflow_registry);
         let result = super::execute_capability(&runtime, runtime_request());
         assert!(result.get("status").is_some(), "must include status");
         assert!(
@@ -1203,9 +1202,7 @@ mod tests {
     #[test]
     fn mcp_tool_registry_dispatch_routes_to_registered_handler() {
         let mut reg = McpToolRegistry::new();
-        reg.register_tool("echo", |args| {
-            json!({ "echoed": args })
-        });
+        reg.register_tool("echo", |args| json!({ "echoed": args }));
         let input = json!({ "msg": "hello" });
         let output = reg.dispatch("echo", input.clone());
         assert!(output.is_some(), "expected Some for registered tool");
