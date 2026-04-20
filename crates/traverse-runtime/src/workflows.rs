@@ -1220,6 +1220,7 @@ mod tests {
             intent: RuntimeIntent {
                 capability_id: Some("content.comments.publish-comment".to_string()),
                 capability_version: Some("1.0.0".to_string()),
+                version_range: None,
                 intent_key: None,
             },
             input: json!({"comment_text": "hello"}),
@@ -1663,6 +1664,7 @@ mod tests {
             intent: RuntimeIntent {
                 capability_id: Some("content.comments.publish-comment".to_string()),
                 capability_version: Some("1.0.0".to_string()),
+                version_range: None,
                 intent_key: None,
             },
             input: json!({"comment_text": "hello"}),
@@ -2134,6 +2136,7 @@ mod tests {
             intent: RuntimeIntent {
                 capability_id: Some("content.comments.publish-comment".to_string()),
                 capability_version: Some("1.0.0".to_string()),
+                version_range: None,
                 intent_key: None,
             },
             input: json!({"comment_text": "hello"}),
