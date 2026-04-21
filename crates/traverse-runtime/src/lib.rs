@@ -14,8 +14,9 @@ use serde_json::{Map, Value, json};
 use std::fmt;
 use traverse_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
 use traverse_registry::{
-    CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope, RegistryScope,
-    ResolvedCapability, WorkflowRegistry, resolve_version_range,
+    CapabilityRegistration, CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope,
+    RegistrationOutcome, RegistryFailure, RegistryScope, ResolvedCapability, WorkflowRegistry,
+    resolve_version_range,
 };
 
 const RUNTIME_REQUEST_KIND: &str = "runtime_request";
@@ -63,6 +64,22 @@ impl<E> Runtime<E> {
     #[must_use]
     pub fn capability_registry(&self) -> &CapabilityRegistry {
         &self.registry
+    }
+
+    /// Registers a capability into the runtime's registry.
+    ///
+    /// Returns `true` when the capability was newly registered, `false` when
+    /// the same contract digest was already present (idempotent no-op).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RegistryFailure`] when contract validation fails or when a
+    /// different contract digest conflicts with an existing immutable version.
+    pub fn register_capability(
+        &mut self,
+        registration: CapabilityRegistration,
+    ) -> Result<RegistrationOutcome, RegistryFailure> {
+        self.registry.register(registration)
     }
 }
 

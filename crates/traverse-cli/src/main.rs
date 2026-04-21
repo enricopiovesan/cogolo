@@ -639,6 +639,9 @@ fn run_serve(port: u16, allow_unauthenticated: bool) -> Result<(), String> {
         allow_unauthenticated,
         capability_registry: registered.capability_registry,
         workflow_registry: registered.workflow_registry,
+        registry_root: std::env::current_dir()
+            .map_err(|e| format!("failed to resolve current directory: {e}"))?
+            .join(".traverse/registry"),
         executor: ExpeditionExampleExecutor,
     };
 
