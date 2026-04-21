@@ -177,7 +177,9 @@ fn run_command(command: Command) -> Result<String, CliError> {
             manifest_path,
             json_output,
         } => register_bundle(&manifest_path, json_output),
-        Command::BrowserAdapterServe { .. } => Err(CliError::UsageError(usage())),
+        Command::BrowserAdapterServe { .. } | Command::Serve { .. } => {
+            Err(CliError::UsageError(usage()))
+        }
         Command::AgentInspect { manifest_path } => inspect_agent(&manifest_path),
         Command::AgentExecute {
             manifest_path,
@@ -210,7 +212,6 @@ fn run_command(command: Command) -> Result<String, CliError> {
         Command::Event { contract_path } => inspect_event(&contract_path),
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::Workflow { workflow_path } => inspect_workflow(&workflow_path),
-        Command::Serve { .. } => Err(CliError::UsageError(usage())),
     }
 }
 
