@@ -249,6 +249,12 @@ changed_files = subprocess.check_output(
 changed_files = [path.strip() for path in changed_files if path.strip()]
 
 governed_files = []
+# Maps each governed file path -> set of spec ids that cover it.
+# Rule (v0.3.0): for each governed file, AT LEAST ONE of its governing specs
+# must be declared in the PR body. Declaring every governing spec is no longer
+# required — this prevents the "list 20+ specs" boilerplate that emerges when
+# many specs share a broad governs prefix like crates/traverse-runtime/.
+file_governing_specs: dict[str, list[str]] = {}
 required_spec_ids = set()
 
 for path in changed_files:
@@ -259,6 +265,7 @@ for path in changed_files:
                 matching_spec_ids.append(spec_id)
     if matching_spec_ids:
         governed_files.append(path)
+        file_governing_specs[path] = matching_spec_ids
         required_spec_ids.update(matching_spec_ids)
     elif path.startswith(("crates/", "scripts/ci/", ".github/workflows/", "specs/governance/")):
         failures.append(
@@ -269,13 +276,17 @@ for path in changed_files:
             }
         )
 
-for spec_id in sorted(required_spec_ids):
-    if spec_id not in declared_spec_ids:
+for path, covering_specs in sorted(file_governing_specs.items()):
+    if not any(spec_id in declared_spec_ids for spec_id in covering_specs):
         failures.append(
             {
                 "code": "coverage.spec_not_declared",
-                "path": str(pr_body_file),
-                "message": f"Changed governed files require governing spec {spec_id}, but it was not declared in the PR body.",
+                "path": path,
+                "message": (
+                    f"Changed file {path} is governed by approved specs "
+                    f"[{', '.join(sorted(covering_specs))}] but none were declared "
+                    f"in the PR body. Declare at least one."
+                ),
             }
         )
 
