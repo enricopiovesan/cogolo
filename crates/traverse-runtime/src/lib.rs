@@ -58,6 +58,12 @@ impl<E> Runtime<E> {
         self.workflow_registry = workflow_registry;
         self
     }
+
+    /// Returns a reference to the capability registry.
+    #[must_use]
+    pub fn capability_registry(&self) -> &CapabilityRegistry {
+        &self.registry
+    }
 }
 
 pub trait LocalExecutor {
