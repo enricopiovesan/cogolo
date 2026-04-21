@@ -855,31 +855,31 @@ where
                 .collect();
         }
 
-        // Semver range lookup — when capability_id + version_range are present.
+        // Semver range lookup — when capability_id + version_range are non-empty.
         if let (Some(capability_id), Some(range_str)) = (
             request.intent.capability_id.as_deref(),
             request.intent.version_range.as_deref(),
-        ) {
-            if non_empty(capability_id) && non_empty(range_str) {
-                return match resolve_version_range(
-                    &self.registry,
-                    capability_id,
-                    range_str,
-                    lookup_scope,
-                ) {
-                    Ok(resolved) => {
-                        let entry_lookup = match resolved.scope {
-                            RegistryScope::Public => LookupScope::PublicOnly,
-                            RegistryScope::Private => LookupScope::PreferPrivate,
-                        };
-                        self.registry
-                            .find_exact(entry_lookup, &resolved.capability_id, &resolved.version)
-                            .into_iter()
-                            .collect()
-                    }
-                    Err(_) => Vec::new(),
-                };
-            }
+        ) && non_empty(capability_id)
+            && non_empty(range_str)
+        {
+            return match resolve_version_range(
+                &self.registry,
+                capability_id,
+                range_str,
+                lookup_scope,
+            ) {
+                Ok(resolved) => {
+                    let entry_lookup = match resolved.scope {
+                        RegistryScope::Public => LookupScope::PublicOnly,
+                        RegistryScope::Private => LookupScope::PreferPrivate,
+                    };
+                    self.registry
+                        .find_exact(entry_lookup, &resolved.capability_id, &resolved.version)
+                        .into_iter()
+                        .collect()
+                }
+                Err(_) => Vec::new(),
+            };
         }
 
         // Intent/discovery lookup — fallback.

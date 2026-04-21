@@ -30,9 +30,7 @@ pub enum RangeResolutionError {
     NoVersionSatisfies { range: String },
     /// Multiple registrations at the highest satisfying version with different
     /// digests — the resolver cannot pick one deterministically.
-    AmbiguousMatch {
-        candidates: Vec<AmbiguousCandidate>,
-    },
+    AmbiguousMatch { candidates: Vec<AmbiguousCandidate> },
     /// `range_str` could not be parsed as a valid semver range expression.
     InvalidRangeSyntax { range: String, reason: String },
 }
@@ -68,10 +66,11 @@ pub fn resolve_version_range(
     range_str: &str,
     lookup_scope: LookupScope,
 ) -> Result<ResolvedRangeCapability, RangeResolutionError> {
-    let req = VersionReq::parse(range_str).map_err(|err| RangeResolutionError::InvalidRangeSyntax {
-        range: range_str.to_string(),
-        reason: err.to_string(),
-    })?;
+    let req =
+        VersionReq::parse(range_str).map_err(|err| RangeResolutionError::InvalidRangeSyntax {
+            range: range_str.to_string(),
+            reason: err.to_string(),
+        })?;
 
     // Collect all versions of this capability across the lookup scope.
     // We probe each applicable scope independently so that cross-scope
@@ -126,11 +125,6 @@ pub fn resolve_version_range(
         .collect();
 
     if satisfying.is_empty() {
-        if !found_any {
-            return Err(RangeResolutionError::CapabilityNotFound {
-                id: capability_id.to_string(),
-            });
-        }
         return Err(RangeResolutionError::NoVersionSatisfies {
             range: range_str.to_string(),
         });
@@ -138,13 +132,13 @@ pub fn resolve_version_range(
 
     // Find the highest satisfying version.
     satisfying.sort_by(|(_, va, _), (_, vb, _)| va.cmp(vb));
-    // satisfying is non-empty at this point (guarded above).
-    let Some((_, highest, _)) = satisfying.last() else {
-        return Err(RangeResolutionError::NoVersionSatisfies {
+    // satisfying is non-empty (guarded above); .last() and .next() are safe.
+    let highest = satisfying
+        .last()
+        .ok_or(RangeResolutionError::NoVersionSatisfies {
             range: range_str.to_string(),
-        });
-    };
-    let highest = highest.clone();
+        })
+        .map(|(_, v, _)| v.clone())?;
 
     // Collect all registrations at the highest version.
     let at_highest: Vec<(RegistryScope, Version, String)> = satisfying
@@ -169,13 +163,15 @@ pub fn resolve_version_range(
         return Err(RangeResolutionError::AmbiguousMatch { candidates });
     }
 
-    // at_highest is non-empty because `satisfying` is non-empty and we filter
-    // to the highest version which is present by construction.
-    let Some((scope, version, artifact_ref)) = at_highest.into_iter().next() else {
-        return Err(RangeResolutionError::NoVersionSatisfies {
-            range: range_str.to_string(),
-        });
-    };
+    // at_highest is non-empty because satisfying is non-empty and we filter to
+    // the highest version which is present by construction.
+    let (scope, version, artifact_ref) =
+        at_highest
+            .into_iter()
+            .next()
+            .ok_or(RangeResolutionError::NoVersionSatisfies {
+                range: range_str.to_string(),
+            })?;
 
     Ok(ResolvedRangeCapability {
         capability_id: capability_id.to_string(),
@@ -198,10 +194,10 @@ mod tests {
     use serde_json::json;
     use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, Condition, Entrypoint, EntrypointKind,
-        EvidenceStatus, EvidenceType, Execution,
-        ExecutionConstraints, ExecutionTarget, FilesystemAccess, HostApiAccess, Lifecycle,
-        NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer, ServiceType,
-        SideEffect, SideEffectKind, ValidationEvidence,
+        EvidenceStatus, EvidenceType, Execution, ExecutionConstraints, ExecutionTarget,
+        FilesystemAccess, HostApiAccess, Lifecycle, NetworkAccess, Owner, Provenance,
+        ProvenanceSource, SchemaContainer, ServiceType, SideEffect, SideEffectKind,
+        ValidationEvidence,
     };
 
     fn base_contract(id: &str, version: &str) -> traverse_contracts::CapabilityContract {
@@ -389,9 +385,8 @@ mod tests {
     #[test]
     fn no_version_satisfies_range() {
         let registry = registry_with_versions(CAP_ID, &["2.0.0"]);
-        let err =
-            resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PublicOnly)
-                .expect_err("should fail with NoVersionSatisfies");
+        let err = resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PublicOnly)
+            .expect_err("should fail with NoVersionSatisfies");
         assert!(
             matches!(err, RangeResolutionError::NoVersionSatisfies { range } if range == "^1.0.0")
         );
@@ -418,9 +413,8 @@ mod tests {
             ))
             .expect("private registration should succeed");
 
-        let err =
-            resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PreferPrivate)
-                .expect_err("should fail with AmbiguousMatch");
+        let err = resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PreferPrivate)
+            .expect_err("should fail with AmbiguousMatch");
         assert!(matches!(
             err,
             RangeResolutionError::AmbiguousMatch { candidates } if candidates.len() == 2
@@ -451,9 +445,8 @@ mod tests {
     #[test]
     fn malformed_range_returns_invalid_syntax_error() {
         let registry = registry_with_versions(CAP_ID, &["1.0.0"]);
-        let err =
-            resolve_version_range(&registry, CAP_ID, ">>1.0", LookupScope::PublicOnly)
-                .expect_err("malformed range should fail");
+        let err = resolve_version_range(&registry, CAP_ID, ">>1.0", LookupScope::PublicOnly)
+            .expect_err("malformed range should fail");
         assert!(
             matches!(err, RangeResolutionError::InvalidRangeSyntax { range, .. } if range == ">>1.0")
         );
@@ -480,9 +473,8 @@ mod tests {
     #[test]
     fn prefer_private_resolves_public_only_capability() {
         let registry = registry_with_versions(CAP_ID, &["1.3.0", "1.4.0"]);
-        let result =
-            resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PreferPrivate)
-                .expect("should fall back to Public and resolve 1.4.0");
+        let result = resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PreferPrivate)
+            .expect("should fall back to Public and resolve 1.4.0");
         assert_eq!(result.version, "1.4.0");
         assert_eq!(result.scope, RegistryScope::Public);
     }
@@ -492,19 +484,26 @@ mod tests {
     fn ambiguous_match_exposes_candidate_details() {
         let mut registry = CapabilityRegistry::new();
         registry
-            .register(registration(RegistryScope::Public, base_contract(CAP_ID, "2.0.0"), "alpha"))
+            .register(registration(
+                RegistryScope::Public,
+                base_contract(CAP_ID, "2.0.0"),
+                "alpha",
+            ))
             .expect("public registration should succeed");
         registry
-            .register(registration(RegistryScope::Private, base_contract(CAP_ID, "2.0.0"), "beta"))
+            .register(registration(
+                RegistryScope::Private,
+                base_contract(CAP_ID, "2.0.0"),
+                "beta",
+            ))
             .expect("private registration should succeed");
         let err = resolve_version_range(&registry, CAP_ID, "^2.0.0", LookupScope::PreferPrivate)
             .expect_err("should return AmbiguousMatch");
-        let candidates = match err {
-            RangeResolutionError::AmbiguousMatch { candidates } => candidates,
-            other => panic!("expected AmbiguousMatch, got {other:?}"),
-        };
-        assert_eq!(candidates.len(), 2);
-        assert!(candidates.iter().all(|c| c.capability_id == CAP_ID));
-        assert!(candidates.iter().all(|c| c.version == "2.0.0"));
+        assert!(
+            matches!(err, RangeResolutionError::AmbiguousMatch { ref candidates } if candidates.len() == 2
+                && candidates.iter().all(|c| c.capability_id == CAP_ID)
+                && candidates.iter().all(|c| c.version == "2.0.0")),
+            "expected AmbiguousMatch with 2 candidates, got {err:?}"
+        );
     }
 }
