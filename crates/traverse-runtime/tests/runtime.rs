@@ -818,24 +818,34 @@ fn runtime_register_capability_forwards_to_registry_and_is_idempotent() {
     let reg = CapabilityRegistry::new();
     let mut runtime = Runtime::new(reg, EchoExecutor);
 
-    let first = runtime
-        .register_capability(registration(
-            RegistryScope::Public,
-            "content.comments.create-comment-draft",
-            "1.0.0",
-            Lifecycle::Active,
-        ))
-        .expect("first registration must succeed");
+    let first_result = runtime.register_capability(registration(
+        RegistryScope::Public,
+        "content.comments.create-comment-draft",
+        "1.0.0",
+        Lifecycle::Active,
+    ));
+    assert!(
+        first_result.is_ok(),
+        "first registration must succeed: {first_result:?}"
+    );
+    let Ok(first) = first_result else {
+        return;
+    };
     assert!(!first.already_registered);
 
-    let second = runtime
-        .register_capability(registration(
-            RegistryScope::Public,
-            "content.comments.create-comment-draft",
-            "1.0.0",
-            Lifecycle::Active,
-        ))
-        .expect("second registration must succeed as idempotent");
+    let second_result = runtime.register_capability(registration(
+        RegistryScope::Public,
+        "content.comments.create-comment-draft",
+        "1.0.0",
+        Lifecycle::Active,
+    ));
+    assert!(
+        second_result.is_ok(),
+        "second registration must succeed: {second_result:?}"
+    );
+    let Ok(second) = second_result else {
+        return;
+    };
     assert!(second.already_registered);
 }
 
