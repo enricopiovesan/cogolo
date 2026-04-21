@@ -73,9 +73,7 @@ where
     for connection in listener.incoming() {
         match connection {
             Ok(stream) => {
-                if let Err(e) =
-                    handle_connection(stream, config.allow_unauthenticated, &runtime)
-                {
+                if let Err(e) = handle_connection(stream, config.allow_unauthenticated, &runtime) {
                     eprintln!("traverse-cli serve: connection error: {e}");
                 }
             }
@@ -122,9 +120,7 @@ fn handle_connection<E: LocalExecutor>(
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/v1/health") => handle_health(&mut stream),
         ("GET", "/v1/capabilities") => handle_list_capabilities(&mut stream, runtime),
-        ("POST", "/v1/capabilities/execute") => {
-            handle_execute(&mut stream, &request.body, runtime)
-        }
+        ("POST", "/v1/capabilities/execute") => handle_execute(&mut stream, &request.body, runtime),
         _ => write_json(
             &mut stream,
             404,
@@ -178,7 +174,10 @@ pub(crate) fn handle_execute<W: Write, E: LocalExecutor>(
                 w,
                 400,
                 "Bad Request",
-                &error_envelope("invalid_request", &format!("request body is not valid UTF-8: {e}")),
+                &error_envelope(
+                    "invalid_request",
+                    &format!("request body is not valid UTF-8: {e}"),
+                ),
             );
         }
     };
@@ -393,12 +392,12 @@ mod tests {
         Lifecycle, NetworkAccess, Owner, Provenance, ProvenanceSource, SchemaContainer,
         ServiceType, SideEffect, SideEffectKind,
     };
+    use traverse_registry::ResolvedCapability;
     use traverse_registry::{
         ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
         CapabilityRegistration, ComposabilityMetadata, CompositionKind, CompositionPattern,
         ImplementationKind, RegistryProvenance, RegistryScope, SourceKind, SourceReference,
     };
-    use traverse_registry::ResolvedCapability;
     use traverse_runtime::{LocalExecutionFailure, LocalExecutionFailureCode};
 
     // ------------------------------------------------------------------
@@ -582,7 +581,10 @@ mod tests {
 
     fn response_status(response: &[u8]) -> u16 {
         let text = std::str::from_utf8(response).expect("response must be UTF-8");
-        let line = text.lines().next().expect("response must have a first line");
+        let line = text
+            .lines()
+            .next()
+            .expect("response must have a first line");
         let mut parts = line.splitn(3, ' ');
         parts.next();
         parts

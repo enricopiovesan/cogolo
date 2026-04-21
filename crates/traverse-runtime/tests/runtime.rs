@@ -651,10 +651,15 @@ fn capability_registry_accessor_returns_registered_capabilities() {
     )]);
     let runtime = Runtime::new(reg, EchoExecutor);
     use traverse_registry::LookupScope;
-    let cap = runtime
-        .capability_registry()
-        .find_exact(LookupScope::PublicOnly, "content.comments.create-comment-draft", "1.0.0");
-    assert!(cap.is_some(), "registry accessor must expose registered capabilities");
+    let cap = runtime.capability_registry().find_exact(
+        LookupScope::PublicOnly,
+        "content.comments.create-comment-draft",
+        "1.0.0",
+    );
+    assert!(
+        cap.is_some(),
+        "registry accessor must expose registered capabilities"
+    );
 }
 
 fn registry_with(registrations: Vec<CapabilityRegistration>) -> CapabilityRegistry {

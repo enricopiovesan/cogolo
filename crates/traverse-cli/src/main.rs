@@ -630,8 +630,8 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
 }
 
 fn run_serve(port: u16, allow_unauthenticated: bool) -> Result<(), String> {
-    let registered = load_registered_bundle(&canonical_expedition_bundle_path())
-        .map_err(|e| e.to_string())?;
+    let registered =
+        load_registered_bundle(&canonical_expedition_bundle_path()).map_err(|e| e.to_string())?;
 
     let config = http_api::ApiServerConfig {
         port,
