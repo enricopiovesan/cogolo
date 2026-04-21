@@ -474,4 +474,37 @@ mod tests {
             matches!(err, RangeResolutionError::CapabilityNotFound { id } if id == "test.range.nonexistent")
         );
     }
+
+    // Scenario 8: PreferPrivate probe with a Public-only registration — the Private probe
+    // leg's inner loop hits `continue` (line 96) because entry.scope (Public) != scope (Private).
+    #[test]
+    fn prefer_private_resolves_public_only_capability() {
+        let registry = registry_with_versions(CAP_ID, &["1.3.0", "1.4.0"]);
+        let result =
+            resolve_version_range(&registry, CAP_ID, "^1.0.0", LookupScope::PreferPrivate)
+                .expect("should fall back to Public and resolve 1.4.0");
+        assert_eq!(result.version, "1.4.0");
+        assert_eq!(result.scope, RegistryScope::Public);
+    }
+
+    // Scenario 9: AmbiguousMatch candidates list is inspectable.
+    #[test]
+    fn ambiguous_match_exposes_candidate_details() {
+        let mut registry = CapabilityRegistry::new();
+        registry
+            .register(registration(RegistryScope::Public, base_contract(CAP_ID, "2.0.0"), "alpha"))
+            .expect("public registration should succeed");
+        registry
+            .register(registration(RegistryScope::Private, base_contract(CAP_ID, "2.0.0"), "beta"))
+            .expect("private registration should succeed");
+        let err = resolve_version_range(&registry, CAP_ID, "^2.0.0", LookupScope::PreferPrivate)
+            .expect_err("should return AmbiguousMatch");
+        let candidates = match err {
+            RangeResolutionError::AmbiguousMatch { candidates } => candidates,
+            other => panic!("expected AmbiguousMatch, got {other:?}"),
+        };
+        assert_eq!(candidates.len(), 2);
+        assert!(candidates.iter().all(|c| c.capability_id == CAP_ID));
+        assert!(candidates.iter().all(|c| c.version == "2.0.0"));
+    }
 }

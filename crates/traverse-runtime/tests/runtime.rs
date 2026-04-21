@@ -679,6 +679,33 @@ fn rejects_version_range_combined_with_capability_version() {
         .unwrap_or(false));
 }
 
+#[test]
+fn executes_version_range_resolved_from_public_scope() {
+    // capability_id + version_range + PublicOnly scope → resolves via Public scope,
+    // exercising the RegistryScope::Public arm in the range-lookup Ok branch (lib.rs:866).
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Public,
+            "content.comments.create-comment-draft",
+            "1.5.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    );
+    let mut request = base_request_exact();
+    request.intent.capability_version = None;
+    request.intent.version_range = Some("^1.0.0".to_string());
+    request.lookup.scope = RuntimeLookupScope::PublicOnly;
+
+    let outcome = runtime.execute(request);
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+    assert_eq!(
+        outcome.trace.candidate_collection.candidates[0].scope,
+        traverse_runtime::RuntimeRegistryScope::Public
+    );
+}
+
 fn states(events: &[traverse_runtime::RuntimeStateEvent]) -> Vec<RuntimeState> {
     events.iter().map(|event| event.state).collect()
 }

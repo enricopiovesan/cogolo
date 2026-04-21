@@ -18,7 +18,7 @@ use traverse_registry::{
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, DiscoveryQuery, EventRegistration, EventRegistry, EventRegistryErrorCode,
     ImplementationKind, LookupScope, RegistryErrorCode, RegistryProvenance, RegistryScope,
-    SourceKind, SourceReference, WorkflowReference, load_registry_bundle,
+    SourceKind, SourceReference, WorkflowReference, load_registry_bundle, resolve_version_range,
 };
 
 #[test]
@@ -1266,6 +1266,56 @@ fn bundle_loader_rejects_artifact_version_mismatch() {
         failure.errors[0].code,
         BundleLoadErrorCode::ArtifactVersionMismatch
     );
+}
+
+// ── semver range resolution (spec 037) ───────────────────────────────────────
+
+#[test]
+fn range_resolver_resolves_highest_satisfying_version_from_integration_test() {
+    let mut registry = CapabilityRegistry::new();
+    for version in &["1.0.0", "1.1.0", "1.2.0"] {
+        registry
+            .register(executable_registration(
+                RegistryScope::Public,
+                base_contract("test.integration.range-cap", version),
+            ))
+            .expect("registration should succeed");
+    }
+    let resolved =
+        resolve_version_range(&registry, "test.integration.range-cap", "^1.0.0", LookupScope::PublicOnly)
+            .expect("^1.0.0 should resolve to 1.2.0");
+    assert_eq!(resolved.version, "1.2.0");
+    assert_eq!(resolved.capability_id, "test.integration.range-cap");
+}
+
+#[test]
+fn range_resolver_returns_no_version_satisfies_when_range_does_not_match() {
+    let mut registry = CapabilityRegistry::new();
+    registry
+        .register(executable_registration(
+            RegistryScope::Public,
+            base_contract("test.integration.range-cap", "2.0.0"),
+        ))
+        .expect("registration should succeed");
+    let err =
+        resolve_version_range(&registry, "test.integration.range-cap", "^1.0.0", LookupScope::PublicOnly)
+            .expect_err("should fail with NoVersionSatisfies");
+    assert!(matches!(
+        err,
+        traverse_registry::RangeResolutionError::NoVersionSatisfies { .. }
+    ));
+}
+
+#[test]
+fn range_resolver_returns_not_found_for_unknown_capability() {
+    let registry = CapabilityRegistry::new();
+    let err =
+        resolve_version_range(&registry, "test.integration.nonexistent", "^1.0.0", LookupScope::PublicOnly)
+            .expect_err("should fail with CapabilityNotFound");
+    assert!(matches!(
+        err,
+        traverse_registry::RangeResolutionError::CapabilityNotFound { .. }
+    ));
 }
 
 fn write_bundle_manifest(path: &PathBuf, value: &serde_json::Value) {
