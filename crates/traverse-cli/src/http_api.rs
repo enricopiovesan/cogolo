@@ -104,8 +104,7 @@ fn handle_connection<E: LocalExecutor>(
         let has_bearer = request
             .headers
             .get("authorization")
-            .map(|v| v.starts_with("Bearer "))
-            .unwrap_or(false);
+            .is_some_and(|v| v.starts_with("Bearer "));
 
         if !has_bearer {
             return write_json(
