@@ -15,7 +15,7 @@ use std::fmt;
 use traverse_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
 use traverse_registry::{
     CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope, RegistryScope,
-    ResolvedCapability, WorkflowRegistry,
+    ResolvedCapability, WorkflowRegistry, resolve_version_range,
 };
 
 const RUNTIME_REQUEST_KIND: &str = "runtime_request";
@@ -122,6 +122,11 @@ pub struct RuntimeIntent {
     pub capability_id: Option<String>,
     #[serde(default)]
     pub capability_version: Option<String>,
+    /// Optional semver range expression (e.g. `^1.0.0`, `>=1.2 <2`).
+    /// When present and `capability_version` is absent, the runtime uses
+    /// range resolution rather than exact version lookup.
+    #[serde(default)]
+    pub version_range: Option<String>,
     #[serde(default)]
     pub intent_key: Option<String>,
 }
@@ -838,6 +843,7 @@ where
     ) -> Vec<ResolvedCapability> {
         let lookup_scope = map_lookup_scope(request.lookup.scope);
 
+        // Exact version lookup — highest priority.
         if is_exact_target(&request.intent) {
             return request
                 .intent
@@ -849,6 +855,34 @@ where
                 .collect();
         }
 
+        // Semver range lookup — when capability_id + version_range are non-empty.
+        if let (Some(capability_id), Some(range_str)) = (
+            request.intent.capability_id.as_deref(),
+            request.intent.version_range.as_deref(),
+        ) && non_empty(capability_id)
+            && non_empty(range_str)
+        {
+            return match resolve_version_range(
+                &self.registry,
+                capability_id,
+                range_str,
+                lookup_scope,
+            ) {
+                Ok(resolved) => {
+                    let entry_lookup = match resolved.scope {
+                        RegistryScope::Public => LookupScope::PublicOnly,
+                        RegistryScope::Private => LookupScope::PreferPrivate,
+                    };
+                    self.registry
+                        .find_exact(entry_lookup, &resolved.capability_id, &resolved.version)
+                        .into_iter()
+                        .collect()
+                }
+                Err(_) => Vec::new(),
+            };
+        }
+
+        // Intent/discovery lookup — fallback.
         let target = request
             .intent
             .capability_id
@@ -1662,6 +1696,28 @@ fn validate_request(request: &RuntimeRequest) -> Option<RuntimeError> {
             RuntimeErrorCode::RequestInvalid,
             "capability_version requires capability_id",
             json!({"path": "$.intent.capability_version"}),
+        ));
+    }
+
+    let has_version_range = request
+        .intent
+        .version_range
+        .as_deref()
+        .is_some_and(non_empty);
+
+    if has_version_range && !exact_id {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "version_range requires capability_id",
+            json!({"path": "$.intent.version_range"}),
+        ));
+    }
+
+    if has_version_range && exact_version {
+        return Some(runtime_error(
+            RuntimeErrorCode::RequestInvalid,
+            "version_range and capability_version are mutually exclusive",
+            json!({"path": "$.intent.version_range"}),
         ));
     }
 
@@ -2865,6 +2921,7 @@ mod tests {
             intent: RuntimeIntent {
                 capability_id: Some("content.comments.create-comment-draft".to_string()),
                 capability_version: Some("1.0.0".to_string()),
+                version_range: None,
                 intent_key: Some("content.comments.create-comment-draft".to_string()),
             },
             input: json!({"comment_text": "Hello", "resource_id": "res-1"}),

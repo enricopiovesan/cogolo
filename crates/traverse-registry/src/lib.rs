@@ -4,11 +4,15 @@ mod bundle;
 mod events;
 mod federation;
 mod graph;
+pub mod semver_resolver;
 mod workflows;
 pub use bundle::*;
 pub use events::*;
 pub use federation::*;
 pub use graph::*;
+pub use semver_resolver::{
+    AmbiguousCandidate, RangeResolutionError, ResolvedRangeCapability, resolve_version_range,
+};
 pub use workflows::*;
 
 use semver::Version;
