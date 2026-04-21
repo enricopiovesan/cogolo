@@ -1100,6 +1100,7 @@ mod tests {
             intent: RuntimeIntent {
                 capability_id: Some("content.comments.create-comment-draft".to_string()),
                 capability_version: Some("1.0.0".to_string()),
+                version_range: None,
                 intent_key: Some("content.comments.create-comment-draft".to_string()),
             },
             input: json!({

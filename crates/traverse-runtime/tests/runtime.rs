@@ -654,8 +654,7 @@ fn rejects_version_range_without_capability_id() {
             .result
             .error
             .as_ref()
-            .map(|e| e.message.contains("version_range requires capability_id"))
-            .unwrap_or(false)
+            .is_some_and(|e| e.message.contains("version_range requires capability_id"))
     );
 }
 
@@ -678,8 +677,7 @@ fn rejects_version_range_combined_with_capability_version() {
             .result
             .error
             .as_ref()
-            .map(|e| e.message.contains("mutually exclusive"))
-            .unwrap_or(false)
+            .is_some_and(|e| e.message.contains("mutually exclusive"))
     );
 }
 
