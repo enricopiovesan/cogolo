@@ -813,6 +813,32 @@ fn capability_registry_accessor_returns_registered_capabilities() {
     );
 }
 
+#[test]
+fn runtime_register_capability_forwards_to_registry_and_is_idempotent() {
+    let reg = CapabilityRegistry::new();
+    let mut runtime = Runtime::new(reg, EchoExecutor);
+
+    let first = runtime
+        .register_capability(registration(
+            RegistryScope::Public,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        ))
+        .expect("first registration must succeed");
+    assert!(!first.already_registered);
+
+    let second = runtime
+        .register_capability(registration(
+            RegistryScope::Public,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        ))
+        .expect("second registration must succeed as idempotent");
+    assert!(second.already_registered);
+}
+
 fn registry_with(registrations: Vec<CapabilityRegistration>) -> CapabilityRegistry {
     let mut registry = CapabilityRegistry::new();
     for registration in registrations {
