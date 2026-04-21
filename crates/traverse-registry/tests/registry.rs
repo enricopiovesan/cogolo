@@ -1281,9 +1281,13 @@ fn range_resolver_resolves_highest_satisfying_version_from_integration_test() {
             ))
             .expect("registration should succeed");
     }
-    let resolved =
-        resolve_version_range(&registry, "test.integration.range-cap", "^1.0.0", LookupScope::PublicOnly)
-            .expect("^1.0.0 should resolve to 1.2.0");
+    let resolved = resolve_version_range(
+        &registry,
+        "test.integration.range-cap",
+        "^1.0.0",
+        LookupScope::PublicOnly,
+    )
+    .expect("^1.0.0 should resolve to 1.2.0");
     assert_eq!(resolved.version, "1.2.0");
     assert_eq!(resolved.capability_id, "test.integration.range-cap");
 }
@@ -1297,9 +1301,13 @@ fn range_resolver_returns_no_version_satisfies_when_range_does_not_match() {
             base_contract("test.integration.range-cap", "2.0.0"),
         ))
         .expect("registration should succeed");
-    let err =
-        resolve_version_range(&registry, "test.integration.range-cap", "^1.0.0", LookupScope::PublicOnly)
-            .expect_err("should fail with NoVersionSatisfies");
+    let err = resolve_version_range(
+        &registry,
+        "test.integration.range-cap",
+        "^1.0.0",
+        LookupScope::PublicOnly,
+    )
+    .expect_err("should fail with NoVersionSatisfies");
     assert!(matches!(
         err,
         traverse_registry::RangeResolutionError::NoVersionSatisfies { .. }
@@ -1309,9 +1317,13 @@ fn range_resolver_returns_no_version_satisfies_when_range_does_not_match() {
 #[test]
 fn range_resolver_returns_not_found_for_unknown_capability() {
     let registry = CapabilityRegistry::new();
-    let err =
-        resolve_version_range(&registry, "test.integration.nonexistent", "^1.0.0", LookupScope::PublicOnly)
-            .expect_err("should fail with CapabilityNotFound");
+    let err = resolve_version_range(
+        &registry,
+        "test.integration.nonexistent",
+        "^1.0.0",
+        LookupScope::PublicOnly,
+    )
+    .expect_err("should fail with CapabilityNotFound");
     assert!(matches!(
         err,
         traverse_registry::RangeResolutionError::CapabilityNotFound { .. }
