@@ -167,17 +167,19 @@ fn make_broker() -> Result<Arc<dyn EventBroker>, String> {
             consumer_count: 0,
         })
         .map_err(|e| e.to_string())?;
-    Ok(Arc::new(InProcessBroker::new(catalog)))
+    Ok(Arc::new(
+        InProcessBroker::new(catalog).map_err(|e| e.to_string())?,
+    ))
 }
 
 /// Write `bytes` to a temp file and return the path.
 fn write_temp_wasm(bytes: &[u8]) -> Result<String, String> {
+    static COUNTER: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+    let n = COUNTER.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
     let path = format!(
-        "/tmp/traverse-expedition-stub-{}.wasm",
-        std::time::SystemTime::now()
-            .duration_since(std::time::UNIX_EPOCH)
-            .map(|d| d.as_nanos())
-            .unwrap_or(0)
+        "/tmp/traverse-expedition-stub-{}-{}.wasm",
+        std::process::id(),
+        n
     );
     std::fs::write(&path, bytes).map_err(|e| format!("write temp wasm: {e}"))?;
     Ok(path)

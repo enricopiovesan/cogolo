@@ -129,7 +129,9 @@ fn broker_with_event(event_type: &str) -> Result<Arc<InProcessBroker>, String> {
             consumer_count: 0,
         })
         .map_err(|e| e.to_string())?;
-    Ok(Arc::new(InProcessBroker::new(catalog)))
+    Ok(Arc::new(
+        InProcessBroker::new(catalog).map_err(|e| e.to_string())?,
+    ))
 }
 
 /// Build a router with a single native executor that returns `output`.
@@ -301,19 +303,8 @@ fn subscribable_capability_publishes_events() -> Result<(), String> {
     let event_type = "dev.traverse.router.test.emitted";
     let broker = broker_with_event(event_type)?;
 
-    // Track received events
-    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let received_clone = Arc::clone(&received);
-
-    broker
-        .subscribe(
-            event_type,
-            Box::new(move |event| {
-                if let Ok(mut v) = received_clone.lock() {
-                    v.push(event.event_type.clone());
-                }
-            }),
-        )
+    let sub = broker
+        .subscribe(event_type, "0")
         .map_err(|e| e.to_string())?;
 
     let broker_arc: Arc<dyn EventBroker> = broker;
@@ -341,9 +332,11 @@ fn subscribable_capability_publishes_events() -> Result<(), String> {
 
     router.execute(request).map_err(|e| e.to_string())?;
 
-    let events = received.lock().map_err(|_| "lock poisoned")?;
-    assert_eq!(events.len(), 1, "one event must be delivered to subscriber");
-    assert_eq!(events[0], event_type);
+    let poll = broker_arc
+        .poll(&sub.subscription_id, 10)
+        .map_err(|e| e.to_string())?;
+    assert_eq!(poll.events.len(), 1, "one event must be delivered");
+    assert_eq!(poll.events[0].event.event_type, event_type);
 
     Ok(())
 }
@@ -358,18 +351,8 @@ fn stateless_capability_does_not_publish_events() -> Result<(), String> {
     let event_type = "dev.traverse.router.test.emitted";
     let broker = broker_with_event(event_type)?;
 
-    let received: Arc<Mutex<Vec<String>>> = Arc::new(Mutex::new(Vec::new()));
-    let received_clone = Arc::clone(&received);
-
-    broker
-        .subscribe(
-            event_type,
-            Box::new(move |event| {
-                if let Ok(mut v) = received_clone.lock() {
-                    v.push(event.event_type.clone());
-                }
-            }),
-        )
+    let sub = broker
+        .subscribe(event_type, "0")
         .map_err(|e| e.to_string())?;
 
     let broker_arc: Arc<dyn EventBroker> = broker;
@@ -390,11 +373,10 @@ fn stateless_capability_does_not_publish_events() -> Result<(), String> {
 
     router.execute(request).map_err(|e| e.to_string())?;
 
-    let events = received.lock().map_err(|_| "lock poisoned")?;
-    assert!(
-        events.is_empty(),
-        "stateless capability must not publish events"
-    );
+    let poll = broker_arc
+        .poll(&sub.subscription_id, 10)
+        .map_err(|e| e.to_string())?;
+    assert!(poll.events.is_empty(), "stateless must not publish events");
 
     Ok(())
 }
