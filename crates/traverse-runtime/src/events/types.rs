@@ -1,6 +1,6 @@
 //! Core types for the in-process event system.
 //!
-//! Governed by spec 026-event-broker.
+//! Governed by spec 026-event-broker and spec 036-event-subscription-replay.
 
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -45,6 +45,17 @@ pub enum EventError {
     LifecycleViolation(String),
     /// Attempted to publish an event type not registered in the catalog.
     UnregisteredEventType(String),
+    /// Cursor string could not be parsed.
+    InvalidCursor(String),
+    /// The requested cursor is outside the active retention window.
+    CursorExpired {
+        event_type: String,
+        oldest_available_cursor: String,
+    },
+    /// Subscription id is unknown or was cancelled.
+    SubscriptionNotFound(String),
+    /// Broker was configured with an invalid retention window.
+    InvalidRetentionWindow(String),
 }
 
 impl std::fmt::Display for EventError {
@@ -52,6 +63,16 @@ impl std::fmt::Display for EventError {
         match self {
             Self::LifecycleViolation(msg) => write!(f, "lifecycle violation: {msg}"),
             Self::UnregisteredEventType(t) => write!(f, "unregistered event type: {t}"),
+            Self::InvalidCursor(msg) => write!(f, "invalid cursor: {msg}"),
+            Self::CursorExpired {
+                event_type,
+                oldest_available_cursor,
+            } => write!(
+                f,
+                "cursor expired for event type '{event_type}': oldest available cursor is {oldest_available_cursor}"
+            ),
+            Self::SubscriptionNotFound(id) => write!(f, "subscription not found: {id}"),
+            Self::InvalidRetentionWindow(msg) => write!(f, "invalid retention window: {msg}"),
         }
     }
 }
@@ -68,21 +89,88 @@ pub trait EventBroker: Send + Sync {
     /// or [`EventError::LifecycleViolation`] if the catalog entry is not `Active`.
     fn publish(&self, event: TraverseEvent) -> Result<(), EventError>;
 
-    /// Register a subscriber for a given event type.
+    /// Create a subscription for the given `event_type` starting from `from_cursor`.
+    ///
+    /// `from_cursor` is an opaque cursor string previously returned by [`poll`](Self::poll).
+    /// The special value `"0"` requests replay from the start of the active retention window.
     ///
     /// # Errors
     ///
-    /// Returns [`EventError::UnregisteredEventType`] if the event type is not in the catalog.
-    fn subscribe(
-        &self,
-        event_type: &str,
-        handler: Box<dyn Fn(&TraverseEvent) + Send + Sync>,
-    ) -> Result<(), EventError>;
+    /// Returns [`EventError::UnregisteredEventType`] if the event type is not in the catalog,
+    /// [`EventError::InvalidCursor`] if the cursor string is malformed, or
+    /// [`EventError::CursorExpired`] if the cursor is outside the retention window.
+    fn subscribe(&self, event_type: &str, from_cursor: &str) -> Result<Subscription, EventError>;
 
-    /// Remove all subscribers for a given event type.
+    /// Poll a subscription for up to `max_events`.
     ///
     /// # Errors
     ///
-    /// Returns [`EventError::UnregisteredEventType`] if the event type is not in the catalog.
-    fn unsubscribe(&self, event_type: &str) -> Result<(), EventError>;
+    /// Returns [`EventError::SubscriptionNotFound`] if the subscription id is unknown or cancelled.
+    fn poll(
+        &self,
+        subscription_id: &str,
+        max_events: usize,
+    ) -> Result<SubscriptionPoll, EventError>;
+
+    /// Cancel a subscription and free all associated queues.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EventError::SubscriptionNotFound`] if the subscription id is unknown.
+    fn cancel(&self, subscription_id: &str) -> Result<(), EventError>;
+}
+
+/// A broker-issued event cursor string.
+pub type EventCursor = String;
+
+/// A broker-assigned subscription identifier.
+pub type SubscriptionId = String;
+
+/// Event delivered by the broker, carrying a cursor for replay.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct BrokerEvent {
+    pub cursor: EventCursor,
+    pub event: TraverseEvent,
+}
+
+/// A broker subscription handle.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct Subscription {
+    pub subscription_id: SubscriptionId,
+    pub event_type: String,
+    pub cursor: EventCursor,
+}
+
+/// Result of polling a subscription.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct SubscriptionPoll {
+    pub subscription_id: SubscriptionId,
+    pub event_type: String,
+    pub cursor: EventCursor,
+    pub events: Vec<BrokerEvent>,
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_error_display_covers_all_variants() {
+        let cases: Vec<EventError> = vec![
+            EventError::LifecycleViolation("x".to_string()),
+            EventError::UnregisteredEventType("t".to_string()),
+            EventError::InvalidCursor("c".to_string()),
+            EventError::CursorExpired {
+                event_type: "evt".to_string(),
+                oldest_available_cursor: "7".to_string(),
+            },
+            EventError::SubscriptionNotFound("sub-1".to_string()),
+            EventError::InvalidRetentionWindow("bad".to_string()),
+        ];
+
+        for err in cases {
+            let rendered = err.to_string();
+            assert!(!rendered.is_empty());
+        }
+    }
 }
