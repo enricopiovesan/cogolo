@@ -18,8 +18,10 @@ use traverse_runtime::{
 };
 
 const MAX_REQUEST_BODY: usize = 4 * 1024 * 1024; // 4 MiB
-const DEFAULT_WORKSPACE_ID: &str = "system";
+const SYSTEM_WORKSPACE_ID: &str = "system";
+const SYSTEM_ADMIN_SUBJECT: &str = "system_admin";
 const PERSISTED_REGISTRY_SCHEMA_VERSION: &str = "1.0.0";
+const WORKSPACE_METADATA_SCHEMA_VERSION: &str = "1.0.0";
 
 /// Errors that can occur while serving the HTTP/JSON API.
 #[derive(Debug)]
@@ -76,6 +78,22 @@ struct PersistedCapabilityRegistrationV1 {
     tags: Vec<String>,
 }
 
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct WorkspaceMetadataV1 {
+    schema_version: String,
+    workspace_id: String,
+    owner_subject: String,
+    shared: bool,
+    #[serde(default)]
+    members: Vec<String>,
+}
+
+#[derive(Debug, Clone)]
+struct DerivedIdentity {
+    subject_id: String,
+    is_admin: bool,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum RegistrationScope {
     WorkspacePersisted,
@@ -121,7 +139,7 @@ where
 
     let mut workspaces = HashMap::new();
     workspaces.insert(
-        DEFAULT_WORKSPACE_ID.to_string(),
+        SYSTEM_WORKSPACE_ID.to_string(),
         WorkspaceState {
             runtime: Runtime::new(config.capability_registry, config.executor.clone())
                 .with_workflow_registry(config.workflow_registry),
@@ -224,6 +242,13 @@ fn persisted_registry_path(registry_root: &Path, workspace_id: &str) -> PathBuf 
         .join("capabilities.json")
 }
 
+fn workspace_metadata_path(registry_root: &Path, workspace_id: &str) -> PathBuf {
+    registry_root
+        .join("workspaces")
+        .join(workspace_id)
+        .join("workspace.json")
+}
+
 fn persist_registry(
     registry_root: &Path,
     workspace_id: &str,
@@ -263,8 +288,8 @@ fn validate_workspace_id(workspace_id: &str) -> Result<(), String> {
     if workspace_id.trim().is_empty() {
         return Err("workspace_id must be non-empty".to_string());
     }
-    if workspace_id.len() > 64 {
-        return Err("workspace_id must be at most 64 characters".to_string());
+    if workspace_id.len() > 128 {
+        return Err("workspace_id must be at most 128 characters".to_string());
     }
     if workspace_id.contains('\0') {
         return Err("workspace_id must not contain null bytes".to_string());
@@ -281,6 +306,361 @@ fn validate_workspace_id(workspace_id: &str) -> Result<(), String> {
         }
     }
     Ok(())
+}
+
+fn require_workspace_id_query(request: &HttpRequest) -> Result<String, ApiError> {
+    request
+        .query
+        .get("workspace_id")
+        .cloned()
+        .ok_or_else(|| ApiError {
+            status: 400,
+            reason: "Bad Request",
+            code: "workspace_id_required",
+            message: "workspace_id is required (add ?workspace_id=<id>)".to_string(),
+        })
+}
+
+fn subject_from_request(
+    headers: &HashMap<String, String>,
+    allow_unauthenticated: bool,
+    loopback: bool,
+) -> Result<DerivedIdentity, ApiError> {
+    let token = headers
+        .get("authorization")
+        .and_then(|v| v.strip_prefix("Bearer "))
+        .map(str::trim)
+        .filter(|v| !v.is_empty())
+        .map(ToString::to_string);
+
+    if let Some(token) = token {
+        if let Some(identity) = derive_identity_from_jwt(&token)? {
+            return Ok(identity);
+        }
+
+        // Fallback: accept non-JWT bearer tokens as direct subject identifiers.
+        // This is intended for local/dev environments that don't provide JWTs yet.
+        validate_subject_id(&token).map_err(|msg| ApiError {
+            status: 401,
+            reason: "Unauthorized",
+            code: "unauthorized",
+            message: msg,
+        })?;
+
+        return Ok(DerivedIdentity {
+            subject_id: token.clone(),
+            is_admin: token == SYSTEM_ADMIN_SUBJECT,
+        });
+    }
+
+    if allow_unauthenticated || loopback {
+        return Ok(DerivedIdentity {
+            subject_id: "local".to_string(),
+            is_admin: false,
+        });
+    }
+
+    Err(ApiError {
+        status: 401,
+        reason: "Unauthorized",
+        code: "unauthorized",
+        message: "Bearer token required".to_string(),
+    })
+}
+
+fn validate_subject_id(subject_id: &str) -> Result<(), String> {
+    if subject_id.trim().is_empty() {
+        return Err("subject_id must be non-empty".to_string());
+    }
+    if subject_id.len() > 256 {
+        return Err("subject_id must be at most 256 characters".to_string());
+    }
+    if subject_id.contains('\0') {
+        return Err("subject_id must not contain null bytes".to_string());
+    }
+    Ok(())
+}
+
+fn derive_identity_from_jwt(token: &str) -> Result<Option<DerivedIdentity>, ApiError> {
+    let mut parts = token.split('.');
+    let header = parts.next();
+    let payload = parts.next();
+    let signature = parts.next();
+
+    if header.is_none() || payload.is_none() || signature.is_none() || parts.next().is_some() {
+        return Ok(None);
+    }
+
+    let Some(payload_b64) = payload else {
+        return Ok(None);
+    };
+    let payload_bytes = base64url_decode(payload_b64).map_err(|msg| ApiError {
+        status: 401,
+        reason: "Unauthorized",
+        code: "unauthorized",
+        message: msg,
+    })?;
+
+    let value: Value = serde_json::from_slice(&payload_bytes).map_err(|e| ApiError {
+        status: 401,
+        reason: "Unauthorized",
+        code: "unauthorized",
+        message: format!("invalid JWT payload: {e}"),
+    })?;
+
+    let subject_id = value
+        .get("sub")
+        .and_then(|v| v.as_str())
+        .filter(|s| !s.trim().is_empty())
+        .ok_or_else(|| ApiError {
+            status: 401,
+            reason: "Unauthorized",
+            code: "unauthorized",
+            message: "JWT missing required 'sub' claim".to_string(),
+        })?
+        .to_string();
+
+    validate_subject_id(&subject_id).map_err(|msg| ApiError {
+        status: 401,
+        reason: "Unauthorized",
+        code: "unauthorized",
+        message: msg,
+    })?;
+
+    if let Some(exp) = value.get("exp").and_then(Value::as_i64) {
+        if exp <= 0 {
+            return Err(ApiError {
+                status: 401,
+                reason: "Unauthorized",
+                code: "token_expired",
+                message: "token is expired".to_string(),
+            });
+        }
+
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .map_err(|e| ApiError {
+                status: 500,
+                reason: "Internal Server Error",
+                code: "internal_error",
+                message: format!("failed to read system time: {e}"),
+            })?
+            .as_secs();
+
+        let now = i64::try_from(now_secs).map_err(|_| ApiError {
+            status: 500,
+            reason: "Internal Server Error",
+            code: "internal_error",
+            message: "system time overflow".to_string(),
+        })?;
+
+        if now > exp {
+            return Err(ApiError {
+                status: 401,
+                reason: "Unauthorized",
+                code: "token_expired",
+                message: "token is expired".to_string(),
+            });
+        }
+    }
+
+    let is_admin = value
+        .get("traverse_admin")
+        .and_then(Value::as_bool)
+        .unwrap_or(false)
+        || value
+            .get("roles")
+            .and_then(Value::as_array)
+            .is_some_and(|arr| {
+                arr.iter().any(|v| {
+                    v.as_str()
+                        .is_some_and(|s| s == "traverse_admin" || s == SYSTEM_ADMIN_SUBJECT)
+                })
+            })
+        || value
+            .get("role")
+            .and_then(|v| v.as_str())
+            .is_some_and(|s| s == "traverse_admin" || s == SYSTEM_ADMIN_SUBJECT);
+
+    Ok(Some(DerivedIdentity {
+        subject_id,
+        is_admin,
+    }))
+}
+
+fn base64url_decode(input: &str) -> Result<Vec<u8>, String> {
+    if input.is_empty() {
+        return Ok(Vec::new());
+    }
+    if input.contains('=') {
+        return Err("base64url input must not include '=' padding".to_string());
+    }
+
+    let mut sextets = Vec::with_capacity(input.len());
+    for ch in input.chars() {
+        let val = match ch {
+            'A'..='Z' => (ch as u8) - b'A',
+            'a'..='z' => (ch as u8) - b'a' + 26,
+            '0'..='9' => (ch as u8) - b'0' + 52,
+            '-' => 62,
+            '_' => 63,
+            _ => {
+                return Err("base64url input contains invalid characters".to_string());
+            }
+        };
+        sextets.push(val);
+    }
+
+    match sextets.len() % 4 {
+        0 | 2 | 3 => {}
+        _ => return Err("base64url input has invalid length".to_string()),
+    }
+
+    let mut out = Vec::with_capacity((sextets.len() * 3) / 4);
+    let mut i = 0;
+    while i + 4 <= sextets.len() {
+        let n = (u32::from(sextets[i]) << 18)
+            | (u32::from(sextets[i + 1]) << 12)
+            | (u32::from(sextets[i + 2]) << 6)
+            | u32::from(sextets[i + 3]);
+        out.push(((n >> 16) & 0xff) as u8);
+        out.push(((n >> 8) & 0xff) as u8);
+        out.push((n & 0xff) as u8);
+        i += 4;
+    }
+
+    let rem = sextets.len() - i;
+    if rem == 2 {
+        let n = (u32::from(sextets[i]) << 18) | (u32::from(sextets[i + 1]) << 12);
+        out.push(((n >> 16) & 0xff) as u8);
+    } else if rem == 3 {
+        let n = (u32::from(sextets[i]) << 18)
+            | (u32::from(sextets[i + 1]) << 12)
+            | (u32::from(sextets[i + 2]) << 6);
+        out.push(((n >> 16) & 0xff) as u8);
+        out.push(((n >> 8) & 0xff) as u8);
+    }
+
+    Ok(out)
+}
+
+fn load_workspace_metadata(
+    registry_root: &Path,
+    workspace_id: &str,
+) -> Result<Option<WorkspaceMetadataV1>, ApiError> {
+    let path = workspace_metadata_path(registry_root, workspace_id);
+    if !path.exists() {
+        return Ok(None);
+    }
+
+    let bytes = std::fs::read(&path).map_err(|e| ApiError {
+        status: 500,
+        reason: "Internal Server Error",
+        code: "workspace_metadata_read_failed",
+        message: format!("failed to read workspace metadata: {e}"),
+    })?;
+
+    let metadata: WorkspaceMetadataV1 = serde_json::from_slice(&bytes).map_err(|e| ApiError {
+        status: 500,
+        reason: "Internal Server Error",
+        code: "workspace_metadata_parse_failed",
+        message: format!("failed to parse workspace metadata: {e}"),
+    })?;
+
+    Ok(Some(metadata))
+}
+
+fn persist_workspace_metadata(
+    registry_root: &Path,
+    workspace_id: &str,
+    metadata: &WorkspaceMetadataV1,
+) -> Result<(), ApiError> {
+    let path = workspace_metadata_path(registry_root, workspace_id);
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent).map_err(|e| ApiError {
+            status: 500,
+            reason: "Internal Server Error",
+            code: "workspace_metadata_write_failed",
+            message: format!("failed to create workspace directory: {e}"),
+        })?;
+    }
+
+    let bytes = serde_json::to_vec_pretty(metadata).map_err(|e| ApiError {
+        status: 500,
+        reason: "Internal Server Error",
+        code: "workspace_metadata_write_failed",
+        message: format!("failed to serialize workspace metadata: {e}"),
+    })?;
+
+    let tmp = path.with_extension("json.tmp");
+    std::fs::write(&tmp, &bytes).map_err(|e| ApiError {
+        status: 500,
+        reason: "Internal Server Error",
+        code: "workspace_metadata_write_failed",
+        message: format!("failed to write workspace metadata temp file: {e}"),
+    })?;
+    std::fs::rename(&tmp, &path).map_err(|e| ApiError {
+        status: 500,
+        reason: "Internal Server Error",
+        code: "workspace_metadata_write_failed",
+        message: format!("failed to atomically replace workspace metadata: {e}"),
+    })?;
+
+    Ok(())
+}
+
+fn ensure_workspace_access(
+    registry_root: &Path,
+    workspace_id: &str,
+    identity: &DerivedIdentity,
+) -> Result<WorkspaceMetadataV1, ApiError> {
+    if workspace_id == SYSTEM_WORKSPACE_ID && !identity.is_admin {
+        return Err(ApiError {
+            status: 403,
+            reason: "Forbidden",
+            code: "insufficient_privileges",
+            message: "system workspace requires privileged role claim".to_string(),
+        });
+    }
+
+    validate_workspace_id(workspace_id).map_err(|msg| ApiError {
+        status: 400,
+        reason: "Bad Request",
+        code: "workspace_id_invalid",
+        message: msg,
+    })?;
+
+    let existing = load_workspace_metadata(registry_root, workspace_id)?;
+    let metadata = if let Some(metadata) = existing {
+        metadata
+    } else {
+        let metadata = WorkspaceMetadataV1 {
+            schema_version: WORKSPACE_METADATA_SCHEMA_VERSION.to_string(),
+            workspace_id: workspace_id.to_string(),
+            owner_subject: identity.subject_id.clone(),
+            shared: false,
+            members: Vec::new(),
+        };
+        persist_workspace_metadata(registry_root, workspace_id, &metadata)?;
+        metadata
+    };
+
+    if metadata.shared {
+        if metadata.owner_subject == identity.subject_id
+            || metadata.members.iter().any(|m| m == &identity.subject_id)
+        {
+            return Ok(metadata);
+        }
+    } else if metadata.owner_subject == identity.subject_id {
+        return Ok(metadata);
+    }
+
+    Err(ApiError {
+        status: 403,
+        reason: "Forbidden",
+        code: "unauthorized_workspace",
+        message: "subject is not authorized for workspace".to_string(),
+    })
 }
 
 fn parse_registration_scope(value: Option<&Value>) -> Result<RegistrationScope, String> {
@@ -420,7 +800,7 @@ fn parse_register_body(
         .ok_or_else(|| ApiError {
             status: 400,
             reason: "Bad Request",
-            code: "missing_workspace_id",
+            code: "workspace_id_required",
             message: "workspace_id is required".to_string(),
         })?
         .to_string();
@@ -573,7 +953,7 @@ fn handle_connection<E: LocalExecutor + Clone>(
         .map(|a| a.ip())
         .unwrap_or(IpAddr::from([127, 0, 0, 1]));
 
-    if !state.allow_unauthenticated && !peer_ip.is_loopback() {
+    if request.path != "/v1/health" && !state.allow_unauthenticated && !peer_ip.is_loopback() {
         let has_bearer = request
             .headers
             .get("authorization")
@@ -591,11 +971,15 @@ fn handle_connection<E: LocalExecutor + Clone>(
 
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/v1/health") => handle_health(&mut stream),
-        ("GET", "/v1/capabilities") => handle_list_capabilities(&mut stream, &request, state),
-        ("POST", "/v1/capabilities/register") => {
-            handle_register_capability(&mut stream, &request.body, state)
+        ("GET", "/v1/capabilities") => {
+            handle_list_capabilities(&mut stream, &request, state, peer_ip.is_loopback())
         }
-        ("POST", "/v1/capabilities/execute") => handle_execute(&mut stream, &request, state),
+        ("POST", "/v1/capabilities/register") => {
+            handle_register_capability(&mut stream, &request, state, peer_ip.is_loopback())
+        }
+        ("POST", "/v1/capabilities/execute") => {
+            handle_execute(&mut stream, &request, state, peer_ip.is_loopback())
+        }
         _ => write_json(
             &mut stream,
             404,
@@ -617,13 +1001,46 @@ fn handle_list_capabilities<W: Write, E: LocalExecutor + Clone>(
     w: &mut W,
     request: &HttpRequest,
     state: &ApiState<E>,
+    loopback: bool,
 ) -> Result<(), String> {
-    let workspace_id = request
-        .query
-        .get("workspace_id")
-        .map_or(DEFAULT_WORKSPACE_ID, String::as_str);
+    let workspace_id = match require_workspace_id_query(request) {
+        Ok(value) => value,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
 
-    let entries = state.with_workspace_mut(workspace_id, |ws| {
+    let identity =
+        match subject_from_request(&request.headers, state.allow_unauthenticated, loopback) {
+            Ok(identity) => identity,
+            Err(err) => {
+                return write_json(
+                    w,
+                    err.status,
+                    err.reason,
+                    &error_envelope(err.code, &err.message),
+                );
+            }
+        };
+
+    let _ = match ensure_workspace_access(&state.registry_root, &workspace_id, &identity) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let entries = state.with_workspace_mut(&workspace_id, |ws| {
         Ok(ws
             .runtime
             .capability_registry()
@@ -649,11 +1066,37 @@ fn handle_list_capabilities<W: Write, E: LocalExecutor + Clone>(
 
 fn handle_register_capability<W: Write, E: LocalExecutor + Clone>(
     w: &mut W,
-    body: &[u8],
+    request: &HttpRequest,
     state: &ApiState<E>,
+    loopback: bool,
 ) -> Result<(), String> {
-    let (workspace_id, scope, persisted_registration) = match parse_register_body(body) {
+    let identity =
+        match subject_from_request(&request.headers, state.allow_unauthenticated, loopback) {
+            Ok(identity) => identity,
+            Err(err) => {
+                return write_json(
+                    w,
+                    err.status,
+                    err.reason,
+                    &error_envelope(err.code, &err.message),
+                );
+            }
+        };
+
+    let (workspace_id, scope, persisted_registration) = match parse_register_body(&request.body) {
         Ok(parsed) => parsed,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let _ = match ensure_workspace_access(&state.registry_root, &workspace_id, &identity) {
+        Ok(metadata) => metadata,
         Err(err) => {
             return write_json(
                 w,
@@ -726,6 +1169,7 @@ fn handle_execute<W: Write, E: LocalExecutor + Clone>(
     w: &mut W,
     request: &HttpRequest,
     state: &ApiState<E>,
+    loopback: bool,
 ) -> Result<(), String> {
     let body = request.body.as_slice();
     let body_str = match std::str::from_utf8(body) {
@@ -758,13 +1202,45 @@ fn handle_execute<W: Write, E: LocalExecutor + Clone>(
         }
     };
 
-    let workspace_id = request
-        .query
-        .get("workspace_id")
-        .map_or(DEFAULT_WORKSPACE_ID, String::as_str);
+    let workspace_id = match require_workspace_id_query(request) {
+        Ok(value) => value,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let identity =
+        match subject_from_request(&request.headers, state.allow_unauthenticated, loopback) {
+            Ok(identity) => identity,
+            Err(err) => {
+                return write_json(
+                    w,
+                    err.status,
+                    err.reason,
+                    &error_envelope(err.code, &err.message),
+                );
+            }
+        };
+
+    let _ = match ensure_workspace_access(&state.registry_root, &workspace_id, &identity) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
 
     let outcome: RuntimeExecutionOutcome =
-        state.with_workspace_mut(workspace_id, |ws| Ok(ws.runtime.execute(runtime_request)))?;
+        state.with_workspace_mut(&workspace_id, |ws| Ok(ws.runtime.execute(runtime_request)))?;
 
     match serialize_outcome(&outcome) {
         Ok(body_str) => write_json_raw(w, 200, "OK", &body_str),
@@ -1021,6 +1497,14 @@ mod tests {
     // Helpers
     // ------------------------------------------------------------------
 
+    fn test_registry_root() -> PathBuf {
+        let suffix = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time must be valid")
+            .as_nanos();
+        std::env::temp_dir().join(format!("traverse-cli-http-api-tests-{suffix}"))
+    }
+
     fn test_contract(id: &str, version: &str) -> CapabilityContract {
         let dot = id.rfind('.').unwrap_or(0);
         let namespace = id[..dot].to_string();
@@ -1132,9 +1616,13 @@ mod tests {
             .expect("test registration must succeed");
 
         let executor = TestExecutor::ok(json!({"result": "ok"}));
+        let registry_root = test_registry_root();
+        std::fs::create_dir_all(&registry_root).expect("registry root must be created");
+
         let mut workspaces = HashMap::new();
+        let workspace_id = "ws-test";
         workspaces.insert(
-            DEFAULT_WORKSPACE_ID.to_string(),
+            workspace_id.to_string(),
             WorkspaceState {
                 runtime: Runtime::new(registry, executor.clone())
                     .with_workflow_registry(WorkflowRegistry::new()),
@@ -1148,7 +1636,7 @@ mod tests {
 
         ApiState {
             allow_unauthenticated: true,
-            registry_root: std::env::temp_dir().join("traverse-cli-http-api-tests"),
+            registry_root,
             executor,
             workspaces: RefCell::new(workspaces),
         }
@@ -1156,9 +1644,13 @@ mod tests {
 
     fn empty_state() -> ApiState<TestExecutor> {
         let executor = TestExecutor::ok(json!({}));
+        let registry_root = test_registry_root();
+        std::fs::create_dir_all(&registry_root).expect("registry root must be created");
+
         let mut workspaces = HashMap::new();
+        let workspace_id = "ws-test";
         workspaces.insert(
-            DEFAULT_WORKSPACE_ID.to_string(),
+            workspace_id.to_string(),
             WorkspaceState {
                 runtime: Runtime::new(CapabilityRegistry::new(), executor.clone())
                     .with_workflow_registry(WorkflowRegistry::new()),
@@ -1172,7 +1664,7 @@ mod tests {
 
         ApiState {
             allow_unauthenticated: true,
-            registry_root: std::env::temp_dir().join("traverse-cli-http-api-tests"),
+            registry_root,
             executor,
             workspaces: RefCell::new(workspaces),
         }
@@ -1186,6 +1678,66 @@ mod tests {
             headers: HashMap::new(),
             body,
         }
+    }
+
+    fn with_workspace_query(mut req: HttpRequest, workspace_id: &str) -> HttpRequest {
+        req.query
+            .insert("workspace_id".to_string(), workspace_id.to_string());
+        req
+    }
+
+    fn with_bearer(mut req: HttpRequest, token: &str) -> HttpRequest {
+        req.headers.insert(
+            "authorization".to_string(),
+            format!("Bearer {}", token.trim()),
+        );
+        req
+    }
+
+    fn base64url_encode(input: &[u8]) -> String {
+        const ALPHABET: &[u8; 64] =
+            b"ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_";
+
+        if input.is_empty() {
+            return String::new();
+        }
+
+        let mut out = String::new();
+        let mut i = 0;
+        while i + 3 <= input.len() {
+            let n = (u32::from(input[i]) << 16)
+                | (u32::from(input[i + 1]) << 8)
+                | u32::from(input[i + 2]);
+            out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+            out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+            out.push(ALPHABET[((n >> 6) & 63) as usize] as char);
+            out.push(ALPHABET[(n & 63) as usize] as char);
+            i += 3;
+        }
+
+        let rem = input.len() - i;
+        if rem == 1 {
+            let n = u32::from(input[i]) << 16;
+            out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+            out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+        } else if rem == 2 {
+            let n = (u32::from(input[i]) << 16) | (u32::from(input[i + 1]) << 8);
+            out.push(ALPHABET[((n >> 18) & 63) as usize] as char);
+            out.push(ALPHABET[((n >> 12) & 63) as usize] as char);
+            out.push(ALPHABET[((n >> 6) & 63) as usize] as char);
+        }
+
+        out
+    }
+
+    fn make_jwt(sub: &str, exp: i64, admin: bool) -> String {
+        let header = base64url_encode(br#"{"alg":"none","typ":"JWT"}"#);
+        let mut payload = json!({ "sub": sub, "exp": exp });
+        if admin {
+            payload["traverse_admin"] = json!(true);
+        }
+        let payload_b64 = base64url_encode(payload.to_string().as_bytes());
+        format!("{header}.{payload_b64}.sig")
     }
 
     fn make_runtime_request_body(capability_id: &str) -> Vec<u8> {
@@ -1254,9 +1806,12 @@ mod tests {
     #[test]
     fn capabilities_endpoint_returns_registered_capability() {
         let state = test_state_with("test.api.do-something", "1.0.0");
-        let req = make_http_request("GET", "/v1/capabilities", Vec::new());
+        let req = with_workspace_query(
+            make_http_request("GET", "/v1/capabilities", Vec::new()),
+            "ws-test",
+        );
         let mut out = Vec::new();
-        handle_list_capabilities(&mut out, &req, &state).expect("list must succeed");
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must succeed");
 
         let status = response_status(&out);
         let body = parse_response_body(&out);
@@ -1272,13 +1827,168 @@ mod tests {
     #[test]
     fn capabilities_endpoint_returns_empty_array_for_empty_registry() {
         let state = empty_state();
-        let req = make_http_request("GET", "/v1/capabilities", Vec::new());
+        let req = with_workspace_query(
+            make_http_request("GET", "/v1/capabilities", Vec::new()),
+            "ws-test",
+        );
         let mut out = Vec::new();
-        handle_list_capabilities(&mut out, &req, &state).expect("list must succeed");
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must succeed");
 
         let body = parse_response_body(&out);
         assert!(body.is_array());
         assert!(body.as_array().expect("array").is_empty());
+    }
+
+    #[test]
+    fn capabilities_endpoint_requires_workspace_id() {
+        let state = empty_state();
+        let req = make_http_request("GET", "/v1/capabilities", Vec::new());
+        let mut out = Vec::new();
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must write a response");
+
+        assert_eq!(response_status(&out), 400);
+        let body = parse_response_body(&out);
+        assert_eq!(body["error"]["code"], "workspace_id_required");
+    }
+
+    #[test]
+    fn capabilities_endpoint_isolated_between_workspaces() {
+        let state = empty_state();
+        state
+            .with_workspace_mut("ws-a", |ws| {
+                ws.runtime
+                    .register_capability(test_registration("cap.a", "1.0.0"))
+                    .expect("registration must succeed");
+                Ok(())
+            })
+            .expect("workspace insert must succeed");
+        state
+            .with_workspace_mut("ws-b", |ws| {
+                ws.runtime
+                    .register_capability(test_registration("cap.b", "1.0.0"))
+                    .expect("registration must succeed");
+                Ok(())
+            })
+            .expect("workspace insert must succeed");
+
+        let mut out_a = Vec::new();
+        let req_a = with_workspace_query(
+            make_http_request("GET", "/v1/capabilities", Vec::new()),
+            "ws-a",
+        );
+        handle_list_capabilities(&mut out_a, &req_a, &state, true).expect("list must succeed");
+        assert_eq!(response_status(&out_a), 200);
+        let body_a = parse_response_body(&out_a);
+        let arr_a = body_a.as_array().expect("array");
+        assert_eq!(arr_a.len(), 1);
+        assert_eq!(arr_a[0]["id"], "cap.a");
+
+        let mut out_b = Vec::new();
+        let req_b = with_workspace_query(
+            make_http_request("GET", "/v1/capabilities", Vec::new()),
+            "ws-b",
+        );
+        handle_list_capabilities(&mut out_b, &req_b, &state, true).expect("list must succeed");
+        assert_eq!(response_status(&out_b), 200);
+        let body_b = parse_response_body(&out_b);
+        let arr_b = body_b.as_array().expect("array");
+        assert_eq!(arr_b.len(), 1);
+        assert_eq!(arr_b[0]["id"], "cap.b");
+    }
+
+    #[test]
+    fn capabilities_endpoint_rejects_unauthorized_workspace_access() {
+        let state = empty_state();
+        let metadata = WorkspaceMetadataV1 {
+            schema_version: WORKSPACE_METADATA_SCHEMA_VERSION.to_string(),
+            workspace_id: "ws-owned".to_string(),
+            owner_subject: "alice".to_string(),
+            shared: false,
+            members: Vec::new(),
+        };
+        persist_workspace_metadata(&state.registry_root, "ws-owned", &metadata)
+            .expect("metadata write must succeed");
+
+        let req = with_bearer(
+            with_workspace_query(
+                make_http_request("GET", "/v1/capabilities", Vec::new()),
+                "ws-owned",
+            ),
+            "bob",
+        );
+        let mut out = Vec::new();
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must write a response");
+
+        assert_eq!(response_status(&out), 403);
+        let body = parse_response_body(&out);
+        assert_eq!(body["error"]["code"], "unauthorized_workspace");
+    }
+
+    #[test]
+    fn capabilities_endpoint_allows_shared_workspace_members() {
+        let state = empty_state();
+        let metadata = WorkspaceMetadataV1 {
+            schema_version: WORKSPACE_METADATA_SCHEMA_VERSION.to_string(),
+            workspace_id: "ws-shared".to_string(),
+            owner_subject: "alice".to_string(),
+            shared: true,
+            members: vec!["bob".to_string()],
+        };
+        persist_workspace_metadata(&state.registry_root, "ws-shared", &metadata)
+            .expect("metadata write must succeed");
+
+        let req = with_bearer(
+            with_workspace_query(
+                make_http_request("GET", "/v1/capabilities", Vec::new()),
+                "ws-shared",
+            ),
+            "bob",
+        );
+        let mut out = Vec::new();
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must write a response");
+
+        assert_eq!(response_status(&out), 200);
+        let body = parse_response_body(&out);
+        assert!(body.as_array().expect("array").is_empty());
+    }
+
+    #[test]
+    fn system_workspace_requires_privileged_claim() {
+        let state = empty_state();
+        let req = with_bearer(
+            with_workspace_query(
+                make_http_request("GET", "/v1/capabilities", Vec::new()),
+                SYSTEM_WORKSPACE_ID,
+            ),
+            "alice",
+        );
+        let mut out = Vec::new();
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must write a response");
+
+        assert_eq!(response_status(&out), 403);
+        let body = parse_response_body(&out);
+        assert_eq!(body["error"]["code"], "insufficient_privileges");
+    }
+
+    #[test]
+    fn system_workspace_allows_admin_jwt() {
+        let state = empty_state();
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time must be valid")
+            .as_secs();
+        let now = i64::try_from(now_secs).expect("time must fit i64");
+        let token = make_jwt("admin-user", now + 3600, true);
+        let req = with_bearer(
+            with_workspace_query(
+                make_http_request("GET", "/v1/capabilities", Vec::new()),
+                SYSTEM_WORKSPACE_ID,
+            ),
+            &token,
+        );
+        let mut out = Vec::new();
+        handle_list_capabilities(&mut out, &req, &state, true).expect("list must write a response");
+        assert_eq!(response_status(&out), 200);
     }
 
     // ------------------------------------------------------------------
@@ -1289,10 +1999,13 @@ mod tests {
     fn execute_endpoint_returns_completed_trace_on_success() {
         let body = make_runtime_request_body("test.api.do-something");
         let state = test_state_with("test.api.do-something", "1.0.0");
-        let req = make_http_request("POST", "/v1/capabilities/execute", body);
+        let req = with_workspace_query(
+            make_http_request("POST", "/v1/capabilities/execute", body),
+            "ws-test",
+        );
 
         let mut out = Vec::new();
-        handle_execute(&mut out, &req, &state).expect("execute must write a response");
+        handle_execute(&mut out, &req, &state, true).expect("execute must write a response");
 
         let status = response_status(&out);
         let resp = parse_response_body(&out);
@@ -1311,10 +2024,13 @@ mod tests {
     fn execute_endpoint_returns_error_status_for_unknown_capability() {
         let body = make_runtime_request_body("unknown.capability.does-not-exist");
         let state = empty_state();
-        let req = make_http_request("POST", "/v1/capabilities/execute", body);
+        let req = with_workspace_query(
+            make_http_request("POST", "/v1/capabilities/execute", body),
+            "ws-test",
+        );
 
         let mut out = Vec::new();
-        handle_execute(&mut out, &req, &state)
+        handle_execute(&mut out, &req, &state, true)
             .expect("handle_execute must write a response even on runtime error");
 
         let status = response_status(&out);
@@ -1338,7 +2054,7 @@ mod tests {
         );
 
         let mut out = Vec::new();
-        handle_execute(&mut out, &req, &state).expect("handle_execute must write a response");
+        handle_execute(&mut out, &req, &state, true).expect("handle_execute must write a response");
 
         let status = response_status(&out);
         let resp = parse_response_body(&out);
@@ -1346,6 +2062,46 @@ mod tests {
         assert_eq!(status, 400);
         assert!(resp["error"]["code"].as_str().is_some());
         assert!(resp["error"]["message"].as_str().is_some());
+    }
+
+    #[test]
+    fn execute_endpoint_requires_workspace_id() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let req = make_http_request("POST", "/v1/capabilities/execute", body);
+
+        let mut out = Vec::new();
+        handle_execute(&mut out, &req, &state, true).expect("handle_execute must write a response");
+
+        assert_eq!(response_status(&out), 400);
+        let resp = parse_response_body(&out);
+        assert_eq!(resp["error"]["code"], "workspace_id_required");
+    }
+
+    #[test]
+    fn execute_endpoint_rejects_expired_jwt() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let now_secs = std::time::SystemTime::now()
+            .duration_since(std::time::UNIX_EPOCH)
+            .expect("time must be valid")
+            .as_secs();
+        let now = i64::try_from(now_secs).expect("time must fit i64");
+        let token = make_jwt("alice", now - 10, false);
+        let req = with_bearer(
+            with_workspace_query(
+                make_http_request("POST", "/v1/capabilities/execute", body),
+                "ws-test",
+            ),
+            &token,
+        );
+
+        let mut out = Vec::new();
+        handle_execute(&mut out, &req, &state, true).expect("handle_execute must write a response");
+
+        assert_eq!(response_status(&out), 401);
+        let resp = parse_response_body(&out);
+        assert_eq!(resp["error"]["code"], "token_expired");
     }
 
     // ------------------------------------------------------------------
