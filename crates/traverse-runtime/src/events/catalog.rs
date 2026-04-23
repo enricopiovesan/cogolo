@@ -102,3 +102,66 @@ impl Default for EventCatalog {
         Self::new()
     }
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+
+    fn active_entry(event_type: &str) -> EventCatalogEntry {
+        EventCatalogEntry {
+            event_type: event_type.to_string(),
+            owner: "cap.test".to_string(),
+            version: "1.0.0".to_string(),
+            lifecycle_status: LifecycleStatus::Active,
+            consumer_count: 0,
+        }
+    }
+
+    #[test]
+    fn catalog_debug_impl_is_accessible() {
+        let catalog = EventCatalog::new();
+        let rendered = format!("{catalog:?}");
+        assert!(rendered.contains("EventCatalog"));
+    }
+
+    #[test]
+    fn duplicate_registration_returns_lifecycle_violation() {
+        let catalog = EventCatalog::new();
+        catalog
+            .register(active_entry("dev.traverse.dup"))
+            .expect("register must succeed");
+        let err = catalog
+            .register(active_entry("dev.traverse.dup"))
+            .expect_err("duplicate must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+    }
+
+    #[test]
+    fn list_returns_empty_when_lock_is_poisoned() {
+        let catalog = EventCatalog::new();
+        catalog
+            .register(active_entry("dev.traverse.poison"))
+            .expect("register must succeed");
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = catalog.entries.lock().unwrap();
+            panic!("poison");
+        }));
+
+        let entries = catalog.list();
+        assert!(
+            entries.is_empty(),
+            "poisoned lock must result in default empty list"
+        );
+    }
+
+    #[test]
+    fn default_catalog_is_empty() {
+        let catalog = EventCatalog::default();
+        assert!(catalog.list().is_empty());
+    }
+}

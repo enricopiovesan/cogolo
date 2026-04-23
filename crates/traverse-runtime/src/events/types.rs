@@ -149,3 +149,28 @@ pub struct SubscriptionPoll {
     pub cursor: EventCursor,
     pub events: Vec<BrokerEvent>,
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn event_error_display_covers_all_variants() {
+        let cases: Vec<EventError> = vec![
+            EventError::LifecycleViolation("x".to_string()),
+            EventError::UnregisteredEventType("t".to_string()),
+            EventError::InvalidCursor("c".to_string()),
+            EventError::CursorExpired {
+                event_type: "evt".to_string(),
+                oldest_available_cursor: "7".to_string(),
+            },
+            EventError::SubscriptionNotFound("sub-1".to_string()),
+            EventError::InvalidRetentionWindow("bad".to_string()),
+        ];
+
+        for err in cases {
+            let rendered = err.to_string();
+            assert!(!rendered.is_empty());
+        }
+    }
+}

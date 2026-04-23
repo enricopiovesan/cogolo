@@ -161,21 +161,18 @@ fn prune_expired(
 ) {
     let buffer = state.buffers.entry(event_type.to_string()).or_default();
     let mut oldest_retained_cursor = None;
-    while let Some(front) = buffer.front() {
+    while let Some(front) = buffer.pop_front() {
         let age = now
             .duration_since(front.published_at)
             .unwrap_or(Duration::from_secs(0));
         if age <= retention_window {
             oldest_retained_cursor = Some(front.cursor);
+            buffer.push_front(front);
             break;
         }
 
-        if let Some(expired) = buffer.pop_front() {
-            if let Some(ids) = state.seen_event_ids.get_mut(event_type) {
-                let _ = ids.remove(&expired.event.id);
-            }
-        } else {
-            break;
+        if let Some(ids) = state.seen_event_ids.get_mut(event_type) {
+            let _ = ids.remove(&front.event.id);
         }
     }
 
@@ -348,11 +345,14 @@ impl EventBroker for InProcessBroker {
         let subscription_id = format!("sub-{}", state.next_subscription);
 
         let mut queue = VecDeque::new();
-        if let Some(buffer) = state.buffers.get(event_type) {
-            for item in buffer {
-                if from_cursor == 0 || item.cursor > from_cursor {
-                    enqueue_with_drop_oldest(&mut queue, self.config.max_queue_len, item.clone());
-                }
+        for item in state
+            .buffers
+            .get(event_type)
+            .into_iter()
+            .flat_map(|buffer| buffer.iter())
+        {
+            if from_cursor == 0 || item.cursor > from_cursor {
+                enqueue_with_drop_oldest(&mut queue, self.config.max_queue_len, item.clone());
             }
         }
 
@@ -388,33 +388,40 @@ impl EventBroker for InProcessBroker {
             .lock()
             .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
 
-        let (event_type, cursor) = match state.subscriptions.get(subscription_id) {
-            Some(sub) => (sub.event_type.clone(), sub.cursor),
-            None => {
-                return Err(EventError::SubscriptionNotFound(
-                    subscription_id.to_string(),
-                ));
-            }
-        };
+        let mut subscription = state
+            .subscriptions
+            .remove(subscription_id)
+            .ok_or_else(|| EventError::SubscriptionNotFound(subscription_id.to_string()))?;
+        let event_type = subscription.event_type.clone();
+        let cursor = subscription.cursor;
 
         prune_expired(&mut state, &event_type, self.config.retention_window, now);
 
         validate_from_cursor(&state, &event_type, cursor)?;
 
+        if let Some(buffer) = state.buffers.get(&event_type)
+            && let Some(oldest_cursor) = buffer.front().map(|e| e.cursor)
+        {
+            while let Some(front) = subscription.queue.front() {
+                if front.cursor >= oldest_cursor {
+                    break;
+                }
+                let _ = subscription.queue.pop_front();
+            }
+        }
+
         if max_events == 0 {
+            let cursor_str = cursor_to_string(subscription.cursor);
+            state
+                .subscriptions
+                .insert(subscription.subscription_id.clone(), subscription);
             return Ok(SubscriptionPoll {
                 subscription_id: subscription_id.to_string(),
-                event_type: event_type.clone(),
-                cursor: cursor_to_string(cursor),
+                event_type,
+                cursor: cursor_str,
                 events: Vec::new(),
             });
         }
-
-        let Some(subscription) = state.subscriptions.get_mut(subscription_id) else {
-            return Err(EventError::SubscriptionNotFound(
-                subscription_id.to_string(),
-            ));
-        };
 
         let mut out = Vec::new();
         let mut delivered_cursor = subscription.cursor;
@@ -430,10 +437,17 @@ impl EventBroker for InProcessBroker {
         }
         subscription.cursor = delivered_cursor;
 
+        let subscription_id_value = subscription.subscription_id.clone();
+        let event_type_value = subscription.event_type.clone();
+        let cursor_value = cursor_to_string(subscription.cursor);
+        state
+            .subscriptions
+            .insert(subscription.subscription_id.clone(), subscription);
+
         Ok(SubscriptionPoll {
-            subscription_id: subscription.subscription_id.clone(),
-            event_type: subscription.event_type.clone(),
-            cursor: cursor_to_string(subscription.cursor),
+            subscription_id: subscription_id_value,
+            event_type: event_type_value,
+            cursor: cursor_value,
             events: out,
         })
     }
@@ -455,5 +469,406 @@ impl EventBroker for InProcessBroker {
             ));
         }
         Ok(())
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+    #![allow(clippy::panic)]
+    #![allow(clippy::unwrap_used)]
+
+    use super::*;
+    use crate::events::catalog::EventCatalogEntry;
+
+    fn cursor_expired_oldest(err: &EventError) -> Option<String> {
+        if let EventError::CursorExpired {
+            oldest_available_cursor,
+            ..
+        } = err
+        {
+            Some(oldest_available_cursor.clone())
+        } else {
+            None
+        }
+    }
+
+    fn make_catalog(event_type: &str, status: LifecycleStatus) -> Arc<EventCatalog> {
+        let catalog = Arc::new(EventCatalog::new());
+        catalog
+            .register(EventCatalogEntry {
+                event_type: event_type.to_string(),
+                owner: "cap.test".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: status,
+                consumer_count: 0,
+            })
+            .expect("catalog register must succeed");
+        catalog
+    }
+
+    fn sample_event(event_type: &str, id: &str) -> TraverseEvent {
+        TraverseEvent {
+            id: id.to_string(),
+            source: "traverse-runtime/cap.test".to_string(),
+            event_type: event_type.to_string(),
+            datacontenttype: "application/json".to_string(),
+            time: "2026-04-08T00:00:00Z".to_string(),
+            data: serde_json::json!({}),
+            owner: "cap.test".to_string(),
+            version: "1.0.0".to_string(),
+            lifecycle_status: LifecycleStatus::Active,
+        }
+    }
+
+    #[test]
+    fn broker_debug_impl_is_accessible() {
+        let catalog = make_catalog("dev.traverse.debug", LifecycleStatus::Active);
+        let broker = InProcessBroker::new(catalog).expect("broker must be created");
+        let rendered = format!("{broker:?}");
+        assert!(rendered.contains("InProcessBroker"));
+    }
+
+    #[test]
+    fn invalid_max_queue_len_is_rejected() {
+        let catalog = make_catalog("dev.traverse.invalid", LifecycleStatus::Active);
+        let err = InProcessBroker::with_clock(
+            catalog,
+            BrokerConfig {
+                retention_window: Duration::from_secs(1),
+                max_queue_len: 0,
+            },
+            Arc::new(SystemClock),
+        )
+        .expect_err("max_queue_len=0 must be rejected");
+        assert!(matches!(err, EventError::InvalidRetentionWindow(_)));
+    }
+
+    #[test]
+    fn invalid_cursor_is_rejected() {
+        let catalog = make_catalog("dev.traverse.cursor", LifecycleStatus::Active);
+        let broker = InProcessBroker::new(catalog).expect("broker must be created");
+        let err = broker
+            .subscribe("dev.traverse.cursor", "not-a-cursor")
+            .expect_err("invalid cursor must fail");
+        assert!(matches!(err, EventError::InvalidCursor(_)));
+    }
+
+    #[test]
+    fn publish_rejects_deprecated_and_draft_event_types() {
+        let deprecated = InProcessBroker::new(make_catalog(
+            "dev.traverse.deprecated",
+            LifecycleStatus::Deprecated,
+        ))
+        .expect("broker must be created");
+        let err = deprecated
+            .publish(sample_event("dev.traverse.deprecated", "evt-001"))
+            .expect_err("deprecated publish must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+
+        let draft =
+            InProcessBroker::new(make_catalog("dev.traverse.draft", LifecycleStatus::Draft))
+                .expect("broker must be created");
+        let err = draft
+            .publish(sample_event("dev.traverse.draft", "evt-001"))
+            .expect_err("draft publish must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+    }
+
+    #[test]
+    fn broker_lock_poisoning_surfaces_lifecycle_violation() {
+        let broker =
+            InProcessBroker::new(make_catalog("dev.traverse.poison", LifecycleStatus::Active))
+                .expect("broker must be created");
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = broker.state.lock().unwrap();
+            panic!("poison lock");
+        }));
+
+        let err = broker
+            .publish(sample_event("dev.traverse.poison", "evt-001"))
+            .expect_err("poisoned publish must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+
+        let err = broker
+            .subscribe("dev.traverse.poison", "0")
+            .expect_err("poisoned subscribe must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+
+        let err = broker
+            .poll("sub-1", 1)
+            .expect_err("poisoned poll must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+
+        let err = broker
+            .cancel("sub-1")
+            .expect_err("poisoned cancel must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
+    }
+
+    #[derive(Debug)]
+    struct ManualClock(std::sync::Mutex<std::time::SystemTime>);
+
+    impl ManualClock {
+        fn new(now: std::time::SystemTime) -> Self {
+            Self(std::sync::Mutex::new(now))
+        }
+
+        fn advance(&self, by: Duration) {
+            if let Ok(mut guard) = self.0.lock()
+                && let Some(next) = guard.checked_add(by)
+            {
+                *guard = next;
+            }
+        }
+
+        fn set(&self, now: std::time::SystemTime) {
+            if let Ok(mut guard) = self.0.lock() {
+                *guard = now;
+            }
+        }
+    }
+
+    impl BrokerClock for ManualClock {
+        fn now(&self) -> std::time::SystemTime {
+            self.0
+                .lock()
+                .ok()
+                .map_or(std::time::SystemTime::UNIX_EPOCH, |guard| *guard)
+        }
+    }
+
+    #[test]
+    fn clock_regression_does_not_break_retention_pruning() {
+        let clock = Arc::new(ManualClock::new(std::time::SystemTime::UNIX_EPOCH));
+        let broker = InProcessBroker::with_clock(
+            make_catalog("dev.traverse.clock", LifecycleStatus::Active),
+            BrokerConfig {
+                retention_window: Duration::from_secs(60),
+                max_queue_len: 16,
+            },
+            clock.clone(),
+        )
+        .expect("broker must be created");
+
+        clock.set(std::time::SystemTime::UNIX_EPOCH + Duration::from_secs(10));
+        broker
+            .publish(sample_event("dev.traverse.clock", "evt-001"))
+            .expect("publish must succeed");
+
+        // Move time backwards to force duration_since() to hit the error path.
+        clock.set(std::time::SystemTime::UNIX_EPOCH);
+        broker
+            .publish(sample_event("dev.traverse.clock", "evt-002"))
+            .expect("publish must succeed");
+    }
+
+    #[test]
+    fn publish_pruning_syncs_subscription_queues_and_skips_other_event_types() {
+        let catalog = Arc::new(EventCatalog::new());
+        catalog
+            .register(EventCatalogEntry {
+                event_type: "dev.traverse.a".to_string(),
+                owner: "cap.test".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .expect("register must succeed");
+        catalog
+            .register(EventCatalogEntry {
+                event_type: "dev.traverse.b".to_string(),
+                owner: "cap.test".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .expect("register must succeed");
+
+        let clock = Arc::new(ManualClock::new(std::time::SystemTime::UNIX_EPOCH));
+        let broker = InProcessBroker::with_clock(
+            catalog,
+            BrokerConfig {
+                retention_window: Duration::from_secs(5),
+                max_queue_len: 64,
+            },
+            clock.clone(),
+        )
+        .expect("broker must be created");
+
+        let sub_a = broker
+            .subscribe("dev.traverse.a", "1")
+            .expect("subscribe must succeed");
+        let sub_b = broker
+            .subscribe("dev.traverse.b", "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .publish(sample_event("dev.traverse.a", "evt-001"))
+            .expect("publish must succeed");
+        clock.advance(Duration::from_secs(1));
+        broker
+            .publish(sample_event("dev.traverse.a", "evt-002"))
+            .expect("publish must succeed");
+        clock.advance(Duration::from_secs(1));
+        broker
+            .publish(sample_event("dev.traverse.a", "evt-003"))
+            .expect("publish must succeed");
+
+        // Jump forward so evt-001 and evt-002 are outside retention; evt-003 is retained.
+        clock.advance(Duration::from_secs(5));
+        broker
+            .publish(sample_event("dev.traverse.a", "evt-004"))
+            .expect("publish must succeed");
+
+        let err = broker
+            .poll(&sub_a.subscription_id, 10)
+            .expect_err("poll must surface cursor_expired after retention pruning");
+        let oldest_available_cursor = cursor_expired_oldest(&err).expect("must be cursor_expired");
+
+        let sub_a_resumed = broker
+            .subscribe("dev.traverse.a", &oldest_available_cursor)
+            .expect("subscribe must succeed");
+        let poll_a = broker
+            .poll(&sub_a_resumed.subscription_id, 10)
+            .expect("poll must succeed");
+        assert!(
+            poll_a
+                .events
+                .first()
+                .is_some_and(|e| e.event.id == "evt-003"),
+            "queue must resume from oldest retained event"
+        );
+
+        let poll_b = broker
+            .poll(&sub_b.subscription_id, 10)
+            .expect("poll must succeed");
+        assert!(
+            poll_b.events.is_empty(),
+            "event_type mismatch must not enqueue"
+        );
+
+        // Also cover the non-cursor_expired branch in the extraction logic above.
+        let other_err = broker
+            .poll("sub-missing", 10)
+            .expect_err("poll must fail when subscription is missing");
+        assert!(cursor_expired_oldest(&other_err).is_none());
+    }
+
+    #[test]
+    fn subscribe_replays_events_from_existing_buffer() {
+        let clock = Arc::new(ManualClock::new(std::time::SystemTime::UNIX_EPOCH));
+        let broker = InProcessBroker::with_clock(
+            make_catalog("dev.traverse.replay", LifecycleStatus::Active),
+            BrokerConfig {
+                retention_window: Duration::from_secs(5),
+                max_queue_len: 64,
+            },
+            clock,
+        )
+        .expect("broker must be created");
+
+        broker
+            .publish(sample_event("dev.traverse.replay", "evt-001"))
+            .expect("publish must succeed");
+
+        let sub = broker
+            .subscribe("dev.traverse.replay", "0")
+            .expect("subscribe must succeed");
+        let poll = broker
+            .poll(&sub.subscription_id, 10)
+            .expect("poll must succeed");
+        assert_eq!(poll.events.len(), 1);
+        assert_eq!(poll.events[0].event.id, "evt-001");
+    }
+
+    #[test]
+    fn subscribe_rejects_cursor_expired_when_buffer_non_empty() {
+        let clock = Arc::new(ManualClock::new(std::time::SystemTime::UNIX_EPOCH));
+        let broker = InProcessBroker::with_clock(
+            make_catalog("dev.traverse.expire", LifecycleStatus::Active),
+            BrokerConfig {
+                retention_window: Duration::from_secs(5),
+                max_queue_len: 64,
+            },
+            clock.clone(),
+        )
+        .expect("broker must be created");
+
+        for i in 1..=5 {
+            broker
+                .publish(sample_event("dev.traverse.expire", &format!("evt-{i:03}")))
+                .expect("publish must succeed");
+            clock.advance(Duration::from_secs(1));
+        }
+
+        // Advance so only the last event remains within retention.
+        clock.advance(Duration::from_secs(5));
+
+        let err = broker
+            .subscribe("dev.traverse.expire", "1")
+            .expect_err("subscribe must fail with cursor_expired");
+        assert!(matches!(err, EventError::CursorExpired { .. }));
+    }
+
+    #[test]
+    fn poll_with_zero_max_events_returns_empty() {
+        let broker =
+            InProcessBroker::new(make_catalog("dev.traverse.poll0", LifecycleStatus::Active))
+                .expect("broker must be created");
+        let sub = broker
+            .subscribe("dev.traverse.poll0", "0")
+            .expect("subscribe must succeed");
+        let poll = broker
+            .poll(&sub.subscription_id, 0)
+            .expect("poll must succeed");
+        assert!(poll.events.is_empty());
+    }
+
+    #[test]
+    fn poll_prunes_subscription_queue_based_on_retention() {
+        let clock = Arc::new(ManualClock::new(std::time::SystemTime::UNIX_EPOCH));
+        let broker = InProcessBroker::with_clock(
+            make_catalog("dev.traverse.pollprune", LifecycleStatus::Active),
+            BrokerConfig {
+                retention_window: Duration::from_secs(5),
+                max_queue_len: 64,
+            },
+            clock.clone(),
+        )
+        .expect("broker must be created");
+
+        let sub = broker
+            .subscribe("dev.traverse.pollprune", "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .publish(sample_event("dev.traverse.pollprune", "evt-001"))
+            .expect("publish must succeed");
+        clock.advance(Duration::from_secs(4));
+        broker
+            .publish(sample_event("dev.traverse.pollprune", "evt-002"))
+            .expect("publish must succeed");
+
+        // Advance so evt-001 is outside retention but evt-002 is retained.
+        clock.advance(Duration::from_secs(3));
+
+        let poll = broker
+            .poll(&sub.subscription_id, 10)
+            .expect("poll must succeed");
+        assert_eq!(poll.events.len(), 1);
+        assert_eq!(poll.events[0].event.id, "evt-002");
+    }
+
+    #[test]
+    fn cancel_unknown_subscription_returns_not_found() {
+        let broker = InProcessBroker::new(make_catalog(
+            "dev.traverse.cancel-miss",
+            LifecycleStatus::Active,
+        ))
+        .expect("broker must be created");
+        let err = broker.cancel("sub-missing").expect_err("cancel must fail");
+        assert!(matches!(err, EventError::SubscriptionNotFound(_)));
     }
 }
