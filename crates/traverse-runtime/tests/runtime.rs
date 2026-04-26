@@ -1045,3 +1045,208 @@ impl LocalExecutor for WrongOutputExecutor {
         Ok(json!({"missing": "draft_id"}))
     }
 }
+
+// ── spec 043: dependency resolution integration tests ─────────────────────
+
+/// Helper: registration whose capability contract declares a Capability
+/// dependency on `dep_id` at `dep_version`.
+fn registration_with_cap_dep(
+    scope: RegistryScope,
+    id: &str,
+    version: &str,
+    dep_id: &str,
+    dep_version: &str,
+) -> CapabilityRegistration {
+    use traverse_contracts::DependencyArtifactType;
+    let mut contract = capability_contract(id, version, Lifecycle::Active);
+    contract.dependencies.push(DependencyReference {
+        artifact_type: DependencyArtifactType::Capability,
+        id: dep_id.to_string(),
+        version: dep_version.to_string(),
+    });
+    CapabilityRegistration {
+        scope,
+        contract_path: format!("registry/{id}/{version}/contract.json"),
+        artifact: artifact_record(id, version),
+        registered_at: "2026-03-27T00:00:00Z".to_string(),
+        tags: vec!["dep-test".to_string()],
+        composability: ComposabilityMetadata {
+            kind: CompositionKind::Atomic,
+            patterns: vec![CompositionPattern::Sequential],
+            provides: vec!["draft".to_string()],
+            requires: vec!["authenticated-user".to_string()],
+        },
+        governing_spec: "043-module-dependency-management".to_string(),
+        validator_version: "0.1.0".to_string(),
+        contract,
+    }
+}
+
+#[test]
+fn runtime_rejects_execution_when_dependency_missing() {
+    // Register the main capability declaring a Capability dep on
+    // "content.logging.logger" 1.0.0 — but never register that dep.
+    let mut registry = CapabilityRegistry::new();
+    registry
+        .register(registration_with_cap_dep(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            "content.logging.logger",
+            "1.0.0",
+        ))
+        .expect("registration with declared dep should succeed");
+
+    let runtime = Runtime::new(registry, EchoExecutor);
+    let outcome = runtime.execute(base_request_exact());
+
+    // Dependency "content.logging.logger" is not in the registry, so execution
+    // must be rejected with CapabilityNotFound before reaching the executor.
+    assert_eq!(
+        outcome.result.status,
+        RuntimeResultStatus::Error,
+        "expected Error status when dependency is missing"
+    );
+    assert_eq!(
+        outcome.result.error.as_ref().map(|e| e.code),
+        Some(RuntimeErrorCode::CapabilityNotFound),
+        "expected CapabilityNotFound error code"
+    );
+    // Executor must not have been called — output must be absent.
+    assert!(
+        outcome.result.output.is_none(),
+        "executor must not be called when dependency is unresolvable"
+    );
+}
+
+/// Registration helper for an arbitrary capability id/version with correct
+/// namespace/name splitting so the contract validator accepts it.
+fn simple_registration(scope: RegistryScope, id: &str, version: &str) -> CapabilityRegistration {
+    let mut parts = id.rsplitn(2, '.');
+    let name = parts.next().unwrap_or(id).to_string();
+    let namespace = parts.next().unwrap_or(id).to_string();
+    use traverse_contracts::{
+        BinaryFormat as ContractBinaryFormat, Condition, Entrypoint, EntrypointKind, Execution,
+        ExecutionConstraints, FilesystemAccess, HostApiAccess, NetworkAccess, Owner, Provenance,
+        ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind,
+    };
+    let contract = traverse_contracts::CapabilityContract {
+        kind: "capability_contract".to_string(),
+        schema_version: "1.0.0".to_string(),
+        id: id.to_string(),
+        namespace,
+        name,
+        version: version.to_string(),
+        lifecycle: Lifecycle::Active,
+        owner: Owner {
+            team: "test".to_string(),
+            contact: "test@example.com".to_string(),
+        },
+        summary: "Simple test capability for dep resolution.".to_string(),
+        description: "Simple test capability used in dependency resolution integration tests."
+            .to_string(),
+        inputs: SchemaContainer {
+            schema: json!({"type": "object"}),
+        },
+        outputs: SchemaContainer {
+            schema: json!({"type": "object"}),
+        },
+        preconditions: vec![Condition {
+            id: "auth".to_string(),
+            description: "Caller is authenticated.".to_string(),
+        }],
+        postconditions: vec![Condition {
+            id: "done".to_string(),
+            description: "Output produced.".to_string(),
+        }],
+        side_effects: vec![SideEffect {
+            kind: SideEffectKind::MemoryOnly,
+            description: "In-memory only.".to_string(),
+        }],
+        emits: vec![],
+        consumes: vec![],
+        permissions: vec![IdReference {
+            id: "test.read".to_string(),
+        }],
+        execution: Execution {
+            binary_format: ContractBinaryFormat::Wasm,
+            entrypoint: Entrypoint {
+                kind: EntrypointKind::WasiCommand,
+                command: "run".to_string(),
+            },
+            preferred_targets: vec![ExecutionTarget::Local],
+            constraints: ExecutionConstraints {
+                host_api_access: HostApiAccess::None,
+                network_access: NetworkAccess::Forbidden,
+                filesystem_access: FilesystemAccess::None,
+            },
+        },
+        policies: vec![IdReference {
+            id: "policy.default".to_string(),
+        }],
+        dependencies: vec![],
+        provenance: Provenance {
+            source: ProvenanceSource::Greenfield,
+            author: "test".to_string(),
+            created_at: "2026-04-20T00:00:00Z".to_string(),
+            spec_ref: Some("043-module-dependency-management".to_string()),
+            adr_refs: vec![],
+            exception_refs: vec![],
+        },
+        evidence: vec![],
+        service_type: traverse_contracts::ServiceType::Stateless,
+        permitted_targets: vec![ExecutionTarget::Local],
+        event_trigger: None,
+    };
+    CapabilityRegistration {
+        scope,
+        contract_path: format!("registry/{id}/{version}/contract.json"),
+        artifact: artifact_record(id, version),
+        registered_at: "2026-04-20T00:00:00Z".to_string(),
+        tags: vec!["test".to_string()],
+        composability: ComposabilityMetadata {
+            kind: CompositionKind::Atomic,
+            patterns: vec![CompositionPattern::Sequential],
+            provides: vec!["output".to_string()],
+            requires: vec!["input".to_string()],
+        },
+        governing_spec: "043-module-dependency-management".to_string(),
+        validator_version: "0.1.0".to_string(),
+        contract,
+    }
+}
+
+#[test]
+fn runtime_executes_successfully_when_all_dependencies_satisfied() {
+    // Register the logger dependency first, then the main capability.
+    let mut registry = CapabilityRegistry::new();
+    registry
+        .register(simple_registration(
+            RegistryScope::Private,
+            "content.logging.logger",
+            "1.0.0",
+        ))
+        .expect("logger registration should succeed");
+    registry
+        .register(registration_with_cap_dep(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            "content.logging.logger",
+            "1.0.0",
+        ))
+        .expect("registration with satisfied dep should succeed");
+
+    let runtime = Runtime::new(registry, EchoExecutor);
+    let outcome = runtime.execute(base_request_exact());
+
+    assert_eq!(
+        outcome.result.status,
+        RuntimeResultStatus::Completed,
+        "execution must succeed when all deps are satisfied"
+    );
+    assert_eq!(
+        outcome.result.output,
+        Some(json!({"draft_id": "draft-001"}))
+    );
+}
