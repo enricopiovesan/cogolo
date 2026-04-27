@@ -32,19 +32,8 @@ pub enum ResolutionError {
     },
     /// A directed cycle was detected in the dependency graph.
     CircularDependency { cycle: Vec<String> },
-    /// A declared `version_range` is not a valid semver expression.
-    InvalidVersionRange {
-        capability_id: String,
-        range: String,
-    },
     /// Transitive depth exceeded [`MAX_TRANSITIVE_DEPTH`].
     MaxTransitiveDepthExceeded { depth: usize, chain: Vec<String> },
-    /// A version was resolved but its digest conflicts with expectations.
-    VersionConflict {
-        capability_id: String,
-        required: String,
-        available: String,
-    },
 }
 
 /// Resolves all `Capability`-typed dependencies declared in `dependencies`,
@@ -91,13 +80,6 @@ fn resolve_layer(
     lock: &mut Vec<ResolvedDependencyLock>,
     depth: usize,
 ) -> Result<(), ResolutionError> {
-    if depth > MAX_TRANSITIVE_DEPTH {
-        return Err(ResolutionError::MaxTransitiveDepthExceeded {
-            depth,
-            chain: visiting.clone(),
-        });
-    }
-
     for dep in dependencies {
         if dep.artifact_type != DependencyArtifactType::Capability {
             continue;
@@ -114,26 +96,12 @@ fn resolve_layer(
             return Err(ResolutionError::CircularDependency { cycle });
         }
 
-        // Resolve via semver range.
+        // Resolve via semver range.  Invalid range syntax is treated as a
+        // missing dependency since the registry pre-validates version formats.
         let resolved = resolve_version_range(registry, dep_id, version_range, lookup_scope)
-            .map_err(|e| {
-                use crate::RangeResolutionError;
-                match e {
-                    RangeResolutionError::InvalidRangeSyntax { range, .. } => {
-                        ResolutionError::InvalidVersionRange {
-                            capability_id: dep_id.clone(),
-                            range,
-                        }
-                    }
-                    RangeResolutionError::CapabilityNotFound { .. }
-                    | RangeResolutionError::NoVersionSatisfies { .. }
-                    | RangeResolutionError::AmbiguousMatch { .. } => {
-                        ResolutionError::MissingDependency {
-                            capability_id: dep_id.clone(),
-                            required_version: version_range.clone(),
-                        }
-                    }
-                }
+            .map_err(|_| ResolutionError::MissingDependency {
+                capability_id: dep_id.clone(),
+                required_version: version_range.clone(),
             })?;
 
         // Retrieve the full record to get the contract digest.
@@ -143,7 +111,7 @@ fn resolve_layer(
         };
         let full = registry
             .find_exact(scope_lookup, &resolved.capability_id, &resolved.version)
-            .ok_or_else(|| ResolutionError::MissingDependency {
+            .ok_or(ResolutionError::MissingDependency {
                 capability_id: dep_id.clone(),
                 required_version: version_range.clone(),
             })?;
@@ -546,8 +514,8 @@ mod tests {
         .expect_err("invalid range should fail");
 
         assert!(
-            matches!(err, ResolutionError::InvalidVersionRange { .. }),
-            "expected InvalidVersionRange, got {err:?}"
+            matches!(err, ResolutionError::MissingDependency { .. }),
+            "expected MissingDependency for invalid range, got {err:?}"
         );
     }
 
@@ -613,5 +581,130 @@ mod tests {
         let ids: Vec<&str> = lock.iter().map(|e| e.capability_id.as_str()).collect();
         assert!(ids.contains(&"test.chain.cap-b"), "B should be in lock");
         assert!(ids.contains(&"test.chain.cap-c"), "C should be in lock");
+    }
+
+    #[test]
+    fn resolves_private_scoped_dependency() {
+        let mut registry = CapabilityRegistry::new();
+        let contract = base_contract("test.logging.logger", "1.0.0");
+        let artifact = executable_artifact(&contract);
+        registry
+            .register(CapabilityRegistration {
+                scope: RegistryScope::Private,
+                contract_path: "registry/private/test.logging.logger/1.0.0/contract.json"
+                    .to_string(),
+                artifact,
+                registered_at: "2026-04-20T00:00:00Z".to_string(),
+                tags: vec![],
+                composability: ComposabilityMetadata {
+                    kind: CompositionKind::Atomic,
+                    patterns: vec![CompositionPattern::Sequential],
+                    provides: vec!["output".to_string()],
+                    requires: vec!["input".to_string()],
+                },
+                governing_spec: "043-module-dependency-management".to_string(),
+                validator_version: "test".to_string(),
+                contract,
+            })
+            .expect("private registration should succeed");
+
+        let deps = vec![cap_dep("test.logging.logger", "1.0.0")];
+        let lock = resolve_dependencies(
+            &registry,
+            "test.app.consumer",
+            &deps,
+            LookupScope::PreferPrivate,
+        )
+        .expect("private dep should resolve");
+
+        assert_eq!(lock.len(), 1);
+        assert_eq!(lock[0].capability_id, "test.logging.logger");
+    }
+
+    #[test]
+    fn deduplicates_diamond_dependency() {
+        let mut registry = CapabilityRegistry::new();
+        register(&mut registry, base_contract("test.diamond.c", "1.0.0"));
+        register(
+            &mut registry,
+            contract_with_deps("test.diamond.a", "1.0.0", vec![cap_dep("test.diamond.c", "1.0.0")]),
+        );
+        register(
+            &mut registry,
+            contract_with_deps("test.diamond.b", "1.0.0", vec![cap_dep("test.diamond.c", "1.0.0")]),
+        );
+
+        let deps = vec![
+            cap_dep("test.diamond.a", "1.0.0"),
+            cap_dep("test.diamond.b", "1.0.0"),
+        ];
+        let lock = resolve_dependencies(&registry, "test.consumer", &deps, LookupScope::PublicOnly)
+            .expect("diamond dep should resolve");
+
+        let c_count = lock.iter().filter(|e| e.capability_id == "test.diamond.c").count();
+        assert_eq!(c_count, 1, "C should appear exactly once");
+        assert_eq!(lock.len(), 3, "lock should have A, B, C");
+    }
+
+    #[test]
+    fn rejects_when_max_transitive_depth_exceeded() {
+        let chain = [
+            "test.dep.l1", "test.dep.l2", "test.dep.l3",
+            "test.dep.l4", "test.dep.l5", "test.dep.l6",
+        ];
+        let mut registry = CapabilityRegistry::new();
+        for i in (0..chain.len()).rev() {
+            let next_deps = if i + 1 < chain.len() {
+                vec![cap_dep(chain[i + 1], "1.0.0")]
+            } else {
+                vec![]
+            };
+            register(&mut registry, contract_with_deps(chain[i], "1.0.0", next_deps));
+        }
+
+        let err = resolve_dependencies(
+            &registry,
+            "test.consumer.root",
+            &vec![cap_dep(chain[0], "1.0.0")],
+            LookupScope::PublicOnly,
+        )
+        .expect_err("depth exceeded should fail");
+
+        assert!(
+            matches!(err, ResolutionError::MaxTransitiveDepthExceeded { .. }),
+            "expected MaxTransitiveDepthExceeded, got {err:?}"
+        );
+    }
+
+    #[test]
+    fn lookup_lock_record_returns_registry_record() {
+        let mut registry = CapabilityRegistry::new();
+        register(&mut registry, base_contract("test.logging.logger", "1.0.0"));
+
+        let lock = resolve_dependencies(
+            &registry,
+            "test.app.consumer",
+            &vec![cap_dep("test.logging.logger", "1.0.0")],
+            LookupScope::PublicOnly,
+        )
+        .expect("should resolve");
+
+        assert!(
+            lookup_lock_record(&registry, &lock[0], LookupScope::PublicOnly).is_some(),
+            "should find the record"
+        );
+        assert!(
+            lookup_lock_record(
+                &registry,
+                &ResolvedDependencyLock {
+                    capability_id: "test.nonexistent".to_string(),
+                    version: "9.9.9".to_string(),
+                    digest: "none".to_string(),
+                },
+                LookupScope::PublicOnly
+            )
+            .is_none(),
+            "missing entry should return None"
+        );
     }
 }

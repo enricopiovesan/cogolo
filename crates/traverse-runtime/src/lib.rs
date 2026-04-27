@@ -1032,18 +1032,9 @@ where
                 ResolutionError::CircularDependency { cycle } => {
                     (cycle.join(" -> "), String::new())
                 }
-                ResolutionError::InvalidVersionRange {
-                    capability_id,
-                    range,
-                } => (capability_id.clone(), range.clone()),
                 ResolutionError::MaxTransitiveDepthExceeded { depth, chain } => {
                     (format!("depth={depth}"), chain.join(" -> "))
                 }
-                ResolutionError::VersionConflict {
-                    capability_id,
-                    required,
-                    ..
-                } => (capability_id.clone(), required.clone()),
             };
             let error = runtime_error(
                 RuntimeErrorCode::CapabilityNotFound,

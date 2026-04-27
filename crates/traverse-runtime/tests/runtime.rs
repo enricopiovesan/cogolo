@@ -1119,6 +1119,101 @@ fn runtime_rejects_execution_when_dependency_missing() {
     );
 }
 
+#[test]
+fn runtime_rejects_execution_when_circular_dependency_detected() {
+    use traverse_contracts::DependencyArtifactType;
+    // A ("content.comments.create-comment-draft") depends on B ("content.logging.logger"),
+    // B depends on A — cycle detected at execution time.
+    let mut registry = CapabilityRegistry::new();
+
+    registry
+        .register(registration_with_cap_dep(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            "content.logging.logger",
+            "1.0.0",
+        ))
+        .expect("register A should succeed");
+
+    // Use simple_registration so id == namespace.name, then add back-dep.
+    let mut dep_reg =
+        simple_registration(RegistryScope::Private, "content.logging.logger", "1.0.0");
+    dep_reg.contract.dependencies.push(DependencyReference {
+        artifact_type: DependencyArtifactType::Capability,
+        id: "content.comments.create-comment-draft".to_string(),
+        version: "1.0.0".to_string(),
+    });
+    registry
+        .register(dep_reg)
+        .expect("register B with back-dep should succeed");
+
+    let runtime = Runtime::new(registry, EchoExecutor);
+    let outcome = runtime.execute(base_request_exact());
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
+    assert_eq!(
+        outcome.result.error.as_ref().map(|e| e.code),
+        Some(RuntimeErrorCode::CapabilityNotFound)
+    );
+    assert!(outcome.result.output.is_none());
+}
+
+#[test]
+fn runtime_rejects_execution_when_max_dep_depth_exceeded() {
+    use traverse_contracts::DependencyArtifactType;
+    // Chain: main → L1 → L2 → L3 → L4 → L5 → L6 (depth 6 > MAX_TRANSITIVE_DEPTH=5).
+    let chain = [
+        "content.dep.l1",
+        "content.dep.l2",
+        "content.dep.l3",
+        "content.dep.l4",
+        "content.dep.l5",
+        "content.dep.l6",
+    ];
+
+    let mut registry = CapabilityRegistry::new();
+
+    // Register chain in reverse (L6 first, no deps; each Ln depends on L(n+1)).
+    for i in (0..chain.len()).rev() {
+        let mut reg = simple_registration(RegistryScope::Private, chain[i], "1.0.0");
+        if i + 1 < chain.len() {
+            reg.contract.dependencies.push(DependencyReference {
+                artifact_type: DependencyArtifactType::Capability,
+                id: chain[i + 1].to_string(),
+                version: "1.0.0".to_string(),
+            });
+        }
+        registry
+            .register(reg)
+            .expect("chain capability registration should succeed");
+    }
+
+    registry
+        .register(registration_with_cap_dep(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            chain[0],
+            "1.0.0",
+        ))
+        .expect("main capability registration should succeed");
+
+    let runtime = Runtime::new(registry, EchoExecutor);
+    let outcome = runtime.execute(base_request_exact());
+
+    assert_eq!(
+        outcome.result.status,
+        RuntimeResultStatus::Error,
+        "expected error when transitive depth exceeds max"
+    );
+    assert_eq!(
+        outcome.result.error.as_ref().map(|e| e.code),
+        Some(RuntimeErrorCode::CapabilityNotFound)
+    );
+    assert!(outcome.result.output.is_none());
+}
+
 /// Registration helper for an arbitrary capability id/version with correct
 /// namespace/name splitting so the contract validator accepts it.
 fn simple_registration(scope: RegistryScope, id: &str, version: &str) -> CapabilityRegistration {

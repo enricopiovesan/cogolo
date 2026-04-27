@@ -463,7 +463,8 @@
       "governs": [
         "crates/traverse-registry/",
         "crates/traverse-runtime/",
-        "specs/043-module-dependency-management/"
+        "specs/043-module-dependency-management/",
+        "specs/governance/"
       ]
     }
   ]
