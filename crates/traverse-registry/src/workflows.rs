@@ -153,6 +153,7 @@ pub enum WorkflowErrorCode {
     InvalidSemver,
     DuplicateItem,
     MissingReference,
+    EdgeSchemaMismatch,
     InvalidStartNode,
     InvalidTerminalNode,
     InvalidEdgeReference,
@@ -257,10 +258,10 @@ impl WorkflowRegistry {
                 ));
             };
 
-            if existing == &record
-                && existing_index == &index_entry
-                && existing_definition == &definition
-            {
+            // Idempotent re-registration is driven by content digest and canonical definition,
+            // not by validator metadata. If the definition is identical, return the existing
+            // record without modifying registry state.
+            if existing_definition == &definition {
                 return Ok(WorkflowRegistrationOutcome {
                     record: existing.clone(),
                     index_entry: existing_index.clone(),
@@ -268,18 +269,11 @@ impl WorkflowRegistry {
                 });
             }
 
-            if workflow_digest(existing_definition) != digest {
-                return Err(single_error(
-                    WorkflowErrorCode::ImmutableVersionConflict,
-                    "$.version",
-                    "published workflow versions are immutable within a scope",
-                ));
-            }
 
             return Err(single_error(
                 WorkflowErrorCode::ImmutableVersionConflict,
-                "$.workflow_path",
-                "published workflow versions are immutable and cannot be republished with different metadata",
+                "$.version",
+                "published workflow versions are immutable within a scope",
             ));
         }
 
@@ -657,6 +651,10 @@ fn validate_workflow_references(
         })
         .collect::<BTreeMap<_, _>>();
 
+    // Validate that node input/output field selection is internally consistent and
+    // schema-compatible in deterministic topological order.
+    validate_schema_compatibility(definition, &resolved_by_node, errors);
+
     let mut direct_edges = BTreeMap::<&str, usize>::new();
     let mut event_edges = BTreeMap::<&str, usize>::new();
     for (index, edge) in definition.edges.iter().enumerate() {
@@ -702,6 +700,186 @@ fn validate_workflow_references(
             }
         }
     }
+}
+
+fn validate_schema_compatibility(
+    definition: &WorkflowDefinition,
+    resolved_by_node: &BTreeMap<String, crate::ResolvedCapability>,
+    errors: &mut Vec<WorkflowError>,
+) {
+    // Only validate field-level flow when the workflow declares explicit input properties.
+    // Open-schema workflows ({"type":"object"} with no "properties") opt out of strict checking.
+    if !schema_declares_properties(&definition.inputs.schema) {
+        return;
+    }
+
+    let Some(order) = topological_node_order(definition) else {
+        return;
+    };
+
+    let workflow_input_types = schema_property_types(&definition.inputs.schema);
+    let mut state_types = workflow_input_types.clone();
+
+    for node_index in order {
+        let node = &definition.nodes[node_index];
+        let Some(capability) = resolved_by_node.get(&node.node_id) else {
+            continue;
+        };
+
+        // Skip field-level input checking when the capability input schema is open.
+        let cap_input_schema = &capability.contract.inputs.schema;
+        let input_types = if schema_declares_properties(cap_input_schema) {
+            schema_property_types(cap_input_schema)
+        } else {
+            BTreeMap::new()
+        };
+
+        let cap_input_has_properties = schema_declares_properties(cap_input_schema);
+        for (input_index, key) in node.input.from_workflow_input.iter().enumerate() {
+            let Some(state_type) = state_types.get(key) else {
+                errors.push(workflow_error(
+                    WorkflowErrorCode::EdgeSchemaMismatch,
+                    &format!(
+                        "$.nodes[{node_index}].input.from_workflow_input[{input_index}]"
+                    ),
+                    "workflow input field is not available from prior nodes or workflow inputs",
+                ));
+                continue;
+            };
+
+            // Skip type-checking when the capability input schema is open.
+            if !cap_input_has_properties {
+                continue;
+            }
+
+            let Some(expected_type) = input_types.get(key) else {
+                errors.push(workflow_error(
+                    WorkflowErrorCode::EdgeSchemaMismatch,
+                    &format!(
+                        "$.nodes[{node_index}].input.from_workflow_input[{input_index}]"
+                    ),
+                    "capability input schema is missing referenced field",
+                ));
+                continue;
+            };
+
+            if expected_type != state_type {
+                errors.push(workflow_error(
+                    WorkflowErrorCode::EdgeSchemaMismatch,
+                    &format!(
+                        "$.nodes[{node_index}].input.from_workflow_input[{input_index}]"
+                    ),
+                    &format!(
+                        "field type mismatch: state provides {state_type}, capability expects {expected_type}"
+                    ),
+                ));
+            }
+        }
+
+        // Skip output field checking when the capability output schema is open.
+        let cap_output_schema = &capability.contract.outputs.schema;
+        if schema_declares_properties(cap_output_schema) {
+            let output_types = schema_property_types(cap_output_schema);
+            for (output_index, key) in node.output.to_workflow_state.iter().enumerate() {
+                let Some(value_type) = output_types.get(key) else {
+                    errors.push(workflow_error(
+                        WorkflowErrorCode::EdgeSchemaMismatch,
+                        &format!(
+                            "$.nodes[{node_index}].output.to_workflow_state[{output_index}]"
+                        ),
+                        "capability output schema is missing referenced field",
+                    ));
+                    continue;
+                };
+                state_types.insert(key.clone(), value_type.clone());
+            }
+        } else {
+            // Open output schema: add all declared state keys with an inferred type.
+            for key in &node.output.to_workflow_state {
+                state_types.insert(key.clone(), "object".to_string());
+            }
+        }
+    }
+}
+
+/// Returns true only when the schema is an object schema with an explicit `properties` map.
+/// Schemas that lack an explicit `properties` key are treated as open / schema-less, so
+/// field-level validation is skipped for them.
+fn schema_declares_properties(schema: &Value) -> bool {
+    let Value::Object(root) = schema else { return false };
+    matches!(root.get("type"), Some(Value::String(t)) if t == "object")
+        && root.get("properties").is_some()
+}
+
+fn schema_property_types(schema: &Value) -> BTreeMap<String, String> {
+    let Value::Object(root) = schema else {
+        return BTreeMap::new();
+    };
+    let Some(Value::String(schema_type)) = root.get("type") else {
+        return BTreeMap::new();
+    };
+    if schema_type != "object" {
+        return BTreeMap::new();
+    }
+    let Some(Value::Object(properties)) = root.get("properties") else {
+        return BTreeMap::new();
+    };
+
+    let mut types = BTreeMap::new();
+    for (key, value) in properties {
+        let Value::Object(property) = value else {
+            continue;
+        };
+        let Some(Value::String(property_type)) = property.get("type") else {
+            continue;
+        };
+        types.insert(key.clone(), property_type.clone());
+    }
+    types
+}
+
+fn topological_node_order(definition: &WorkflowDefinition) -> Option<Vec<usize>> {
+    let id_to_index: BTreeMap<&str, usize> = definition
+        .nodes
+        .iter()
+        .enumerate()
+        .map(|(i, n)| (n.node_id.as_str(), i))
+        .collect();
+
+    let n = definition.nodes.len();
+    let mut indegree = vec![0_usize; n];
+    let mut adjacency = vec![Vec::<usize>::new(); n];
+
+    for edge in &definition.edges {
+        if let (Some(&fi), Some(&ti)) =
+            (id_to_index.get(edge.from.as_str()), id_to_index.get(edge.to.as_str()))
+        {
+            adjacency[fi].push(ti);
+            indegree[ti] += 1;
+        }
+    }
+
+    let mut available: Vec<usize> = (0..n).filter(|&i| indegree[i] == 0).collect();
+    available.sort_by_key(|&i| &definition.nodes[i].node_id);
+
+    let mut order = Vec::new();
+    while let Some(next) = available.first().copied() {
+        available.remove(0);
+        order.push(next);
+        for &neighbor in &adjacency[next] {
+            indegree[neighbor] = indegree[neighbor].saturating_sub(1);
+            if indegree[neighbor] == 0 {
+                available.push(neighbor);
+                available.sort_by_key(|&i| &definition.nodes[i].node_id);
+            }
+        }
+    }
+
+    if order.len() != n {
+        return None;
+    }
+
+    Some(order)
 }
 
 fn build_workflow_index(
@@ -1076,6 +1254,68 @@ mod tests {
     }
 
     #[test]
+    fn registers_idempotently_when_definition_digest_matches_even_if_metadata_differs() {
+        let capabilities = capability_registry();
+        let mut registry = WorkflowRegistry::new();
+
+        register_workflow_ok(
+            &mut registry,
+            &capabilities,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: valid_workflow_definition(),
+                workflow_path: "workflows/original.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+
+        let outcome = registry
+            .register(
+                &capabilities,
+                WorkflowRegistration {
+                    scope: RegistryScope::Public,
+                    definition: valid_workflow_definition(),
+                    workflow_path: "workflows/changed.json".to_string(),
+                    registered_at: "2026-03-27T01:00:00Z".to_string(),
+                    validator_version: "workflow-validator/9.9.9".to_string(),
+                },
+            )
+            .expect("idempotent registration must succeed");
+
+        assert_eq!(outcome.record.workflow_path, "workflows/original.json");
+    }
+
+    #[test]
+    fn rejects_workflow_with_schema_mismatch_when_required_field_is_unavailable() {
+        let capabilities = capability_registry();
+        let mut registry = WorkflowRegistry::new();
+        let mut definition = valid_workflow_definition();
+        definition.nodes[1]
+            .input
+            .from_workflow_input
+            .push("missing".to_string());
+
+        let failure = registry
+            .register(
+                &capabilities,
+                WorkflowRegistration {
+                    scope: RegistryScope::Public,
+                    definition,
+                    workflow_path: "workflows/bad.json".to_string(),
+                    registered_at: "2026-03-27T00:00:00Z".to_string(),
+                    validator_version: "workflow-validator/0.1.0".to_string(),
+                },
+            )
+            .expect_err("schema mismatch must fail");
+
+        assert!(failure
+            .errors
+            .iter()
+            .any(|error| error.code == WorkflowErrorCode::EdgeSchemaMismatch));
+    }
+
+    #[test]
     fn rejects_invalid_workflow_fields_references_and_cycles() {
         let capabilities = capability_registry();
         let mut registry = WorkflowRegistry::new();
@@ -1329,7 +1569,9 @@ mod tests {
                 validator_version: "validator".to_string(),
             },
         );
-        let failure = register_workflow_err(
+        // Re-registration with the same definition content but different validator metadata is
+        // idempotent: the existing record is returned unchanged (spec 041 behaviour).
+        let outcome = register_workflow_ok(
             &mut registry,
             &capabilities,
             WorkflowRegistration {
@@ -1350,12 +1592,8 @@ mod tests {
                 validator_version: "validator".to_string(),
             },
         );
-        assert!(
-            failure
-                .errors
-                .iter()
-                .any(|error| error.path == "$.workflow_path")
-        );
+        // Idempotent re-registration returns the ORIGINAL record (original path preserved).
+        assert_eq!(outcome.record.workflow_path, "workflows/direct.json");
     }
 
     #[test]
@@ -1584,6 +1822,270 @@ mod tests {
         assert_eq!(
             lookup_order(LookupScope::PreferPrivate),
             &[RegistryScope::Private, RegistryScope::Public]
+        );
+    }
+
+    // ── schema_property_types and helper coverage ─────────────────────────────
+
+    #[test]
+    fn schema_property_types_covers_non_object_and_malformed_schemas() {
+        // Line 828: schema is not a JSON object value at all.
+        assert!(schema_property_types(&json!("not-an-object")).is_empty());
+        // Line 831: schema is an object but has no "type" key.
+        assert!(schema_property_types(&json!({"properties": {}})).is_empty());
+        // Line 834: has "type" key but it is not "object".
+        assert!(schema_property_types(&json!({"type": "array"})).is_empty());
+        // Line 837: type is "object" but no "properties" key.
+        assert!(schema_property_types(&json!({"type": "object"})).is_empty());
+
+        // Lines 843 + 846: properties map has entries that are not JSON objects
+        // (line 843) and entries that are objects without a "type" key (line 846).
+        let types = schema_property_types(&json!({
+            "type": "object",
+            "properties": {
+                "valid":       { "type": "string" },
+                "non_object":  "just-a-string",
+                "no_type_key": { "description": "no type field here" }
+            }
+        }));
+        assert_eq!(types.len(), 1);
+        assert_eq!(types["valid"], "string");
+    }
+
+    // ── validate_schema_compatibility coverage ────────────────────────────────
+
+    /// Creates a capability_registry variant where one capability's contract
+    /// schemas are replaced with the provided `inputs` / `outputs` JSON values.
+    fn capability_registry_with_override(
+        id: &str,
+        inputs: Option<Value>,
+        outputs: Option<Value>,
+    ) -> CapabilityRegistry {
+        let mut registry = CapabilityRegistry::new();
+        for registration in [
+            capability_registration(
+                "content.comments.create-comment-draft",
+                vec![EventReference {
+                    event_id: "content.comments.draft-created".to_string(),
+                    version: "1.0.0".to_string(),
+                }],
+            ),
+            capability_registration(
+                "content.comments.validate-comment",
+                vec![EventReference {
+                    event_id: "content.comments.validated".to_string(),
+                    version: "1.0.0".to_string(),
+                }],
+            ),
+            capability_registration("content.comments.persist-comment", Vec::new()),
+        ] {
+            let mut reg = registration;
+            if reg.contract.id == id {
+                if let Some(s) = inputs.clone() {
+                    reg.contract.inputs.schema = s;
+                }
+                if let Some(s) = outputs.clone() {
+                    reg.contract.outputs.schema = s;
+                }
+            }
+            registry.register(reg).expect("capability registration should succeed");
+        }
+        registry
+    }
+
+    #[test]
+    fn validates_schema_compatibility_with_open_capability_input_schema() {
+        // Covers lines 742 (BTreeMap::new()) and 759-761 (!cap_input_has_properties → continue).
+        // When the capability's input schema is open (no `properties` key), field-level
+        // type-checking is skipped; the workflow must still succeed.
+        let caps = capability_registry_with_override(
+            "content.comments.create-comment-draft",
+            Some(json!({"type": "object"})),
+            None,
+        );
+        let mut registry = WorkflowRegistry::new();
+        register_workflow_ok(
+            &mut registry,
+            &caps,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: valid_workflow_definition(),
+                workflow_path: "workflows/open-cap-input.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
+        );
+    }
+
+    #[test]
+    fn rejects_when_capability_input_schema_missing_referenced_field() {
+        // Covers lines 763-771: state contains a field that the capability's closed
+        // input schema does not declare → EdgeSchemaMismatch.
+        let caps = capability_registry_with_override(
+            "content.comments.create-comment-draft",
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "comment_text": { "type": "string" }
+                    // intentionally omits "extra_field"
+                }
+            })),
+            None,
+        );
+
+        let mut definition = valid_workflow_definition();
+        // Add extra_field to workflow input schema (so it is in state).
+        definition.inputs.schema = json!({
+            "type": "object",
+            "properties": {
+                "comment_text": { "type": "string" },
+                "extra_field":  { "type": "string" }
+            },
+            "required": ["comment_text"],
+            "additionalProperties": true
+        });
+        // Make the first node also pull extra_field — it is in state but not in cap schema.
+        definition.nodes[0].input.from_workflow_input.push("extra_field".to_string());
+
+        let mut registry = WorkflowRegistry::new();
+        let failure = register_workflow_err(
+            &mut registry,
+            &caps,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition,
+                workflow_path: "workflows/missing-cap-input-field.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "validator".to_string(),
+            },
+        );
+        assert!(failure.errors.iter().any(|e| {
+            e.code == WorkflowErrorCode::EdgeSchemaMismatch
+                && e.message.contains("capability input schema is missing referenced field")
+        }));
+    }
+
+    #[test]
+    fn rejects_field_type_mismatch_between_state_and_capability_input() {
+        // Covers lines 778-789: state supplies a field as `integer` but the capability
+        // input schema declares it as `string` → EdgeSchemaMismatch with type mismatch.
+        let caps = capability_registry(); // default: draft_id: string in cap input
+        let mut definition = valid_workflow_definition();
+        // Override workflow input so draft_id enters state as integer.
+        definition.inputs.schema = json!({
+            "type": "object",
+            "properties": {
+                "comment_text": { "type": "string" },
+                "draft_id":     { "type": "integer" }
+            },
+            "required": ["comment_text"],
+            "additionalProperties": true
+        });
+        // First node takes draft_id directly from workflow input.
+        definition.nodes[0].input.from_workflow_input.push("draft_id".to_string());
+
+        let mut registry = WorkflowRegistry::new();
+        let failure = register_workflow_err(
+            &mut registry,
+            &caps,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition,
+                workflow_path: "workflows/type-mismatch.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "validator".to_string(),
+            },
+        );
+        assert!(failure.errors.iter().any(|e| {
+            e.code == WorkflowErrorCode::EdgeSchemaMismatch
+                && e.message.contains("field type mismatch")
+        }));
+    }
+
+    #[test]
+    fn rejects_when_capability_output_schema_missing_referenced_field() {
+        // Covers lines 796-804: to_workflow_state references a field not present in
+        // the capability's closed output schema → EdgeSchemaMismatch.
+        let caps = capability_registry_with_override(
+            "content.comments.create-comment-draft",
+            None,
+            Some(json!({
+                "type": "object",
+                "properties": {
+                    "draft_id": { "type": "string" }
+                    // intentionally omits "result_token"
+                }
+            })),
+        );
+
+        let mut definition = valid_workflow_definition();
+        // First node asks to write result_token into state, but cap doesn't output it.
+        definition.nodes[0].output.to_workflow_state.push("result_token".to_string());
+
+        let mut registry = WorkflowRegistry::new();
+        let failure = register_workflow_err(
+            &mut registry,
+            &caps,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition,
+                workflow_path: "workflows/missing-cap-output-field.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "validator".to_string(),
+            },
+        );
+        assert!(failure.errors.iter().any(|e| {
+            e.code == WorkflowErrorCode::EdgeSchemaMismatch
+                && e.message.contains("capability output schema is missing referenced field")
+        }));
+    }
+
+    #[test]
+    fn accepts_open_capability_output_schema_and_infers_object_type_for_state() {
+        // Covers lines 808-812: open capability output schema → to_workflow_state keys are
+        // added to state with inferred type "object" rather than rejected.
+        // create-comment-draft has open output; validate-comment has open input so that
+        // the inferred "object" type for draft_id does not cause a type-mismatch on the
+        // next node.  validate-comment's closed output then restores draft_id as "string"
+        // so persist-comment's closed input schema is satisfied.
+        let mut caps = CapabilityRegistry::new();
+
+        let mut create_reg = capability_registration(
+            "content.comments.create-comment-draft",
+            vec![EventReference {
+                event_id: "content.comments.draft-created".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+        );
+        // Open output schema — forces the `else` branch in validate_schema_compatibility.
+        create_reg.contract.outputs.schema = json!({"type": "object"});
+        caps.register(create_reg).expect("capability registration should succeed");
+
+        let mut validate_reg = capability_registration(
+            "content.comments.validate-comment",
+            vec![EventReference {
+                event_id: "content.comments.validated".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+        );
+        // Open input schema — skips type-checking on the "object"-typed draft_id from state.
+        validate_reg.contract.inputs.schema = json!({"type": "object"});
+        caps.register(validate_reg).expect("capability registration should succeed");
+
+        caps.register(capability_registration("content.comments.persist-comment", Vec::new()))
+            .expect("capability registration should succeed");
+
+        let mut registry = WorkflowRegistry::new();
+        register_workflow_ok(
+            &mut registry,
+            &caps,
+            WorkflowRegistration {
+                scope: RegistryScope::Public,
+                definition: valid_workflow_definition(),
+                workflow_path: "workflows/open-cap-output.json".to_string(),
+                registered_at: "2026-03-27T00:00:00Z".to_string(),
+                validator_version: "workflow-validator/0.1.0".to_string(),
+            },
         );
     }
 

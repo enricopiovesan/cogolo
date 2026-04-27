@@ -16,7 +16,8 @@ use traverse_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAcces
 use traverse_registry::{
     CapabilityRegistration, CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope,
     RegistrationOutcome, RegistryFailure, RegistryScope, ResolutionError, ResolvedCapability,
-    WorkflowRegistry, resolve_dependencies, resolve_version_range,
+    WorkflowFailure, WorkflowRegistration, WorkflowRegistrationOutcome, WorkflowRegistry,
+    resolve_dependencies, resolve_version_range,
 };
 
 const RUNTIME_REQUEST_KIND: &str = "runtime_request";
@@ -80,6 +81,31 @@ impl<E> Runtime<E> {
         registration: CapabilityRegistration,
     ) -> Result<RegistrationOutcome, RegistryFailure> {
         self.registry.register(registration)
+    }
+
+    /// Returns a reference to the workflow registry.
+    #[must_use]
+    pub fn workflow_registry(&self) -> &WorkflowRegistry {
+        &self.workflow_registry
+    }
+
+    /// Returns a mutable reference to the workflow registry.
+    #[must_use]
+    pub fn workflow_registry_mut(&mut self) -> &mut WorkflowRegistry {
+        &mut self.workflow_registry
+    }
+
+    /// Registers a workflow into the runtime's workflow registry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`WorkflowFailure`] when the workflow is invalid, references a
+    /// missing capability, contains a cycle, or violates immutability.
+    pub fn register_workflow(
+        &mut self,
+        registration: WorkflowRegistration,
+    ) -> Result<WorkflowRegistrationOutcome, WorkflowFailure> {
+        self.workflow_registry.register(&self.registry, registration)
     }
 }
 
