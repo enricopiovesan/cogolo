@@ -95,6 +95,7 @@
     "schema": {
       "type": "object",
       "required": [
+        "readiness_result",
         "readiness_result_id",
         "objective_id",
         "status",
@@ -122,6 +123,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "readiness_result": {
+          "type": "object",
+          "description": "Composite readiness_result record for downstream consumption."
         }
       }
     }

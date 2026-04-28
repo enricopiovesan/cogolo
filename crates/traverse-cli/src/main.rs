@@ -76,8 +76,17 @@ enum Command {
     TraceInspect {
         trace_path: PathBuf,
     },
-    Workflow {
+    WorkflowRegister {
         workflow_path: PathBuf,
+        workspace_id: String,
+    },
+    WorkflowList {
+        workspace_id: String,
+    },
+    WorkflowInspect {
+        workflow_id: String,
+        version: Option<String>,
+        workspace_id: String,
     },
     Serve {
         port: u16,
@@ -211,7 +220,16 @@ fn run_command(command: Command) -> Result<String, CliError> {
         } => discover_capabilities(&manifest_path, json_output),
         Command::Event { contract_path } => inspect_event(&contract_path),
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
-        Command::Workflow { workflow_path } => inspect_workflow(&workflow_path),
+        Command::WorkflowRegister {
+            workflow_path,
+            workspace_id,
+        } => workflow_register(&workflow_path, &workspace_id),
+        Command::WorkflowList { workspace_id } => workflow_list(&workspace_id),
+        Command::WorkflowInspect {
+            workflow_id,
+            version,
+            workspace_id,
+        } => workflow_inspect(&workflow_id, version.as_deref(), &workspace_id),
     }
 }
 
@@ -239,6 +257,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
         (Some("capability"), Some("discover")) => parse_capability_discover_command(args),
+        (Some("workflow"), Some(_)) => parse_workflow_command(args),
         _ => parse_fixed_arity_command(args),
     }
 }
@@ -251,6 +270,8 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("agent"), Some("inspect")) => help_agent_inspect(),
         (Some("agent"), Some("execute")) => help_agent_execute(),
         (Some("agent"), _) => help_agent(),
+        (Some("workflow"), Some("register")) => help_workflow_register(),
+        (Some("workflow"), Some("list")) => help_workflow_list(),
         (Some("workflow"), Some("inspect")) => help_workflow_inspect(),
         (Some("workflow"), _) => help_workflow(),
         (Some("expedition"), Some("execute")) => help_expedition_execute(),
@@ -370,22 +391,57 @@ fn help_agent() -> String {
         .to_string()
 }
 
-fn help_workflow_inspect() -> String {
-    "traverse-cli workflow inspect <workflow-path>
+fn help_workflow_register() -> String {
+    "traverse-cli workflow register <workflow-path> [--workspace-id <id>]
 
   Purpose:
-    Parse and summarize a workflow definition artifact. Prints the workflow id,
-    version, lifecycle, start/terminal nodes, node-to-capability mappings, and
-    edge topology.
+    Register a workflow definition via the HTTP/JSON API handler
+    (POST /v1/workflows/register). This uses the same canonical workflow
+    validation and immutability rules as the server.
 
   Required arguments:
-    <workflow-path>   Path to the workflow definition JSON file.
+    <workflow-path>       Path to the workflow definition JSON file.
 
   Optional flags:
-    --help            Print this help text.
+    --workspace-id <id>   Workspace identifier (default: system).
+    --help                Print this help text.
 
   Example:
-    traverse-cli workflow inspect workflows/examples/expedition/plan-expedition/workflow.json"
+    traverse-cli workflow register workflows/examples/hello-world/say-hello/workflow.json"
+        .to_string()
+}
+
+fn help_workflow_list() -> String {
+    "traverse-cli workflow list [--workspace-id <id>]
+
+  Purpose:
+    List registered workflows in a workspace via GET /v1/workflows.
+
+  Optional flags:
+    --workspace-id <id>   Workspace identifier (default: system).
+    --help                Print this help text.
+
+  Example:
+    traverse-cli workflow list"
+        .to_string()
+}
+
+fn help_workflow_inspect() -> String {
+    "traverse-cli workflow inspect <workflow-id> [--version <v>] [--workspace-id <id>]
+
+  Purpose:
+    Inspect a registered workflow via GET /v1/workflows/{id}.
+
+  Required arguments:
+    <workflow-id>         Workflow identifier.
+
+  Optional flags:
+    --version <v>         Workflow version (default: latest in workspace).
+    --workspace-id <id>   Workspace identifier (default: system).
+    --help                Print this help text.
+
+  Example:
+    traverse-cli workflow inspect expedition.planning.plan-expedition"
         .to_string()
 }
 
@@ -393,7 +449,9 @@ fn help_workflow() -> String {
     "traverse-cli workflow <subcommand> [options]
 
   Subcommands:
-    inspect <workflow-path>    Parse and summarize a workflow definition.
+    register <workflow-path>   Register a workflow definition.
+    list                       List registered workflows.
+    inspect <workflow-id>      Inspect a registered workflow.
 
   Run `traverse-cli workflow inspect --help` for subcommand-specific help."
         .to_string()
@@ -687,9 +745,6 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
         ("trace", "inspect") => Ok(Command::TraceInspect {
             trace_path: PathBuf::from(positional[3]),
         }),
-        ("workflow", "inspect") => Ok(Command::Workflow {
-            workflow_path: PathBuf::from(positional[3]),
-        }),
         _ => Err(usage()),
     }
 }
@@ -759,6 +814,38 @@ fn parse_capability_discover_command(args: &[String]) -> Result<Command, String>
         }),
         _ => Err(usage()),
     }
+}
+
+fn parse_workflow_command(args: &[String]) -> Result<Command, String> {
+    let workspace_id = parse_string_flag(args, "--workspace-id")
+        .or_else(|| std::env::var("TRAVERSE_WORKSPACE_ID").ok())
+        .unwrap_or_else(|| "system".to_string());
+
+    match args {
+        [_, _, _, workflow_path, rest @ ..] if args[2] == "register" => {
+            let override_workspace = parse_string_flag(rest, "--workspace-id");
+            Ok(Command::WorkflowRegister {
+                workflow_path: PathBuf::from(workflow_path),
+                workspace_id: override_workspace.unwrap_or(workspace_id),
+            })
+        }
+        [_, _, ..] if args[2] == "list" => Ok(Command::WorkflowList { workspace_id }),
+        [_, _, _, workflow_id, rest @ ..] if args[2] == "inspect" => {
+            let version = parse_string_flag(rest, "--version");
+            let override_workspace = parse_string_flag(rest, "--workspace-id");
+            Ok(Command::WorkflowInspect {
+                workflow_id: workflow_id.clone(),
+                version,
+                workspace_id: override_workspace.unwrap_or(workspace_id),
+            })
+        }
+        _ => Err(usage()),
+    }
+}
+
+fn parse_string_flag(args: &[String], flag: &str) -> Option<String> {
+    let pos = args.iter().position(|a| a == flag)?;
+    args.get(pos + 1).cloned()
 }
 
 fn inspect_bundle(manifest_path: &Path, json_output: bool) -> Result<String, CliError> {
@@ -963,6 +1050,7 @@ fn inspect_event(contract_path: &Path) -> Result<String, CliError> {
     Ok(render_event_summary(contract_path, &validated.normalized))
 }
 
+#[allow(dead_code)]
 fn inspect_workflow(workflow_path: &Path) -> Result<String, CliError> {
     let contents = read_text_file(workflow_path, "workflow artifact")?;
     let definition = serde_json::from_str::<WorkflowDefinition>(&contents).map_err(|error| {
@@ -973,6 +1061,116 @@ fn inspect_workflow(workflow_path: &Path) -> Result<String, CliError> {
     })?;
 
     Ok(render_workflow_summary(workflow_path, &definition))
+}
+
+fn workflow_register(workflow_path: &Path, workspace_id: &str) -> Result<String, CliError> {
+    let workflow_json = read_text_file(workflow_path, "workflow definition")?;
+    let workflow_value: serde_json::Value =
+        serde_json::from_str(&workflow_json).map_err(|error| {
+            CliError::ValidationFailed(format!(
+                "failed to parse workflow JSON {}: {error}",
+                workflow_path.display()
+            ))
+        })?;
+
+    let registry_scope = if workspace_id == "system" {
+        "public"
+    } else {
+        "private"
+    };
+
+    let body = serde_json::json!({
+        "workspace_id": workspace_id,
+        "scope": "workspace_persisted",
+        "registry_scope": registry_scope,
+        "workflow": workflow_value,
+    })
+    .to_string()
+    .into_bytes();
+
+    let (status, response) = build_in_process_api()?
+        .register_workflow(body, true)
+        .map_err(CliError::IoError)?;
+    if status >= 400 {
+        return Err(CliError::ValidationFailed(format!(
+            "workflow registration failed: {response}"
+        )));
+    }
+
+    Ok(format!(
+        "workflow_id: {}\nversion: {}\ndigest: {}",
+        response["workflow"]["id"].as_str().unwrap_or_default(),
+        response["workflow"]["version"].as_str().unwrap_or_default(),
+        response["workflow"]["digest"].as_str().unwrap_or_default(),
+    ))
+}
+
+fn workflow_list(workspace_id: &str) -> Result<String, CliError> {
+    let (status, response) = build_in_process_api()?
+        .list_workflows(workspace_id, true)
+        .map_err(CliError::IoError)?;
+    if status >= 400 {
+        return Err(CliError::ValidationFailed(format!(
+            "workflow list failed: {response}"
+        )));
+    }
+
+    let mut lines = Vec::new();
+    lines.push(format!("workspace_id: {workspace_id}"));
+    lines.push("workflows:".to_string());
+
+    let Some(items) = response.as_array() else {
+        return Err(CliError::ValidationFailed(
+            "workflow list returned unexpected response shape".to_string(),
+        ));
+    };
+    for item in items {
+        let id = item.get("id").and_then(|v| v.as_str()).unwrap_or_default();
+        let version = item
+            .get("version")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        let digest = item
+            .get("digest")
+            .and_then(|v| v.as_str())
+            .unwrap_or_default();
+        lines.push(format!("  - {id}@{version} {digest}"));
+    }
+
+    Ok(lines.join("\n"))
+}
+
+fn workflow_inspect(
+    workflow_id: &str,
+    version: Option<&str>,
+    workspace_id: &str,
+) -> Result<String, CliError> {
+    let (status, response) = build_in_process_api()?
+        .get_workflow(workspace_id, workflow_id, version, true)
+        .map_err(CliError::IoError)?;
+    if status >= 400 {
+        return Err(CliError::ValidationFailed(format!(
+            "workflow inspect failed: {response}"
+        )));
+    }
+
+    let workflow = response.get("workflow").cloned().unwrap_or_default();
+    serde_json::to_string_pretty(&workflow)
+        .map_err(|e| CliError::IoError(format!("failed to render workflow inspection output: {e}")))
+}
+
+fn build_in_process_api() -> Result<http_api::InProcessApi<ExpeditionExampleExecutor>, CliError> {
+    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
+    Ok(http_api::InProcessApi::new(http_api::ApiServerConfig {
+        port: 0,
+        allow_unauthenticated: true,
+        capability_registry: registered.capability_registry,
+        workflow_registry: registered.workflow_registry,
+        registry_root: std::env::current_dir()
+            .map_err(|e| CliError::IoError(format!("failed to resolve current directory: {e}")))?
+            .join(".traverse/registry"),
+        executor: ExpeditionExampleExecutor,
+    }))
 }
 
 fn inspect_trace(trace_path: &Path) -> Result<String, CliError> {
@@ -1120,6 +1318,7 @@ fn render_event_summary(path: &Path, contract: &EventContract) -> String {
     lines.join("\n")
 }
 
+#[allow(dead_code)]
 fn render_workflow_summary(path: &Path, definition: &WorkflowDefinition) -> String {
     let mut lines = vec![
         format!("path: {}", path.display()),
@@ -2194,7 +2393,7 @@ mod tests {
         assert!(result.is_err(), "expected Err for --help");
         let text = result.err().unwrap_or_default();
         assert!(text.contains("workflow inspect"));
-        assert!(text.contains("<workflow-path>"));
+        assert!(text.contains("<workflow-id>"));
         assert!(text.contains("Example:"));
     }
 

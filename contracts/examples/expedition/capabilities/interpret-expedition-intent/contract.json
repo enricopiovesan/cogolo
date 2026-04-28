@@ -87,6 +87,7 @@
     "schema": {
       "type": "object",
       "required": [
+        "interpreted_intent",
         "intent_id",
         "objective_id",
         "route_preferences",
@@ -121,6 +122,10 @@
         },
         "confidence": {
           "type": "number"
+        },
+        "interpreted_intent": {
+          "type": "object",
+          "description": "Composite interpreted_intent record for downstream consumption."
         }
       }
     }

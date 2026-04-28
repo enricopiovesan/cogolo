@@ -71,6 +71,7 @@
     "schema": {
       "type": "object",
       "required": [
+        "objective",
         "objective_id",
         "destination",
         "target_window",
@@ -78,6 +79,10 @@
         "notes"
       ],
       "properties": {
+        "objective": {
+          "type": "object",
+          "description": "Composite expedition objective record for downstream consumption."
+        },
         "objective_id": {
           "type": "string"
         },

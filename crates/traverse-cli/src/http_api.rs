@@ -10,7 +10,8 @@ use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, DiscoveryQuery, ImplementationKind, LookupScope, RegistryProvenance,
-    RegistryScope, SourceKind, SourceReference, WorkflowRegistry,
+    RegistryScope, SourceKind, SourceReference, WorkflowDefinition, WorkflowRegistration,
+    WorkflowRegistry,
 };
 use traverse_runtime::{
     LocalExecutor, Runtime, RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus,
@@ -68,6 +69,8 @@ struct WorkspaceState<E> {
 struct PersistedWorkspaceRegistryV1 {
     schema_version: String,
     registrations: Vec<PersistedCapabilityRegistrationV1>,
+    #[serde(default)]
+    workflows: Vec<PersistedWorkflowRegistrationV1>,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -76,6 +79,14 @@ struct PersistedCapabilityRegistrationV1 {
     contract: CapabilityContract,
     #[serde(default)]
     tags: Vec<String>,
+}
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+struct PersistedWorkflowRegistrationV1 {
+    registry_scope: String,
+    definition: WorkflowDefinition,
+    registered_at: String,
+    validator_version: String,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -146,6 +157,7 @@ where
             persisted: PersistedWorkspaceRegistryV1 {
                 schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
                 registrations: Vec::new(),
+                workflows: Vec::new(),
             },
             loaded_from_disk: true,
         },
@@ -172,6 +184,100 @@ where
     Ok(())
 }
 
+/// In-process wrapper around the HTTP/JSON API handlers, used by `traverse-cli`
+/// subcommands that must delegate to the canonical server code paths.
+pub struct InProcessApi<E> {
+    state: ApiState<E>,
+}
+
+impl<E> InProcessApi<E>
+where
+    E: LocalExecutor + Clone,
+{
+    #[must_use]
+    pub fn new(config: ApiServerConfig<E>) -> Self {
+        let mut workspaces = HashMap::new();
+        workspaces.insert(
+            SYSTEM_WORKSPACE_ID.to_string(),
+            WorkspaceState {
+                runtime: Runtime::new(config.capability_registry, config.executor.clone())
+                    .with_workflow_registry(config.workflow_registry),
+                persisted: PersistedWorkspaceRegistryV1 {
+                    schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
+                    registrations: Vec::new(),
+                    workflows: Vec::new(),
+                },
+                loaded_from_disk: false,
+            },
+        );
+
+        Self {
+            state: ApiState {
+                allow_unauthenticated: config.allow_unauthenticated,
+                registry_root: config.registry_root,
+                executor: config.executor,
+                workspaces: RefCell::new(workspaces),
+            },
+        }
+    }
+
+    pub fn register_workflow(&self, body: Vec<u8>, loopback: bool) -> Result<(u16, Value), String> {
+        let request = HttpRequest {
+            method: "POST".to_string(),
+            path: "/v1/workflows/register".to_string(),
+            query: HashMap::new(),
+            headers: HashMap::new(),
+            body,
+        };
+        let mut out = Vec::new();
+        handle_register_workflow(&mut out, &request, &self.state, loopback)?;
+        parse_http_json_response(&out)
+    }
+
+    pub fn list_workflows(
+        &self,
+        workspace_id: &str,
+        loopback: bool,
+    ) -> Result<(u16, Value), String> {
+        let mut query = HashMap::new();
+        query.insert("workspace_id".to_string(), workspace_id.to_string());
+        let request = HttpRequest {
+            method: "GET".to_string(),
+            path: "/v1/workflows".to_string(),
+            query,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let mut out = Vec::new();
+        handle_list_workflows(&mut out, &request, &self.state, loopback)?;
+        parse_http_json_response(&out)
+    }
+
+    pub fn get_workflow(
+        &self,
+        workspace_id: &str,
+        workflow_id: &str,
+        version: Option<&str>,
+        loopback: bool,
+    ) -> Result<(u16, Value), String> {
+        let mut query = HashMap::new();
+        query.insert("workspace_id".to_string(), workspace_id.to_string());
+        if let Some(version) = version {
+            query.insert("version".to_string(), version.to_string());
+        }
+        let request = HttpRequest {
+            method: "GET".to_string(),
+            path: format!("/v1/workflows/{workflow_id}"),
+            query,
+            headers: HashMap::new(),
+            body: Vec::new(),
+        };
+        let mut out = Vec::new();
+        handle_get_workflow(&mut out, &request, &self.state, loopback, workflow_id)?;
+        parse_http_json_response(&out)
+    }
+}
+
 impl<E> ApiState<E>
 where
     E: LocalExecutor + Clone,
@@ -190,6 +296,7 @@ where
                 persisted: PersistedWorkspaceRegistryV1 {
                     schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
                     registrations: Vec::new(),
+                    workflows: Vec::new(),
                 },
                 loaded_from_disk: false,
             });
@@ -205,11 +312,44 @@ where
                     .register_capability(registration)
                     .map_err(render_registry_failure_as_string)?;
             }
+            for persisted in entry.persisted.workflows.clone() {
+                let registration = derive_workflow_registration(workspace_id, &persisted)
+                    .map_err(|e| format!("persisted registry contains invalid workflow: {e:?}"))?;
+                let _ = entry
+                    .runtime
+                    .register_workflow(registration)
+                    .map_err(render_workflow_failure_as_string)?;
+            }
             entry.loaded_from_disk = true;
         }
 
         f(entry)
     }
+}
+
+fn parse_http_json_response(bytes: &[u8]) -> Result<(u16, Value), String> {
+    let text = std::str::from_utf8(bytes).map_err(|e| format!("response not UTF-8: {e}"))?;
+    let status_line = text
+        .lines()
+        .next()
+        .ok_or_else(|| "response missing status line".to_string())?;
+    let mut parts = status_line.split_whitespace();
+    let _proto = parts
+        .next()
+        .ok_or_else(|| "response status line missing protocol".to_string())?;
+    let status = parts
+        .next()
+        .ok_or_else(|| "response status line missing status code".to_string())?
+        .parse::<u16>()
+        .map_err(|_| "response status code is not a u16".to_string())?;
+
+    let header_end = text
+        .find("\r\n\r\n")
+        .ok_or_else(|| "response missing header terminator".to_string())?;
+    let body = &bytes[header_end + 4..];
+    let value: Value =
+        serde_json::from_slice(body).map_err(|e| format!("invalid JSON response body: {e}"))?;
+    Ok((status, value))
 }
 
 fn load_persisted_registry(
@@ -221,6 +361,7 @@ fn load_persisted_registry(
         return Ok(PersistedWorkspaceRegistryV1 {
             schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
             registrations: Vec::new(),
+            workflows: Vec::new(),
         });
     }
 
@@ -282,6 +423,33 @@ fn render_registry_failure_as_string(failure: traverse_registry::RegistryFailure
         );
     }
     rendered
+}
+
+fn render_workflow_failure_as_string(failure: traverse_registry::WorkflowFailure) -> String {
+    use std::fmt::Write as _;
+
+    let mut rendered = String::new();
+    for err in failure.errors {
+        let _ = write!(
+            &mut rendered,
+            "{:?} at {}: {}; ",
+            err.code, err.path, err.message
+        );
+    }
+    rendered
+}
+
+fn generated_registered_at() -> Result<String, ApiError> {
+    let now_secs = std::time::SystemTime::now()
+        .duration_since(std::time::UNIX_EPOCH)
+        .map_err(|e| ApiError {
+            status: 500,
+            reason: "Internal Server Error",
+            code: "internal_error",
+            message: format!("failed to read system time: {e}"),
+        })?
+        .as_secs();
+    Ok(format!("unix:{now_secs}"))
 }
 
 fn validate_workspace_id(workspace_id: &str) -> Result<(), String> {
@@ -696,6 +864,146 @@ fn map_registry_failure_http(
     (422, "registration_failed", "Unprocessable Entity")
 }
 
+fn map_workflow_failure_http(
+    failure: &traverse_registry::WorkflowFailure,
+    definition: &WorkflowDefinition,
+) -> (u16, &'static str, &'static str, Option<Value>) {
+    use traverse_registry::WorkflowErrorCode;
+
+    let mut has_immutable = false;
+    let mut has_cycle = false;
+    let mut has_edge_schema_mismatch = false;
+    let mut has_missing_reference = false;
+    let mut has_empty_nodes = false;
+
+    for err in &failure.errors {
+        match err.code {
+            WorkflowErrorCode::ImmutableVersionConflict => has_immutable = true,
+            WorkflowErrorCode::DeterministicCycleNotAllowed => has_cycle = true,
+            WorkflowErrorCode::EdgeSchemaMismatch => has_edge_schema_mismatch = true,
+            WorkflowErrorCode::MissingReference => has_missing_reference = true,
+            WorkflowErrorCode::MissingRequiredField => {
+                if err.path == "$.nodes" {
+                    has_empty_nodes = true;
+                }
+            }
+            _ => {}
+        }
+    }
+
+    if has_immutable {
+        return (409, "immutable_version_conflict", "Conflict", None);
+    }
+
+    if has_cycle {
+        let path = find_cycle_path(definition);
+        return (
+            422,
+            "workflow_cycle_detected",
+            "Unprocessable Entity",
+            Some(json!({ "cycle_path": path })),
+        );
+    }
+
+    if has_edge_schema_mismatch {
+        return (422, "edge_schema_mismatch", "Unprocessable Entity", None);
+    }
+
+    if has_missing_reference {
+        return (
+            422,
+            "unresolved_capability_reference",
+            "Unprocessable Entity",
+            None,
+        );
+    }
+
+    if has_empty_nodes {
+        return (422, "empty_workflow", "Unprocessable Entity", None);
+    }
+
+    (422, "registration_failed", "Unprocessable Entity", None)
+}
+
+fn find_cycle_path(definition: &WorkflowDefinition) -> Vec<String> {
+    use std::collections::BTreeMap;
+
+    #[derive(Clone, Copy, PartialEq, Eq)]
+    enum Mark {
+        Visiting,
+        Done,
+    }
+
+    fn dfs(
+        node: &str,
+        adjacency: &std::collections::BTreeMap<String, Vec<String>>,
+        marks: &mut std::collections::BTreeMap<String, Mark>,
+        stack: &mut Vec<String>,
+    ) -> Option<Vec<String>> {
+        marks.insert(node.to_string(), Mark::Visiting);
+        stack.push(node.to_string());
+
+        if let Some(neighbors) = adjacency.get(node) {
+            for next in neighbors {
+                match marks.get(next.as_str()).copied() {
+                    Some(Mark::Visiting) => {
+                        if let Some(pos) = stack.iter().position(|v| v == next) {
+                            let mut cycle = stack[pos..].to_vec();
+                            cycle.push(next.clone());
+                            return Some(cycle);
+                        }
+                        return Some(vec![next.clone(), next.clone()]);
+                    }
+                    Some(Mark::Done) => {}
+                    None => {
+                        if let Some(found) = dfs(next, adjacency, marks, stack) {
+                            return Some(found);
+                        }
+                    }
+                }
+            }
+        }
+
+        stack.pop();
+        marks.insert(node.to_string(), Mark::Done);
+        None
+    }
+
+    let node_ids = definition
+        .nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect::<std::collections::BTreeSet<_>>();
+    let mut adjacency: BTreeMap<String, Vec<String>> =
+        node_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
+
+    for edge in &definition.edges {
+        if node_ids.contains(&edge.from) && node_ids.contains(&edge.to) {
+            adjacency
+                .entry(edge.from.clone())
+                .or_default()
+                .push(edge.to.clone());
+        }
+    }
+
+    for neighbors in adjacency.values_mut() {
+        neighbors.sort();
+    }
+
+    let mut marks = BTreeMap::<String, Mark>::new();
+    for node in &node_ids {
+        if marks.contains_key(node) {
+            continue;
+        }
+        let mut stack = Vec::new();
+        if let Some(found) = dfs(node, &adjacency, &mut marks, &mut stack) {
+            return found;
+        }
+    }
+
+    Vec::new()
+}
+
 fn derive_registration(
     workspace_id: &str,
     persisted: &PersistedCapabilityRegistrationV1,
@@ -773,6 +1081,37 @@ fn derive_registration(
         },
         governing_spec: "034-programmatic-registration".to_string(),
         validator_version: "traverse-cli".to_string(),
+    })
+}
+
+fn derive_workflow_registration(
+    workspace_id: &str,
+    persisted: &PersistedWorkflowRegistrationV1,
+) -> Result<WorkflowRegistration, ApiError> {
+    let registry_scope = match persisted.registry_scope.as_str() {
+        "public" => RegistryScope::Public,
+        "private" => RegistryScope::Private,
+        other => {
+            return Err(ApiError {
+                status: 422,
+                reason: "Unprocessable Entity",
+                code: "invalid_registry_scope",
+                message: format!("registry_scope must be public or private (got {other})"),
+            });
+        }
+    };
+
+    Ok(WorkflowRegistration {
+        scope: registry_scope,
+        definition: persisted.definition.clone(),
+        workflow_path: format!(
+            "workspaces/{workspace_id}/workflows/{}/{}@{}/workflow.json",
+            format!("{registry_scope:?}").to_lowercase(),
+            persisted.definition.id,
+            persisted.definition.version
+        ),
+        registered_at: persisted.registered_at.clone(),
+        validator_version: persisted.validator_version.clone(),
     })
 }
 
@@ -879,6 +1218,113 @@ fn parse_register_body(
     ))
 }
 
+fn parse_workflow_register_body(
+    body: &[u8],
+) -> Result<(String, RegistrationScope, PersistedWorkflowRegistrationV1), ApiError> {
+    let body_str = std::str::from_utf8(body).map_err(|e| ApiError {
+        status: 400,
+        reason: "Bad Request",
+        code: "invalid_request",
+        message: format!("request body is not valid UTF-8: {e}"),
+    })?;
+
+    let value: Value = serde_json::from_str(body_str).map_err(|e| ApiError {
+        status: 400,
+        reason: "Bad Request",
+        code: "invalid_request",
+        message: format!("invalid JSON body: {e}"),
+    })?;
+
+    let workspace_id = value
+        .get("workspace_id")
+        .and_then(|v| v.as_str())
+        .filter(|ws| !ws.trim().is_empty())
+        .ok_or_else(|| ApiError {
+            status: 400,
+            reason: "Bad Request",
+            code: "missing_workspace_id",
+            message: "workspace_id is required".to_string(),
+        })?
+        .to_string();
+
+    validate_workspace_id(&workspace_id).map_err(|message| ApiError {
+        status: 400,
+        reason: "Bad Request",
+        code: "invalid_workspace_id",
+        message,
+    })?;
+
+    let scope = value
+        .get("scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or("workspace_persisted");
+    let scope = match scope {
+        "workspace_persisted" => RegistrationScope::WorkspacePersisted,
+        "session_ephemeral" => RegistrationScope::SessionEphemeral,
+        other => {
+            return Err(ApiError {
+                status: 422,
+                reason: "Unprocessable Entity",
+                code: "invalid_scope",
+                message: format!(
+                    "scope must be workspace_persisted or session_ephemeral (got {other})"
+                ),
+            });
+        }
+    };
+
+    let registry_scope = value
+        .get("registry_scope")
+        .and_then(|v| v.as_str())
+        .unwrap_or_else(|| {
+            if workspace_id == SYSTEM_WORKSPACE_ID {
+                "public"
+            } else {
+                "private"
+            }
+        })
+        .to_string();
+
+    let workflow_value = value.get("workflow").ok_or_else(|| ApiError {
+        status: 400,
+        reason: "Bad Request",
+        code: "missing_workflow",
+        message: "workflow is required".to_string(),
+    })?;
+
+    let definition: WorkflowDefinition =
+        serde_json::from_value(workflow_value.clone()).map_err(|e| ApiError {
+            status: 422,
+            reason: "Unprocessable Entity",
+            code: "invalid_workflow",
+            message: format!("workflow must be a valid workflow_definition: {e}"),
+        })?;
+
+    let registered_at = match value.get("registered_at").and_then(|v| v.as_str()) {
+        Some(value) if !value.trim().is_empty() => value.to_string(),
+        _ => match generated_registered_at() {
+            Ok(value) => value,
+            Err(_) => "unix:0".to_string(),
+        },
+    };
+    let validator_version = value
+        .get("validator_version")
+        .and_then(|v| v.as_str())
+        .unwrap_or(env!("CARGO_PKG_VERSION"))
+        .to_string();
+
+    Ok((
+        workspace_id,
+        scope,
+        PersistedWorkflowRegistrationV1 {
+            registry_scope,
+            definition,
+            registered_at,
+            validator_version,
+        },
+    ))
+}
+
 fn ensure_workspace_loaded<E: LocalExecutor + Clone>(
     state: &ApiState<E>,
     workspace_id: &str,
@@ -920,6 +1366,7 @@ fn apply_registration<E: LocalExecutor + Clone>(
             persisted: PersistedWorkspaceRegistryV1 {
                 schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
                 registrations: Vec::new(),
+                workflows: Vec::new(),
             },
             loaded_from_disk: false,
         });
@@ -936,6 +1383,63 @@ fn apply_registration<E: LocalExecutor + Clone>(
         }
         Err(failure) => Ok(Err(failure)),
     }
+}
+
+#[derive(Debug, Clone)]
+struct WorkflowRegistrationHttpOutcome {
+    already_registered: bool,
+    workflow_id: String,
+    workflow_version: String,
+    digest: String,
+    registry_scope: String,
+    registered_at: String,
+}
+
+fn apply_workflow_registration<E: LocalExecutor + Clone>(
+    state: &ApiState<E>,
+    workspace_id: &str,
+    scope: RegistrationScope,
+    mut persisted: PersistedWorkflowRegistrationV1,
+) -> Result<Result<WorkflowRegistrationHttpOutcome, traverse_registry::WorkflowFailure>, String> {
+    state.with_workspace_mut(workspace_id, |ws| {
+        let workflow_id = persisted.definition.id.clone();
+        let workflow_version = persisted.definition.version.clone();
+        let already = ws
+            .runtime
+            .workflow_registry()
+            .find_exact(LookupScope::PreferPrivate, &workflow_id, &workflow_version)
+            .is_some();
+
+        if !already && persisted.registered_at.trim().is_empty() {
+            persisted.registered_at = generated_registered_at().map_err(|e| e.message)?;
+        }
+
+        if persisted.validator_version.trim().is_empty() {
+            persisted.validator_version = env!("CARGO_PKG_VERSION").to_string();
+        }
+
+        let registration =
+            derive_workflow_registration(workspace_id, &persisted).map_err(|e| e.message)?;
+
+        match ws.runtime.register_workflow(registration) {
+            Ok(outcome) => {
+                if scope == RegistrationScope::WorkspacePersisted && !already {
+                    ws.persisted.workflows.push(persisted);
+                    persist_registry(&state.registry_root, workspace_id, &ws.persisted)?;
+                }
+
+                Ok(Ok(WorkflowRegistrationHttpOutcome {
+                    already_registered: already,
+                    workflow_id: outcome.record.id,
+                    workflow_version: outcome.record.version,
+                    digest: outcome.record.workflow_digest,
+                    registry_scope: format!("{:?}", outcome.record.scope).to_lowercase(),
+                    registered_at: outcome.record.registered_at,
+                }))
+            }
+            Err(failure) => Ok(Err(failure)),
+        }
+    })
 }
 
 // ---------------------------------------------------------------------------
@@ -980,6 +1484,19 @@ fn handle_connection<E: LocalExecutor + Clone>(
         ("POST", "/v1/capabilities/execute") => {
             handle_execute(&mut stream, &request, state, peer_ip.is_loopback())
         }
+        ("POST", "/v1/workflows/register") => {
+            handle_register_workflow(&mut stream, &request, state, peer_ip.is_loopback())
+        }
+        ("GET", "/v1/workflows") => {
+            handle_list_workflows(&mut stream, &request, state, peer_ip.is_loopback())
+        }
+        ("GET", path) if path.starts_with("/v1/workflows/") => handle_get_workflow(
+            &mut stream,
+            &request,
+            state,
+            peer_ip.is_loopback(),
+            path.trim_start_matches("/v1/workflows/"),
+        ),
         _ => write_json(
             &mut stream,
             404,
@@ -1251,6 +1768,281 @@ fn handle_execute<W: Write, E: LocalExecutor + Clone>(
             &error_envelope("internal_error", &e),
         ),
     }
+}
+
+fn handle_register_workflow<W: Write, E: LocalExecutor + Clone>(
+    w: &mut W,
+    request: &HttpRequest,
+    state: &ApiState<E>,
+    loopback: bool,
+) -> Result<(), String> {
+    let identity =
+        match subject_from_request(&request.headers, state.allow_unauthenticated, loopback) {
+            Ok(identity) => identity,
+            Err(err) => {
+                return write_json(
+                    w,
+                    err.status,
+                    err.reason,
+                    &error_envelope(err.code, &err.message),
+                );
+            }
+        };
+
+    let (workspace_id, scope, persisted) = match parse_workflow_register_body(&request.body) {
+        Ok(parsed) => parsed,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+    let definition_for_errors = persisted.definition.clone();
+
+    let _ = match ensure_workspace_access(&state.registry_root, &workspace_id, &identity) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    match apply_workflow_registration(state, &workspace_id, scope, persisted)? {
+        Ok(outcome) => {
+            let status = if outcome.already_registered { 200 } else { 201 };
+            write_json(
+                w,
+                status,
+                if status == 200 { "OK" } else { "Created" },
+                &json!({
+                    "workspace_id": workspace_id,
+                    "scope": match scope {
+                        RegistrationScope::WorkspacePersisted => "workspace_persisted",
+                        RegistrationScope::SessionEphemeral => "session_ephemeral",
+                    },
+                    "already_registered": outcome.already_registered,
+                    "workflow": {
+                        "id": outcome.workflow_id,
+                        "version": outcome.workflow_version,
+                        "digest": outcome.digest,
+                        "registry_scope": outcome.registry_scope,
+                        "registered_at": outcome.registered_at,
+                    }
+                }),
+            )
+        }
+        Err(failure) => {
+            let rendered = render_workflow_failure_as_string(failure.clone());
+            let (status, code, reason, extra) =
+                map_workflow_failure_http(&failure, &definition_for_errors);
+            let mut body = json!({
+                "error": {
+                    "code": code,
+                    "message": rendered,
+                }
+            });
+            if let (Some(extra), Value::Object(root)) = (extra, &mut body) {
+                root.insert("details".to_string(), extra);
+            }
+            write_json(w, status, reason, &body)
+        }
+    }
+}
+
+fn handle_list_workflows<W: Write, E: LocalExecutor + Clone>(
+    w: &mut W,
+    request: &HttpRequest,
+    state: &ApiState<E>,
+    loopback: bool,
+) -> Result<(), String> {
+    let workspace_id = match require_workspace_id_query(request) {
+        Ok(value) => value,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let identity =
+        match subject_from_request(&request.headers, state.allow_unauthenticated, loopback) {
+            Ok(identity) => identity,
+            Err(err) => {
+                return write_json(
+                    w,
+                    err.status,
+                    err.reason,
+                    &error_envelope(err.code, &err.message),
+                );
+            }
+        };
+
+    let _ = match ensure_workspace_access(&state.registry_root, &workspace_id, &identity) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let entries = state.with_workspace_mut(&workspace_id, |ws| {
+        Ok(ws
+            .runtime
+            .workflow_registry()
+            .discover(LookupScope::PreferPrivate))
+    })?;
+
+    let mut json_entries = Vec::new();
+    for entry in entries {
+        let resolved = state.with_workspace_mut(&workspace_id, |ws| {
+            Ok(ws.runtime.workflow_registry().find_exact(
+                LookupScope::PreferPrivate,
+                &entry.id,
+                &entry.version,
+            ))
+        })?;
+        let digest = resolved
+            .as_ref()
+            .map(|wf| wf.record.workflow_digest.clone())
+            .unwrap_or_default();
+        let registered_at = resolved
+            .as_ref()
+            .map(|wf| wf.record.registered_at.clone())
+            .unwrap_or_default();
+        json_entries.push(json!({
+            "id": entry.id,
+            "version": entry.version,
+            "digest": digest,
+            "registered_at": registered_at,
+            "scope": format!("{:?}", entry.scope).to_lowercase(),
+            "lifecycle": format!("{:?}", entry.lifecycle).to_lowercase(),
+            "summary": entry.summary,
+            "tags": entry.tags,
+        }));
+    }
+
+    write_json(w, 200, "OK", &Value::Array(json_entries))
+}
+
+fn handle_get_workflow<W: Write, E: LocalExecutor + Clone>(
+    w: &mut W,
+    request: &HttpRequest,
+    state: &ApiState<E>,
+    loopback: bool,
+    workflow_id: &str,
+) -> Result<(), String> {
+    let workflow_id = workflow_id.trim();
+    if workflow_id.is_empty() {
+        return write_json(
+            w,
+            400,
+            "Bad Request",
+            &error_envelope("invalid_request", "workflow id must be non-empty"),
+        );
+    }
+
+    let workspace_id = match require_workspace_id_query(request) {
+        Ok(value) => value,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let identity =
+        match subject_from_request(&request.headers, state.allow_unauthenticated, loopback) {
+            Ok(identity) => identity,
+            Err(err) => {
+                return write_json(
+                    w,
+                    err.status,
+                    err.reason,
+                    &error_envelope(err.code, &err.message),
+                );
+            }
+        };
+
+    let _ = match ensure_workspace_access(&state.registry_root, &workspace_id, &identity) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+
+    let version = request.query.get("version").cloned();
+    let resolved = state.with_workspace_mut(&workspace_id, |ws| {
+        let registry = ws.runtime.workflow_registry();
+        if let Some(version) = &version {
+            return Ok(registry.find_exact(LookupScope::PreferPrivate, workflow_id, version));
+        }
+
+        let candidates = registry
+            .discover(LookupScope::PreferPrivate)
+            .into_iter()
+            .filter(|entry| entry.id == workflow_id)
+            .collect::<Vec<_>>();
+        let mut ordered = candidates;
+        ordered.sort_by(|left, right| {
+            semver::Version::parse(&left.version)
+                .ok()
+                .cmp(&semver::Version::parse(&right.version).ok())
+        });
+        let latest = ordered.last().cloned();
+        Ok(latest.and_then(|entry| {
+            registry.find_exact(LookupScope::PreferPrivate, &entry.id, &entry.version)
+        }))
+    })?;
+
+    let Some(resolved) = resolved else {
+        return write_json(
+            w,
+            404,
+            "Not Found",
+            &error_envelope(
+                "workflow_not_found",
+                &format!("workflow {workflow_id} was not found"),
+            ),
+        );
+    };
+
+    write_json(
+        w,
+        200,
+        "OK",
+        &json!({
+            "workflow": resolved.definition,
+            "record": {
+                "id": resolved.record.id,
+                "version": resolved.record.version,
+                "digest": resolved.record.workflow_digest,
+                "registered_at": resolved.record.registered_at,
+                "registry_scope": format!("{:?}", resolved.record.scope).to_lowercase(),
+            }
+        }),
+    )
 }
 
 // ---------------------------------------------------------------------------
@@ -1629,6 +2421,7 @@ mod tests {
                 persisted: PersistedWorkspaceRegistryV1 {
                     schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
                     registrations: Vec::new(),
+                    workflows: Vec::new(),
                 },
                 loaded_from_disk: true,
             },
@@ -1657,6 +2450,7 @@ mod tests {
                 persisted: PersistedWorkspaceRegistryV1 {
                     schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
                     registrations: Vec::new(),
+                    workflows: Vec::new(),
                 },
                 loaded_from_disk: true,
             },

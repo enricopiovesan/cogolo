@@ -78,6 +78,7 @@
     "schema": {
       "type": "object",
       "required": [
+        "conditions_summary",
         "conditions_summary_id",
         "objective_id",
         "overall_rating",
@@ -105,6 +106,10 @@
           "items": {
             "type": "string"
           }
+        },
+        "conditions_summary": {
+          "type": "object",
+          "description": "Composite conditions_summary record for downstream consumption."
         }
       }
     }

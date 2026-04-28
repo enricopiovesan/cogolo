@@ -814,6 +814,69 @@ fn capability_registry_accessor_returns_registered_capabilities() {
 }
 
 #[test]
+fn workflow_registry_accessors_are_accessible() {
+    use traverse_registry::{
+        RegistryScope, WorkflowDefinition, WorkflowNode, WorkflowNodeInput, WorkflowNodeOutput,
+        WorkflowRegistration,
+    };
+    let reg = registry_with(vec![registration(
+        RegistryScope::Public,
+        "content.comments.create-comment-draft",
+        "1.0.0",
+        Lifecycle::Active,
+    )]);
+    let mut runtime = Runtime::new(reg, EchoExecutor);
+
+    let _reg_ref = runtime.workflow_registry();
+    let _reg_mut = runtime.workflow_registry_mut();
+
+    let definition = WorkflowDefinition {
+        kind: "workflow_definition".to_string(),
+        schema_version: "1.0.0".to_string(),
+        id: "test.workflow".to_string(),
+        name: "test".to_string(),
+        version: "1.0.0".to_string(),
+        lifecycle: traverse_contracts::Lifecycle::Active,
+        owner: Owner {
+            team: "traverse-core".to_string(),
+            contact: "test@example.com".to_string(),
+        },
+        summary: "test".to_string(),
+        inputs: SchemaContainer {
+            schema: json!({"type": "object", "properties": {"comment_text": {"type": "string"}}}),
+        },
+        outputs: SchemaContainer {
+            schema: json!({"type": "object", "properties": {"draft_id": {"type": "string"}}}),
+        },
+        nodes: vec![WorkflowNode {
+            node_id: "step".to_string(),
+            capability_id: "content.comments.create-comment-draft".to_string(),
+            capability_version: "1.0.0".to_string(),
+            input: WorkflowNodeInput {
+                from_workflow_input: vec!["comment_text".to_string()],
+            },
+            output: WorkflowNodeOutput {
+                to_workflow_state: vec!["draft_id".to_string()],
+            },
+        }],
+        edges: Vec::new(),
+        start_node: "step".to_string(),
+        terminal_nodes: vec!["step".to_string()],
+        tags: Vec::new(),
+        governing_spec: "007-workflow-registry-traversal".to_string(),
+    };
+
+    let outcome = runtime.register_workflow(WorkflowRegistration {
+        scope: RegistryScope::Public,
+        definition,
+        workflow_path: "workflows/test/workflow.json".to_string(),
+        registered_at: "2026-04-27T00:00:00Z".to_string(),
+        validator_version: "test".to_string(),
+    });
+    assert!(outcome.is_ok(), "workflow registration must succeed");
+}
+
+#[test]
 fn runtime_register_capability_forwards_to_registry_and_is_idempotent() {
     let reg = CapabilityRegistry::new();
     let mut runtime = Runtime::new(reg, EchoExecutor);
