@@ -462,7 +462,9 @@
       "path": "specs/043-module-dependency-management/spec.md",
       "governs": [
         "crates/traverse-registry/",
-        "crates/traverse-contracts/"
+        "crates/traverse-runtime/",
+        "specs/043-module-dependency-management/",
+        "specs/governance/"
       ]
     }
   ]

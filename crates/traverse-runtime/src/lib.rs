@@ -15,8 +15,8 @@ use std::fmt;
 use traverse_contracts::{ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess};
 use traverse_registry::{
     CapabilityRegistration, CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope,
-    RegistrationOutcome, RegistryFailure, RegistryScope, ResolvedCapability, WorkflowRegistry,
-    resolve_version_range,
+    RegistrationOutcome, RegistryFailure, RegistryScope, ResolutionError, ResolvedCapability,
+    WorkflowRegistry, resolve_dependencies, resolve_version_range,
 };
 
 const RUNTIME_REQUEST_KIND: &str = "runtime_request";
@@ -1014,6 +1014,46 @@ where
                 );
             }
         };
+
+        // Dependency resolution gate (spec 043): resolve and verify all
+        // Capability-typed dependencies before executing.
+        let lookup_scope = map_lookup_scope(context.attempt.request.lookup.scope);
+        if let Err(dep_error) = resolve_dependencies(
+            &self.registry,
+            &selected.record.id,
+            &selected.contract.dependencies,
+            lookup_scope,
+        ) {
+            let (detail_id, detail_version) = match &dep_error {
+                ResolutionError::MissingDependency {
+                    capability_id,
+                    required_version,
+                } => (capability_id.clone(), required_version.clone()),
+                ResolutionError::CircularDependency { cycle } => {
+                    (cycle.join(" -> "), String::new())
+                }
+                ResolutionError::MaxTransitiveDepthExceeded { depth, chain } => {
+                    (format!("depth={depth}"), chain.join(" -> "))
+                }
+            };
+            let error = runtime_error(
+                RuntimeErrorCode::CapabilityNotFound,
+                "dependency resolution failed before execution",
+                serde_json::json!({
+                    "dependency_id": detail_id,
+                    "required_version": detail_version,
+                }),
+            );
+            return pre_execution_failure_outcome(
+                context,
+                PreExecutionFailure {
+                    artifact_ref: Some(selected.record.artifact_ref.clone()),
+                    failure_reason: ExecutionFailureReason::ArtifactMissing,
+                    placement,
+                    error,
+                },
+            );
+        }
 
         if let Err(error) = validate_payload_against_contract(
             &context.attempt.request.input,
