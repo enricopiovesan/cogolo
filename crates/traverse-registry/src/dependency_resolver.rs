@@ -683,7 +683,7 @@ mod tests {
         let err = resolve_dependencies(
             &registry,
             "test.consumer.root",
-            &vec![cap_dep(chain[0], "1.0.0")],
+            &[cap_dep(chain[0], "1.0.0")],
             LookupScope::PublicOnly,
         )
         .expect_err("depth exceeded should fail");
@@ -702,7 +702,7 @@ mod tests {
         let lock = resolve_dependencies(
             &registry,
             "test.app.consumer",
-            &vec![cap_dep("test.logging.logger", "1.0.0")],
+            &[cap_dep("test.logging.logger", "1.0.0")],
             LookupScope::PublicOnly,
         )
         .expect("should resolve");
