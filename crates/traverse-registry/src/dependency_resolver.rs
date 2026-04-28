@@ -627,11 +627,19 @@ mod tests {
         register(&mut registry, base_contract("test.diamond.c", "1.0.0"));
         register(
             &mut registry,
-            contract_with_deps("test.diamond.a", "1.0.0", vec![cap_dep("test.diamond.c", "1.0.0")]),
+            contract_with_deps(
+                "test.diamond.a",
+                "1.0.0",
+                vec![cap_dep("test.diamond.c", "1.0.0")],
+            ),
         );
         register(
             &mut registry,
-            contract_with_deps("test.diamond.b", "1.0.0", vec![cap_dep("test.diamond.c", "1.0.0")]),
+            contract_with_deps(
+                "test.diamond.b",
+                "1.0.0",
+                vec![cap_dep("test.diamond.c", "1.0.0")],
+            ),
         );
 
         let deps = vec![
@@ -641,7 +649,10 @@ mod tests {
         let lock = resolve_dependencies(&registry, "test.consumer", &deps, LookupScope::PublicOnly)
             .expect("diamond dep should resolve");
 
-        let c_count = lock.iter().filter(|e| e.capability_id == "test.diamond.c").count();
+        let c_count = lock
+            .iter()
+            .filter(|e| e.capability_id == "test.diamond.c")
+            .count();
         assert_eq!(c_count, 1, "C should appear exactly once");
         assert_eq!(lock.len(), 3, "lock should have A, B, C");
     }
@@ -649,8 +660,12 @@ mod tests {
     #[test]
     fn rejects_when_max_transitive_depth_exceeded() {
         let chain = [
-            "test.dep.l1", "test.dep.l2", "test.dep.l3",
-            "test.dep.l4", "test.dep.l5", "test.dep.l6",
+            "test.dep.l1",
+            "test.dep.l2",
+            "test.dep.l3",
+            "test.dep.l4",
+            "test.dep.l5",
+            "test.dep.l6",
         ];
         let mut registry = CapabilityRegistry::new();
         for i in (0..chain.len()).rev() {
@@ -659,7 +674,10 @@ mod tests {
             } else {
                 vec![]
             };
-            register(&mut registry, contract_with_deps(chain[i], "1.0.0", next_deps));
+            register(
+                &mut registry,
+                contract_with_deps(chain[i], "1.0.0", next_deps),
+            );
         }
 
         let err = resolve_dependencies(
