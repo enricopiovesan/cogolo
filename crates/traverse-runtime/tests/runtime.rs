@@ -815,8 +815,10 @@ fn capability_registry_accessor_returns_registered_capabilities() {
 
 #[test]
 fn workflow_registry_accessors_are_accessible() {
-    use traverse_registry::{RegistryScope, WorkflowDefinition, WorkflowNode, WorkflowNodeInput,
-        WorkflowNodeOutput, WorkflowRegistration};
+    use traverse_registry::{
+        RegistryScope, WorkflowDefinition, WorkflowNode, WorkflowNodeInput, WorkflowNodeOutput,
+        WorkflowRegistration,
+    };
     let reg = registry_with(vec![registration(
         RegistryScope::Public,
         "content.comments.create-comment-draft",

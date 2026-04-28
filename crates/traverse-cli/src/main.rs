@@ -1155,9 +1155,8 @@ fn workflow_inspect(
     }
 
     let workflow = response.get("workflow").cloned().unwrap_or_default();
-    serde_json::to_string_pretty(&workflow).map_err(|e| {
-        CliError::IoError(format!("failed to render workflow inspection output: {e}"))
-    })
+    serde_json::to_string_pretty(&workflow)
+        .map_err(|e| CliError::IoError(format!("failed to render workflow inspection output: {e}")))
 }
 
 fn build_in_process_api() -> Result<http_api::InProcessApi<ExpeditionExampleExecutor>, CliError> {

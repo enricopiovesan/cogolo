@@ -105,7 +105,8 @@ impl<E> Runtime<E> {
         &mut self,
         registration: WorkflowRegistration,
     ) -> Result<WorkflowRegistrationOutcome, WorkflowFailure> {
-        self.workflow_registry.register(&self.registry, registration)
+        self.workflow_registry
+            .register(&self.registry, registration)
     }
 }
 

@@ -221,11 +221,7 @@ where
         }
     }
 
-    pub fn register_workflow(
-        &self,
-        body: Vec<u8>,
-        loopback: bool,
-    ) -> Result<(u16, Value), String> {
+    pub fn register_workflow(&self, body: Vec<u8>, loopback: bool) -> Result<(u16, Value), String> {
         let request = HttpRequest {
             method: "POST".to_string(),
             path: "/v1/workflows/register".to_string(),
@@ -277,13 +273,7 @@ where
             body: Vec::new(),
         };
         let mut out = Vec::new();
-        handle_get_workflow(
-            &mut out,
-            &request,
-            &self.state,
-            loopback,
-            workflow_id,
-        )?;
+        handle_get_workflow(&mut out, &request, &self.state, loopback, workflow_id)?;
         parse_http_json_response(&out)
     }
 }
@@ -984,14 +974,15 @@ fn find_cycle_path(definition: &WorkflowDefinition) -> Vec<String> {
         .iter()
         .map(|node| node.node_id.clone())
         .collect::<std::collections::BTreeSet<_>>();
-    let mut adjacency: BTreeMap<String, Vec<String>> = node_ids
-        .iter()
-        .map(|id| (id.clone(), Vec::new()))
-        .collect();
+    let mut adjacency: BTreeMap<String, Vec<String>> =
+        node_ids.iter().map(|id| (id.clone(), Vec::new())).collect();
 
     for edge in &definition.edges {
         if node_ids.contains(&edge.from) && node_ids.contains(&edge.to) {
-            adjacency.entry(edge.from.clone()).or_default().push(edge.to.clone());
+            adjacency
+                .entry(edge.from.clone())
+                .or_default()
+                .push(edge.to.clone());
         }
     }
 
@@ -1285,7 +1276,13 @@ fn parse_workflow_register_body(
     let registry_scope = value
         .get("registry_scope")
         .and_then(|v| v.as_str())
-        .unwrap_or_else(|| if workspace_id == SYSTEM_WORKSPACE_ID { "public" } else { "private" })
+        .unwrap_or_else(|| {
+            if workspace_id == SYSTEM_WORKSPACE_ID {
+                "public"
+            } else {
+                "private"
+            }
+        })
         .to_string();
 
     let workflow_value = value.get("workflow").ok_or_else(|| ApiError {
@@ -1295,14 +1292,13 @@ fn parse_workflow_register_body(
         message: "workflow is required".to_string(),
     })?;
 
-    let definition: WorkflowDefinition = serde_json::from_value(workflow_value.clone()).map_err(
-        |e| ApiError {
+    let definition: WorkflowDefinition =
+        serde_json::from_value(workflow_value.clone()).map_err(|e| ApiError {
             status: 422,
             reason: "Unprocessable Entity",
             code: "invalid_workflow",
             message: format!("workflow must be a valid workflow_definition: {e}"),
-        },
-    )?;
+        })?;
 
     let registered_at = match value.get("registered_at").and_then(|v| v.as_str()) {
         Some(value) if !value.trim().is_empty() => value.to_string(),
@@ -1404,10 +1400,7 @@ fn apply_workflow_registration<E: LocalExecutor + Clone>(
     workspace_id: &str,
     scope: RegistrationScope,
     mut persisted: PersistedWorkflowRegistrationV1,
-) -> Result<
-    Result<WorkflowRegistrationHttpOutcome, traverse_registry::WorkflowFailure>,
-    String,
-> {
+) -> Result<Result<WorkflowRegistrationHttpOutcome, traverse_registry::WorkflowFailure>, String> {
     state.with_workspace_mut(workspace_id, |ws| {
         let workflow_id = persisted.definition.id.clone();
         let workflow_version = persisted.definition.version.clone();
@@ -2003,11 +1996,7 @@ fn handle_get_workflow<W: Write, E: LocalExecutor + Clone>(
     let resolved = state.with_workspace_mut(&workspace_id, |ws| {
         let registry = ws.runtime.workflow_registry();
         if let Some(version) = &version {
-            return Ok(registry.find_exact(
-                LookupScope::PreferPrivate,
-                workflow_id,
-                version,
-            ));
+            return Ok(registry.find_exact(LookupScope::PreferPrivate, workflow_id, version));
         }
 
         let candidates = registry
@@ -2016,9 +2005,11 @@ fn handle_get_workflow<W: Write, E: LocalExecutor + Clone>(
             .filter(|entry| entry.id == workflow_id)
             .collect::<Vec<_>>();
         let mut ordered = candidates;
-        ordered.sort_by(|left, right| semver::Version::parse(&left.version)
-            .ok()
-            .cmp(&semver::Version::parse(&right.version).ok()));
+        ordered.sort_by(|left, right| {
+            semver::Version::parse(&left.version)
+                .ok()
+                .cmp(&semver::Version::parse(&right.version).ok())
+        });
         let latest = ordered.last().cloned();
         Ok(latest.and_then(|entry| {
             registry.find_exact(LookupScope::PreferPrivate, &entry.id, &entry.version)

@@ -269,7 +269,6 @@ impl WorkflowRegistry {
                 });
             }
 
-
             return Err(single_error(
                 WorkflowErrorCode::ImmutableVersionConflict,
                 "$.version",
@@ -739,9 +738,7 @@ fn validate_schema_compatibility(
             let Some(state_type) = state_types.get(key) else {
                 errors.push(workflow_error(
                     WorkflowErrorCode::EdgeSchemaMismatch,
-                    &format!(
-                        "$.nodes[{node_index}].input.from_workflow_input[{input_index}]"
-                    ),
+                    &format!("$.nodes[{node_index}].input.from_workflow_input[{input_index}]"),
                     "workflow input field is not available from prior nodes or workflow inputs",
                 ));
                 continue;
@@ -755,9 +752,7 @@ fn validate_schema_compatibility(
             let Some(expected_type) = input_types.get(key) else {
                 errors.push(workflow_error(
                     WorkflowErrorCode::EdgeSchemaMismatch,
-                    &format!(
-                        "$.nodes[{node_index}].input.from_workflow_input[{input_index}]"
-                    ),
+                    &format!("$.nodes[{node_index}].input.from_workflow_input[{input_index}]"),
                     "capability input schema is missing referenced field",
                 ));
                 continue;
@@ -784,9 +779,7 @@ fn validate_schema_compatibility(
                 let Some(value_type) = output_types.get(key) else {
                     errors.push(workflow_error(
                         WorkflowErrorCode::EdgeSchemaMismatch,
-                        &format!(
-                            "$.nodes[{node_index}].output.to_workflow_state[{output_index}]"
-                        ),
+                        &format!("$.nodes[{node_index}].output.to_workflow_state[{output_index}]"),
                         "capability output schema is missing referenced field",
                     ));
                     continue;
@@ -806,7 +799,9 @@ fn validate_schema_compatibility(
 /// Schemas that lack an explicit `properties` key are treated as open / schema-less, so
 /// field-level validation is skipped for them.
 fn schema_declares_properties(schema: &Value) -> bool {
-    let Value::Object(root) = schema else { return false };
+    let Value::Object(root) = schema else {
+        return false;
+    };
     matches!(root.get("type"), Some(Value::String(t)) if t == "object")
         && root.get("properties").is_some()
 }
@@ -851,9 +846,10 @@ fn topological_node_order(definition: &WorkflowDefinition) -> Option<Vec<usize>>
     let mut adjacency = vec![Vec::<usize>::new(); n];
 
     for edge in &definition.edges {
-        if let (Some(&fi), Some(&ti)) =
-            (id_to_index.get(edge.from.as_str()), id_to_index.get(edge.to.as_str()))
-        {
+        if let (Some(&fi), Some(&ti)) = (
+            id_to_index.get(edge.from.as_str()),
+            id_to_index.get(edge.to.as_str()),
+        ) {
             adjacency[fi].push(ti);
             indegree[ti] += 1;
         }
@@ -1309,10 +1305,12 @@ mod tests {
             )
             .expect_err("schema mismatch must fail");
 
-        assert!(failure
-            .errors
-            .iter()
-            .any(|error| error.code == WorkflowErrorCode::EdgeSchemaMismatch));
+        assert!(
+            failure
+                .errors
+                .iter()
+                .any(|error| error.code == WorkflowErrorCode::EdgeSchemaMismatch)
+        );
     }
 
     #[test]
@@ -1888,7 +1886,9 @@ mod tests {
                     reg.contract.outputs.schema = s;
                 }
             }
-            registry.register(reg).expect("capability registration should succeed");
+            registry
+                .register(reg)
+                .expect("capability registration should succeed");
         }
         registry
     }
@@ -1945,7 +1945,10 @@ mod tests {
             "additionalProperties": true
         });
         // Make the first node also pull extra_field — it is in state but not in cap schema.
-        definition.nodes[0].input.from_workflow_input.push("extra_field".to_string());
+        definition.nodes[0]
+            .input
+            .from_workflow_input
+            .push("extra_field".to_string());
 
         let mut registry = WorkflowRegistry::new();
         let failure = register_workflow_err(
@@ -1961,7 +1964,8 @@ mod tests {
         );
         assert!(failure.errors.iter().any(|e| {
             e.code == WorkflowErrorCode::EdgeSchemaMismatch
-                && e.message.contains("capability input schema is missing referenced field")
+                && e.message
+                    .contains("capability input schema is missing referenced field")
         }));
     }
 
@@ -1982,7 +1986,10 @@ mod tests {
             "additionalProperties": true
         });
         // First node takes draft_id directly from workflow input.
-        definition.nodes[0].input.from_workflow_input.push("draft_id".to_string());
+        definition.nodes[0]
+            .input
+            .from_workflow_input
+            .push("draft_id".to_string());
 
         let mut registry = WorkflowRegistry::new();
         let failure = register_workflow_err(
@@ -2020,7 +2027,10 @@ mod tests {
 
         let mut definition = valid_workflow_definition();
         // First node asks to write result_token into state, but cap doesn't output it.
-        definition.nodes[0].output.to_workflow_state.push("result_token".to_string());
+        definition.nodes[0]
+            .output
+            .to_workflow_state
+            .push("result_token".to_string());
 
         let mut registry = WorkflowRegistry::new();
         let failure = register_workflow_err(
@@ -2036,7 +2046,8 @@ mod tests {
         );
         assert!(failure.errors.iter().any(|e| {
             e.code == WorkflowErrorCode::EdgeSchemaMismatch
-                && e.message.contains("capability output schema is missing referenced field")
+                && e.message
+                    .contains("capability output schema is missing referenced field")
         }));
     }
 
@@ -2059,7 +2070,8 @@ mod tests {
         );
         // Open output schema — forces the `else` branch in validate_schema_compatibility.
         create_reg.contract.outputs.schema = json!({"type": "object"});
-        caps.register(create_reg).expect("capability registration should succeed");
+        caps.register(create_reg)
+            .expect("capability registration should succeed");
 
         let mut validate_reg = capability_registration(
             "content.comments.validate-comment",
@@ -2070,10 +2082,14 @@ mod tests {
         );
         // Open input schema — skips type-checking on the "object"-typed draft_id from state.
         validate_reg.contract.inputs.schema = json!({"type": "object"});
-        caps.register(validate_reg).expect("capability registration should succeed");
-
-        caps.register(capability_registration("content.comments.persist-comment", Vec::new()))
+        caps.register(validate_reg)
             .expect("capability registration should succeed");
+
+        caps.register(capability_registration(
+            "content.comments.persist-comment",
+            Vec::new(),
+        ))
+        .expect("capability registration should succeed");
 
         let mut registry = WorkflowRegistry::new();
         register_workflow_ok(
