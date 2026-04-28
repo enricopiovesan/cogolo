@@ -1864,6 +1864,7 @@ mod tests {
 
     // ── validate_schema_compatibility coverage ────────────────────────────────
 
+    #[allow(clippy::needless_pass_by_value)]
     fn capability_registry_with_override(
         id: &str,
         inputs: Option<Value>,
