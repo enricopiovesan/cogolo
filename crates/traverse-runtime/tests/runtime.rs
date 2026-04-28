@@ -1087,15 +1087,18 @@ fn runtime_rejects_execution_when_dependency_missing() {
     // Register the main capability declaring a Capability dep on
     // "content.logging.logger" 1.0.0 — but never register that dep.
     let mut registry = CapabilityRegistry::new();
-    registry
-        .register(registration_with_cap_dep(
-            RegistryScope::Private,
-            "content.comments.create-comment-draft",
-            "1.0.0",
-            "content.logging.logger",
-            "1.0.0",
-        ))
-        .expect("registration with declared dep should succeed");
+    assert!(
+        registry
+            .register(registration_with_cap_dep(
+                RegistryScope::Private,
+                "content.comments.create-comment-draft",
+                "1.0.0",
+                "content.logging.logger",
+                "1.0.0",
+            ))
+            .is_ok(),
+        "registration with declared dep should succeed"
+    );
 
     let runtime = Runtime::new(registry, EchoExecutor);
     let outcome = runtime.execute(base_request_exact());
@@ -1126,15 +1129,18 @@ fn runtime_rejects_execution_when_circular_dependency_detected() {
     // B depends on A — cycle detected at execution time.
     let mut registry = CapabilityRegistry::new();
 
-    registry
-        .register(registration_with_cap_dep(
-            RegistryScope::Private,
-            "content.comments.create-comment-draft",
-            "1.0.0",
-            "content.logging.logger",
-            "1.0.0",
-        ))
-        .expect("register A should succeed");
+    assert!(
+        registry
+            .register(registration_with_cap_dep(
+                RegistryScope::Private,
+                "content.comments.create-comment-draft",
+                "1.0.0",
+                "content.logging.logger",
+                "1.0.0",
+            ))
+            .is_ok(),
+        "register A should succeed"
+    );
 
     // Use simple_registration so id == namespace.name, then add back-dep.
     let mut dep_reg =
@@ -1144,9 +1150,10 @@ fn runtime_rejects_execution_when_circular_dependency_detected() {
         id: "content.comments.create-comment-draft".to_string(),
         version: "1.0.0".to_string(),
     });
-    registry
-        .register(dep_reg)
-        .expect("register B with back-dep should succeed");
+    assert!(
+        registry.register(dep_reg).is_ok(),
+        "register B with back-dep should succeed"
+    );
 
     let runtime = Runtime::new(registry, EchoExecutor);
     let outcome = runtime.execute(base_request_exact());
@@ -1184,20 +1191,24 @@ fn runtime_rejects_execution_when_max_dep_depth_exceeded() {
                 version: "1.0.0".to_string(),
             });
         }
-        registry
-            .register(reg)
-            .expect("chain capability registration should succeed");
+        assert!(
+            registry.register(reg).is_ok(),
+            "chain capability registration should succeed"
+        );
     }
 
-    registry
-        .register(registration_with_cap_dep(
-            RegistryScope::Private,
-            "content.comments.create-comment-draft",
-            "1.0.0",
-            chain[0],
-            "1.0.0",
-        ))
-        .expect("main capability registration should succeed");
+    assert!(
+        registry
+            .register(registration_with_cap_dep(
+                RegistryScope::Private,
+                "content.comments.create-comment-draft",
+                "1.0.0",
+                chain[0],
+                "1.0.0",
+            ))
+            .is_ok(),
+        "main capability registration should succeed"
+    );
 
     let runtime = Runtime::new(registry, EchoExecutor);
     let outcome = runtime.execute(base_request_exact());
@@ -1220,11 +1231,6 @@ fn simple_registration(scope: RegistryScope, id: &str, version: &str) -> Capabil
     let mut parts = id.rsplitn(2, '.');
     let name = parts.next().unwrap_or(id).to_string();
     let namespace = parts.next().unwrap_or(id).to_string();
-    use traverse_contracts::{
-        BinaryFormat as ContractBinaryFormat, Condition, Entrypoint, EntrypointKind, Execution,
-        ExecutionConstraints, FilesystemAccess, HostApiAccess, NetworkAccess, Owner, Provenance,
-        ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind,
-    };
     let contract = traverse_contracts::CapabilityContract {
         kind: "capability_contract".to_string(),
         schema_version: "1.0.0".to_string(),
@@ -1315,22 +1321,28 @@ fn simple_registration(scope: RegistryScope, id: &str, version: &str) -> Capabil
 fn runtime_executes_successfully_when_all_dependencies_satisfied() {
     // Register the logger dependency first, then the main capability.
     let mut registry = CapabilityRegistry::new();
-    registry
-        .register(simple_registration(
-            RegistryScope::Private,
-            "content.logging.logger",
-            "1.0.0",
-        ))
-        .expect("logger registration should succeed");
-    registry
-        .register(registration_with_cap_dep(
-            RegistryScope::Private,
-            "content.comments.create-comment-draft",
-            "1.0.0",
-            "content.logging.logger",
-            "1.0.0",
-        ))
-        .expect("registration with satisfied dep should succeed");
+    assert!(
+        registry
+            .register(simple_registration(
+                RegistryScope::Private,
+                "content.logging.logger",
+                "1.0.0",
+            ))
+            .is_ok(),
+        "logger registration should succeed"
+    );
+    assert!(
+        registry
+            .register(registration_with_cap_dep(
+                RegistryScope::Private,
+                "content.comments.create-comment-draft",
+                "1.0.0",
+                "content.logging.logger",
+                "1.0.0",
+            ))
+            .is_ok(),
+        "registration with satisfied dep should succeed"
+    );
 
     let runtime = Runtime::new(registry, EchoExecutor);
     let outcome = runtime.execute(base_request_exact());
