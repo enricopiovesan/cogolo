@@ -1012,6 +1012,7 @@ where
         }
     }
 
+    #[allow(clippy::too_many_lines)]
     fn execute_selected(
         &self,
         attempt: AttemptContext,
