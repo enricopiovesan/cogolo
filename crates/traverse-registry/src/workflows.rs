@@ -1857,7 +1857,9 @@ mod tests {
         assert!(!schema_declares_properties(&json!(42)));
         assert!(!schema_declares_properties(&json!({"type": "array"})));
         assert!(!schema_declares_properties(&json!({"type": "object"})));
-        assert!(schema_declares_properties(&json!({"type": "object", "properties": {}})));
+        assert!(schema_declares_properties(
+            &json!({"type": "object", "properties": {}})
+        ));
     }
 
     // ── validate_schema_compatibility coverage ────────────────────────────────
