@@ -1850,10 +1850,18 @@ mod tests {
         assert_eq!(types["valid"], "string");
     }
 
+    #[test]
+    fn schema_declares_properties_returns_false_for_non_object_schema() {
+        assert!(!schema_declares_properties(&json!("string-schema")));
+        assert!(!schema_declares_properties(&json!(null)));
+        assert!(!schema_declares_properties(&json!(42)));
+        assert!(!schema_declares_properties(&json!({"type": "array"})));
+        assert!(!schema_declares_properties(&json!({"type": "object"})));
+        assert!(schema_declares_properties(&json!({"type": "object", "properties": {}})));
+    }
+
     // ── validate_schema_compatibility coverage ────────────────────────────────
 
-    /// Creates a capability_registry variant where one capability's contract
-    /// schemas are replaced with the provided `inputs` / `outputs` JSON values.
     fn capability_registry_with_override(
         id: &str,
         inputs: Option<Value>,
