@@ -24,6 +24,22 @@ if ! cargo llvm-cov --version >/dev/null 2>&1; then
   exit 1
 fi
 
+if [[ -z "${LLVM_COV:-}" || -z "${LLVM_PROFDATA:-}" ]]; then
+  if command -v rustup >/dev/null 2>&1; then
+    active_toolchain="$(rustup show active-toolchain | awk 'NR == 1 { print $1 }')"
+    toolchain_root="$(rustup run "${active_toolchain}" rustc --print sysroot)"
+    toolchain_host="$(rustup run "${active_toolchain}" rustc -vV | awk '/^host: / { print $2 }')"
+  else
+    toolchain_root="$(rustc --print sysroot)"
+    toolchain_host="$(rustc -vV | awk '/^host: / { print $2 }')"
+  fi
+  llvm_bin_dir="${toolchain_root}/lib/rustlib/${toolchain_host}/bin"
+  if [[ -x "${llvm_bin_dir}/llvm-cov" && -x "${llvm_bin_dir}/llvm-profdata" ]]; then
+    export LLVM_COV="${LLVM_COV:-${llvm_bin_dir}/llvm-cov}"
+    export LLVM_PROFDATA="${LLVM_PROFDATA:-${llvm_bin_dir}/llvm-profdata}"
+  fi
+fi
+
 failed=0
 
 for entry in "${targets[@]}"; do

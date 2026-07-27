@@ -8,7 +8,6 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fmt::Write as _;
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::Write;
 use std::path::PathBuf;
@@ -17,6 +16,7 @@ use traverse_contracts::CapabilityContract;
 const DATA_STORE_SPEC: &str = "032-universal-data-access";
 const LOCAL_DATA_STORE_FORMAT: &str = "local-datastore/1";
 const LOCAL_DATA_STORE_LOCK_FILE: &str = ".traverse-datastore.lock";
+const HEXADECIMAL_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRecord {
@@ -298,14 +298,9 @@ impl LocalFileDataStore {
             .truncate(false)
             .open(&lock_path)
             .map_err(|error| io_error("open data store lock", &error))?;
-        lock_file.try_lock().map_err(|error| match error {
-            TryLockError::WouldBlock => data_store_error(
-                DataStoreErrorCode::StoreLocked,
-                "store_locked",
-                json!({ "root": root }),
-            ),
-            TryLockError::Error(error) => io_error("lock data store root", &error),
-        })?;
+        lock_file
+            .try_lock()
+            .map_err(|error| lock_error(error, &root))?;
         Ok(Self {
             root,
             classification,
@@ -325,13 +320,7 @@ impl LocalFileDataStore {
     fn sync_root(&self) -> Result<(), DataStoreError> {
         File::open(&self.root)
             .and_then(|directory| directory.sync_all())
-            .map_err(|error| {
-                data_store_error(
-                    DataStoreErrorCode::DurabilityCommitFailed,
-                    "durability_commit_failed",
-                    json!({ "root": self.root, "reason": error.to_string() }),
-                )
-            })
+            .map_err(|error| durability_error(&self.root, "parent_directory", &error))
     }
 }
 
@@ -377,20 +366,14 @@ impl DataStore for LocalFileDataStore {
             temporary_file
                 .write_all(&text)
                 .map_err(|error| io_error("write temporary state record", &error))?;
-            temporary_file.sync_all().map_err(|error| {
-                data_store_error(
-                    DataStoreErrorCode::DurabilityCommitFailed,
-                    "durability_commit_failed",
-                    json!({ "reason": error.to_string(), "stage": "temporary_file" }),
-                )
-            })?;
+            temporary_file
+                .sync_all()
+                .map_err(|error| durability_error(&self.root, "temporary_file", &error))?;
             fs::rename(&temporary_path, &path)
                 .map_err(|error| io_error("atomically commit state record", &error))?;
             self.sync_root()
         })();
-        if write_result.is_err() && temporary_path.exists() {
-            let _ignored = fs::remove_file(temporary_path).is_ok();
-        }
+        discard_temporary_record(&temporary_path);
         write_result
     }
 
@@ -428,15 +411,35 @@ fn digest_for_record(record: &StateRecord) -> Result<String, DataStoreError> {
     let digest = Sha256::digest(canonical);
     let mut hexadecimal = String::with_capacity(digest.len() * 2);
     for byte in digest {
-        write!(&mut hexadecimal, "{byte:02x}").map_err(|_| {
-            data_store_error(
-                DataStoreErrorCode::SerializationFailure,
-                "serialize digest",
-                json!({ "reason": "formatting digest failed" }),
-            )
-        })?;
+        hexadecimal.push(char::from(HEXADECIMAL_DIGITS[usize::from(byte >> 4)]));
+        hexadecimal.push(char::from(HEXADECIMAL_DIGITS[usize::from(byte & 0x0f)]));
     }
     Ok(format!("sha256:{hexadecimal}"))
+}
+
+fn lock_error(error: TryLockError, root: &PathBuf) -> DataStoreError {
+    match error {
+        TryLockError::WouldBlock => data_store_error(
+            DataStoreErrorCode::StoreLocked,
+            "store_locked",
+            json!({ "root": root }),
+        ),
+        TryLockError::Error(error) => io_error("lock data store root", &error),
+    }
+}
+
+fn durability_error(root: &PathBuf, stage: &str, error: &std::io::Error) -> DataStoreError {
+    data_store_error(
+        DataStoreErrorCode::DurabilityCommitFailed,
+        "durability_commit_failed",
+        json!({ "root": root, "stage": stage, "reason": error.to_string() }),
+    )
+}
+
+fn discard_temporary_record(path: &PathBuf) {
+    if path.exists() {
+        let _ignored = fs::remove_file(path).is_ok();
+    }
 }
 
 fn integrity_error(reason: &str) -> DataStoreError {
@@ -1067,6 +1070,60 @@ mod tests {
         let second_owner = LocalFileDataStore::new(&root).expect_err("second owner must fail");
         assert_eq!(second_owner.code, DataStoreErrorCode::StoreLocked);
         assert_eq!(second_owner.message, "store_locked");
+    }
+
+    #[test]
+    fn local_file_adapter_reports_unknown_version_and_helper_failures_stably() {
+        let root = temp_root("helper-failures");
+        let mut adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        adapter
+            .write(record("draft", "writer-a", 1, json!("ready")))
+            .expect("write should succeed");
+
+        let mut envelope: Value = serde_json::from_slice(
+            &fs::read(root.join("draft.json")).expect("envelope should be present"),
+        )
+        .expect("fixture should deserialize");
+        envelope["format"] = json!("local-datastore/unsupported");
+        fs::write(
+            root.join("draft.json"),
+            serde_json::to_vec(&envelope).expect("fixture should serialize"),
+        )
+        .expect("unknown-version fixture should write");
+        let unknown_version = adapter
+            .read("draft")
+            .expect_err("unknown format version must fail");
+        assert_eq!(
+            unknown_version.code,
+            DataStoreErrorCode::IntegrityCheckFailed
+        );
+        assert_eq!(unknown_version.details["reason"], "unknown_format_version");
+
+        let lock_io = lock_error(
+            TryLockError::Error(std::io::Error::other("lock device failure")),
+            &root,
+        );
+        assert_eq!(lock_io.code, DataStoreErrorCode::IoFailure);
+        assert_eq!(lock_io.message, "storage_io_failed");
+
+        let durability = durability_error(
+            &root,
+            "temporary_file",
+            &std::io::Error::other("sync failure"),
+        );
+        assert_eq!(durability.code, DataStoreErrorCode::DurabilityCommitFailed);
+        assert_eq!(durability.message, "durability_commit_failed");
+
+        let temporary = root.join(".orphan.tmp");
+        fs::write(&temporary, "incomplete").expect("temporary fixture should write");
+        discard_temporary_record(&temporary);
+        assert!(!temporary.exists());
+        discard_temporary_record(&temporary);
+
+        let parse_error = serde_json::from_str::<Value>("{")
+            .expect_err("invalid fixture must produce a serialization error");
+        let serialization = serialization_error("deserialize fixture", &parse_error);
+        assert_eq!(serialization.code, DataStoreErrorCode::SerializationFailure);
     }
 
     fn record(key: &str, writer_id: &str, lamport_clock: u64, value: Value) -> StateRecord {
