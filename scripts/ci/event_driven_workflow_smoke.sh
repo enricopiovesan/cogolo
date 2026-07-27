@@ -13,7 +13,3 @@ cargo test -p traverse-runtime \
 cargo test -p traverse-runtime \
   workflows::tests::event_driven_helpers_reject_non_matching_predicates \
   -- --exact
-
-cargo test -p traverse-registry \
-  workflows::tests::rejects_missing_capabilities_and_invalid_event_edges \
-  -- --exact

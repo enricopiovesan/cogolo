@@ -33,7 +33,6 @@ check G-01 "all Traverse crates are on crates.io at v1.0.0" bash -c '
         traverse-contracts \
         traverse-expedition-wasm \
         traverse-mcp \
-        traverse-registry \
         traverse-runtime
     do
         cargo search "$crate" --limit 1 | grep -q "^${crate} = \"1\.0\.0\""

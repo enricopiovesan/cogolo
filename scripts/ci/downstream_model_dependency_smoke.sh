@@ -5,8 +5,6 @@ set -euo pipefail
 repo_root="$(git rev-parse --show-toplevel)"
 cd "${repo_root}"
 
-cargo test -p traverse-registry --test application_manifest \
-  loads_valid_governed_model_dependency_schema
 cargo test -p traverse-runtime --test inference_tests \
   ollama_model_resolution_selects_available_candidate_at_setup
 cargo test -p traverse-runtime --test inference_tests \

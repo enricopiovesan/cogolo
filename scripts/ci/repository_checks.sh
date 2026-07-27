@@ -92,6 +92,7 @@ required_files=(
   "scripts/ci/downstream_public_app_registration_smoke.sh"
   "scripts/ci/downstream_wasm_workflow_smoke.sh"
   "scripts/ci/downstream_model_dependency_smoke.sh"
+  "scripts/ci/registry_consumer_cutover.sh"
   "scripts/ci/downstream_http_json_smoke.sh"
   "scripts/ci/downstream_mcp_smoke.sh"
   "scripts/ci/youaskm3_integration_validation.sh"
@@ -201,6 +202,7 @@ grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smok
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
+grep -q "traverse-framework/registry" docs/release-process.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/mcp_consumption_validation.sh" docs/mcp-consumption-validation.md
 grep -q "docs/mcp-stdio-server.md" docs/mcp-consumption-validation.md

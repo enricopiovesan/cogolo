@@ -8,9 +8,10 @@ Use the release helper from a clean `main` checkout after CI is green:
 2. Run `git push origin main`.
 3. Run `git push origin v<version>`.
 4. Confirm the CI publish job starts automatically from the `v<version>` tag push.
-5. Verify crates.io lists all six Traverse crates at the new version:
-   `traverse-contracts`, `traverse-registry`, `traverse-runtime`,
-   `traverse-mcp`, `traverse-cli-rs`, and `traverse-expedition-wasm`.
+5. Verify crates.io lists the Traverse-published crates at the new version:
+   `traverse-contracts`, `traverse-runtime`, `traverse-mcp`, `traverse-cli-rs`,
+   and `traverse-expedition-wasm`. `traverse-registry` is released separately
+   from `traverse-framework/registry`.
 
 The version argument is `MAJOR.MINOR.PATCH` without a leading `v`. The helper
 refuses invalid versions, dirty working trees, and pre-existing local release

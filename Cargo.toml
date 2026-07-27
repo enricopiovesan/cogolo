@@ -6,7 +6,6 @@ members = [
   "crates/traverse-expedition-wasm",
   "crates/traverse-mcp",
   "crates/traverse-native-bridge",
-  "crates/traverse-registry",
   "crates/traverse-runtime",
   "crates/traverse-swift-host",
 ]
@@ -21,8 +20,14 @@ version = "0.8.1"
 
 [workspace.dependencies]
 traverse-contracts = { path = "crates/traverse-contracts", version = "0.8.1" }
-traverse-registry = { path = "crates/traverse-registry", version = "0.8.1" }
+traverse-registry = { version = "=0.9.1" }
 traverse-runtime = { path = "crates/traverse-runtime", version = "0.8.1" }
+
+# The published registry crate pins the current contracts release.  During
+# Traverse development, resolve that transitive dependency to this workspace's
+# matching contracts source so all consumers share one Rust type identity.
+[patch.crates-io]
+traverse-contracts = { path = "crates/traverse-contracts" }
 
 [workspace.lints.rust]
 # C-ABI exports are permitted only in the audited Apple feasibility boundary.
