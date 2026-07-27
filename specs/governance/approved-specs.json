@@ -985,6 +985,19 @@
         "docs/adr/0011-agent-artifact-stdout-only.md",
         "specs/516-agent-artifact-execution/"
       ]
+    },
+    {
+      "id": "518-durable-local-datastore",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/518-durable-local-datastore/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/data_store.rs",
+        "crates/traverse-runtime/tests/",
+        "docs/adr/0018-durable-local-datastore.md",
+        "specs/518-durable-local-datastore/"
+      ]
     }
   ]
 }
