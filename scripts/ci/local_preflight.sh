@@ -112,11 +112,18 @@ else
   echo "local-preflight: SKIP web embedder package: node is unavailable"
 fi
 
-if [[ "$(uname -s)" == "Darwin" ]] && command -v java >/dev/null 2>&1 && command -v dotnet >/dev/null 2>&1; then
+android_sdk="${ANDROID_HOME:-${ANDROID_SDK_ROOT:-}}"
+android_local_properties="packages/kotlin/TraverseEmbedder/local.properties"
+if [[ -z "$android_sdk" && -f "$android_local_properties" ]]; then
+  android_sdk="$(awk -F= '$1 == "sdk.dir" { print substr($0, index($0, "=") + 1); exit }' "$android_local_properties" | sed 's#\\\\:#:#g')"
+fi
+
+if [[ "$(uname -s)" == "Darwin" ]] && command -v java >/dev/null 2>&1 && command -v dotnet >/dev/null 2>&1 && [[ -n "$android_sdk" && -d "$android_sdk" ]]; then
+  export ANDROID_HOME="$android_sdk"
   echo "local-preflight: RUN macOS native artifact certification"
   bash scripts/ci/native_artifact_certification.sh
 else
-  echo "local-preflight: SKIP native artifact certification: requires macOS, Java, and .NET"
+  echo "local-preflight: SKIP native artifact certification: requires macOS, Java, .NET, and an Android SDK"
 fi
 
 echo "local-preflight: SKIP hosted-only: CodeQL and cross-platform stress matrix"
