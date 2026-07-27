@@ -987,6 +987,20 @@
       ]
     },
     {
+      "id": "519-embedder-owned-datastore-integration",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/519-embedder-owned-datastore-integration/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/data_store.rs",
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "docs/adr/0019-embedder-owned-datastore-integration.md",
+        "specs/519-embedder-owned-datastore-integration/"
+      ]
+    },
+    {
       "id": "518-durable-local-datastore",
       "version": "1.0.0",
       "status": "approved",
