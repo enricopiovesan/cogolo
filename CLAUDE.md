@@ -22,7 +22,6 @@ Repo-specific product scope stays here: see `specs/001-foundation-v0-1/spec.md` 
 crates/
   traverse-runtime/      # Core execution engine
   traverse-contracts/    # Contract definitions and validation
-  traverse-registry/     # Capability and event registries (moving to traverse-framework/registry — see spec 051)
   traverse-cli/          # Command-line interface
   traverse-mcp/          # Model Context Protocol (stub)
 specs/                   # Versioned, immutable governing specs

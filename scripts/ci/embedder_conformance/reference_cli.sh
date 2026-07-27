@@ -25,12 +25,7 @@ grep -q "compatible-lifecycle" specs/057-embeddable-runtime-host/conformance.md
 grep -q "platform-guard" specs/057-embeddable-runtime-host/conformance.md
 grep -q "determinism" specs/057-embeddable-runtime-host/conformance.md
 
-cargo test -q -p traverse-registry --test application_manifest \
-  defaults_component_execution_mode_to_wasm
-cargo test -q -p traverse-registry --test application_manifest \
-  loads_compatible_component_manifest_without_wasm_artifact
-cargo test -q -p traverse-registry --test application_manifest \
-  rejects_compatible_component_without_platforms
+cargo test -q -p traverse-embedder --test conformance
 
 validation_json="$(
   cargo run -q -p traverse-cli-rs -- app validate \

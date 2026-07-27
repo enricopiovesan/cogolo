@@ -4,7 +4,6 @@ set -euo pipefail
 
 crates=(
   "traverse-contracts"
-  "traverse-registry"
   "traverse-runtime"
   "traverse-embedder"
   "traverse-mcp"

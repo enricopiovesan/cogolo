@@ -59,8 +59,7 @@
       "immutable": true,
       "path": "specs/005-capability-registry/spec.md",
       "governs": [
-        "crates/cogolo-registry/",
-        "crates/traverse-registry/"
+        "crates/cogolo-registry/"
       ]
     },
     {
@@ -82,7 +81,6 @@
       "path": "specs/007-workflow-registry-traversal/spec.md",
       "governs": [
         "crates/cogolo-registry/",
-        "crates/traverse-registry/",
         "crates/cogolo-runtime/",
         "crates/traverse-runtime/"
       ]
@@ -139,8 +137,7 @@
       "immutable": true,
       "path": "specs/011-event-registry/spec.md",
       "governs": [
-        "crates/cogolo-registry/",
-        "crates/traverse-registry/"
+        "crates/cogolo-registry/"
       ]
     },
     {
@@ -360,7 +357,6 @@
       "immutable": true,
       "path": "specs/034-programmatic-registration/spec.md",
       "governs": [
-        "crates/traverse-registry/",
         "crates/traverse-runtime/"
       ]
     },
@@ -371,8 +367,7 @@
       "immutable": true,
       "path": "specs/035-multi-agent-isolation/spec.md",
       "governs": [
-        "crates/traverse-runtime/",
-        "crates/traverse-registry/"
+        "crates/traverse-runtime/"
       ]
     },
     {
@@ -382,8 +377,7 @@
       "immutable": true,
       "path": "specs/036-event-subscription-replay/spec.md",
       "governs": [
-        "crates/traverse-runtime/",
-        "crates/traverse-registry/"
+        "crates/traverse-runtime/"
       ]
     },
     {
@@ -393,7 +387,6 @@
       "immutable": true,
       "path": "specs/037-semver-range-resolution/spec.md",
       "governs": [
-        "crates/traverse-registry/",
         "crates/traverse-runtime/"
       ]
     },
@@ -415,8 +408,7 @@
       "immutable": true,
       "path": "specs/039-connector-plugin-architecture/spec.md",
       "governs": [
-        "crates/traverse-contracts/",
-        "crates/traverse-registry/"
+        "crates/traverse-contracts/"
       ]
     },
     {
@@ -439,7 +431,6 @@
       "immutable": true,
       "path": "specs/041-workflow-composition-api/spec.md",
       "governs": [
-        "crates/traverse-registry/",
         "crates/traverse-runtime/",
         "crates/traverse-cli/"
       ]
@@ -461,7 +452,6 @@
       "immutable": true,
       "path": "specs/043-module-dependency-management/spec.md",
       "governs": [
-        "crates/traverse-registry/",
         "crates/traverse-runtime/",
         "specs/043-module-dependency-management/",
         "specs/governance/"
