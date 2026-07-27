@@ -2,7 +2,7 @@
 
 **Feature Branch**: `518-durable-local-datastore`  
 **Created**: 2026-07-21  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Define the reachability, integrity, atomic-write, recovery, and compatibility boundary for Traverse's local `DataStore` adapter.
 
 ## Purpose
@@ -50,6 +50,19 @@ As an early adopter, I can identify legacy unhashed local state and recreate it 
 1. **Given** a pre-governance plain state file exists, **When** it is read, **Then** the adapter rejects it as `legacy_unverified`; it does not accept or silently rewrite it.
 2. **Given** an application recreates the state through the adapter, **When** it reads the new record, **Then** the new integrity-protected representation is accepted.
 
+---
+
+### User Story 4 - One owning process writes a store (Priority: P2)
+
+As an embedder developer, I receive a stable contention failure rather than allowing two local processes to race on the same store.
+
+**Independent Test**: Open one store at a root, attempt to open a second writer at that root from another process, and verify the second operation returns `store_locked` without changing committed state.
+
+**Acceptance Scenarios**:
+
+1. **Given** another process holds the root lock, **When** an adapter attempts to open it for writing, **Then** it fails with `store_locked` and a machine-readable root identifier.
+2. **Given** the owning process exits or releases the adapter, **When** another process opens the root, **Then** it can acquire the lock and access the previously committed state.
+
 ### Edge Cases
 
 - A missing record remains an absent result rather than an integrity failure.
@@ -63,15 +76,17 @@ As an early adopter, I can identify legacy unhashed local state and recreate it 
 ### Functional Requirements
 
 - **FR-001**: The local DataStore adapter MUST remain an explicitly constructed, embedder-owned library surface. Generic runtime execution MUST NOT select a storage root or instantiate the adapter implicitly.
-- **FR-002**: Each newly committed local record MUST use the versioned `local-datastore/1` envelope containing the state record and a lowercase `sha256:` digest of its canonical serialized record content.
+- **FR-002**: Each newly committed local record MUST use the versioned `local-datastore/1` envelope containing one generic versioned key/value state record, its explicit `classification` (`public` or `private`), and a lowercase `sha256:` digest of its canonical serialized record content. The classification is metadata only in this slice; encryption and key management are deferred.
 - **FR-003**: A read MUST verify the envelope version, record structure, and digest before returning any record. Missing, unknown, malformed, or mismatched integrity metadata MUST fail with the stable `integrity_check_failed` error and a machine-readable reason.
-- **FR-004**: A write MUST create and durably flush a temporary sibling record before one atomic same-directory commit replaces the prior record. A failed write MUST NOT replace a prior committed record.
+- **FR-004**: A write MUST create and durably flush a temporary sibling record before one atomic same-directory commit replaces the prior record, then durably flush the parent directory before reporting success. A failed write MUST NOT replace a prior committed record.
 - **FR-005**: Temporary records MUST be ignored by reads and key enumeration; they MUST NOT become visible state after restart.
 - **FR-006**: Plain legacy state-record files without an integrity envelope MUST fail closed with `integrity_check_failed` and reason `legacy_unverified`. Traverse MUST NOT claim their integrity or silently rewrite them.
 - **FR-007**: Recreating state through the adapter is the supported migration path from legacy local files. No automatic migration is required in this slice.
 - **FR-008**: The existing `DataStore` operations, state-schema validation, Lamport clock behavior, merge semantics, and capability contract shape MUST remain compatible.
 - **FR-009**: The adapter documentation and integration proof MUST state that the embedding application owns root selection, retention, backup, and deletion policy.
 - **FR-010**: CI MUST verify durable reopen, integrity rejection, legacy-file rejection, interrupted-write recovery, deterministic key enumeration, and no implicit runtime directory creation.
+- **FR-011**: The local-file adapter MUST enforce exclusive single-process ownership of an embedder root. Contention with another process MUST fail without a write as `store_locked`; multi-process coordination is out of scope.
+- **FR-012**: The adapter MUST expose stable machine-readable failures for integrity (`integrity_check_failed`), schema validation (`schema_validation_error`), lock contention (`store_locked`), storage I/O (`storage_io_failed`), and a failed durability commit (`durability_commit_failed`). Each failure MUST carry a non-secret machine-readable reason.
 
 ### Key Entities
 
@@ -79,6 +94,7 @@ As an early adopter, I can identify legacy unhashed local state and recreate it 
 - **Committed Record**: The sole state representation visible to reads and key enumeration after a successful atomic commit.
 - **Legacy Unverified Record**: A former plain state file lacking required integrity metadata; it is rejected rather than trusted.
 - **Embedder-owned Root**: The application-chosen location and lifecycle boundary for local durable state.
+- **Record Classification**: Explicit `public` or `private` metadata carried by every newly written envelope. It informs future policy work but does not encrypt data in this slice.
 
 ## Success Criteria
 
@@ -88,23 +104,26 @@ As an early adopter, I can identify legacy unhashed local state and recreate it 
 - **SC-002**: 100% of tampered, malformed, unknown-version, and legacy records fail without returning a state value.
 - **SC-003**: In 100 simulated interrupted-write runs, the prior committed record remains readable and no temporary record appears in key enumeration.
 - **SC-004**: Runtime execution without an explicitly supplied adapter creates zero local state directories in the validation environment.
+- **SC-005**: In a two-process contention test, the non-owning writer returns `store_locked` and leaves the committed record unchanged in 100% of attempts.
 
 ## Compatibility and Migration
 
 - The public DataStore trait and capability contract fields are unchanged.
 - The persisted local-file representation changes from an undocumented plain record to `local-datastore/1`; it is an integrity boundary, not a contract version change.
 - Unverified legacy files are intentionally not read. Applications recreate required values from their authoritative source, then write them through the governed adapter.
-- Future automatic migration, additional local backends, and cloud or browser adapters require a successor decision.
+- Future automatic migration, additional local backends, multi-process coordination, retention, compaction, backup/restore, encryption-at-rest, key management, and cloud or browser adapters require successor decisions.
 
 ## Assumptions
 
 - No shipped runtime or CLI path currently constructs `LocalFileDataStore`; the adapter is a public library surface for an owning embedder.
 - A same-directory atomic commit is available on the local platform supported by the adapter. Platforms without that guarantee fail the write rather than weakening the durability claim.
+- The supported local platform can durably flush a regular file and its containing directory. A platform that cannot provide this guarantee fails the write rather than weakening the durability claim.
 - SHA-256 is available in the existing runtime dependency set.
 
 ## Out of Scope
 
 - Automatic persistence wiring into generic capability execution.
 - A default root, retention policy, backup policy, or cross-application state discovery.
-- SQLite, IndexedDB, cloud KV, replication, encryption-at-rest, and network synchronization.
+- SQLite, IndexedDB, cloud KV, replication, encryption-at-rest, key management, and network synchronization.
 - Automatic recovery or silent conversion of unverifiable legacy state.
+- Multi-process coordination, automatic retention, compaction, backup, or restore.
