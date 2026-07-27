@@ -1,15 +1,22 @@
 //! Portable state access for Traverse capabilities.
 //!
-//! Governed by spec `032-universal-data-access`.
+//! General operations are governed by spec `032-universal-data-access`; the
+//! local-file adapter durability boundary is governed by spec
+//! `518-durable-local-datastore`.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
-use std::fs;
+use std::fmt::Write as _;
+use std::fs::{self, File, OpenOptions, TryLockError};
+use std::io::Write;
 use std::path::PathBuf;
 use traverse_contracts::CapabilityContract;
 
 const DATA_STORE_SPEC: &str = "032-universal-data-access";
+const LOCAL_DATA_STORE_FORMAT: &str = "local-datastore/1";
+const LOCAL_DATA_STORE_LOCK_FILE: &str = ".traverse-datastore.lock";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StateRecord {
@@ -58,6 +65,28 @@ pub enum DataStoreErrorCode {
     IoFailure,
     SerializationFailure,
     SyncFailure,
+    IntegrityCheckFailed,
+    StoreLocked,
+    DurabilityCommitFailed,
+}
+
+/// Classification recorded with each locally durable record.
+///
+/// This is metadata only. Encryption and key management are intentionally
+/// deferred to a successor decision.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum LocalDataClassification {
+    Public,
+    Private,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LocalDataStoreEnvelope {
+    format: String,
+    classification: LocalDataClassification,
+    record: StateRecord,
+    digest: String,
 }
 
 pub trait DataStore {
@@ -230,9 +259,11 @@ impl<A: DataStore> RuntimeDataStore<A> {
     }
 }
 
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct LocalFileDataStore {
     root: PathBuf,
+    classification: LocalDataClassification,
+    _lock_file: File,
 }
 
 impl LocalFileDataStore {
@@ -240,16 +271,67 @@ impl LocalFileDataStore {
     ///
     /// # Errors
     ///
-    /// Returns [`DataStoreError`] when the root directory cannot be created.
+    /// Returns [`DataStoreError`] when the root directory cannot be created or
+    /// another process owns the store.
     pub fn new(root: impl Into<PathBuf>) -> Result<Self, DataStoreError> {
+        Self::with_classification(root, LocalDataClassification::Private)
+    }
+
+    /// Creates a local filesystem-backed data store with explicit persisted
+    /// record classification.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreError`] when the root directory cannot be created or
+    /// another process owns the store.
+    pub fn with_classification(
+        root: impl Into<PathBuf>,
+        classification: LocalDataClassification,
+    ) -> Result<Self, DataStoreError> {
         let root = root.into();
         fs::create_dir_all(&root).map_err(|error| io_error("create data store root", &error))?;
-        Ok(Self { root })
+        let lock_path = root.join(LOCAL_DATA_STORE_LOCK_FILE);
+        let lock_file = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .create(true)
+            .truncate(false)
+            .open(&lock_path)
+            .map_err(|error| io_error("open data store lock", &error))?;
+        lock_file.try_lock().map_err(|error| match error {
+            TryLockError::WouldBlock => data_store_error(
+                DataStoreErrorCode::StoreLocked,
+                "store_locked",
+                json!({ "root": root }),
+            ),
+            TryLockError::Error(error) => io_error("lock data store root", &error),
+        })?;
+        Ok(Self {
+            root,
+            classification,
+            _lock_file: lock_file,
+        })
     }
 
     fn path_for_key(&self, key: &str) -> Result<PathBuf, DataStoreError> {
         validate_key(key)?;
         Ok(self.root.join(format!("{key}.json")))
+    }
+
+    fn temporary_path_for_key(&self, key: &str) -> PathBuf {
+        self.root.join(format!(".{key}.{}.tmp", std::process::id()))
+    }
+
+    fn sync_root(&self) -> Result<(), DataStoreError> {
+        File::open(&self.root)
+            .and_then(|directory| directory.sync_all())
+            .map_err(|error| {
+                data_store_error(
+                    DataStoreErrorCode::DurabilityCommitFailed,
+                    "durability_commit_failed",
+                    json!({ "root": self.root, "reason": error.to_string() }),
+                )
+            })
     }
 }
 
@@ -261,22 +343,61 @@ impl DataStore for LocalFileDataStore {
         }
         let text =
             fs::read_to_string(&path).map_err(|error| io_error("read state record", &error))?;
-        serde_json::from_str(&text)
-            .map(Some)
-            .map_err(|error| serialization_error("deserialize state record", &error))
+        let value: Value =
+            serde_json::from_str(&text).map_err(|_| integrity_error("malformed_envelope"))?;
+        if value.get("format").is_none() {
+            return Err(integrity_error("legacy_unverified"));
+        }
+        let envelope: LocalDataStoreEnvelope =
+            serde_json::from_value(value).map_err(|_| integrity_error("malformed_envelope"))?;
+        if envelope.format != LOCAL_DATA_STORE_FORMAT {
+            return Err(integrity_error("unknown_format_version"));
+        }
+        let expected_digest = digest_for_record(&envelope.record)?;
+        if envelope.digest != expected_digest {
+            return Err(integrity_error("digest_mismatch"));
+        }
+        Ok(Some(envelope.record))
     }
 
     fn write(&mut self, record: StateRecord) -> Result<(), DataStoreError> {
         let path = self.path_for_key(&record.key)?;
-        let text = serde_json::to_string_pretty(&record)
-            .map_err(|error| serialization_error("serialize state record", &error))?;
-        fs::write(path, text).map_err(|error| io_error("write state record", &error))
+        let envelope = LocalDataStoreEnvelope {
+            format: LOCAL_DATA_STORE_FORMAT.to_string(),
+            classification: self.classification,
+            digest: digest_for_record(&record)?,
+            record,
+        };
+        let text = serde_json::to_vec(&envelope)
+            .map_err(|error| serialization_error("serialize state record envelope", &error))?;
+        let temporary_path = self.temporary_path_for_key(&envelope.record.key);
+        let write_result = (|| {
+            let mut temporary_file = File::create(&temporary_path)
+                .map_err(|error| io_error("create temporary state record", &error))?;
+            temporary_file
+                .write_all(&text)
+                .map_err(|error| io_error("write temporary state record", &error))?;
+            temporary_file.sync_all().map_err(|error| {
+                data_store_error(
+                    DataStoreErrorCode::DurabilityCommitFailed,
+                    "durability_commit_failed",
+                    json!({ "reason": error.to_string(), "stage": "temporary_file" }),
+                )
+            })?;
+            fs::rename(&temporary_path, &path)
+                .map_err(|error| io_error("atomically commit state record", &error))?;
+            self.sync_root()
+        })();
+        if write_result.is_err() && temporary_path.exists() {
+            let _ignored = fs::remove_file(temporary_path).is_ok();
+        }
+        write_result
     }
 
     fn delete(&mut self, key: &str) -> Result<(), DataStoreError> {
         let path = self.path_for_key(key)?;
         match fs::remove_file(path) {
-            Ok(()) => Ok(()),
+            Ok(()) => self.sync_root(),
             Err(error) if error.kind() == std::io::ErrorKind::NotFound => Ok(()),
             Err(error) => Err(io_error("delete state record", &error)),
         }
@@ -299,6 +420,31 @@ impl DataStore for LocalFileDataStore {
         keys.sort();
         Ok(keys)
     }
+}
+
+fn digest_for_record(record: &StateRecord) -> Result<String, DataStoreError> {
+    let canonical = serde_json::to_vec(record)
+        .map_err(|error| serialization_error("serialize canonical state record", &error))?;
+    let digest = Sha256::digest(canonical);
+    let mut hexadecimal = String::with_capacity(digest.len() * 2);
+    for byte in digest {
+        write!(&mut hexadecimal, "{byte:02x}").map_err(|_| {
+            data_store_error(
+                DataStoreErrorCode::SerializationFailure,
+                "serialize digest",
+                json!({ "reason": "formatting digest failed" }),
+            )
+        })?;
+    }
+    Ok(format!("sha256:{hexadecimal}"))
+}
+
+fn integrity_error(reason: &str) -> DataStoreError {
+    data_store_error(
+        DataStoreErrorCode::IntegrityCheckFailed,
+        "integrity_check_failed",
+        json!({ "reason": reason }),
+    )
 }
 
 /// Validates a capability state write against the contract-declared state schema.
@@ -479,8 +625,8 @@ fn data_store_error(code: DataStoreErrorCode, message: &str, details: Value) -> 
 fn io_error(action: &str, error: &std::io::Error) -> DataStoreError {
     data_store_error(
         DataStoreErrorCode::IoFailure,
-        action,
-        json!({ "error": error.to_string() }),
+        "storage_io_failed",
+        json!({ "action": action, "reason": error.to_string() }),
     )
 }
 
@@ -759,7 +905,8 @@ mod tests {
         let invalid_json = adapter
             .read("broken")
             .expect_err("invalid json should fail");
-        assert_eq!(invalid_json.code, DataStoreErrorCode::SerializationFailure);
+        assert_eq!(invalid_json.code, DataStoreErrorCode::IntegrityCheckFailed);
+        assert_eq!(invalid_json.message, "integrity_check_failed");
     }
 
     #[test]
@@ -818,6 +965,7 @@ mod tests {
         fs::write(root.join("skip.txt"), "not state").expect("non-json fixture should write");
         let adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
         assert!(adapter.list_keys().expect("list should succeed").is_empty());
+        drop(adapter);
         let mut delete_missing =
             LocalFileDataStore::new(&root).expect("local adapter should initialize");
         delete_missing
@@ -833,6 +981,92 @@ mod tests {
         fs::write(&file_root, "not a directory").expect("file root fixture should write");
         let io_failure = LocalFileDataStore::new(&file_root).expect_err("file root should fail");
         assert_eq!(io_failure.code, DataStoreErrorCode::IoFailure);
+    }
+
+    #[test]
+    fn local_file_adapter_writes_integrity_envelope_and_reopens() {
+        let root = temp_root("integrity-envelope");
+        let record = record("draft", "writer-a", 1, json!("ready"));
+        let mut adapter =
+            LocalFileDataStore::with_classification(&root, LocalDataClassification::Public)
+                .expect("local adapter should initialize");
+        adapter.write(record.clone()).expect("write should succeed");
+
+        let envelope: LocalDataStoreEnvelope = serde_json::from_slice(
+            &fs::read(root.join("draft.json")).expect("envelope should be present"),
+        )
+        .expect("envelope should deserialize");
+        assert_eq!(envelope.format, LOCAL_DATA_STORE_FORMAT);
+        assert_eq!(envelope.classification, LocalDataClassification::Public);
+        assert_eq!(
+            envelope.digest,
+            digest_for_record(&record).expect("digest should compute")
+        );
+
+        drop(adapter);
+        let reopened = LocalFileDataStore::new(&root).expect("reopen should acquire lock");
+        assert_eq!(
+            reopened.read("draft").expect("read should succeed"),
+            Some(record)
+        );
+    }
+
+    #[test]
+    fn local_file_adapter_rejects_tampered_and_legacy_records() {
+        let root = temp_root("tampered");
+        let mut adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        adapter
+            .write(record("draft", "writer-a", 1, json!("ready")))
+            .expect("write should succeed");
+
+        let mut envelope: Value = serde_json::from_slice(
+            &fs::read(root.join("draft.json")).expect("envelope should be present"),
+        )
+        .expect("fixture should deserialize");
+        envelope["record"]["value"] = json!("tampered");
+        fs::write(
+            root.join("draft.json"),
+            serde_json::to_vec(&envelope).expect("fixture should serialize"),
+        )
+        .expect("tampered fixture should write");
+        let tampered = adapter.read("draft").expect_err("tampering must fail");
+        assert_eq!(tampered.code, DataStoreErrorCode::IntegrityCheckFailed);
+        assert_eq!(tampered.details["reason"], "digest_mismatch");
+
+        fs::write(
+            root.join("legacy.json"),
+            serde_json::to_vec(&record("legacy", "writer-a", 1, json!("old")))
+                .expect("legacy fixture should serialize"),
+        )
+        .expect("legacy fixture should write");
+        let legacy = adapter.read("legacy").expect_err("legacy must fail closed");
+        assert_eq!(legacy.code, DataStoreErrorCode::IntegrityCheckFailed);
+        assert_eq!(legacy.details["reason"], "legacy_unverified");
+    }
+
+    #[test]
+    fn local_file_adapter_ignores_temporary_records_and_rejects_second_owner() {
+        let root = temp_root("temporary-and-lock");
+        let mut adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        adapter
+            .write(record("draft", "writer-a", 1, json!("committed")))
+            .expect("write should succeed");
+        fs::write(root.join(".draft.temporary.tmp"), "incomplete")
+            .expect("temporary fixture should write");
+
+        assert_eq!(
+            adapter.list_keys().expect("listing should succeed"),
+            vec!["draft".to_string()]
+        );
+        assert_eq!(
+            adapter
+                .read("draft")
+                .expect("committed read should succeed"),
+            Some(record("draft", "writer-a", 1, json!("committed")))
+        );
+        let second_owner = LocalFileDataStore::new(&root).expect_err("second owner must fail");
+        assert_eq!(second_owner.code, DataStoreErrorCode::StoreLocked);
+        assert_eq!(second_owner.message, "store_locked");
     }
 
     fn record(key: &str, writer_id: &str, lamport_clock: u64, value: Value) -> StateRecord {
