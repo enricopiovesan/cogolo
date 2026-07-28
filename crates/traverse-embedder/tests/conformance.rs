@@ -11,9 +11,10 @@ use common::{
 use serde_json::{Value, json};
 use traverse_embedder::{
     BundleEmbedder, CompatibleLifecycleStatus, EMBEDDED_TRACE_API_VERSION, EmbeddedTraceApi,
-    EmbeddedTraceOutcome, EmbedderConfig, EmbedderErrorCode, SecurityPosture, SubmitStatus,
-    TraverseEmbedderApi,
+    EmbeddedTraceOutcome, EmbedderConfig, EmbedderErrorCode, HostDataStore, SecurityPosture,
+    SubmitStatus, TraverseEmbedderApi,
 };
+use traverse_runtime::data_store::{LocalDataClassification, LocalFileDataStore, StateRecord};
 
 fn development_embedder(fixture: &BundleFixture, platform: &str) -> BundleEmbedder {
     let mut config = EmbedderConfig::new(fixture.manifest_path());
@@ -236,4 +237,60 @@ fn conformance_matches_unsupported_schema_rejection() {
         .expect("unsupported schema should be rejected");
     assert_eq!(error.code, EmbedderErrorCode::UnsupportedBundleSchema);
     assert!(error.message.contains("9.9.9"));
+}
+
+#[test]
+fn host_injected_datastore_reopens_without_leaking_record_metadata_to_events() {
+    let fixture = BundleFixture::new("host-datastore");
+    let root = std::env::temp_dir().join(format!(
+        "traverse-embedder-host-datastore-{}",
+        std::process::id()
+    ));
+    let mut first = development_embedder(&fixture, "linux");
+    let events = collect_events(&mut first);
+    let store = LocalFileDataStore::new(&root).expect("host should create store");
+    first.inject_data_store(HostDataStore::new(store, LocalDataClassification::Private));
+    let record = StateRecord {
+        key: "host-note".to_string(),
+        value: json!({ "secret": "do-not-emit" }),
+        lamport_clock: 1,
+        writer_id: "host-writer".to_string(),
+    };
+    first
+        .data_store_write(record.clone())
+        .expect("explicit host write should persist");
+    drop(first);
+
+    let mut second = development_embedder(&fixture, "linux");
+    let reopened = LocalFileDataStore::new(&root).expect("host should reopen released store");
+    second.inject_data_store(HostDataStore::new(
+        reopened,
+        LocalDataClassification::Private,
+    ));
+    assert_eq!(
+        second
+            .data_store_read("host-note")
+            .expect("explicit host read should succeed"),
+        Some(record)
+    );
+    second
+        .data_store_delete("host-note")
+        .expect("explicit host delete should succeed");
+
+    let telemetry = serde_json::to_string(&snapshot(&events)).expect("events should serialize");
+    assert!(telemetry.contains("data_store_operation"));
+    assert!(!telemetry.contains("host-note"));
+    assert!(!telemetry.contains("do-not-emit"));
+    let _ignored = std::fs::remove_dir_all(root);
+}
+
+#[test]
+fn host_datastore_operations_fail_closed_without_explicit_injection() {
+    let fixture = BundleFixture::new("host-datastore-unconfigured");
+    let mut embedder = development_embedder(&fixture, "linux");
+    let error = embedder
+        .data_store_read("host-note")
+        .expect_err("runtime must not create an implicit store");
+    assert_eq!(error.code, "data_store_not_configured");
+    assert_eq!(error.operation, "read");
 }

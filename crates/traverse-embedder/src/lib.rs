@@ -94,6 +94,9 @@ use traverse_registry::{
     CapabilityRegistry, ComponentExecutionMode, EventRegistry, RegistryScope, WorkflowRegistry,
     load_application_bundle_manifest,
 };
+use traverse_runtime::data_store::{
+    DataStore, DataStoreError, DataStoreErrorCode, LocalDataClassification, StateRecord,
+};
 use traverse_runtime::{
     ArtifactRouter, ExecutionFailureReason, PlacementTarget, Runtime, RuntimeContext, RuntimeError,
     RuntimeErrorCode, RuntimeExecutionOutcome, RuntimeIntent, RuntimeLookup, RuntimeLookupScope,
@@ -326,6 +329,62 @@ impl EmbedderConfig {
             platform: std::env::consts::OS.to_string(),
             security: SecurityPosture::Production,
         }
+    }
+}
+
+/// An explicitly host-owned local store that may be injected into a
+/// [`BundleEmbedder`]. The host selects its root and lifecycle before
+/// constructing this wrapper; Traverse never receives a root path.
+pub struct HostDataStore {
+    adapter: Box<dyn DataStore>,
+    classification: LocalDataClassification,
+}
+
+impl HostDataStore {
+    /// Wrap a host-created adapter with its fixed data classification.
+    #[must_use]
+    pub fn new<A>(adapter: A, classification: LocalDataClassification) -> Self
+    where
+        A: DataStore + 'static,
+    {
+        Self {
+            adapter: Box::new(adapter),
+            classification,
+        }
+    }
+}
+
+/// Safe public projection of a DataStore failure.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EmbeddedDataStoreError {
+    /// Stable machine-readable failure code.
+    pub code: &'static str,
+    /// Safe operation metadata; it never contains a key, value, or host path.
+    pub operation: &'static str,
+}
+
+impl EmbeddedDataStoreError {
+    fn not_configured(operation: &'static str) -> Self {
+        Self {
+            code: "data_store_not_configured",
+            operation,
+        }
+    }
+
+    fn from_error(operation: &'static str, error: &DataStoreError) -> Self {
+        let code = match error.code {
+            DataStoreErrorCode::IntegrityCheckFailed => "integrity_check_failed",
+            DataStoreErrorCode::StoreLocked => "store_locked",
+            DataStoreErrorCode::DurabilityCommitFailed => "durability_commit_failed",
+            DataStoreErrorCode::IoFailure => "storage_io_failed",
+            DataStoreErrorCode::InvalidKey => "invalid_key",
+            DataStoreErrorCode::SerializationFailure => "serialization_failed",
+            DataStoreErrorCode::SchemaValidationError => "schema_validation_failed",
+            DataStoreErrorCode::NoStateSchemaDeclared => "state_schema_unavailable",
+            DataStoreErrorCode::LamportClockOverflow => "lamport_clock_overflow",
+            DataStoreErrorCode::SyncFailure => "sync_failed",
+        };
+        Self { code, operation }
     }
 }
 
@@ -1068,6 +1127,7 @@ pub struct BundleEmbedder {
     wasm_targets: BTreeMap<String, WasmTarget>,
     workflow_targets: BTreeMap<String, WorkflowTarget>,
     wasm_component_evidence: Value,
+    data_store: Option<HostDataStore>,
 }
 
 impl BundleEmbedder {
@@ -1152,7 +1212,81 @@ impl BundleEmbedder {
             wasm_targets: targets.wasm,
             workflow_targets: targets.workflows,
             wasm_component_evidence: Value::Array(targets.wasm_component_evidence),
+            data_store: None,
         })
+    }
+
+    /// Explicitly injects a host-owned DataStore.
+    ///
+    /// This additive host surface is deliberately separate from capability
+    /// execution. It accepts neither a root path nor a capability identity,
+    /// so the runtime cannot derive storage locations or grant capability
+    /// code direct access.
+    pub fn inject_data_store(&mut self, store: HostDataStore) {
+        self.data_store = Some(store);
+    }
+
+    /// Reads one host-owned state record from the injected DataStore.
+    ///
+    /// Returns `None` when the injected store has no record for `key`.
+    pub fn data_store_read(
+        &mut self,
+        key: &str,
+    ) -> Result<Option<StateRecord>, EmbeddedDataStoreError> {
+        let result = match self.data_store.as_ref() {
+            Some(store) => store
+                .adapter
+                .read(key)
+                .map_err(|error| EmbeddedDataStoreError::from_error("read", &error)),
+            None => Err(EmbeddedDataStoreError::not_configured("read")),
+        };
+        self.record_data_store_operation("read", result.is_ok());
+        result
+    }
+
+    /// Writes one host-owned state record to the injected DataStore.
+    pub fn data_store_write(&mut self, record: StateRecord) -> Result<(), EmbeddedDataStoreError> {
+        let result = match self.data_store.as_mut() {
+            Some(store) => store
+                .adapter
+                .write(record)
+                .map_err(|error| EmbeddedDataStoreError::from_error("write", &error)),
+            None => Err(EmbeddedDataStoreError::not_configured("write")),
+        };
+        self.record_data_store_operation("write", result.is_ok());
+        result
+    }
+
+    /// Deletes one host-owned state record from the injected DataStore.
+    pub fn data_store_delete(&mut self, key: &str) -> Result<(), EmbeddedDataStoreError> {
+        let result = match self.data_store.as_mut() {
+            Some(store) => store
+                .adapter
+                .delete(key)
+                .map_err(|error| EmbeddedDataStoreError::from_error("delete", &error)),
+            None => Err(EmbeddedDataStoreError::not_configured("delete")),
+        };
+        self.record_data_store_operation("delete", result.is_ok());
+        result
+    }
+
+    fn record_data_store_operation(&mut self, operation: &'static str, succeeded: bool) {
+        let classification = self
+            .data_store
+            .as_ref()
+            .map(|store| match store.classification {
+                LocalDataClassification::Public => "public",
+                LocalDataClassification::Private => "private",
+            });
+        self.core.emit(
+            "data_store_operation",
+            None,
+            json!({
+                "operation": operation,
+                "outcome": if succeeded { "completed" } else { "failed" },
+                "classification": classification,
+            }),
+        );
     }
 
     fn submit_workflow(&mut self, target_id: &str, input: &Value) -> SubmitOutcome {
