@@ -272,27 +272,9 @@ fn run_command(command: Command) -> Result<String, CliError> {
             workspace_id,
             json_output,
         } => app_register(&manifest_path, &workspace_id, json_output),
-        Command::RegistrySync {
-            workspace_id,
-            json_output,
-        } => registry_sync(&workspace_id, json_output),
-        Command::RegistryList {
-            workspace_id,
-            namespace,
-            id_prefix,
-            json_output,
-        } => registry_list(
-            &workspace_id,
-            namespace.as_deref(),
-            id_prefix.as_deref(),
-            json_output,
-        ),
-        Command::RegistrySearch {
-            query,
-            workspace_id,
-            namespace,
-            json_output,
-        } => registry_search(&query, &workspace_id, namespace.as_deref(), json_output),
+        command @ (Command::RegistrySync { .. }
+        | Command::RegistryList { .. }
+        | Command::RegistrySearch { .. }) => run_registry_command(command),
         Command::CapabilityPublish {
             contract_path,
             artifact_path,
@@ -353,6 +335,35 @@ fn run_command(command: Command) -> Result<String, CliError> {
             version,
             workspace_id,
         } => workflow_inspect(&workflow_id, version.as_deref(), &workspace_id),
+    }
+}
+
+fn run_registry_command(command: Command) -> Result<String, CliError> {
+    match command {
+        Command::RegistrySync {
+            workspace_id,
+            json_output,
+        } => registry_sync(&workspace_id, json_output),
+        Command::RegistryList {
+            workspace_id,
+            namespace,
+            id_prefix,
+            json_output,
+        } => registry_list(
+            &workspace_id,
+            namespace.as_deref(),
+            id_prefix.as_deref(),
+            json_output,
+        ),
+        Command::RegistrySearch {
+            query,
+            workspace_id,
+            namespace,
+            json_output,
+        } => registry_search(&query, &workspace_id, namespace.as_deref(), json_output),
+        _ => Err(CliError::UsageError(
+            "expected registry command".to_string(),
+        )),
     }
 }
 
@@ -5697,7 +5708,7 @@ mod tests {
 
     #[test]
     fn registry_records_sort_by_namespace_id_then_descending_semver() {
-        let mut records = vec![
+        let mut records = [
             registry_record_fixture("zeta", "same", "1.0.0"),
             registry_record_fixture("alpha", "same", "1.0.0"),
             registry_record_fixture("alpha", "same", "2.0.0"),
