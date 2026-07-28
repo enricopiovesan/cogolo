@@ -1005,3 +1005,86 @@ immutable, each governing exactly the source file(s) it describes.
 actually embedded in `traverse-registry`'s shipped code. All existing
 `traverse-registry` and `traverse-cli` tests pass unchanged in behavior —
 only the literal spec-ID strings changed.
+
+## Decision 34: Persist Auditable Traces in a Separate Durable Journal
+
+- **Date**: 2026-07-28
+- **Status**: Accepted
+- **Governing spec**: `079-durable-trace-journal`
+- **Related ADR**: ADR-0017
+
+### Decision
+
+Persist auditable execution traces through the append-only event journal, not
+the host-owned DataStore. The journal may use the same host-selected storage
+infrastructure, but trace privacy, retention, recovery, and failure semantics
+remain independent. Audited execution fails before success is returned when
+its durable trace cannot be committed; private trace payloads remain outside
+this slice.
+
+### Outcome
+
+The durable trace journal is an approved, separately governed product surface.
+It does not assign a DataStore root to the runtime or expand DataStore format
+migration scope.
+
+## Decision 35: Prepare Registry Dependencies in a Host-Owned Offline Cache
+
+- **Date**: 2026-07-28
+- **Status**: Accepted
+- **Governing spec**: `080-embedded-registry-cache`
+- **Related issue**: #826
+
+### Decision
+
+Production embedders prepare `registry_ref` dependencies explicitly using a
+host-provided network source and content-addressed cache. Initialization and
+execution consume only verified local cache entries and never use a CLI
+sidecar, an App-References manifest rewrite, or runtime network fallback.
+
+### Outcome
+
+Host-native resolution is the sole supported production path for
+`registry_ref`; application wrappers may automate preparation but do not own a
+separate materialization architecture.
+
+## Decision 36: Make Synced Registry Discovery Local and Offline-First
+
+- **Date**: 2026-07-28
+- **Status**: Accepted
+- **Governing spec**: `081-registry-browse-search`
+- **Related issue**: #814
+
+### Decision
+
+`traverse-cli registry list` and `search` operate only on the locally synced
+public index. Contract summaries are fetched and cached only through an
+explicit action; valid stale local state remains discoverable with provenance,
+and runtime execution never performs discovery network access.
+
+### Outcome
+
+Registry discovery becomes a deterministic, offline-capable CLI feature
+without changing the thin contract-first registry index.
+
+## Decision 37: Keep DataStore Format Migration Explicit and Host-Owned
+
+- **Date**: 2026-07-28
+- **Status**: Accepted
+- **Governing spec**: `082-datastore-format-migration`
+- **Related ADR**: ADR-0020
+- **Related pull request**: #839
+
+### Decision
+
+Only the host owning a durable DataStore root may request a named migration.
+Every migration validates its source, preserves a verified backup, verifies
+the target before atomic commit, and exposes explicit verified restore. The
+runtime and ordinary CLI commands never discover a root or perform implicit
+migration, backup, restore, or downgrade.
+
+### Outcome
+
+The safety and ownership policy is approved. No format transition or
+implementation is authorized until a successor specification names the exact
+source-to-target format, backup representation, stable errors, and host API.

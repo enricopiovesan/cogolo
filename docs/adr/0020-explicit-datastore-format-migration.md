@@ -1,6 +1,6 @@
 # ADR-0020: Keep DataStore Format Migration Explicit and Host-Owned
 
-- Status: Proposed
+- Status: Accepted
 - Governing spec: `522-datastore-format-migration` (Draft)
 - Extends: ADR-0018 and ADR-0019
 

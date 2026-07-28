@@ -1,6 +1,7 @@
 # Feature Specification: Synced Registry Browse and Search
 
-**Status**: Draft; implementation authorization requires normal approval.  
+**Status**: Approved
+**Canonical governing ID**: `081-registry-browse-search`
 **Input**: Traverse #832; extends Specs 054 and 055.
 
 ## Purpose
@@ -8,6 +9,8 @@
 Define deterministic local CLI discovery for the synced public registry index,
 without changing its thin contract-first format or introducing runtime network
 lookup.
+
+This specification derives from Decision 36 in the decision log.
 
 ## Requirements
 
