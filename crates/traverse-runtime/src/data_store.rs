@@ -1097,13 +1097,7 @@ mod tests {
         let root = PathBuf::from(root);
         let _adapter = LocalFileDataStore::new(&root).expect("child should acquire lock");
         fs::write(lock_child_ready_path(&root), "ready").expect("child should signal readiness");
-        for _ in 0..500 {
-            if lock_child_release_path(&root).exists() {
-                return Ok(());
-            }
-            thread::sleep(Duration::from_millis(10));
-        }
-        Err("parent did not release the lock child".to_string())
+        wait_for_lock_child_release(&root, 500)
     }
 
     #[test]
@@ -1117,7 +1111,7 @@ mod tests {
         drop(initial_owner);
 
         let mut child = start_lock_child(&root);
-        wait_for_lock_child(&root).expect("lock child should become ready");
+        wait_for_lock_child(&root, 500).expect("lock child should become ready");
         let blocked = LocalFileDataStore::new(&root).expect_err("second process must be blocked");
         assert_eq!(blocked.code, DataStoreErrorCode::StoreLocked);
         assert_eq!(
@@ -1146,7 +1140,7 @@ mod tests {
         drop(initial_owner);
 
         let mut child = start_lock_child(&root);
-        wait_for_lock_child(&root).expect("lock child should become ready");
+        wait_for_lock_child(&root, 500).expect("lock child should become ready");
         child.kill().expect("parent should terminate child");
         child.wait().expect("terminated child should exit");
 
@@ -1261,14 +1255,43 @@ mod tests {
             .expect("lock child should start")
     }
 
-    fn wait_for_lock_child(root: &Path) -> Result<(), &'static str> {
-        for _ in 0..500 {
-            if lock_child_ready_path(root).exists() {
-                return Ok(());
+    #[test]
+    fn lock_child_waits_report_bounded_timeouts() {
+        let root = temp_root("lock-child-timeout");
+        assert_eq!(
+            wait_for_lock_child(&root, 0),
+            Err("lock child did not become ready")
+        );
+        assert_eq!(
+            wait_for_lock_child_release(&root, 0),
+            Err("parent did not release the lock child".to_string())
+        );
+    }
+
+    fn wait_for_lock_child(root: &Path, attempts: usize) -> Result<(), &'static str> {
+        if wait_for_path(&lock_child_ready_path(root), attempts) {
+            Ok(())
+        } else {
+            Err("lock child did not become ready")
+        }
+    }
+
+    fn wait_for_lock_child_release(root: &Path, attempts: usize) -> Result<(), String> {
+        if wait_for_path(&lock_child_release_path(root), attempts) {
+            Ok(())
+        } else {
+            Err("parent did not release the lock child".to_string())
+        }
+    }
+
+    fn wait_for_path(path: &Path, attempts: usize) -> bool {
+        for _ in 0..attempts {
+            if path.exists() {
+                return true;
             }
             thread::sleep(Duration::from_millis(10));
         }
-        Err("lock child did not become ready")
+        false
     }
 
     fn stateful_contract(state_schema: Option<Value>) -> CapabilityContract {
