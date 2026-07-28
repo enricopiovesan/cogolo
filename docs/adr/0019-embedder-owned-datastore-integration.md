@@ -15,6 +15,8 @@ Embedder hosts explicitly construct and inject one DataStore for one host-select
 
 The store has one fixed public or private classification, one active owner, and stable typed failures. A second owner receives `store_locked`; no lease, concurrent writer, transaction, scan, migration, retention, backup, encryption, sync, or whole-store lifecycle behavior is introduced. Legacy and unknown persisted formats remain fail-closed. State telemetry contains only safe operation metadata.
 
+The baseline lock uses Rust's standard-library non-blocking file lock on the store-local lock file. Supported native hosts are Rust targets where that operation is implemented by the standard library (Unix and Windows). The owner holds the lock for the lifetime of the adapter; dropping the adapter releases it, and operating-system process termination releases a crashed owner's lock before a later open may succeed. A contending owner receives `store_locked` with only the stable `exclusive_owner_active` reason. A target that reports file locking as unsupported fails deterministically with `storage_io_failed` and reason `locking_unsupported`; no fallback lock protocol is attempted. Other lock-acquisition failures expose only the stable `lock_acquisition_failed` reason. Lock paths, store roots, keys, and values are never emitted in these failures.
+
 The first conformance evidence is a Rust embedder example and restart/integrity integration test. Platform-specific lock lifecycle and crash-recovery evidence must be recorded before broadening the supported-platform claim.
 
 ## Consequences
