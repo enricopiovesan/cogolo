@@ -121,8 +121,11 @@ cargo run -p traverse-cli-rs -- app register \
   --json
 ```
 
-The local HTTP server discovery file remains backward-compatible with the
+The development/CI HTTP server discovery file remains backward-compatible with the
 `v0.3.0` schema. `cargo run -p traverse-cli-rs -- serve` writes
 `.traverse/server.json` with `schema_version: "1.0.0"`, `base_url`,
 `health_url`, `workspace_default`, `pid`, `started_at`, `auth_mode`, and an
 optional `local_dev_token` for loopback development.
+
+Shipped product apps should embed Traverse through the public embedder packages;
+they do not start a loopback sidecar or use `.traverse/server.json` discovery.

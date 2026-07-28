@@ -1095,8 +1095,11 @@ fn help_serve() -> String {
     "traverse-cli serve [--bind <address>] [--port <port>] [--auth <mode>] [--allow-unauthenticated] [--qr]
 
   Purpose:
-    Start a long-running HTTP/JSON API server on 127.0.0.1:8787 by default.
-    Writes .traverse/server.json for local app discovery and exposes:
+    Start a development and CI HTTP/JSON API on 127.0.0.1:8787 by default.
+    This is not the production app topology: production apps embed Traverse
+    through the public embedder packages and require neither a loopback sidecar
+    nor .traverse/server.json discovery. This command writes that file only for
+    local development/CI discovery and exposes:
       GET  /healthz                    Returns the spec 033 health envelope.
       GET  /v1/capabilities            Returns JSON array of registered capabilities.
       POST /v1/capabilities/execute    Accepts RuntimeRequest JSON, returns trace + result.
@@ -5146,8 +5149,8 @@ mod tests {
         canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
         ensure_clean_registry_checkout, execute_agent, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, inspect_agent, inspect_bundle, inspect_event,
-        inspect_trace, latest_index_release_asset, load_registered_bundle,
+        execute_traverse_starter_validate, help_serve, inspect_agent, inspect_bundle,
+        inspect_event, inspect_trace, latest_index_release_asset, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_sync_at, registry_sync_failure_json, reject_private_contract_scope, run_command,
@@ -6556,6 +6559,15 @@ mod tests {
         assert!(text.contains("browser-adapter serve"));
         assert!(text.contains("--bind"));
         assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn serve_help_marks_http_discovery_as_development_and_ci_only() {
+        let text = help_serve();
+        assert!(text.contains("development and CI HTTP/JSON API"));
+        assert!(text.contains("not the production app topology"));
+        assert!(text.contains("neither a loopback sidecar"));
+        assert!(text.contains(".traverse/server.json discovery"));
     }
 
     #[test]
