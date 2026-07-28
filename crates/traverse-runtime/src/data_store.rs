@@ -266,6 +266,12 @@ pub struct LocalFileDataStore {
     _lock_file: File,
 }
 
+impl Drop for LocalFileDataStore {
+    fn drop(&mut self) {
+        let _ = self._lock_file.unlock();
+    }
+}
+
 impl LocalFileDataStore {
     /// Creates a local filesystem-backed data store rooted at `root`.
     ///
