@@ -1012,6 +1012,52 @@
         "docs/adr/0018-durable-local-datastore.md",
         "specs/518-durable-local-datastore/"
       ]
+    },
+    {
+      "id": "079-durable-trace-journal",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/518-durable-trace-journal/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "docs/adr/0017-durable-trace-journal.md",
+        "specs/518-durable-trace-journal/"
+      ]
+    },
+    {
+      "id": "080-embedded-registry-cache",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/520-embedded-registry-cache/spec.md",
+      "governs": [
+        "crates/traverse-embedder/",
+        "packages/web/TraverseEmbedder/",
+        "specs/520-embedded-registry-cache/"
+      ]
+    },
+    {
+      "id": "081-registry-browse-search",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/521-registry-browse-search/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/521-registry-browse-search/"
+      ]
+    },
+    {
+      "id": "082-datastore-format-migration",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/522-datastore-format-migration/spec.md",
+      "governs": [
+        "docs/adr/0020-explicit-datastore-format-migration.md",
+        "specs/522-datastore-format-migration/"
+      ]
     }
   ]
 }

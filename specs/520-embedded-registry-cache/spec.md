@@ -1,7 +1,8 @@
 # Feature Specification: Embedded Registry Dependency Cache
 
 **Feature Branch**: `520-embedded-registry-cache`  
-**Status**: Draft — approved ticket #831 scope; publication requires normal governance approval.  
+**Status**: Approved
+**Canonical governing ID**: `080-embedded-registry-cache`
 **Input**: Traverse #831; successors to Specs 054 and 055; production boundary from Specs 057 and 068.
 
 ## Purpose
@@ -9,6 +10,8 @@
 Define the host-owned preparation and verified local-cache contract that lets a
 production embedder resolve an application bundle's `registry_ref` dependencies
 without a CLI sidecar, App-References manifest rewrite, or runtime network use.
+
+This specification derives from Decision 35 in the decision log.
 
 ## Boundary and Ownership
 

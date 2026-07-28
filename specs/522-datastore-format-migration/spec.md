@@ -1,6 +1,7 @@
 # Feature Specification: Explicit DataStore Format Migration and Recovery
 
-**Status**: Draft  
+**Status**: Approved
+**Canonical governing ID**: `082-datastore-format-migration`
 **Extends**: `518-durable-local-datastore`, `519-embedder-owned-datastore-integration`
 
 ## Purpose
@@ -69,8 +70,8 @@ record.
 
 ## Compatibility
 
-`local-datastore/1` remains the only currently accepted format. This Draft
-does not authorize a new format or any implementation. Existing legacy and
+`local-datastore/1` remains the only currently accepted format. This approved
+policy does not authorize a new format or any implementation. Existing legacy and
 unknown-format behavior remains fail-closed.
 
 ## Definition of Done

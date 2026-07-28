@@ -7199,7 +7199,10 @@ mod tests {
             .expect("time must be valid")
             .as_nanos();
         let sequence = NEXT_TEST_ROOT.fetch_add(1, Ordering::Relaxed);
-        std::env::temp_dir().join(format!("traverse-cli-http-api-tests-{suffix}-{sequence}"))
+        let process_id = std::process::id();
+        std::env::temp_dir().join(format!(
+            "traverse-cli-http-api-tests-{process_id}-{suffix}-{sequence}"
+        ))
     }
 
     fn persist_test_workspace(registry_root: &Path, workspace_id: &str, owner_subject: &str) {

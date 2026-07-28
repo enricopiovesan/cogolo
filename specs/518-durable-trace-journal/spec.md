@@ -1,10 +1,14 @@
 # Feature Specification: Durable Trace Journal
 
 **Status**: Approved
+**Canonical governing ID**: `079-durable-trace-journal`
 
 ## Scope
 
 Persist auditable execution traces through the existing append-only event journal.
+The trace journal is separate from the host-owned DataStore: it may share
+host-selected storage infrastructure, but retains independent trace privacy,
+recovery, and retention semantics.
 
 ## Requirements
 
@@ -17,3 +21,4 @@ Persist auditable execution traces through the existing append-only event journa
 ## Governing Decision
 
 - ADR-0017
+- Decision 34 in `docs/decision-log.md`
