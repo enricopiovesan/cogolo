@@ -27,7 +27,6 @@ TRAVERSE OPS
    - no remote `claude/issue-NNN-*` branch may exist
 8. If pre-flight passes, claim the issue:
    - add `agent:codex`
-   - set Project 1 `Agent` to `Codex`
    - set Project 1 `Status` to `In Progress`
 9. Use a dedicated `codex/issue-NNN-*` branch.
 10. Keep work scoped to the claimed issue and governing spec.
@@ -37,6 +36,21 @@ TRAVERSE OPS
     tickets, and only explicitly blocked work remains. If a Ready ticket is
     blocked, update its ticket/Project state with the concrete blocker before
     continuing to the next Ready ticket.
+
+### Continuation Rule (mandatory)
+
+Do **not** end a turn after claiming a ticket, opening/queuing/rebasing a PR,
+posting a status update, or completing one ticket. Each of those is an
+intermediate state change, not a completion boundary. In the same active
+Traverse Ops run, immediately resume at workflow step 3 and take the next
+actionable operation: finish an open PR, reconcile a merged ticket, or claim
+and execute the next eligible Ready ticket.
+
+Only send a final response when the strict stop condition above has been
+verified in that same run. The final response must state which stop condition
+was met. If execution time or context is constrained, continue with the
+smallest next concrete state change rather than returning a progress-only
+message.
 
 ## Gates & Failure Playbook
 
