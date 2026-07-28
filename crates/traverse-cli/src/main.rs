@@ -9,6 +9,7 @@ use browser_adapter::serve_local_browser_adapter;
 use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
 };
+use semver::Version;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -69,6 +70,18 @@ enum Command {
     },
     RegistrySync {
         workspace_id: String,
+        json_output: bool,
+    },
+    RegistryList {
+        workspace_id: String,
+        namespace: Option<String>,
+        id_prefix: Option<String>,
+        json_output: bool,
+    },
+    RegistrySearch {
+        query: String,
+        workspace_id: String,
+        namespace: Option<String>,
         json_output: bool,
     },
     CapabilityPublish {
@@ -263,6 +276,23 @@ fn run_command(command: Command) -> Result<String, CliError> {
             workspace_id,
             json_output,
         } => registry_sync(&workspace_id, json_output),
+        Command::RegistryList {
+            workspace_id,
+            namespace,
+            id_prefix,
+            json_output,
+        } => registry_list(
+            &workspace_id,
+            namespace.as_deref(),
+            id_prefix.as_deref(),
+            json_output,
+        ),
+        Command::RegistrySearch {
+            query,
+            workspace_id,
+            namespace,
+            json_output,
+        } => registry_search(&query, &workspace_id, namespace.as_deref(), json_output),
         Command::CapabilityPublish {
             contract_path,
             artifact_path,
@@ -350,6 +380,8 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("app"), Some("validate")) => parse_app_validate_command(args),
         (Some("app"), Some("register")) => parse_app_register_command(args),
         (Some("registry"), Some("sync")) => parse_registry_sync_command(args),
+        (Some("registry"), Some("list")) => parse_registry_list_command(args),
+        (Some("registry"), Some("search")) => parse_registry_search_command(args),
         (Some("component"), Some("new")) => parse_component_new_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
         (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
@@ -373,6 +405,8 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("app"), Some("register")) => help_app_register(),
         (Some("app"), _) => help_app(),
         (Some("registry"), Some("sync")) => help_registry_sync(),
+        (Some("registry"), Some("list")) => help_registry_list(),
+        (Some("registry"), Some("search")) => help_registry_search(),
         (Some("registry"), _) => help_registry(),
         (Some("component"), Some("new")) => help_component_new(),
         (Some("component"), _) => help_component(),
@@ -508,13 +542,55 @@ fn help_registry_sync() -> String {
         .to_string()
 }
 
+fn help_registry_list() -> String {
+    "traverse-cli registry list --workspace <workspace-id> [--namespace <value>] [--id-prefix <value>] [--json]
+
+  Purpose:
+    List capability pointers from the locally synced public registry index.
+    This command never contacts the network.
+
+  Required flags:
+    --workspace <id>   Local workspace containing synced registry state.
+
+  Optional flags:
+    --namespace <id>   Restrict results to one namespace.
+    --id-prefix <id>   Restrict results to capability IDs with this prefix.
+    --json             Emit machine-readable discovery evidence.
+
+  Example:
+    traverse-cli registry list --workspace local-default --json"
+        .to_string()
+}
+
+fn help_registry_search() -> String {
+    "traverse-cli registry search <query> --workspace <workspace-id> [--namespace <value>] [--json]
+
+  Purpose:
+    Search capability namespace and ID fields in the locally synced public
+    registry index. This command never fetches contracts or contacts the network.
+
+  Required arguments and flags:
+    <query>            Case-insensitive substring to search.
+    --workspace <id>   Local workspace containing synced registry state.
+
+  Optional flags:
+    --namespace <id>   Restrict results to one namespace.
+    --json             Emit machine-readable discovery evidence.
+
+  Example:
+    traverse-cli registry search process --workspace local-default --json"
+        .to_string()
+}
+
 fn help_registry() -> String {
     "traverse-cli registry <subcommand> [options]
 
   Subcommands:
     sync --workspace <id> --json   Sync the public registry index locally.
+    list --workspace <id>           List locally synced capability pointers.
+    search <query> --workspace <id> Search locally synced capability pointers.
 
-  Run `traverse-cli registry sync --help` for subcommand-specific help."
+  Run `traverse-cli registry <subcommand> --help` for subcommand-specific help."
         .to_string()
 }
 
@@ -1047,6 +1123,33 @@ fn parse_registry_sync_command(args: &[String]) -> Result<Command, String> {
     Ok(Command::RegistrySync {
         workspace_id,
         json_output: true,
+    })
+}
+
+fn parse_registry_list_command(args: &[String]) -> Result<Command, String> {
+    let workspace_id = parse_string_flag(args, "--workspace")
+        .ok_or_else(|| "registry list requires --workspace <workspace-id>".to_string())?;
+    Ok(Command::RegistryList {
+        workspace_id,
+        namespace: parse_string_flag(args, "--namespace"),
+        id_prefix: parse_string_flag(args, "--id-prefix"),
+        json_output: args.iter().any(|arg| arg == "--json"),
+    })
+}
+
+fn parse_registry_search_command(args: &[String]) -> Result<Command, String> {
+    let query = args
+        .get(3)
+        .filter(|value| !value.starts_with("--"))
+        .cloned()
+        .ok_or_else(|| "registry search requires <query>".to_string())?;
+    let workspace_id = parse_string_flag(args, "--workspace")
+        .ok_or_else(|| "registry search requires --workspace <workspace-id>".to_string())?;
+    Ok(Command::RegistrySearch {
+        query,
+        workspace_id,
+        namespace: parse_string_flag(args, "--namespace"),
+        json_output: args.iter().any(|arg| arg == "--json"),
     })
 }
 
@@ -2090,6 +2193,131 @@ fn registry_sync_failure_json(
             "failed to serialize registry sync failure: {error}"
         ))
     })
+}
+
+fn registry_list(
+    workspace_id: &str,
+    namespace: Option<&str>,
+    id_prefix: Option<&str>,
+    json_output: bool,
+) -> Result<String, CliError> {
+    registry_discover(workspace_id, namespace, id_prefix, None, json_output)
+}
+
+fn registry_search(
+    query: &str,
+    workspace_id: &str,
+    namespace: Option<&str>,
+    json_output: bool,
+) -> Result<String, CliError> {
+    registry_discover(workspace_id, namespace, None, Some(query), json_output)
+}
+
+fn registry_discover(
+    workspace_id: &str,
+    namespace: Option<&str>,
+    id_prefix: Option<&str>,
+    query: Option<&str>,
+    json_output: bool,
+) -> Result<String, CliError> {
+    let base_dir = env::current_dir().map_err(|error| {
+        CliError::IoError(format!("failed to resolve current directory: {error}"))
+    })?;
+    let state = traverse_registry::load_synced_public_registry_state(&base_dir, workspace_id)
+        .map_err(|failure| registry_discovery_state_error(&failure))?;
+    let query = query.map(str::to_lowercase);
+    let mut records = state
+        .capabilities
+        .into_iter()
+        .filter(|record| namespace.is_none_or(|value| record.namespace == value))
+        .filter(|record| id_prefix.is_none_or(|value| record.id.starts_with(value)))
+        .filter(|record| {
+            query.as_ref().is_none_or(|value| {
+                record.namespace.to_lowercase().contains(value)
+                    || record.id.to_lowercase().contains(value)
+            })
+        })
+        .collect::<Vec<_>>();
+    records.sort_by(registry_record_order);
+
+    if json_output {
+        return serde_json::to_string_pretty(&serde_json::json!({
+            "status": "ok",
+            "workspace": state.workspace_id,
+            "source_release": state.release_tag,
+            "index_version": state.index_version,
+            "source_commit": state.source_commit,
+            "synced_at": state.synced_at,
+            "stale": false,
+            "records": records.into_iter().map(|record| serde_json::json!({
+                "namespace": record.namespace,
+                "id": record.id,
+                "version": record.version,
+                "digest": record.digest,
+                "yanked": false,
+                "deprecated": record.deprecated,
+            })).collect::<Vec<_>>(),
+        }))
+        .map_err(|error| {
+            CliError::IoError(format!(
+                "failed to serialize registry discovery output: {error}"
+            ))
+        });
+    }
+
+    let mut output = String::from("NAMESPACE\tID\tVERSION\tDEPRECATED\n");
+    for record in records {
+        writeln!(
+            output,
+            "{}\t{}\t{}\t{}",
+            record.namespace, record.id, record.version, record.deprecated
+        )
+        .map_err(|error| {
+            CliError::IoError(format!(
+                "failed to render registry discovery output: {error}"
+            ))
+        })?;
+    }
+    Ok(output)
+}
+
+fn registry_discovery_state_error(
+    failure: &traverse_registry::PublicRegistryStateFailure,
+) -> CliError {
+    let message = failure
+        .errors
+        .iter()
+        .map(|error| error.message.as_str())
+        .collect::<Vec<_>>()
+        .join("; ");
+    let code = if failure.errors.iter().any(|error| {
+        matches!(
+            error.code,
+            traverse_registry::PublicRegistryStateErrorCode::MissingSyncedState
+        )
+    }) {
+        "registry_sync_missing"
+    } else {
+        "registry_sync_invalid"
+    };
+    CliError::ValidationFailed(format!("{code}: {message}"))
+}
+
+fn registry_record_order(
+    left: &PublicRegistryCapabilityRecord,
+    right: &PublicRegistryCapabilityRecord,
+) -> std::cmp::Ordering {
+    left.namespace
+        .cmp(&right.namespace)
+        .then_with(|| left.id.cmp(&right.id))
+        .then_with(|| registry_version_order(&left.version, &right.version))
+}
+
+fn registry_version_order(left: &str, right: &str) -> std::cmp::Ordering {
+    match (Version::parse(left), Version::parse(right)) {
+        (Ok(left), Ok(right)) => right.cmp(&left),
+        _ => right.cmp(left),
+    }
 }
 
 const CAPABILITY_PUBLISH_GOVERNING_SPEC: &str = "056-capability-publish";
@@ -5153,8 +5381,8 @@ mod tests {
         inspect_event, inspect_trace, latest_index_release_asset, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
-        registry_sync_at, registry_sync_failure_json, reject_private_contract_scope, run_command,
-        sha256_hex, validate_registry_path_segment,
+        registry_record_order, registry_sync_at, registry_sync_failure_json,
+        reject_private_contract_scope, run_command, sha256_hex, validate_registry_path_segment,
     };
     use crate::agent_packages::fnv1a64;
     use serde_json::Value;
@@ -5429,6 +5657,66 @@ mod tests {
             "local-default".to_string(),
         ];
         assert!(parse_command(&missing_json).is_err());
+    }
+
+    #[test]
+    fn parse_registry_list_and_search_accept_local_discovery_filters() {
+        let list = vec![
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "list".to_string(),
+            "--workspace".to_string(),
+            "local-default".to_string(),
+            "--namespace".to_string(),
+            "traverse-starter".to_string(),
+            "--id-prefix".to_string(),
+            "traverse-starter.pro".to_string(),
+            "--json".to_string(),
+        ];
+        assert!(matches!(
+            parse_command(&list),
+            Ok(Command::RegistryList {
+                json_output: true,
+                ..
+            })
+        ));
+
+        let search = vec![
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "search".to_string(),
+            "process".to_string(),
+            "--workspace".to_string(),
+            "local-default".to_string(),
+        ];
+        assert!(matches!(
+            parse_command(&search),
+            Ok(Command::RegistrySearch { query, .. }) if query == "process"
+        ));
+    }
+
+    #[test]
+    fn registry_records_sort_by_namespace_id_then_descending_semver() {
+        let mut records = vec![
+            registry_record_fixture("zeta", "same", "1.0.0"),
+            registry_record_fixture("alpha", "same", "1.0.0"),
+            registry_record_fixture("alpha", "same", "2.0.0"),
+            registry_record_fixture("alpha", "another", "1.0.0"),
+        ];
+        records.sort_by(registry_record_order);
+        let positions = records
+            .iter()
+            .map(|record| format!("{}:{}@{}", record.namespace, record.id, record.version))
+            .collect::<Vec<_>>();
+        assert_eq!(
+            positions,
+            vec![
+                "alpha:another@1.0.0",
+                "alpha:same@2.0.0",
+                "alpha:same@1.0.0",
+                "zeta:same@1.0.0",
+            ]
+        );
     }
 
     #[test]
@@ -7369,6 +7657,23 @@ mod tests {
                 contract_url: "https://github.com/traverse-framework/registry/releases/download/artifacts/traverse-starter.process-1.0.0/contract.json".to_string(),
                 deprecated: false,
             }],
+        }
+    }
+
+    fn registry_record_fixture(
+        namespace: &str,
+        id: &str,
+        version: &str,
+    ) -> PublicRegistryCapabilityRecord {
+        PublicRegistryCapabilityRecord {
+            namespace: namespace.to_string(),
+            id: id.to_string(),
+            version: version.to_string(),
+            digest: "sha256:fixture".to_string(),
+            artifact_url: "https://example.test/artifact.wasm".to_string(),
+            contract_digest: "sha256:fixture-contract".to_string(),
+            contract_url: "https://example.test/contract.json".to_string(),
+            deprecated: false,
         }
     }
 
