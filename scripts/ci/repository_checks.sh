@@ -480,6 +480,12 @@ grep -q "Traverse runtime authority" specs/022-mcp-wasm-server/spec.md
 grep -q "MCP transport concerns" specs/022-mcp-wasm-server/spec.md
 grep -q "## Governing Spec" .github/pull_request_template.md
 
+# Keep the tracked local pre-push path aligned with the two strict CI gates
+# that regularly catch Rust API regressions: Clippy and line coverage.
+grep -q 'bash scripts/ci/rust_checks.sh' scripts/ci/local_preflight.sh
+grep -q 'cargo clippy --workspace --all-targets -- -D warnings' scripts/ci/rust_checks.sh
+grep -q 'bash scripts/ci/coverage_gate.sh' scripts/ci/local_preflight.sh
+
 echo "Running new-capability scaffold smoke..."
 TRAVERSE_REPO_ROOT="$(pwd)" bash "$(pwd)/scripts/ci/new_capability_scaffold_smoke.sh"
 
