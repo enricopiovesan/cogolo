@@ -14,7 +14,42 @@ use traverse_embedder::{
     EmbeddedTraceOutcome, EmbedderConfig, EmbedderErrorCode, HostDataStore, SecurityPosture,
     SubmitStatus, TraverseEmbedderApi,
 };
-use traverse_runtime::data_store::{LocalDataClassification, LocalFileDataStore, StateRecord};
+use traverse_runtime::data_store::{
+    DataStore, DataStoreError, DataStoreErrorCode, LocalDataClassification, LocalFileDataStore,
+    StateRecord,
+};
+
+struct FailingDataStore {
+    code: DataStoreErrorCode,
+}
+
+impl FailingDataStore {
+    fn error(&self) -> DataStoreError {
+        DataStoreError {
+            code: self.code,
+            message: "host adapter failure".to_string(),
+            details: Value::Null,
+        }
+    }
+}
+
+impl DataStore for FailingDataStore {
+    fn read(&self, _key: &str) -> Result<Option<StateRecord>, DataStoreError> {
+        Err(self.error())
+    }
+
+    fn write(&mut self, _record: StateRecord) -> Result<(), DataStoreError> {
+        Err(self.error())
+    }
+
+    fn delete(&mut self, _key: &str) -> Result<(), DataStoreError> {
+        Err(self.error())
+    }
+
+    fn list_keys(&self) -> Result<Vec<String>, DataStoreError> {
+        Err(self.error())
+    }
+}
 
 fn development_embedder(fixture: &BundleFixture, platform: &str) -> BundleEmbedder {
     let mut config = EmbedderConfig::new(fixture.manifest_path());
@@ -293,4 +328,88 @@ fn host_datastore_operations_fail_closed_without_explicit_injection() {
         .expect_err("runtime must not create an implicit store");
     assert_eq!(error.code, "data_store_not_configured");
     assert_eq!(error.operation, "read");
+}
+
+#[test]
+fn host_datastore_failure_codes_are_safe_and_classified() {
+    let fixture = BundleFixture::new("host-datastore-failures");
+    let cases = [
+        (
+            DataStoreErrorCode::IntegrityCheckFailed,
+            "integrity_check_failed",
+        ),
+        (DataStoreErrorCode::StoreLocked, "store_locked"),
+        (
+            DataStoreErrorCode::DurabilityCommitFailed,
+            "durability_commit_failed",
+        ),
+        (DataStoreErrorCode::IoFailure, "storage_io_failed"),
+        (DataStoreErrorCode::InvalidKey, "invalid_key"),
+        (
+            DataStoreErrorCode::SerializationFailure,
+            "serialization_failed",
+        ),
+        (
+            DataStoreErrorCode::SchemaValidationError,
+            "schema_validation_failed",
+        ),
+        (
+            DataStoreErrorCode::NoStateSchemaDeclared,
+            "state_schema_unavailable",
+        ),
+        (
+            DataStoreErrorCode::LamportClockOverflow,
+            "lamport_clock_overflow",
+        ),
+        (DataStoreErrorCode::SyncFailure, "sync_failed"),
+    ];
+
+    for (code, expected) in cases {
+        let mut embedder = development_embedder(&fixture, "linux");
+        let events = collect_events(&mut embedder);
+        embedder.inject_data_store(HostDataStore::new(
+            FailingDataStore { code },
+            LocalDataClassification::Public,
+        ));
+
+        let error = embedder
+            .data_store_read("host-note")
+            .expect_err("host adapter error should be safe");
+        assert_eq!(error.code, expected);
+        assert_eq!(error.operation, "read");
+        assert_eq!(snapshot(&events)[0]["data"]["classification"], "public");
+    }
+}
+
+#[test]
+fn host_datastore_write_and_delete_errors_are_safe() {
+    let fixture = BundleFixture::new("host-datastore-write-delete-failures");
+    let mut embedder = development_embedder(&fixture, "linux");
+    embedder.inject_data_store(HostDataStore::new(
+        FailingDataStore {
+            code: DataStoreErrorCode::IoFailure,
+        },
+        LocalDataClassification::Public,
+    ));
+    let record = StateRecord {
+        key: "host-note".to_string(),
+        value: Value::Null,
+        lamport_clock: 1,
+        writer_id: "host-writer".to_string(),
+    };
+
+    assert_eq!(
+        embedder
+            .data_store_write(record)
+            .expect_err("host write failure should be safe")
+            .operation,
+        "write"
+    );
+    assert_eq!(
+        embedder
+            .data_store_delete("host-note")
+            .expect_err("host delete failure should be safe")
+            .operation,
+        "delete"
+    );
 }

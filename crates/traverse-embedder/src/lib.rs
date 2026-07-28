@@ -354,7 +354,7 @@ impl HostDataStore {
     }
 }
 
-/// Safe public projection of a DataStore failure.
+/// Safe public projection of a `DataStore` failure.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EmbeddedDataStoreError {
     /// Stable machine-readable failure code.
@@ -1216,7 +1216,7 @@ impl BundleEmbedder {
         })
     }
 
-    /// Explicitly injects a host-owned DataStore.
+    /// Explicitly injects a host-owned `DataStore`.
     ///
     /// This additive host surface is deliberately separate from capability
     /// execution. It accepts neither a root path nor a capability identity,
@@ -1226,9 +1226,14 @@ impl BundleEmbedder {
         self.data_store = Some(store);
     }
 
-    /// Reads one host-owned state record from the injected DataStore.
+    /// Reads one host-owned state record from the injected `DataStore`.
     ///
     /// Returns `None` when the injected store has no record for `key`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe typed failure when no store was injected or its read
+    /// operation fails.
     pub fn data_store_read(
         &mut self,
         key: &str,
@@ -1244,7 +1249,12 @@ impl BundleEmbedder {
         result
     }
 
-    /// Writes one host-owned state record to the injected DataStore.
+    /// Writes one host-owned state record to the injected `DataStore`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe typed failure when no store was injected or its write
+    /// operation fails.
     pub fn data_store_write(&mut self, record: StateRecord) -> Result<(), EmbeddedDataStoreError> {
         let result = match self.data_store.as_mut() {
             Some(store) => store
@@ -1257,7 +1267,12 @@ impl BundleEmbedder {
         result
     }
 
-    /// Deletes one host-owned state record from the injected DataStore.
+    /// Deletes one host-owned state record from the injected `DataStore`.
+    ///
+    /// # Errors
+    ///
+    /// Returns a safe typed failure when no store was injected or its delete
+    /// operation fails.
     pub fn data_store_delete(&mut self, key: &str) -> Result<(), EmbeddedDataStoreError> {
         let result = match self.data_store.as_mut() {
             Some(store) => store
