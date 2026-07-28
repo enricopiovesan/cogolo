@@ -263,12 +263,12 @@ impl<A: DataStore> RuntimeDataStore<A> {
 pub struct LocalFileDataStore {
     root: PathBuf,
     classification: LocalDataClassification,
-    _lock_file: File,
+    lock_file: File,
 }
 
 impl Drop for LocalFileDataStore {
     fn drop(&mut self) {
-        let _ = self._lock_file.unlock();
+        let _ = self.lock_file.unlock();
     }
 }
 
@@ -308,7 +308,7 @@ impl LocalFileDataStore {
         Ok(Self {
             root,
             classification,
-            _lock_file: lock_file,
+            lock_file,
         })
     }
 
