@@ -1794,6 +1794,52 @@ mod tests {
     }
 
     #[test]
+    fn datastore_errors_map_to_safe_stable_codes() {
+        let codes = [
+            (
+                DataStoreErrorCode::IntegrityCheckFailed,
+                "integrity_check_failed",
+            ),
+            (DataStoreErrorCode::StoreLocked, "store_locked"),
+            (
+                DataStoreErrorCode::DurabilityCommitFailed,
+                "durability_commit_failed",
+            ),
+            (DataStoreErrorCode::IoFailure, "storage_io_failed"),
+            (DataStoreErrorCode::InvalidKey, "invalid_key"),
+            (
+                DataStoreErrorCode::SerializationFailure,
+                "serialization_failed",
+            ),
+            (
+                DataStoreErrorCode::SchemaValidationError,
+                "schema_validation_failed",
+            ),
+            (
+                DataStoreErrorCode::NoStateSchemaDeclared,
+                "state_schema_unavailable",
+            ),
+            (
+                DataStoreErrorCode::LamportClockOverflow,
+                "lamport_clock_overflow",
+            ),
+            (DataStoreErrorCode::SyncFailure, "sync_failed"),
+        ];
+        for (code, expected) in codes {
+            let error = EmbeddedDataStoreError::from_error(
+                "read",
+                &DataStoreError {
+                    code,
+                    message: "host details must not cross the boundary".to_string(),
+                    details: json!({ "path": "/host/private" }),
+                },
+            );
+            assert_eq!(error.code, expected);
+            assert_eq!(error.operation, "read");
+        }
+    }
+
+    #[test]
     fn runtime_error_codes_render_stable_snake_case_strings() {
         let codes = [
             (RuntimeErrorCode::RequestInvalid, "request_invalid"),

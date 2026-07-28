@@ -312,11 +312,30 @@ fn host_injected_datastore_reopens_without_leaking_record_metadata_to_events() {
         .data_store_delete("host-note")
         .expect("explicit host delete should succeed");
 
+    let public_root = root.with_extension("public");
+    let mut public_embedder = development_embedder(&fixture, "linux");
+    let public_store =
+        LocalFileDataStore::with_classification(&public_root, LocalDataClassification::Public)
+            .expect("host should create public store");
+    public_embedder.inject_data_store(HostDataStore::new(
+        public_store,
+        LocalDataClassification::Public,
+    ));
+    assert_eq!(
+        public_embedder
+            .data_store_read("missing")
+            .expect("public store read should succeed"),
+        None
+    );
+
     let telemetry = serde_json::to_string(&snapshot(&events)).expect("events should serialize");
     assert!(telemetry.contains("data_store_operation"));
     assert!(!telemetry.contains("host-note"));
     assert!(!telemetry.contains("do-not-emit"));
+    drop(second);
+    drop(public_embedder);
     let _ignored = std::fs::remove_dir_all(root);
+    let _ignored = std::fs::remove_dir_all(public_root);
 }
 
 #[test]
@@ -328,6 +347,19 @@ fn host_datastore_operations_fail_closed_without_explicit_injection() {
         .expect_err("runtime must not create an implicit store");
     assert_eq!(error.code, "data_store_not_configured");
     assert_eq!(error.operation, "read");
+    let write_error = embedder
+        .data_store_write(StateRecord {
+            key: "host-note".to_string(),
+            value: json!(null),
+            lamport_clock: 1,
+            writer_id: "host".to_string(),
+        })
+        .expect_err("runtime must not create an implicit store");
+    assert_eq!(write_error.code, "data_store_not_configured");
+    let delete_error = embedder
+        .data_store_delete("host-note")
+        .expect_err("runtime must not create an implicit store");
+    assert_eq!(delete_error.code, "data_store_not_configured");
 }
 
 #[test]
