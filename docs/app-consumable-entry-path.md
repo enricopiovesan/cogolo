@@ -8,7 +8,10 @@ This is the canonical documentation path for humans and coding agents working on
 2. Open [quickstart.md](../quickstart.md)
 3. Use the relevant deeper docs only after the quickstart path is clear:
    - [docs/cli-reference.md](cli-reference.md)
-   - [docs/youaskm3-canonical-app-http-path.md](youaskm3-canonical-app-http-path.md)
+  - [crates/traverse-embedder/README.md](../crates/traverse-embedder/README.md)
+    for the production embedded-host path
+  - [docs/youaskm3-canonical-app-http-path.md](youaskm3-canonical-app-http-path.md)
+    for the development/CI HTTP path
    - [docs/app-consumable-acceptance.md](app-consumable-acceptance.md)
    - [docs/app-consumable-release-checklist.md](app-consumable-release-checklist.md)
    - [docs/app-consumable-consumer-bundle.md](app-consumable-consumer-bundle.md)
@@ -29,7 +32,11 @@ If a new human or agent asks where to begin, point them to the README first and 
 
 - The README is the front door.
 - The quickstart is the first executable consumer path.
-- The canonical `youaskm3` HTTP path explains how downstream apps consume `traverse-cli serve`, `.traverse/server.json`, registration, execution, and trace fetch on the released `v0.3.0` baseline.
+- The embedded-host package documentation is the production path for shipped
+  apps: no `traverse-cli serve` sidecar or `.traverse/server.json` discovery is
+  required. The `youaskm3` HTTP path remains a development/CI walkthrough for
+  local registration, execution, and trace fetch on the released `v0.3.0`
+  baseline.
 - The CLI reference explains the supported command surface and separates public commands from internal/test-only paths.
 - The versioned consumer bundle explains what a downstream app installs and which released surfaces it may rely on.
 - The package release pointer explains how the governed app-consumable package release is identified downstream.

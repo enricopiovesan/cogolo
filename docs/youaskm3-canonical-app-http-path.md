@@ -1,12 +1,13 @@
-# Canonical Traverse HTTP App Path for youaskm3
+# Traverse Development/CI HTTP App Path for youaskm3
 
-This page is the release-facing HTTP/JSON integration path that `youaskm3` can cite for its first real release.
+This page documents the supported local development and CI HTTP/JSON workflow.
+It is not the production topology for shipped Traverse apps.
 
 Supported Traverse baseline: `v0.3.0`
 
 ## What Is Supported
 
-For the first `youaskm3` release, the canonical Traverse app-facing path is a local source-build HTTP/JSON server:
+For local development, diagnosis, and CI, `youaskm3` can use a local source-build HTTP/JSON server:
 
 ```bash
 cargo run -p traverse-cli-rs -- serve
@@ -18,7 +19,18 @@ This starts the governed app-consumable API on `127.0.0.1:8787` by default and w
 .traverse/server.json
 ```
 
-The supported downstream app category is a local app, development shell, or browser-hosted consumer that can read the discovery file or receive the discovered `base_url`, then call the documented HTTP/JSON API.
+The supported consumer category for this workflow is a local app, development
+shell, or browser-hosted test consumer that can read the discovery file or
+receive the discovered `base_url`, then call the documented HTTP/JSON API.
+
+## Production Apps Use Embedded Hosts
+
+Shipped product apps use the public embedded-host packages described in
+[`crates/traverse-embedder/README.md`](../crates/traverse-embedder/README.md).
+They execute through an in-process host boundary and require neither a
+loopback `traverse-cli serve` sidecar nor `.traverse/server.json` discovery.
+The HTTP server remains supported for local development and CI; it is not a
+hosted or multi-tenant runtime product.
 
 ## Public App Surface
 

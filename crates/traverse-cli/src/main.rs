@@ -647,7 +647,10 @@ fn help_agent_execute() -> String {
     "traverse-cli agent execute <manifest-path> <request-path>
 
   Purpose:
-    Load a governed WASM agent package and execute it against a runtime request.
+    Load a governed WASM agent package and execute it against a runtime request
+    directly in this process. This command does not require `traverse-cli serve`
+    or `.traverse/server.json`; shipped product apps use public embedded-host
+    packages rather than this development/CI command.
     Validates the package binary digest, registers the capability, and runs the
     request through the Traverse runtime.
 
@@ -1095,8 +1098,8 @@ fn help_serve() -> String {
     "traverse-cli serve [--bind <address>] [--port <port>] [--auth <mode>] [--allow-unauthenticated] [--qr]
 
   Purpose:
-    Start a long-running HTTP/JSON API server on 127.0.0.1:8787 by default.
-    Writes .traverse/server.json for local app discovery and exposes:
+    Start a development/CI HTTP/JSON API server on 127.0.0.1:8787 by default.
+    Writes .traverse/server.json for local discovery and exposes:
       GET  /healthz                    Returns the spec 033 health envelope.
       GET  /v1/capabilities            Returns JSON array of registered capabilities.
       POST /v1/capabilities/execute    Accepts RuntimeRequest JSON, returns trace + result.
@@ -1104,6 +1107,10 @@ fn help_serve() -> String {
     Loopback callers (127.0.0.1 / ::1) are allowed without authentication. All
     other callers must supply an Authorization: Bearer <token> header unless
     --allow-unauthenticated is set.
+
+    This server is not the production topology for shipped apps. Production
+    consumers use public embedded-host packages and require neither a loopback
+    sidecar nor `.traverse/server.json` discovery.
 
   Optional flags:
     --bind <address>           Address and port to listen on (default: 127.0.0.1:8787,
@@ -6443,6 +6450,7 @@ mod tests {
         assert!(text.contains("<manifest-path>"));
         assert!(text.contains("<request-path>"));
         assert!(text.contains("Example:"));
+        assert!(text.contains("does not require `traverse-cli serve`"));
     }
 
     #[test]
@@ -6556,6 +6564,21 @@ mod tests {
         assert!(text.contains("browser-adapter serve"));
         assert!(text.contains("--bind"));
         assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_returns_development_serve_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "serve".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("development/CI HTTP/JSON API server"));
+        assert!(text.contains("not the production topology"));
+        assert!(text.contains(".traverse/server.json"));
     }
 
     #[test]
