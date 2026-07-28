@@ -1,12 +1,13 @@
-# Canonical Traverse HTTP App Path for youaskm3
+# Traverse CLI HTTP Development and CI Path
 
-This page is the release-facing HTTP/JSON integration path that `youaskm3` can cite for its first real release.
+This page documents the supported development and CI HTTP/JSON path. It is not
+the production topology for shipped apps.
 
 Supported Traverse baseline: `v0.3.0`
 
 ## What Is Supported
 
-For the first `youaskm3` release, the canonical Traverse app-facing path is a local source-build HTTP/JSON server:
+Use a local source-build HTTP/JSON server for development, diagnosis, and CI:
 
 ```bash
 cargo run -p traverse-cli-rs -- serve
@@ -18,11 +19,20 @@ This starts the governed app-consumable API on `127.0.0.1:8787` by default and w
 .traverse/server.json
 ```
 
-The supported downstream app category is a local app, development shell, or browser-hosted consumer that can read the discovery file or receive the discovered `base_url`, then call the documented HTTP/JSON API.
+The supported consumer is a local app, development shell, or CI harness that
+can read the discovery file or receive the discovered `base_url`.
+
+## Production Apps Embed Traverse
+
+Shipped product apps use the public embedded-runtime packages instead of
+starting `traverse-cli serve`. They execute through their host-owned embedder
+and do not require a loopback sidecar or `.traverse/server.json` discovery.
+See the [Rust embedder package](../crates/traverse-embedder/README.md) and the
+[public embedder specification](../specs/068-public-platform-embedder-packages/spec.md).
 
 ## Public App Surface
 
-The first-release public HTTP/JSON path is governed by:
+The development/CI HTTP path is governed by:
 
 - [specs/033-http-json-api/openapi.yaml](../specs/033-http-json-api/openapi.yaml)
 - [specs/033-http-json-api/spec.md](../specs/033-http-json-api/spec.md)
