@@ -298,9 +298,7 @@ impl LocalFileDataStore {
             .truncate(false)
             .open(&lock_path)
             .map_err(|error| io_error("open data store lock", &error))?;
-        lock_file
-            .try_lock()
-            .map_err(|error| lock_error(error, &root))?;
+        lock_file.try_lock().map_err(lock_error)?;
         Ok(Self {
             root,
             classification,
@@ -417,14 +415,25 @@ fn digest_for_record(record: &StateRecord) -> Result<String, DataStoreError> {
     Ok(format!("sha256:{hexadecimal}"))
 }
 
-fn lock_error(error: TryLockError, root: &PathBuf) -> DataStoreError {
+fn lock_error(error: TryLockError) -> DataStoreError {
     match error {
         TryLockError::WouldBlock => data_store_error(
             DataStoreErrorCode::StoreLocked,
             "store_locked",
-            json!({ "root": root }),
+            json!({ "reason": "exclusive_owner_active" }),
         ),
-        TryLockError::Error(error) => io_error("lock data store root", &error),
+        TryLockError::Error(error) if error.kind() == std::io::ErrorKind::Unsupported => {
+            data_store_error(
+                DataStoreErrorCode::IoFailure,
+                "storage_io_failed",
+                json!({ "operation": "acquire_lock", "reason": "locking_unsupported" }),
+            )
+        }
+        TryLockError::Error(_) => data_store_error(
+            DataStoreErrorCode::IoFailure,
+            "storage_io_failed",
+            json!({ "operation": "acquire_lock", "reason": "lock_acquisition_failed" }),
+        ),
     }
 }
 
@@ -647,6 +656,10 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::cell::Cell;
+    use std::path::Path;
+    use std::process::{Child, Command, Stdio};
+    use std::thread;
+    use std::time::Duration;
     use traverse_contracts::{
         BinaryFormat, CapabilityContract, Condition, DependencyReference, Entrypoint,
         EntrypointKind, EventReference, Execution, ExecutionConstraints, ExecutionTarget,
@@ -1070,6 +1083,74 @@ mod tests {
         let second_owner = LocalFileDataStore::new(&root).expect_err("second owner must fail");
         assert_eq!(second_owner.code, DataStoreErrorCode::StoreLocked);
         assert_eq!(second_owner.message, "store_locked");
+        assert_eq!(
+            second_owner.details,
+            json!({ "reason": "exclusive_owner_active" })
+        );
+    }
+
+    #[test]
+    fn local_file_adapter_lock_child() -> Result<(), String> {
+        let Ok(root) = std::env::var("TRAVERSE_DATA_STORE_LOCK_CHILD_ROOT") else {
+            return Ok(());
+        };
+        let root = PathBuf::from(root);
+        let _adapter = LocalFileDataStore::new(&root).expect("child should acquire lock");
+        fs::write(lock_child_ready_path(&root), "ready").expect("child should signal readiness");
+        wait_for_lock_child_release(&root, 500)
+    }
+
+    #[test]
+    fn local_file_adapter_rejects_cross_process_owner_and_recovers_after_exit() {
+        let root = temp_root("cross-process-lock");
+        let mut initial_owner = LocalFileDataStore::new(&root).expect("initial owner should open");
+        let committed = record("draft", "writer-a", 1, json!("committed"));
+        initial_owner
+            .write(committed.clone())
+            .expect("initial write should succeed");
+        drop(initial_owner);
+
+        let mut child = start_lock_child(&root);
+        wait_for_lock_child(&root, 500).expect("lock child should become ready");
+        let blocked = LocalFileDataStore::new(&root).expect_err("second process must be blocked");
+        assert_eq!(blocked.code, DataStoreErrorCode::StoreLocked);
+        assert_eq!(
+            blocked.details,
+            json!({ "reason": "exclusive_owner_active" })
+        );
+
+        fs::write(lock_child_release_path(&root), "release").expect("parent should release child");
+        assert!(child.wait().expect("child should exit").success());
+        let reopened = LocalFileDataStore::new(&root).expect("released lock should reopen");
+        assert_eq!(
+            reopened
+                .read("draft")
+                .expect("committed record should remain readable"),
+            Some(committed)
+        );
+    }
+
+    #[test]
+    fn local_file_adapter_recovers_after_lock_owner_crash() {
+        let root = temp_root("owner-crash-lock");
+        let mut initial_owner = LocalFileDataStore::new(&root).expect("initial owner should open");
+        initial_owner
+            .write(record("draft", "writer-a", 1, json!("committed")))
+            .expect("initial write should succeed");
+        drop(initial_owner);
+
+        let mut child = start_lock_child(&root);
+        wait_for_lock_child(&root, 500).expect("lock child should become ready");
+        child.kill().expect("parent should terminate child");
+        child.wait().expect("terminated child should exit");
+
+        let reopened = LocalFileDataStore::new(&root).expect("crashed owner lock should release");
+        assert_eq!(
+            reopened
+                .read("draft")
+                .expect("committed record should remain readable"),
+            Some(record("draft", "writer-a", 1, json!("committed")))
+        );
     }
 
     #[test]
@@ -1099,12 +1180,25 @@ mod tests {
         );
         assert_eq!(unknown_version.details["reason"], "unknown_format_version");
 
-        let lock_io = lock_error(
-            TryLockError::Error(std::io::Error::other("lock device failure")),
-            &root,
-        );
+        let lock_io = lock_error(TryLockError::Error(std::io::Error::other(
+            "lock device failure",
+        )));
         assert_eq!(lock_io.code, DataStoreErrorCode::IoFailure);
         assert_eq!(lock_io.message, "storage_io_failed");
+        assert_eq!(
+            lock_io.details,
+            json!({ "operation": "acquire_lock", "reason": "lock_acquisition_failed" })
+        );
+
+        let unsupported_lock = lock_error(TryLockError::Error(std::io::Error::new(
+            std::io::ErrorKind::Unsupported,
+            "locking unavailable",
+        )));
+        assert_eq!(unsupported_lock.code, DataStoreErrorCode::IoFailure);
+        assert_eq!(
+            unsupported_lock.details,
+            json!({ "operation": "acquire_lock", "reason": "locking_unsupported" })
+        );
 
         let durability = durability_error(
             &root,
@@ -1137,6 +1231,67 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("traverse-data-store-{name}-{}", Uuid::new_v4()))
+    }
+
+    fn lock_child_ready_path(root: &Path) -> PathBuf {
+        root.join(".lock-child-ready")
+    }
+
+    fn lock_child_release_path(root: &Path) -> PathBuf {
+        root.join(".lock-child-release")
+    }
+
+    fn start_lock_child(root: &Path) -> Child {
+        Command::new(std::env::current_exe().expect("test binary path should resolve"))
+            .args([
+                "--exact",
+                "data_store::tests::local_file_adapter_lock_child",
+                "--nocapture",
+            ])
+            .env("TRAVERSE_DATA_STORE_LOCK_CHILD_ROOT", root)
+            .stdout(Stdio::null())
+            .stderr(Stdio::null())
+            .spawn()
+            .expect("lock child should start")
+    }
+
+    #[test]
+    fn lock_child_waits_report_bounded_timeouts() {
+        let root = temp_root("lock-child-timeout");
+        assert_eq!(
+            wait_for_lock_child(&root, 0),
+            Err("lock child did not become ready")
+        );
+        assert_eq!(
+            wait_for_lock_child_release(&root, 0),
+            Err("parent did not release the lock child".to_string())
+        );
+    }
+
+    fn wait_for_lock_child(root: &Path, attempts: usize) -> Result<(), &'static str> {
+        if wait_for_path(&lock_child_ready_path(root), attempts) {
+            Ok(())
+        } else {
+            Err("lock child did not become ready")
+        }
+    }
+
+    fn wait_for_lock_child_release(root: &Path, attempts: usize) -> Result<(), String> {
+        if wait_for_path(&lock_child_release_path(root), attempts) {
+            Ok(())
+        } else {
+            Err("parent did not release the lock child".to_string())
+        }
+    }
+
+    fn wait_for_path(path: &Path, attempts: usize) -> bool {
+        for _ in 0..attempts {
+            if path.exists() {
+                return true;
+            }
+            thread::sleep(Duration::from_millis(10));
+        }
+        false
     }
 
     fn stateful_contract(state_schema: Option<Value>) -> CapabilityContract {
