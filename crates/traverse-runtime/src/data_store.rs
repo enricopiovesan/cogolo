@@ -656,6 +656,7 @@ mod tests {
     use super::*;
     use serde_json::json;
     use std::cell::Cell;
+    use std::path::Path;
     use std::process::{Child, Command, Stdio};
     use std::thread;
     use std::time::Duration;
@@ -1089,20 +1090,20 @@ mod tests {
     }
 
     #[test]
-    fn local_file_adapter_lock_child() {
+    fn local_file_adapter_lock_child() -> Result<(), String> {
         let Ok(root) = std::env::var("TRAVERSE_DATA_STORE_LOCK_CHILD_ROOT") else {
-            return;
+            return Ok(());
         };
         let root = PathBuf::from(root);
         let _adapter = LocalFileDataStore::new(&root).expect("child should acquire lock");
         fs::write(lock_child_ready_path(&root), "ready").expect("child should signal readiness");
         for _ in 0..500 {
             if lock_child_release_path(&root).exists() {
-                return;
+                return Ok(());
             }
             thread::sleep(Duration::from_millis(10));
         }
-        panic!("parent did not release the lock child");
+        Err("parent did not release the lock child".to_string())
     }
 
     #[test]
@@ -1116,7 +1117,7 @@ mod tests {
         drop(initial_owner);
 
         let mut child = start_lock_child(&root);
-        wait_for_lock_child(&root);
+        wait_for_lock_child(&root).expect("lock child should become ready");
         let blocked = LocalFileDataStore::new(&root).expect_err("second process must be blocked");
         assert_eq!(blocked.code, DataStoreErrorCode::StoreLocked);
         assert_eq!(
@@ -1145,7 +1146,7 @@ mod tests {
         drop(initial_owner);
 
         let mut child = start_lock_child(&root);
-        wait_for_lock_child(&root);
+        wait_for_lock_child(&root).expect("lock child should become ready");
         child.kill().expect("parent should terminate child");
         child.wait().expect("terminated child should exit");
 
@@ -1238,15 +1239,15 @@ mod tests {
         std::env::temp_dir().join(format!("traverse-data-store-{name}-{}", Uuid::new_v4()))
     }
 
-    fn lock_child_ready_path(root: &PathBuf) -> PathBuf {
+    fn lock_child_ready_path(root: &Path) -> PathBuf {
         root.join(".lock-child-ready")
     }
 
-    fn lock_child_release_path(root: &PathBuf) -> PathBuf {
+    fn lock_child_release_path(root: &Path) -> PathBuf {
         root.join(".lock-child-release")
     }
 
-    fn start_lock_child(root: &PathBuf) -> Child {
+    fn start_lock_child(root: &Path) -> Child {
         Command::new(std::env::current_exe().expect("test binary path should resolve"))
             .args([
                 "--exact",
@@ -1260,14 +1261,14 @@ mod tests {
             .expect("lock child should start")
     }
 
-    fn wait_for_lock_child(root: &PathBuf) {
+    fn wait_for_lock_child(root: &Path) -> Result<(), &'static str> {
         for _ in 0..500 {
             if lock_child_ready_path(root).exists() {
-                return;
+                return Ok(());
             }
             thread::sleep(Duration::from_millis(10));
         }
-        panic!("lock child did not become ready");
+        Err("lock child did not become ready")
     }
 
     fn stateful_contract(state_schema: Option<Value>) -> CapabilityContract {
