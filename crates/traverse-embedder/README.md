@@ -36,6 +36,41 @@ embedder.submit("my-app.process", &json!({ "note": "hello" }));
 embedder.shutdown();
 ```
 
+## Optional host-owned local state
+
+Durable state is opt-in and remains owned by the embedding host. The host
+chooses the root, creates the adapter, fixes the public/private
+classification, and injects it after initialization. Traverse does not derive
+a root, create one by default, or expose the store to capabilities.
+
+```rust,no_run
+use serde_json::json;
+use traverse_embedder::{BundleEmbedder, EmbedderConfig, HostDataStore};
+use traverse_runtime::data_store::{
+    LocalDataClassification, LocalFileDataStore, StateRecord,
+};
+
+let mut embedder = BundleEmbedder::init(EmbedderConfig::new("app/app.manifest.json"))?;
+let local_store = LocalFileDataStore::new("/host-selected/app-state")?;
+embedder.inject_data_store(HostDataStore::new(
+    local_store,
+    LocalDataClassification::Private,
+));
+embedder.data_store_write(StateRecord {
+    key: "last-opened".into(),
+    value: json!("document-42"),
+    lamport_clock: 1,
+    writer_id: "my-host".into(),
+})?;
+# Ok::<(), Box<dyn std::error::Error>>(())
+```
+
+Only explicit host `read`, `write`, and `delete` operations are available.
+Their safe error codes include `data_store_not_configured`, `store_locked`,
+`integrity_check_failed`, `durability_commit_failed`, and `storage_io_failed`.
+DataStore telemetry reports only operation, outcome, and classification — never
+the root, keys, or values.
+
 ## Bundle input shape
 
 `init` consumes the `app.manifest.json` bundle defined by spec

@@ -11,9 +11,45 @@ use common::{
 use serde_json::{Value, json};
 use traverse_embedder::{
     BundleEmbedder, CompatibleLifecycleStatus, EMBEDDED_TRACE_API_VERSION, EmbeddedTraceApi,
-    EmbeddedTraceOutcome, EmbedderConfig, EmbedderErrorCode, SecurityPosture, SubmitStatus,
-    TraverseEmbedderApi,
+    EmbeddedTraceOutcome, EmbedderConfig, EmbedderErrorCode, HostDataStore, SecurityPosture,
+    SubmitStatus, TraverseEmbedderApi,
 };
+use traverse_runtime::data_store::{
+    DataStore, DataStoreError, DataStoreErrorCode, LocalDataClassification, LocalFileDataStore,
+    StateRecord,
+};
+
+struct FailingDataStore {
+    code: DataStoreErrorCode,
+}
+
+impl FailingDataStore {
+    fn error(&self) -> DataStoreError {
+        DataStoreError {
+            code: self.code,
+            message: "host adapter failure".to_string(),
+            details: Value::Null,
+        }
+    }
+}
+
+impl DataStore for FailingDataStore {
+    fn read(&self, _key: &str) -> Result<Option<StateRecord>, DataStoreError> {
+        Err(self.error())
+    }
+
+    fn write(&mut self, _record: StateRecord) -> Result<(), DataStoreError> {
+        Err(self.error())
+    }
+
+    fn delete(&mut self, _key: &str) -> Result<(), DataStoreError> {
+        Err(self.error())
+    }
+
+    fn list_keys(&self) -> Result<Vec<String>, DataStoreError> {
+        Err(self.error())
+    }
+}
 
 fn development_embedder(fixture: &BundleFixture, platform: &str) -> BundleEmbedder {
     let mut config = EmbedderConfig::new(fixture.manifest_path());
@@ -236,4 +272,176 @@ fn conformance_matches_unsupported_schema_rejection() {
         .expect("unsupported schema should be rejected");
     assert_eq!(error.code, EmbedderErrorCode::UnsupportedBundleSchema);
     assert!(error.message.contains("9.9.9"));
+}
+
+#[test]
+fn host_injected_datastore_reopens_without_leaking_record_metadata_to_events() {
+    let fixture = BundleFixture::new("host-datastore");
+    let root = std::env::temp_dir().join(format!(
+        "traverse-embedder-host-datastore-{}",
+        std::process::id()
+    ));
+    let mut first = development_embedder(&fixture, "linux");
+    let events = collect_events(&mut first);
+    let store = LocalFileDataStore::new(&root).expect("host should create store");
+    first.inject_data_store(HostDataStore::new(store, LocalDataClassification::Private));
+    let record = StateRecord {
+        key: "host-note".to_string(),
+        value: json!({ "secret": "do-not-emit" }),
+        lamport_clock: 1,
+        writer_id: "host-writer".to_string(),
+    };
+    first
+        .data_store_write(record.clone())
+        .expect("explicit host write should persist");
+    drop(first);
+
+    let mut second = development_embedder(&fixture, "linux");
+    let reopened = LocalFileDataStore::new(&root).expect("host should reopen released store");
+    second.inject_data_store(HostDataStore::new(
+        reopened,
+        LocalDataClassification::Private,
+    ));
+    assert_eq!(
+        second
+            .data_store_read("host-note")
+            .expect("explicit host read should succeed"),
+        Some(record)
+    );
+    second
+        .data_store_delete("host-note")
+        .expect("explicit host delete should succeed");
+
+    let public_root = root.with_extension("public");
+    let mut public_embedder = development_embedder(&fixture, "linux");
+    let public_store =
+        LocalFileDataStore::with_classification(&public_root, LocalDataClassification::Public)
+            .expect("host should create public store");
+    public_embedder.inject_data_store(HostDataStore::new(
+        public_store,
+        LocalDataClassification::Public,
+    ));
+    assert_eq!(
+        public_embedder
+            .data_store_read("missing")
+            .expect("public store read should succeed"),
+        None
+    );
+
+    let telemetry = serde_json::to_string(&snapshot(&events)).expect("events should serialize");
+    assert!(telemetry.contains("data_store_operation"));
+    assert!(!telemetry.contains("host-note"));
+    assert!(!telemetry.contains("do-not-emit"));
+    drop(second);
+    drop(public_embedder);
+    let _ignored = std::fs::remove_dir_all(root);
+    let _ignored = std::fs::remove_dir_all(public_root);
+}
+
+#[test]
+fn host_datastore_operations_fail_closed_without_explicit_injection() {
+    let fixture = BundleFixture::new("host-datastore-unconfigured");
+    let mut embedder = development_embedder(&fixture, "linux");
+    let error = embedder
+        .data_store_read("host-note")
+        .expect_err("runtime must not create an implicit store");
+    assert_eq!(error.code, "data_store_not_configured");
+    assert_eq!(error.operation, "read");
+    let write_error = embedder
+        .data_store_write(StateRecord {
+            key: "host-note".to_string(),
+            value: json!(null),
+            lamport_clock: 1,
+            writer_id: "host".to_string(),
+        })
+        .expect_err("runtime must not create an implicit store");
+    assert_eq!(write_error.code, "data_store_not_configured");
+    let delete_error = embedder
+        .data_store_delete("host-note")
+        .expect_err("runtime must not create an implicit store");
+    assert_eq!(delete_error.code, "data_store_not_configured");
+}
+
+#[test]
+fn host_datastore_failure_codes_are_safe_and_classified() {
+    let fixture = BundleFixture::new("host-datastore-failures");
+    let cases = [
+        (
+            DataStoreErrorCode::IntegrityCheckFailed,
+            "integrity_check_failed",
+        ),
+        (DataStoreErrorCode::StoreLocked, "store_locked"),
+        (
+            DataStoreErrorCode::DurabilityCommitFailed,
+            "durability_commit_failed",
+        ),
+        (DataStoreErrorCode::IoFailure, "storage_io_failed"),
+        (DataStoreErrorCode::InvalidKey, "invalid_key"),
+        (
+            DataStoreErrorCode::SerializationFailure,
+            "serialization_failed",
+        ),
+        (
+            DataStoreErrorCode::SchemaValidationError,
+            "schema_validation_failed",
+        ),
+        (
+            DataStoreErrorCode::NoStateSchemaDeclared,
+            "state_schema_unavailable",
+        ),
+        (
+            DataStoreErrorCode::LamportClockOverflow,
+            "lamport_clock_overflow",
+        ),
+        (DataStoreErrorCode::SyncFailure, "sync_failed"),
+    ];
+
+    for (code, expected) in cases {
+        let mut embedder = development_embedder(&fixture, "linux");
+        let events = collect_events(&mut embedder);
+        embedder.inject_data_store(HostDataStore::new(
+            FailingDataStore { code },
+            LocalDataClassification::Public,
+        ));
+
+        let error = embedder
+            .data_store_read("host-note")
+            .expect_err("host adapter error should be safe");
+        assert_eq!(error.code, expected);
+        assert_eq!(error.operation, "read");
+        assert_eq!(snapshot(&events)[0]["data"]["classification"], "public");
+    }
+}
+
+#[test]
+fn host_datastore_write_and_delete_errors_are_safe() {
+    let fixture = BundleFixture::new("host-datastore-write-delete-failures");
+    let mut embedder = development_embedder(&fixture, "linux");
+    embedder.inject_data_store(HostDataStore::new(
+        FailingDataStore {
+            code: DataStoreErrorCode::IoFailure,
+        },
+        LocalDataClassification::Public,
+    ));
+    let record = StateRecord {
+        key: "host-note".to_string(),
+        value: Value::Null,
+        lamport_clock: 1,
+        writer_id: "host-writer".to_string(),
+    };
+
+    assert_eq!(
+        embedder
+            .data_store_write(record)
+            .expect_err("host write failure should be safe")
+            .operation,
+        "write"
+    );
+    assert_eq!(
+        embedder
+            .data_store_delete("host-note")
+            .expect_err("host delete failure should be safe")
+            .operation,
+        "delete"
+    );
 }
