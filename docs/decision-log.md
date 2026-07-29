@@ -1118,3 +1118,63 @@ target; roots are single-writer in v1.
 
 This decision is decomposed into bounded successor specifications and tickets;
 it is not itself an implementation authorization.
+
+## Decision 39: Host-Explicit DataStore Retention and Verified Zip Backup/Restore
+
+- **Date**: 2026-07-29
+- **Status**: Accepted (planning); governing Spec/ADR Proposed pending approval
+- **Governing spec**: `083-datastore-retention-backup` (`specs/526-datastore-retention-backup`)
+- **Related ADR**: ADR-0021
+- **Related Project 1**: Specify DataStore retention compaction backup and restore policy
+
+### Decision
+
+Retention prune and backup/restore are host-explicit via a separate
+`DataStoreMaintenance` port sharing the DataStore root and exclusive lock.
+v1 retention knobs are count and age with host-supplied `as_of` (no OS clock).
+Prune is interruptible with partial evidence. Backups are zip+manifest;
+restore verifies then atomically replaces the root. Compaction is Future.
+
+### Outcome
+
+Unlocks drafting/approval of Spec 083 and a bounded Implement ticket after
+approval. Does not authorize compaction or auto-prune.
+
+## Decision 40: Encrypt Only Private DataStore Records via KeyProvider
+
+- **Date**: 2026-07-29
+- **Status**: Accepted (planning); governing Spec/ADR Proposed pending approval
+- **Governing spec**: `084-datastore-encryption-at-rest` (`specs/527-datastore-encryption-at-rest`)
+- **Related ADR**: ADR-0022
+- **Related Project 1**: Specify DataStore encryption at rest and key lifecycle
+
+### Decision
+
+Private records use AES-256-GCM at rest with host `KeyProvider` (v1
+callback/in-memory). Public remains integrity-only. No provider fails private
+ops closed. Classification is immutable. No in-place rotation in v1; re-key via
+Spec 083 backup/restore. OS/KMS providers are Future.
+
+### Outcome
+
+Unlocks Spec 084 approval path. Browser private waits on a KeyProvider
+follow-on after IndexedDB CRUD.
+
+## Decision 41: IndexedDB as Same-Port Public DataStore Backend
+
+- **Date**: 2026-07-29
+- **Status**: Accepted (planning); governing Spec/ADR Proposed pending approval
+- **Governing spec**: `085-datastore-indexeddb` (`specs/528-datastore-indexeddb`)
+- **Related ADR**: ADR-0023
+- **Related Project 1**: Specify browser IndexedDB DataStore adapter contract
+
+### Decision
+
+IndexedDB implements the same DataStore port/envelopes for public CRUD with
+Web Locks exclusive ownership and typed quota errors. Private encryption and
+maintenance are unsupported in v1.
+
+### Outcome
+
+Unlocks Spec 085 approval path for web permanence without blocking on crypto
+or zip-backup parity.
