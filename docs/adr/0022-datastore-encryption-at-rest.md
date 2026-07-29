@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Governing spec: `527-datastore-encryption-at-rest` / `084-datastore-encryption-at-rest` (Draft)
+- Governing spec: `527-datastore-encryption-at-rest` / `084-datastore-encryption-at-rest`
 - Extends: ADR-0018, ADR-0019
 
 ## Context

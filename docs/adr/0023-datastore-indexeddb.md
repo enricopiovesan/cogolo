@@ -2,7 +2,7 @@
 
 - Status: Accepted
 - Date: 2026-07-29
-- Governing spec: `528-datastore-indexeddb` / `085-datastore-indexeddb` (Draft)
+- Governing spec: `528-datastore-indexeddb` / `085-datastore-indexeddb`
 - Extends: ADR-0018, ADR-0019
 - Related: ADR-0022 (private encryption deferred on this backend for v1)
 
