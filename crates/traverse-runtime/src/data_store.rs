@@ -2,7 +2,15 @@
 //!
 //! General operations are governed by spec `032-universal-data-access`; the
 //! local-file adapter durability boundary is governed by spec
-//! `518-durable-local-datastore`.
+//! `518-durable-local-datastore`. Retention prune and verified backup/restore
+//! are governed by spec `083-datastore-retention-backup`.
+
+#[path = "data_store_maintenance.rs"]
+mod maintenance;
+pub use maintenance::{
+    BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
+    MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
+};
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -87,6 +95,10 @@ struct LocalDataStoreEnvelope {
     classification: LocalDataClassification,
     record: StateRecord,
     digest: String,
+    /// Host-supplied RFC3339 instant stamped at write time for age-based prune.
+    /// Absent on legacy envelopes; age prune treats missing stamps as retained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retained_at: Option<String>,
 }
 
 pub trait DataStore {
@@ -264,6 +276,8 @@ pub struct LocalFileDataStore {
     root: PathBuf,
     classification: LocalDataClassification,
     lock_file: File,
+    /// Host-supplied retained-at stamp applied to subsequent writes (no OS clock).
+    write_retained_at: Option<String>,
 }
 
 impl Drop for LocalFileDataStore {
@@ -309,7 +323,22 @@ impl LocalFileDataStore {
             root,
             classification,
             lock_file,
+            write_retained_at: None,
         })
+    }
+
+    /// Sets the host-supplied retained-at stamp used by subsequent writes.
+    ///
+    /// Traverse does not read the OS clock; hosts must supply RFC3339 instants
+    /// when age-based retention is desired.
+    pub fn set_write_retained_at(&mut self, retained_at: Option<String>) {
+        self.write_retained_at = retained_at;
+    }
+
+    /// Returns the store root path for host-owned maintenance construction.
+    #[must_use]
+    pub fn root(&self) -> &PathBuf {
+        &self.root
     }
 
     fn path_for_key(&self, key: &str) -> Result<PathBuf, DataStoreError> {
@@ -359,6 +388,7 @@ impl DataStore for LocalFileDataStore {
             format: LOCAL_DATA_STORE_FORMAT.to_string(),
             classification: self.classification,
             digest: digest_for_record(&record)?,
+            retained_at: self.write_retained_at.clone(),
             record,
         };
         let text = serde_json::to_vec(&envelope)

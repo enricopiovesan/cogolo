@@ -21,6 +21,7 @@ wasmtime-wasi = { version = "44", optional = true }
 uuid = { version = "1", features = ["v4", "js"] }
 chrono = { version = "0.4", features = ["serde"] }
 rayon = { version = "1.11", optional = true }
+zip = { version = "2", default-features = false, features = ["deflate"] }
 
 [features]
 default = ["native-executors", "wasmtime-executor"]
