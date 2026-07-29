@@ -23,6 +23,23 @@ fn development_embedder(fixture: &BundleFixture, platform: &str) -> BundleEmbedd
     BundleEmbedder::init(config).expect("fixture bundle should initialize")
 }
 
+#[test]
+fn init_accepts_host_registry_cache_for_local_bundles() {
+    let fixture = BundleFixture::new("registry-cache-local");
+    let cache_root = fixture
+        .manifest_path()
+        .parent()
+        .expect("manifest parent")
+        .join("registry-cache");
+    std::fs::create_dir_all(&cache_root).expect("cache root");
+    let mut config = EmbedderConfig::new(fixture.manifest_path())
+        .with_registry_cache(traverse_embedder::HostRegistryCache::new(cache_root));
+    config.platform = "linux".to_string();
+    config.security = SecurityPosture::Development;
+    let embedder = BundleEmbedder::init(config).expect("local bundle with cache should init");
+    drop(embedder);
+}
+
 // --- init rejection paths (NFR-001) ---
 
 #[test]

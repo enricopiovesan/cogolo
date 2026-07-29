@@ -81,8 +81,15 @@
 //! evidence: the embedder emits only runtime-owned outputs and stable
 //! error metadata (spec 068 NFR-004).
 
+mod registry_cache;
 mod test_double;
 
+pub use registry_cache::{
+    HostRegistryCache, RegistryArtifactFetcher, RegistryCacheError, RegistryCacheErrorCode,
+    RegistryPrepareEvidence, VerifiedRegistryDependency, prepare as prepare_registry_dependency,
+    resolve_component as resolve_registry_component,
+    resolve_offline as resolve_registry_dependency_offline,
+};
 pub use test_double::EmbedderTestDouble;
 
 use serde_json::{Value, json};
@@ -90,9 +97,11 @@ use std::collections::{BTreeMap, VecDeque};
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
 use traverse_registry::{
+    ApplicationManifestError, ApplicationManifestErrorCode, ApplicationManifestFailure,
     ApplicationRegistrationFailure, ApplicationRegistrationRequest, ApplicationRegistry,
-    CapabilityRegistry, ComponentExecutionMode, EventRegistry, RegistryScope, WorkflowRegistry,
-    load_application_bundle_manifest,
+    CapabilityRegistry, ComponentExecutionMode, EventRegistry, RegistryComponentResolver,
+    RegistryReference, RegistryScope, ResolvedRegistryComponent, WorkflowRegistry,
+    load_application_bundle_manifest, load_application_bundle_manifest_with_resolver,
 };
 use traverse_runtime::data_store::{
     DataStore, DataStoreError, DataStoreErrorCode, LocalDataClassification, StateRecord,
@@ -315,6 +324,9 @@ pub struct EmbedderConfig {
     pub platform: String,
     /// Artifact verification posture.
     pub security: SecurityPosture,
+    /// Optional host-owned verified registry cache used to resolve
+    /// `registry_ref` components offline at `init` (Spec 080).
+    pub registry_cache: Option<HostRegistryCache>,
 }
 
 impl EmbedderConfig {
@@ -328,7 +340,16 @@ impl EmbedderConfig {
             workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
             platform: std::env::consts::OS.to_string(),
             security: SecurityPosture::Production,
+            registry_cache: None,
         }
+    }
+
+    /// Attach a host-owned verified registry cache for offline `registry_ref`
+    /// resolution during `init`.
+    #[must_use]
+    pub fn with_registry_cache(mut self, cache: HostRegistryCache) -> Self {
+        self.registry_cache = Some(cache);
+        self
     }
 }
 
@@ -1143,21 +1164,14 @@ impl BundleEmbedder {
     #[allow(unexpected_cfgs)]
     pub fn init(config: EmbedderConfig) -> Result<Self, EmbedderError> {
         let manifest_path = absolute_bundle_path(&config.manifest_bundle_path)?;
-        let manifest = load_application_bundle_manifest(&manifest_path).map_err(|failure| {
-            EmbedderError::new(
-                EmbedderErrorCode::BundleLoadFailed,
-                format!(
-                    "application bundle failed to load: {}",
-                    manifest_failure_messages(
-                        &failure
-                            .errors
-                            .iter()
-                            .map(|e| e.message.clone())
-                            .collect::<Vec<_>>()
-                    )
-                ),
-            )
-        })?;
+        let manifest = match config.registry_cache.as_ref() {
+            Some(cache) => {
+                let resolver = OfflineRegistryCacheResolver { cache };
+                load_application_bundle_manifest_with_resolver(&manifest_path, Some(&resolver))
+            }
+            None => load_application_bundle_manifest(&manifest_path),
+        }
+        .map_err(|failure| map_manifest_failure(&failure))?;
         ensure_supported_bundle_schema(&manifest.schema_version)?;
 
         let mut capabilities = CapabilityRegistry::new();
@@ -1675,6 +1689,45 @@ fn runtime_stopped_error() -> EmbedderError {
     )
 }
 
+fn map_manifest_failure(failure: &ApplicationManifestFailure) -> EmbedderError {
+    let message = manifest_failure_messages(
+        &failure
+            .errors
+            .iter()
+            .map(|error| error.message.clone())
+            .collect::<Vec<_>>(),
+    );
+    let code_hint = failure.errors.first().map(|error| error.code);
+    let message = match code_hint {
+        Some(ApplicationManifestErrorCode::RegistryReferenceRequiresResolution) => {
+            format!("application bundle failed to load (registry_cache_entry_missing): {message}")
+        }
+        _ => format!("application bundle failed to load: {message}"),
+    };
+    EmbedderError::new(EmbedderErrorCode::BundleLoadFailed, message)
+}
+
+struct OfflineRegistryCacheResolver<'a> {
+    cache: &'a HostRegistryCache,
+}
+
+impl RegistryComponentResolver for OfflineRegistryCacheResolver<'_> {
+    fn resolve(
+        &self,
+        reference: &RegistryReference,
+    ) -> Result<ResolvedRegistryComponent, ApplicationManifestFailure> {
+        crate::registry_cache::resolve_component(self.cache, reference).map_err(|failure| {
+            ApplicationManifestFailure {
+                errors: vec![ApplicationManifestError {
+                    code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
+                    path: "$.registry_ref".to_string(),
+                    message: format!("{}: {}", failure.code.as_str(), failure.message),
+                }],
+            }
+        })
+    }
+}
+
 fn absolute_bundle_path(path: &Path) -> Result<PathBuf, EmbedderError> {
     std::path::absolute(path).map_err(|error| {
         EmbedderError::new(
@@ -1753,6 +1806,8 @@ fn workflow_step_status_str(status: WorkflowTraversalStepStatus) -> &'static str
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
     use super::*;
 
     #[test]
@@ -2158,5 +2213,144 @@ mod tests {
         for (reason, expected) in failures {
             assert_eq!(execution_failure_code(reason), expected);
         }
+    }
+
+    #[test]
+    fn offline_registry_resolver_loads_prepared_contract_and_reports_missing() {
+        use crate::registry_cache::{
+            HostRegistryCache, RegistryArtifactFetcher, prepare, resolve_component,
+        };
+        use sha2::{Digest, Sha256};
+        use std::collections::HashMap;
+        use std::fmt::Write as _;
+        use traverse_registry::{
+            PublicRegistryCapabilityRecord, RegistryComponentResolver, RegistryReference,
+            SyncedPublicRegistryState,
+        };
+
+        struct MapFetcher {
+            assets: HashMap<String, Vec<u8>>,
+        }
+        impl RegistryArtifactFetcher for MapFetcher {
+            fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
+                self.assets
+                    .get(url)
+                    .cloned()
+                    .ok_or_else(|| "missing".to_string())
+            }
+        }
+
+        fn sha256_hex(bytes: &[u8]) -> String {
+            let digest = Sha256::digest(bytes);
+            let mut value = String::with_capacity(digest.len() * 2);
+            for byte in digest {
+                let _ = write!(value, "{byte:02x}");
+            }
+            value
+        }
+
+        let contract = include_str!(
+            "../../../contracts/examples/traverse-starter/capabilities/process/contract.json"
+        )
+        .as_bytes()
+        .to_vec();
+        let artifact = b"\0asm\x01\0\0\0".to_vec();
+        let artifact_digest = format!("sha256:{}", sha256_hex(&artifact));
+        let contract_digest = format!("sha256:{}", sha256_hex(&contract));
+        let record = PublicRegistryCapabilityRecord {
+            namespace: "traverse-starter".to_string(),
+            id: "process".to_string(),
+            version: "1.0.0".to_string(),
+            digest: artifact_digest.clone(),
+            artifact_url: "https://example.test/process.wasm".to_string(),
+            contract_digest: contract_digest.clone(),
+            contract_url: "https://example.test/process.json".to_string(),
+            deprecated: false,
+        };
+        let snapshot = SyncedPublicRegistryState {
+            schema_version: "1".to_string(),
+            workspace_id: "ws".to_string(),
+            state_scope: "public".to_string(),
+            source_repo: "traverse-framework/registry".to_string(),
+            release_tag: "index-v1".to_string(),
+            index_version: 1,
+            generated_at: "2026-07-29T00:00:00Z".to_string(),
+            source_commit: None,
+            synced_at: "2026-07-29T00:00:00Z".to_string(),
+            record_count: 1,
+            validation_status: "valid".to_string(),
+            governing_spec: "055-registry-sync".to_string(),
+            capabilities: vec![record.clone()],
+        };
+        let mut assets = HashMap::new();
+        assets.insert(record.artifact_url.clone(), artifact);
+        assets.insert(record.contract_url.clone(), contract);
+        let fetcher = MapFetcher { assets };
+        let reference = RegistryReference {
+            namespace: "traverse-starter".to_string(),
+            id: "process".to_string(),
+            version_range: "^1.0.0".to_string(),
+        };
+        let root = std::env::temp_dir().join(format!(
+            "traverse-embedder-resolver-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("root");
+        let cache = HostRegistryCache::new(root);
+        prepare(&cache, &snapshot, &reference, &fetcher).expect("prepare");
+        let resolver = OfflineRegistryCacheResolver { cache: &cache };
+        let loaded = resolver.resolve(&reference).expect("resolve");
+        assert_eq!(loaded.wasm_digest, artifact_digest);
+        assert_eq!(loaded.contract.id, "traverse-starter.process");
+
+        let missing_ref = RegistryReference {
+            namespace: "missing".to_string(),
+            id: "capability".to_string(),
+            version_range: "^1.0.0".to_string(),
+        };
+        let missing = resolver.resolve(&missing_ref).expect_err("missing");
+        assert!(
+            missing.errors[0]
+                .message
+                .contains("registry_cache_entry_missing")
+        );
+        let _ = resolve_component(&cache, &reference);
+    }
+
+    #[test]
+    fn map_manifest_failure_marks_registry_cache_misses() {
+        let failure = ApplicationManifestFailure {
+            errors: vec![ApplicationManifestError {
+                code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
+                path: "$.registry_ref".to_string(),
+                message: "registry_cache_entry_missing: absent".to_string(),
+            }],
+        };
+        let mapped = map_manifest_failure(&failure);
+        assert_eq!(mapped.code, EmbedderErrorCode::BundleLoadFailed);
+        assert!(mapped.message.contains("registry_cache_entry_missing"));
+
+        let other = ApplicationManifestFailure {
+            errors: vec![ApplicationManifestError {
+                code: ApplicationManifestErrorCode::ManifestReadFailed,
+                path: "$".to_string(),
+                message: "boom".to_string(),
+            }],
+        };
+        let mapped_other = map_manifest_failure(&other);
+        assert!(
+            mapped_other
+                .message
+                .contains("application bundle failed to load")
+        );
+        assert!(
+            !mapped_other
+                .message
+                .contains("registry_cache_entry_missing):")
+        );
     }
 }

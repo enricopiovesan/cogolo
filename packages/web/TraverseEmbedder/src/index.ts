@@ -67,6 +67,25 @@ export { FetchBundleLoader, NodeFsBundleLoader } from "./bundleLoader.js";
 export type { BundleLoader } from "./bundleLoader.js";
 
 export {
+  MemoryRegistryCacheStore,
+  RegistryCacheError,
+  evictAllRegistryCacheEntries,
+  evictRegistryCacheEntry,
+  prepareRegistryDependency,
+  resolveRegistryDependencyOffline,
+} from "./registryCache.js";
+export type {
+  PublicRegistryCapabilityRecord,
+  RegistryArtifactFetcher,
+  RegistryCacheErrorCode,
+  RegistryCacheStore,
+  RegistryPrepareEvidence,
+  RegistryReference,
+  SyncedPublicRegistryState,
+  VerifiedRegistryDependency,
+} from "./registryCache.js";
+
+export {
   HOST_ABI_V1_WHITELIST,
   SUPPORTED_HOST_ABI_VERSION,
   findUnauthorizedImport,

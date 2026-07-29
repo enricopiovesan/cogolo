@@ -1857,8 +1857,11 @@ dependencies = [
 name = "traverse-embedder"
 version = "0.8.1"
 dependencies = [
+ "semver",
+ "serde",
  "serde_json",
- "sha2 0.11.0",
+ "sha2 0.10.9",
+ "traverse-contracts",
  "traverse-registry",
  "traverse-runtime",
  "wat",
