@@ -71,6 +71,7 @@ enum Command {
     RegistrySync {
         workspace_id: String,
         json_output: bool,
+        source_repo: Option<String>,
     },
     RegistryList {
         workspace_id: String,
@@ -88,6 +89,7 @@ enum Command {
         contract_path: PathBuf,
         artifact_path: PathBuf,
         registry_repo_path: PathBuf,
+        registry_repo_remote: Option<String>,
         json_output: bool,
         dry_run: bool,
     },
@@ -279,12 +281,14 @@ fn run_command(command: Command) -> Result<String, CliError> {
             contract_path,
             artifact_path,
             registry_repo_path,
+            registry_repo_remote,
             json_output,
             dry_run,
         } => capability_publish(
             &contract_path,
             &artifact_path,
             &registry_repo_path,
+            registry_repo_remote,
             json_output,
             dry_run,
         ),
@@ -343,7 +347,8 @@ fn run_registry_command(command: Command) -> Result<String, CliError> {
         Command::RegistrySync {
             workspace_id,
             json_output,
-        } => registry_sync(&workspace_id, json_output),
+            source_repo,
+        } => registry_sync(&workspace_id, json_output, source_repo),
         Command::RegistryList {
             workspace_id,
             namespace,
@@ -534,22 +539,34 @@ fn help_app() -> String {
 }
 
 fn help_registry_sync() -> String {
-    "traverse-cli registry sync --workspace <workspace-id> --json
+    "traverse-cli registry sync --workspace <workspace-id> --json [--source-repo <owner/repo>]
 
   Purpose:
-    Fetch the latest public registry index from traverse-framework/registry and
-    atomically persist it as local workspace public-tier registry state. Runtime
-    execution reads local state only and never live-fetches the registry.
+    Fetch the latest public registry index from traverse-framework/registry (or
+    a configured alternate source) and atomically persist it as local workspace
+    public-tier registry state. Runtime execution reads local state only and
+    never live-fetches the registry.
 
   Required flags:
     --workspace <id>   Local workspace id to sync into.
     --json             Emit machine-readable sync evidence.
 
   Optional flags:
-    --help             Print this help text.
+    --source-repo <owner/repo>  Sync from this GitHub repo instead of
+                                traverse-framework/registry. The repo must adopt
+                                the same capabilities/<namespace>/<id>/<version>/
+                                contract.json layout and index-release CI -- this
+                                is how a team stands up its own private registry
+                                (own fork or clone), the same mechanism as the
+                                public one, just a different source. If the repo
+                                is private, set TRAVERSE_REGISTRY_TOKEN in the
+                                environment to a token with read access to it.
+    --help                      Print this help text.
 
   Example:
-    traverse-cli registry sync --workspace local-default --json"
+    traverse-cli registry sync --workspace local-default --json
+    traverse-cli registry sync --workspace local-default --json \\
+      --source-repo acme-corp/internal-registry"
         .to_string()
 }
 
@@ -606,28 +623,44 @@ fn help_registry() -> String {
 }
 
 fn help_capability_publish() -> String {
-    "traverse-cli capability publish --contract <path> --artifact <path> --registry-repo <path> --json [--dry-run]
+    "traverse-cli capability publish --contract <path> --artifact <path> --registry-repo <path> --json [--dry-run] [--registry-repo-remote <owner/repo>]
 
   Purpose:
-    Validate a public capability contract and artifact, prepare the publication
-    candidate under a local traverse-framework/registry checkout, and open a
-    human-reviewed registry PR. The command never publishes directly.
+    Validate a capability contract and artifact, prepare the publication
+    candidate under a local registry checkout, and open a human-reviewed
+    registry PR. The command never publishes directly.
 
   Required flags:
     --contract <path>       Capability contract JSON to publish.
     --artifact <path>       Capability artifact used for digest verification.
-    --registry-repo <path>  Local checkout of traverse-framework/registry.
+    --registry-repo <path>  Local checkout of the target registry repo (a
+                            clone of traverse-framework/registry, or of a
+                            private fork/clone of it).
     --json                  Emit machine-readable publish evidence.
 
   Optional flags:
-    --dry-run               Validate and report planned branch/path without writes.
-    --help                  Print this help text.
+    --dry-run                       Validate and report planned branch/path without writes.
+    --registry-repo-remote <owner/repo>  Open the PR against this GitHub repo instead
+                                    of traverse-framework/registry -- the counterpart
+                                    to --registry-repo, since the local checkout path
+                                    and the remote it should PR against are two
+                                    separate things. Set this to the same repo your
+                                    --registry-repo checkout's origin points at when
+                                    publishing to your own private registry.
+    --help                          Print this help text.
 
   Example:
     traverse-cli capability publish \\
       --contract contracts/examples/traverse-starter/capabilities/process/contract.json \\
       --artifact artifacts/process-agent.wasm \\
       --registry-repo ../registry \\
+      --json
+
+    traverse-cli capability publish \\
+      --contract contracts/examples/traverse-starter/capabilities/process/contract.json \\
+      --artifact artifacts/process-agent.wasm \\
+      --registry-repo ../internal-registry \\
+      --registry-repo-remote acme-corp/internal-registry \\
       --json"
         .to_string()
 }
@@ -1134,6 +1167,7 @@ fn parse_registry_sync_command(args: &[String]) -> Result<Command, String> {
     Ok(Command::RegistrySync {
         workspace_id,
         json_output: true,
+        source_repo: parse_string_flag(args, "--source-repo"),
     })
 }
 
@@ -1179,6 +1213,7 @@ fn parse_capability_publish_command(args: &[String]) -> Result<Command, String> 
         contract_path: PathBuf::from(contract_path),
         artifact_path: PathBuf::from(artifact_path),
         registry_repo_path: PathBuf::from(registry_repo_path),
+        registry_repo_remote: parse_string_flag(args, "--registry-repo-remote"),
         json_output: true,
         dry_run: args.iter().any(|a| a == "--dry-run"),
     })
@@ -2066,9 +2101,12 @@ trait RegistryIndexFetcher {
     fn fetch_latest_index(&self) -> Result<FetchedRegistryIndex, RegistrySyncError>;
 }
 
-#[derive(Debug, Clone, Copy)]
+#[derive(Debug, Clone)]
 struct CurlGitHubRegistryIndexFetcher {
-    source_repo: &'static str,
+    source_repo: String,
+    /// Bearer token for a private source repo's Releases API. `None` for the
+    /// default public source, which is unauthenticated.
+    token: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -2083,7 +2121,7 @@ impl RegistryIndexFetcher for CurlGitHubRegistryIndexFetcher {
             "https://api.github.com/repos/{}/releases?per_page=100",
             self.source_repo
         );
-        let releases = curl_text(&releases_url)?;
+        let releases = curl_text(&releases_url, self.token.as_deref())?;
         let releases_json: Value = serde_json::from_str(&releases).map_err(|error| {
             RegistrySyncError::new(
                 "registry_release_parse_failed",
@@ -2091,7 +2129,7 @@ impl RegistryIndexFetcher for CurlGitHubRegistryIndexFetcher {
             )
         })?;
         let (release_tag, index_asset_url) = latest_index_release_asset(&releases_json)?;
-        let index_json = curl_text(&index_asset_url)?;
+        let index_json = curl_text(&index_asset_url, self.token.as_deref())?;
         let index: PublicRegistryIndex = serde_json::from_str(&index_json).map_err(|error| {
             RegistrySyncError::new(
                 "registry_index_parse_failed",
@@ -2100,7 +2138,7 @@ impl RegistryIndexFetcher for CurlGitHubRegistryIndexFetcher {
         })?;
 
         Ok(FetchedRegistryIndex {
-            source_repo: self.source_repo.to_string(),
+            source_repo: self.source_repo.clone(),
             release_tag,
             index,
         })
@@ -2113,16 +2151,35 @@ impl RegistrySyncError {
     }
 }
 
-fn registry_sync(workspace_id: &str, json_output: bool) -> Result<String, CliError> {
+/// Resolves the effective registry source repo: the explicit override when
+/// supplied, otherwise the default public registry.
+fn registry_sync_default_or_override(source_repo_override: Option<String>) -> String {
+    source_repo_override.unwrap_or_else(|| DEFAULT_PUBLIC_REGISTRY_SOURCE.to_string())
+}
+
+fn registry_sync(
+    workspace_id: &str,
+    json_output: bool,
+    source_repo_override: Option<String>,
+) -> Result<String, CliError> {
     let base_dir = std::env::current_dir()
         .map_err(|e| CliError::IoError(format!("failed to resolve current directory: {e}")))?;
+    let is_default_source = source_repo_override.is_none();
+    let source_repo = registry_sync_default_or_override(source_repo_override);
+    // Only read/attach the token for a non-default source. The default
+    // public registry stays unauthenticated -- wire-identical to today --
+    // regardless of whether TRAVERSE_REGISTRY_TOKEN happens to be set in
+    // the caller's environment for an unrelated reason.
+    let token = if is_default_source {
+        None
+    } else {
+        std::env::var("TRAVERSE_REGISTRY_TOKEN").ok()
+    };
     registry_sync_at(
         &base_dir,
         workspace_id,
         json_output,
-        &CurlGitHubRegistryIndexFetcher {
-            source_repo: DEFAULT_PUBLIC_REGISTRY_SOURCE,
-        },
+        &CurlGitHubRegistryIndexFetcher { source_repo, token },
     )
 }
 
@@ -2340,6 +2397,9 @@ struct CapabilityPublishRequest {
     contract_path: PathBuf,
     artifact_path: PathBuf,
     registry_repo_path: PathBuf,
+    /// Overrides `DEFAULT_REGISTRY_REPO` as the `gh pr create --repo` target.
+    /// `None` publishes against traverse-framework/registry, unchanged.
+    registry_repo_remote: Option<String>,
     json_output: bool,
     dry_run: bool,
 }
@@ -2403,6 +2463,7 @@ fn capability_publish(
     contract_path: &Path,
     artifact_path: &Path,
     registry_repo_path: &Path,
+    registry_repo_remote: Option<String>,
     json_output: bool,
     dry_run: bool,
 ) -> Result<String, CliError> {
@@ -2411,6 +2472,7 @@ fn capability_publish(
             contract_path: contract_path.to_path_buf(),
             artifact_path: artifact_path.to_path_buf(),
             registry_repo_path: registry_repo_path.to_path_buf(),
+            registry_repo_remote,
             json_output,
             dry_run,
         },
@@ -2428,10 +2490,22 @@ fn capability_publish_at(
         ));
     }
 
+    let registry_repo = request
+        .registry_repo_remote
+        .as_deref()
+        .unwrap_or(DEFAULT_REGISTRY_REPO);
+
     let plan = match capability_publish_plan(request) {
         Ok(plan) => plan,
         Err((code, message)) => {
-            return capability_publish_failure_json(code, &message, None, None, None);
+            return capability_publish_failure_json(
+                code,
+                &message,
+                None,
+                None,
+                None,
+                registry_repo,
+            );
         }
     };
 
@@ -2442,11 +2516,12 @@ fn capability_publish_at(
             Some(&plan),
             None,
             None,
+            registry_repo,
         );
     }
 
     if request.dry_run {
-        return capability_publish_success_json("dry_run", &plan, None);
+        return capability_publish_success_json("dry_run", &plan, None, registry_repo);
     }
 
     if let Err(error) = ensure_clean_registry_checkout(&request.registry_repo_path, runner) {
@@ -2456,17 +2531,19 @@ fn capability_publish_at(
             Some(&plan),
             None,
             None,
+            registry_repo,
         );
     }
 
-    match prepare_and_open_registry_pr(request, &plan, runner) {
-        Ok(url) => capability_publish_success_json("pr_opened", &plan, Some(&url)),
+    match prepare_and_open_registry_pr(request, &plan, runner, registry_repo) {
+        Ok(url) => capability_publish_success_json("pr_opened", &plan, Some(&url), registry_repo),
         Err((code, message, partial_state)) => capability_publish_failure_json(
             code,
             &message,
             Some(&plan),
             partial_state.as_deref(),
             None,
+            registry_repo,
         ),
     }
 }
@@ -2615,6 +2692,7 @@ fn prepare_and_open_registry_pr(
     request: &CapabilityPublishRequest,
     plan: &CapabilityPublishPlan,
     runner: &dyn PublishProcessRunner,
+    registry_repo: &str,
 ) -> Result<String, (&'static str, String, Option<String>)> {
     run_publish_command(
         runner,
@@ -2689,7 +2767,7 @@ fn prepare_and_open_registry_pr(
             "pr".to_string(),
             "create".to_string(),
             "--repo".to_string(),
-            DEFAULT_REGISTRY_REPO.to_string(),
+            registry_repo.to_string(),
             "--base".to_string(),
             "main".to_string(),
             "--head".to_string(),
@@ -2740,10 +2818,11 @@ fn capability_publish_success_json(
     status: &str,
     plan: &CapabilityPublishPlan,
     pull_request_url: Option<&str>,
+    registry_repo: &str,
 ) -> Result<String, CliError> {
     let mut value = serde_json::json!({
         "status": status,
-        "registry_repo": DEFAULT_REGISTRY_REPO,
+        "registry_repo": registry_repo,
         "branch": plan.branch,
         "registry_path": plan.registry_relative_path.display().to_string(),
         "namespace": plan.namespace,
@@ -2768,10 +2847,11 @@ fn capability_publish_failure_json(
     plan: Option<&CapabilityPublishPlan>,
     partial_state: Option<&str>,
     pull_request_url: Option<&str>,
+    registry_repo: &str,
 ) -> Result<String, CliError> {
     let mut value = serde_json::json!({
         "status": "failed",
-        "registry_repo": DEFAULT_REGISTRY_REPO,
+        "registry_repo": registry_repo,
         "errors": [{
             "code": code,
             "message": message,
@@ -2866,16 +2946,21 @@ fn parse_u64(value: &str) -> Option<u64> {
     value.parse::<u64>().ok()
 }
 
-fn curl_text(url: &str) -> Result<String, RegistrySyncError> {
+fn curl_text(url: &str, token: Option<&str>) -> Result<String, RegistrySyncError> {
+    let mut args = vec![
+        "-fsSL".to_string(),
+        "-H".to_string(),
+        "Accept: application/vnd.github+json".to_string(),
+        "-H".to_string(),
+        "User-Agent: traverse-cli-registry-sync".to_string(),
+    ];
+    if let Some(token) = token {
+        args.push("-H".to_string());
+        args.push(format!("Authorization: Bearer {token}"));
+    }
+    args.push(url.to_string());
     let output = std::process::Command::new("curl")
-        .args([
-            "-fsSL",
-            "-H",
-            "Accept: application/vnd.github+json",
-            "-H",
-            "User-Agent: traverse-cli-registry-sync",
-            url,
-        ])
+        .args(&args)
         .output()
         .map_err(|error| {
             RegistrySyncError::new(
@@ -5381,10 +5466,10 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::{
-        CapabilityPublishRequest, CliError, Command, ExpeditionExampleExecutor,
-        FetchedRegistryIndex, PublishCommandOutput, PublishProcessRunner, RealPublishProcessRunner,
-        RegistryIndexFetcher, RegistrySyncError, app_new_at, app_register_at,
-        app_registration_state_path, app_validate, app_validate_at,
+        CapabilityPublishRequest, CliError, Command, DEFAULT_PUBLIC_REGISTRY_SOURCE,
+        ExpeditionExampleExecutor, FetchedRegistryIndex, PublishCommandOutput,
+        PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher, RegistrySyncError,
+        app_new_at, app_register_at, app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
         ensure_clean_registry_checkout, execute_agent, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
@@ -5392,8 +5477,9 @@ mod tests {
         inspect_event, inspect_trace, latest_index_release_asset, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
-        registry_record_order, registry_sync_at, registry_sync_failure_json,
-        reject_private_contract_scope, run_command, sha256_hex, validate_registry_path_segment,
+        registry_record_order, registry_sync_at, registry_sync_default_or_override,
+        registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
+        validate_registry_path_segment,
     };
     use crate::agent_packages::fnv1a64;
     use serde_json::Value;
@@ -5645,9 +5731,11 @@ mod tests {
             Command::RegistrySync {
                 workspace_id,
                 json_output,
+                source_repo,
             } => {
                 assert_eq!(workspace_id, "local-default");
                 assert!(json_output);
+                assert_eq!(source_repo, None);
             }
             other => assert!(matches!(other, Command::RegistrySync { .. })),
         }
@@ -5668,6 +5756,41 @@ mod tests {
             "local-default".to_string(),
         ];
         assert!(parse_command(&missing_json).is_err());
+    }
+
+    #[test]
+    fn parse_registry_sync_accepts_source_repo_override() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "sync".to_string(),
+            "--workspace".to_string(),
+            "local-default".to_string(),
+            "--json".to_string(),
+            "--source-repo".to_string(),
+            "acme-corp/internal-registry".to_string(),
+        ];
+
+        let command = parse_command(&args).expect("registry sync with override should parse");
+
+        match command {
+            Command::RegistrySync { source_repo, .. } => {
+                assert_eq!(source_repo.as_deref(), Some("acme-corp/internal-registry"));
+            }
+            other => assert!(matches!(other, Command::RegistrySync { .. })),
+        }
+    }
+
+    #[test]
+    fn registry_sync_defaults_to_public_source_when_override_omitted() {
+        assert_eq!(
+            registry_sync_default_or_override(None),
+            DEFAULT_PUBLIC_REGISTRY_SOURCE
+        );
+        assert_eq!(
+            registry_sync_default_or_override(Some("acme-corp/internal-registry".to_string())),
+            "acme-corp/internal-registry"
+        );
     }
 
     #[test]
@@ -5753,6 +5876,7 @@ mod tests {
                 contract_path,
                 artifact_path,
                 registry_repo_path,
+                registry_repo_remote,
                 json_output,
                 dry_run,
             } => {
@@ -5764,6 +5888,7 @@ mod tests {
                 );
                 assert_eq!(artifact_path, PathBuf::from("target/traverse-starter.wasm"));
                 assert_eq!(registry_repo_path, PathBuf::from("../registry"));
+                assert_eq!(registry_repo_remote, None);
                 assert!(json_output);
                 assert!(dry_run);
             }
@@ -5773,6 +5898,39 @@ mod tests {
         let mut missing_json = args.clone();
         missing_json.retain(|arg| arg != "--json");
         assert!(parse_command(&missing_json).is_err());
+    }
+
+    #[test]
+    fn parse_capability_publish_accepts_registry_repo_remote_override() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "capability".to_string(),
+            "publish".to_string(),
+            "--contract".to_string(),
+            "contracts/examples/traverse-starter/capabilities/process/contract.json".to_string(),
+            "--artifact".to_string(),
+            "target/traverse-starter.wasm".to_string(),
+            "--registry-repo".to_string(),
+            "../registry".to_string(),
+            "--registry-repo-remote".to_string(),
+            "acme-corp/internal-registry".to_string(),
+            "--json".to_string(),
+        ];
+
+        let command = parse_command(&args).expect("capability publish should parse");
+
+        match command {
+            Command::CapabilityPublish {
+                registry_repo_remote,
+                ..
+            } => {
+                assert_eq!(
+                    registry_repo_remote.as_deref(),
+                    Some("acme-corp/internal-registry")
+                );
+            }
+            other => assert!(matches!(other, Command::CapabilityPublish { .. })),
+        }
     }
 
     #[test]
@@ -5840,6 +5998,26 @@ mod tests {
         assert!(commands.contains("git checkout -B publish/traverse-starter.process-1.0.0"));
         assert!(commands.contains("gh pr create"));
         assert!(commands.contains("056-capability-publish"));
+        assert_eq!(json["registry_repo"], "traverse-framework/registry");
+        assert!(commands.contains("--repo traverse-framework/registry"));
+    }
+
+    #[test]
+    fn capability_publish_registry_repo_remote_override_targets_pr_at_override() {
+        let fixture = capability_publish_fixture();
+        let runner = RecordingPublishRunner::default();
+        let mut request = fixture.request(false);
+        request.registry_repo_remote = Some("acme-corp/internal-registry".to_string());
+
+        let output = capability_publish_at(&request, &runner)
+            .expect("publish with an override should still open a PR with the fake runner");
+        let json: Value = serde_json::from_str(&output).expect("publish output must be JSON");
+        let commands = runner.commands.borrow().join("\n");
+
+        assert_eq!(json["status"], "pr_opened");
+        assert_eq!(json["registry_repo"], "acme-corp/internal-registry");
+        assert!(commands.contains("--repo acme-corp/internal-registry"));
+        assert!(!commands.contains("--repo traverse-framework/registry"));
     }
 
     #[test]
@@ -7581,6 +7759,7 @@ mod tests {
                 contract_path: self.contract.clone(),
                 artifact_path: self.artifact.clone(),
                 registry_repo_path: self.registry_repo.clone(),
+                registry_repo_remote: None,
                 json_output: true,
                 dry_run,
             }
@@ -8341,7 +8520,7 @@ mod tests {
 
     #[test]
     fn curl_text_reports_fetch_failures() {
-        let err = curl_text("http://127.0.0.1:1/unreachable")
+        let err = curl_text("http://127.0.0.1:1/unreachable", None)
             .expect_err("unreachable url must fail to fetch");
         assert_eq!(err.code, "registry_fetch_failed");
         assert!(err.message.contains("failed to fetch"), "{}", err.message);
