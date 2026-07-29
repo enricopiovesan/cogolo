@@ -91,15 +91,22 @@ This is additive to Specs 054, 055, and 520. Existing unfiltered CLI and MCP
 discovery must adopt the Certified-only default only in a coordinated versioned
 surface release; an explicit compatibility note and migration guidance are
 required before that behavior is enabled. Implementations governed by this
-specification are limited to:
+specification are limited to the following exact files; any additional surface
+requires a successor-spec amendment:
 
-- `contracts/registry/` for tier, admission, lifecycle, and lock evidence
-  schemas;
-- `crates/traverse-registry/`, `crates/traverse-cli/`, and
-  `crates/traverse-mcp/` for validation, discovery, and evidence projection;
-- `specs/525-tiered-registry-trust-lifecycle/` for this specification and its
-  conformance fixtures; and
-- focused registry/CLI/MCP conformance tests.
+- `contracts/registry/tiered-registry-trust.schema.json` and
+  `contracts/registry/production-lockfile.schema.json`;
+- `crates/traverse-registry/src/tiered_trust.rs` and
+  `crates/traverse-registry/tests/tiered_trust_conformance.rs`;
+- `crates/traverse-cli/src/commands/registry.rs` and
+  `crates/traverse-cli/tests/registry_tiered_trust.rs`;
+- `crates/traverse-mcp/src/lib.rs` and
+  `crates/traverse-mcp/tests/registry_tiered_trust.rs`; and
+- the normative documents and fixture inputs in
+  `specs/525-tiered-registry-trust-lifecycle/`.
+
+Those paths name future implementation scope only; this issue changes no
+runtime, CLI, MCP, or registry behavior.
 
 ## Out of Scope
 
