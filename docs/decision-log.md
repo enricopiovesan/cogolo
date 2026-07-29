@@ -1088,3 +1088,33 @@ migration, backup, restore, or downgrade.
 The safety and ownership policy is approved. No format transition or
 implementation is authorized until a successor specification names the exact
 source-to-target format, backup representation, stable errors, and host API.
+
+## Decision 38: Establish the Production App Readiness Baseline
+
+- **Date**: 2026-07-28
+- **Status**: Accepted
+- **Planning spec**: `524-production-app-readiness`
+- **Extends**: Decisions 34–37 and Specs 079–082
+
+### Decision
+
+Traverse v1's production bar is an embedded multi-platform app that consumes
+verified registry capabilities offline, retains safe audit traces across
+restart, and upgrades host-owned local state without data loss. The registry
+has Certified, Community, and Kit/example tiers; discovery defaults to
+Certified; production bundles use committed exact lockfiles and host-prepared
+verified cache generations. Updates are explicit and reversible, and security
+yanks are enforced through locally known deadlines or minimum-safe versions.
+
+Certified capability admission requires signed provenance, validation,
+conformance evidence, and maintainer support policy. Certified platform status
+requires equal conformance across Web, Linux/Rust, Apple, Android, and
+Windows/.NET. Trace and state ownership, encryption keys, tenancy, and user
+authorization remain host-owned. The durable journal is separate from
+DataStore; `local-datastore/2` is the first explicit file-backed migration
+target; roots are single-writer in v1.
+
+### Outcome
+
+This decision is decomposed into bounded successor specifications and tickets;
+it is not itself an implementation authorization.
