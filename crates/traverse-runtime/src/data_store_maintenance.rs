@@ -374,15 +374,8 @@ impl DataStoreMaintenance for LocalFileDataStoreMaintenance {
 
         // Release lock on the live root before swapping directories.
         let _ = self.lock_file.unlock();
-        fs::rename(&self.root, &backup_root)
-            .map_err(|error| handle_move_live_store_aside_failure(self, &error))?;
-        if let Err(error) = fs::rename(&temp_root, &self.root) {
-            return Err(handle_replace_store_root_failure(
-                self,
-                &backup_root,
-                &error,
-            ));
-        }
+        move_live_store_aside(self, &backup_root)?;
+        replace_store_root(self, &temp_root, &backup_root)?;
         self.reacquire_lock()?;
         let _ = fs::remove_dir_all(&backup_root);
 
@@ -739,6 +732,29 @@ fn as_of_minus_max_age_underflow_error() -> MaintenanceError {
     }
 }
 
+fn move_live_store_aside(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    backup_root: &Path,
+) -> Result<(), MaintenanceError> {
+    fs::rename(&maintenance.root, backup_root)
+        .map_err(|error| handle_move_live_store_aside_failure(maintenance, &error))
+}
+
+fn replace_store_root(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    temp_root: &Path,
+    backup_root: &Path,
+) -> Result<(), MaintenanceError> {
+    if let Err(error) = fs::rename(temp_root, &maintenance.root) {
+        return Err(handle_replace_store_root_failure(
+            maintenance,
+            backup_root,
+            &error,
+        ));
+    }
+    Ok(())
+}
+
 fn read_manifest_bytes_error(error: &std::io::Error) -> MaintenanceError {
     MaintenanceError {
         code: MaintenanceErrorCode::BackupVerifyFailed,
@@ -757,10 +773,10 @@ fn read_member_bytes_error(error: &std::io::Error) -> MaintenanceError {
 
 fn open_restore_zip(archive: &Path) -> Result<ZipArchive<File>, MaintenanceError> {
     let file = File::open(archive).map_err(|error| maintenance_io("reopen archive", &error))?;
-    ZipArchive::new(file).map_err(|error| restore_invalid_zip_error(error))
+    ZipArchive::new(file).map_err(restore_invalid_zip_error)
 }
 
-fn restore_invalid_zip_error(error: zip::result::ZipError) -> MaintenanceError {
+fn restore_invalid_zip_error(error: &zip::result::ZipError) -> MaintenanceError {
     MaintenanceError {
         code: MaintenanceErrorCode::RestoreVerifyFailed,
         message: "restore_verify_failed".to_string(),
@@ -1169,6 +1185,37 @@ mod tests {
     }
 
     #[test]
+    fn restore_replace_failure_rolls_back_live_store() {
+        let root = temp_root("replace-live");
+        drop(seed_store(&root, 1, None));
+        let parent = root.parent().expect("parent");
+        let temp_root_path = parent.join(format!(
+            ".traverse-datastore-restore-{}-manual",
+            std::process::id()
+        ));
+        let backup_root = parent.join(format!(
+            ".traverse-datastore-replaced-{}-manual",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&temp_root_path);
+        let _ = fs::remove_dir_all(&backup_root);
+        fs::create_dir_all(&temp_root_path).expect("temp");
+        fs::write(temp_root_path.join(LOCAL_DATA_STORE_LOCK_FILE), b"").expect("lock");
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        move_live_store_aside(&mut maintenance, &backup_root).expect("move aside");
+        fs::write(&root, "block replace").expect("occupy root path");
+        let failure = replace_store_root(&mut maintenance, &temp_root_path, &backup_root)
+            .expect_err("replace");
+        assert_eq!(
+            failure.details["operation"],
+            "atomically replace store root"
+        );
+        let _ = fs::remove_file(&root);
+        let _ = fs::rename(&backup_root, &root);
+        let _ = fs::remove_dir_all(&temp_root_path);
+    }
+
+    #[test]
     fn verify_io_error_helpers_and_truncated_manifest_reads_fail() {
         let root = temp_root("truncated");
         drop(seed_store(&root, 1, None));
@@ -1182,7 +1229,7 @@ mod tests {
                 .backup(&archive, "2026-07-29T00:00:00Z")
                 .expect("backup");
         }
-        let mut file = OpenOptions::new().write(true).open(&archive).expect("open");
+        let file = OpenOptions::new().write(true).open(&archive).expect("open");
         file.set_len(32).expect("truncate");
         drop(file);
         let failure = verify_backup_archive(&archive).expect_err("truncated");
