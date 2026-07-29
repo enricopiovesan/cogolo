@@ -555,11 +555,7 @@ fn read_and_validate_manifest_header(
                 })?;
         manifest_file
             .read_to_end(&mut manifest_bytes)
-            .map_err(|error| MaintenanceError {
-                code: MaintenanceErrorCode::BackupVerifyFailed,
-                message: "backup_verify_failed".to_string(),
-                details: json!({ "reason": "read_manifest", "cause": error.to_string() }),
-            })?;
+            .map_err(|error| read_manifest_bytes_error(&error))?;
     }
     let manifest: BackupManifest =
         serde_json::from_slice(&manifest_bytes).map_err(|_| MaintenanceError {
@@ -611,11 +607,7 @@ fn verify_manifest_member_payloads(
                     details: json!({ "reason": "missing_member", "path": entry.member_path }),
                 })?;
             file.read_to_end(&mut bytes)
-                .map_err(|error| MaintenanceError {
-                    code: MaintenanceErrorCode::BackupVerifyFailed,
-                    message: "backup_verify_failed".to_string(),
-                    details: json!({ "reason": "read_member", "cause": error.to_string() }),
-                })?;
+                .map_err(|error| read_member_bytes_error(&error))?;
         }
         if sha256_hex(&bytes) != entry.envelope_digest {
             return Err(MaintenanceError {
@@ -660,12 +652,7 @@ fn verify_manifest_member_payloads(
 
 fn materialize_archive_to_root(archive: &Path, root: &Path) -> Result<(), MaintenanceError> {
     let manifest = verify_backup_archive(archive)?;
-    let file = File::open(archive).map_err(|error| maintenance_io("reopen archive", &error))?;
-    let mut zip = ZipArchive::new(file).map_err(|error| MaintenanceError {
-        code: MaintenanceErrorCode::RestoreVerifyFailed,
-        message: "restore_verify_failed".to_string(),
-        details: json!({ "reason": "invalid_zip", "cause": error.to_string() }),
-    })?;
+    let mut zip = open_restore_zip(archive)?;
     // Ensure lock file exists in the new root so reopen can acquire it.
     let lock_path = root.join(LOCAL_DATA_STORE_LOCK_FILE);
     File::create(&lock_path)
@@ -678,11 +665,7 @@ fn materialize_archive_to_root(archive: &Path, root: &Path) -> Result<(), Mainte
         {
             let mut member = zip
                 .by_name(&entry.member_path)
-                .map_err(|_| MaintenanceError {
-                    code: MaintenanceErrorCode::RestoreVerifyFailed,
-                    message: "restore_verify_failed".to_string(),
-                    details: json!({ "reason": "missing_member", "path": entry.member_path }),
-                })?;
+                .map_err(|_| restore_missing_member_error(&entry.member_path))?;
             member
                 .read_to_end(&mut bytes)
                 .map_err(|error| maintenance_io("extract member", &error))?;
@@ -753,6 +736,43 @@ fn as_of_minus_max_age_underflow_error() -> MaintenanceError {
         code: MaintenanceErrorCode::InvalidRetentionPolicy,
         message: "invalid_retention_policy".to_string(),
         details: json!({ "reason": "as_of_minus_max_age_underflow" }),
+    }
+}
+
+fn read_manifest_bytes_error(error: &std::io::Error) -> MaintenanceError {
+    MaintenanceError {
+        code: MaintenanceErrorCode::BackupVerifyFailed,
+        message: "backup_verify_failed".to_string(),
+        details: json!({ "reason": "read_manifest", "cause": error.to_string() }),
+    }
+}
+
+fn read_member_bytes_error(error: &std::io::Error) -> MaintenanceError {
+    MaintenanceError {
+        code: MaintenanceErrorCode::BackupVerifyFailed,
+        message: "backup_verify_failed".to_string(),
+        details: json!({ "reason": "read_member", "cause": error.to_string() }),
+    }
+}
+
+fn open_restore_zip(archive: &Path) -> Result<ZipArchive<File>, MaintenanceError> {
+    let file = File::open(archive).map_err(|error| maintenance_io("reopen archive", &error))?;
+    ZipArchive::new(file).map_err(|error| restore_invalid_zip_error(error))
+}
+
+fn restore_invalid_zip_error(error: zip::result::ZipError) -> MaintenanceError {
+    MaintenanceError {
+        code: MaintenanceErrorCode::RestoreVerifyFailed,
+        message: "restore_verify_failed".to_string(),
+        details: json!({ "reason": "invalid_zip", "cause": error.to_string() }),
+    }
+}
+
+fn restore_missing_member_error(path: &str) -> MaintenanceError {
+    MaintenanceError {
+        code: MaintenanceErrorCode::RestoreVerifyFailed,
+        message: "restore_verify_failed".to_string(),
+        details: json!({ "reason": "missing_member", "path": path }),
     }
 }
 
@@ -858,7 +878,7 @@ mod tests {
         DataStore, DataStoreError, DataStoreErrorCode, LocalFileDataStore, StateRecord,
     };
     use serde_json::json;
-    use std::fs::TryLockError;
+    use std::fs::{self, File, OpenOptions, TryLockError};
     use std::path::Path;
     use uuid::Uuid;
 
@@ -1100,6 +1120,73 @@ mod tests {
         let parse_error = serde_json::from_str::<Value>("{").expect_err("invalid json");
         let manifest = serialize_manifest_error(&parse_error);
         assert_eq!(manifest.details["operation"], "serialize_manifest");
+
+        let io = std::io::Error::other("read failed");
+        assert_eq!(
+            read_manifest_bytes_error(&io).details["reason"],
+            "read_manifest"
+        );
+        assert_eq!(
+            read_member_bytes_error(&io).details["reason"],
+            "read_member"
+        );
+
+        let bad = temp_root("restore-zip").join("bad.zip");
+        fs::write(&bad, b"not a zip").expect("write");
+        let invalid = open_restore_zip(&bad).expect_err("invalid");
+        assert_eq!(invalid.details["reason"], "invalid_zip");
+
+        let missing = restore_missing_member_error("records/missing.json");
+        assert_eq!(missing.details["reason"], "missing_member");
+    }
+
+    #[test]
+    fn age_prune_retains_unstamped_envelopes() {
+        let root = temp_root("unstamped");
+        drop(seed_store(&root, 2, None));
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let evidence = maintenance
+            .prune(
+                &RetentionPolicy {
+                    max_count: None,
+                    max_age_secs: Some(86_400),
+                },
+                "2026-07-29T00:00:00Z",
+            )
+            .expect("prune");
+        assert_eq!(evidence.removed_count, 0);
+        assert_eq!(evidence.retained_count, 2);
+    }
+
+    #[test]
+    fn backup_without_destination_parent_skips_parent_creation() {
+        let root = temp_root("skip-parent");
+        drop(seed_store(&root, 1, None));
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let destination = PathBuf::new();
+        assert!(destination.parent().is_none());
+        let _ = maintenance.backup(&destination, "2026-07-29T00:00:00Z");
+    }
+
+    #[test]
+    fn verify_io_error_helpers_and_truncated_manifest_reads_fail() {
+        let root = temp_root("truncated");
+        drop(seed_store(&root, 1, None));
+        let archive = root
+            .parent()
+            .expect("parent")
+            .join(format!("trunc-{}.zip", Uuid::new_v4()));
+        {
+            let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+            maintenance
+                .backup(&archive, "2026-07-29T00:00:00Z")
+                .expect("backup");
+        }
+        let mut file = OpenOptions::new().write(true).open(&archive).expect("open");
+        file.set_len(32).expect("truncate");
+        drop(file);
+        let failure = verify_backup_archive(&archive).expect_err("truncated");
+        assert_eq!(failure.code, MaintenanceErrorCode::BackupVerifyFailed);
     }
 
     #[test]
