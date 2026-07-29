@@ -81,18 +81,28 @@
 //! evidence: the embedder emits only runtime-owned outputs and stable
 //! error metadata (spec 068 NFR-004).
 
+mod registry_cache;
 mod test_double;
 
+pub use registry_cache::{
+    HostRegistryCache, RegistryArtifactFetcher, RegistryCacheError, RegistryCacheErrorCode,
+    RegistryPrepareEvidence, VerifiedRegistryDependency, prepare as prepare_registry_dependency,
+    resolve_offline as resolve_registry_dependency_offline,
+};
 pub use test_double::EmbedderTestDouble;
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
+use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
+use traverse_contracts::parse_contract;
 use traverse_registry::{
+    ApplicationManifestError, ApplicationManifestErrorCode, ApplicationManifestFailure,
     ApplicationRegistrationFailure, ApplicationRegistrationRequest, ApplicationRegistry,
-    CapabilityRegistry, ComponentExecutionMode, EventRegistry, RegistryScope, WorkflowRegistry,
-    load_application_bundle_manifest,
+    CapabilityRegistry, ComponentExecutionMode, EventRegistry, RegistryComponentResolver,
+    RegistryReference, RegistryScope, ResolvedRegistryComponent, WorkflowRegistry,
+    load_application_bundle_manifest, load_application_bundle_manifest_with_resolver,
 };
 use traverse_runtime::data_store::{
     DataStore, DataStoreError, DataStoreErrorCode, LocalDataClassification, StateRecord,
@@ -315,6 +325,9 @@ pub struct EmbedderConfig {
     pub platform: String,
     /// Artifact verification posture.
     pub security: SecurityPosture,
+    /// Optional host-owned verified registry cache used to resolve
+    /// `registry_ref` components offline at `init` (Spec 080).
+    pub registry_cache: Option<HostRegistryCache>,
 }
 
 impl EmbedderConfig {
@@ -328,7 +341,16 @@ impl EmbedderConfig {
             workspace_id: DEFAULT_WORKSPACE_ID.to_string(),
             platform: std::env::consts::OS.to_string(),
             security: SecurityPosture::Production,
+            registry_cache: None,
         }
+    }
+
+    /// Attach a host-owned verified registry cache for offline `registry_ref`
+    /// resolution during `init`.
+    #[must_use]
+    pub fn with_registry_cache(mut self, cache: HostRegistryCache) -> Self {
+        self.registry_cache = Some(cache);
+        self
     }
 }
 
@@ -1143,21 +1165,14 @@ impl BundleEmbedder {
     #[allow(unexpected_cfgs)]
     pub fn init(config: EmbedderConfig) -> Result<Self, EmbedderError> {
         let manifest_path = absolute_bundle_path(&config.manifest_bundle_path)?;
-        let manifest = load_application_bundle_manifest(&manifest_path).map_err(|failure| {
-            EmbedderError::new(
-                EmbedderErrorCode::BundleLoadFailed,
-                format!(
-                    "application bundle failed to load: {}",
-                    manifest_failure_messages(
-                        &failure
-                            .errors
-                            .iter()
-                            .map(|e| e.message.clone())
-                            .collect::<Vec<_>>()
-                    )
-                ),
-            )
-        })?;
+        let manifest = match config.registry_cache.as_ref() {
+            Some(cache) => {
+                let resolver = OfflineRegistryCacheResolver { cache };
+                load_application_bundle_manifest_with_resolver(&manifest_path, Some(&resolver))
+            }
+            None => load_application_bundle_manifest(&manifest_path),
+        }
+        .map_err(|failure| map_manifest_failure(&failure))?;
         ensure_supported_bundle_schema(&manifest.schema_version)?;
 
         let mut capabilities = CapabilityRegistry::new();
@@ -1673,6 +1688,79 @@ fn runtime_stopped_error() -> EmbedderError {
         EmbedderErrorCode::RuntimeStopped,
         "the embedded runtime was shut down and accepts no further operations",
     )
+}
+
+fn map_manifest_failure(failure: &ApplicationManifestFailure) -> EmbedderError {
+    let message = manifest_failure_messages(
+        &failure
+            .errors
+            .iter()
+            .map(|error| error.message.clone())
+            .collect::<Vec<_>>(),
+    );
+    let code_hint = failure.errors.first().map(|error| error.code);
+    let message = match code_hint {
+        Some(ApplicationManifestErrorCode::RegistryReferenceRequiresResolution) => {
+            format!("application bundle failed to load (registry_cache_entry_missing): {message}")
+        }
+        _ => format!("application bundle failed to load: {message}"),
+    };
+    EmbedderError::new(EmbedderErrorCode::BundleLoadFailed, message)
+}
+
+struct OfflineRegistryCacheResolver<'a> {
+    cache: &'a HostRegistryCache,
+}
+
+impl RegistryComponentResolver for OfflineRegistryCacheResolver<'_> {
+    fn resolve(
+        &self,
+        reference: &RegistryReference,
+    ) -> Result<ResolvedRegistryComponent, ApplicationManifestFailure> {
+        let resolved =
+            resolve_registry_dependency_offline(self.cache, reference).map_err(|failure| {
+                ApplicationManifestFailure {
+                    errors: vec![ApplicationManifestError {
+                        code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
+                        path: "$.registry_ref".to_string(),
+                        message: format!("{}: {}", failure.code.as_str(), failure.message),
+                    }],
+                }
+            })?;
+        let contract_text = fs::read_to_string(&resolved.contract_path).map_err(|error| {
+            ApplicationManifestFailure {
+                errors: vec![ApplicationManifestError {
+                    code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
+                    path: "$.registry_ref".to_string(),
+                    message: format!(
+                        "{}: failed to read verified registry contract ({error})",
+                        RegistryCacheErrorCode::RegistryCacheEntryMissing.as_str()
+                    ),
+                }],
+            }
+        })?;
+        let contract =
+            parse_contract(&contract_text).map_err(|failure| ApplicationManifestFailure {
+                errors: vec![ApplicationManifestError {
+                    code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
+                    path: "$.registry_ref".to_string(),
+                    message: format!(
+                        "{}: verified registry contract is invalid ({})",
+                        RegistryCacheErrorCode::RegistryPrepareFailed.as_str(),
+                        failure
+                            .errors
+                            .first()
+                            .map_or("parse failed", |e| e.message.as_str())
+                    ),
+                }],
+            })?;
+        Ok(ResolvedRegistryComponent {
+            contract_path: resolved.contract_path,
+            contract,
+            wasm_binary_path: resolved.wasm_binary_path,
+            wasm_digest: resolved.wasm_digest,
+        })
+    }
 }
 
 fn absolute_bundle_path(path: &Path) -> Result<PathBuf, EmbedderError> {

@@ -23,7 +23,7 @@
   ],
   "scripts": {
     "build": "tsc",
-    "test": "npm run build && node --test tests/embedder.test.mjs tests/bundleEmbedder.test.mjs"
+    "test": "npm run build && node --test tests/embedder.test.mjs tests/bundleEmbedder.test.mjs tests/registryCache.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
