@@ -6284,31 +6284,7 @@ mod tests {
             sha256_hex(&fs::read(&artifact_path).expect("wasm artifact should read"))
         );
         let manifest_path =
-            write_app_validate_fixture(&fixture_root, &artifact_digest, &artifact_digest, None);
-        let component_path = fixture_root.join("component.manifest.json");
-        let mut component: Value = serde_json::from_str(
-            &fs::read_to_string(&component_path).expect("component manifest should read"),
-        )
-        .expect("component manifest should parse");
-        let component_object = component
-            .as_object_mut()
-            .expect("component manifest should be an object");
-        component_object.remove("contract_path");
-        component_object.remove("wasm_binary_path");
-        component_object.remove("wasm_digest");
-        component_object.insert(
-            "registry_ref".to_string(),
-            serde_json::json!({
-                "namespace": "fixture",
-                "id": "expedition.planning.validate-team-readiness",
-                "version_range": "^1.0.0"
-            }),
-        );
-        fs::write(
-            &component_path,
-            serde_json::to_string_pretty(&component).expect("component manifest should serialize"),
-        )
-        .expect("component manifest should write");
+            write_registry_ref_app_fixture(&fixture_root, &artifact_digest, "^1.0.0");
         write_synced_public_registry_state(
             &state_root,
             "local",
@@ -6364,9 +6340,19 @@ mod tests {
                 .join(artifact_digest.trim_start_matches("sha256:"))
                 .exists()
         );
+    }
 
-        let unsynced_root = unique_temp_dir();
-        let unsynced = app_register_at(&unsynced_root, &manifest_path, "local", true)
+    #[test]
+    fn registry_reference_without_sync_returns_actionable_error() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_registry_ref_app_fixture(
+            &fixture_root,
+            "sha256:1111111111111111111111111111111111111111111111111111111111111111",
+            "^1.0.0",
+        );
+
+        let unsynced = app_register_at(&state_root, &manifest_path, "local", true)
             .expect("missing sync should render stable JSON evidence");
         let unsynced_json: Value =
             serde_json::from_str(&unsynced).expect("registration output must be JSON");
@@ -6378,8 +6364,59 @@ mod tests {
         assert!(
             unsynced_json["errors"][0]["message"]
                 .as_str()
-                .is_some_and(|message| message.contains("registry sync"))
+                .is_some_and(|message| message
+                    == "workspace local has no synced public registry state; run traverse-cli registry sync")
         );
+    }
+
+    #[test]
+    fn deprecated_only_registry_range_fails_closed() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let digest = "sha256:1111111111111111111111111111111111111111111111111111111111111111";
+        let manifest_path =
+            write_registry_ref_app_fixture(&fixture_root, digest, ">=1.0.0, <1.1.0");
+        let mut deprecated = registry_record_fixture(
+            "fixture",
+            "expedition.planning.validate-team-readiness",
+            "1.0.1",
+        );
+        deprecated.digest = digest.to_string();
+        deprecated.deprecated = true;
+        let active = registry_record_fixture(
+            "fixture",
+            "expedition.planning.validate-team-readiness",
+            "1.1.0",
+        );
+        write_synced_public_registry_state(
+            &state_root,
+            "local",
+            "fixture-registry",
+            "fixture-v1",
+            "2026-07-22T00:00:00Z",
+            PublicRegistryIndex {
+                index_version: 1,
+                generated_at: "2026-07-22T00:00:00Z".to_string(),
+                source_commit: None,
+                capabilities: vec![deprecated, active],
+            },
+        )
+        .expect("synced fixture state should persist");
+
+        let output = app_register_at(&state_root, &manifest_path, "local", true)
+            .expect("deprecated-only range should render stable JSON evidence");
+        let json: Value = serde_json::from_str(&output).expect("registration output must be JSON");
+
+        assert_eq!(json["status"], "failed");
+        assert_eq!(
+            json["errors"][0]["code"],
+            "registry_reference_requires_resolution"
+        );
+        assert_eq!(
+            json["errors"][0]["message"],
+            "only deprecated public registry versions for fixture:expedition.planning.validate-team-readiness satisfy >=1.0.0, <1.1.0"
+        );
+        assert!(!state_root.join(".traverse/workspaces/local/apps").exists());
     }
 
     #[test]
@@ -7865,6 +7902,40 @@ mod tests {
             contract_url: "https://example.test/contract.json".to_string(),
             deprecated: false,
         }
+    }
+
+    fn write_registry_ref_app_fixture(
+        temp_dir: &Path,
+        artifact_digest: &str,
+        version_range: &str,
+    ) -> PathBuf {
+        let manifest_path =
+            write_app_validate_fixture(temp_dir, artifact_digest, artifact_digest, None);
+        let component_path = temp_dir.join("component.manifest.json");
+        let mut component: Value = serde_json::from_str(
+            &fs::read_to_string(&component_path).expect("component manifest should read"),
+        )
+        .expect("component manifest should parse");
+        let component_object = component
+            .as_object_mut()
+            .expect("component manifest should be an object");
+        component_object.remove("contract_path");
+        component_object.remove("wasm_binary_path");
+        component_object.remove("wasm_digest");
+        component_object.insert(
+            "registry_ref".to_string(),
+            serde_json::json!({
+                "namespace": "fixture",
+                "id": "expedition.planning.validate-team-readiness",
+                "version_range": version_range
+            }),
+        );
+        fs::write(
+            component_path,
+            serde_json::to_string_pretty(&component).expect("component manifest should serialize"),
+        )
+        .expect("component manifest should write");
+        manifest_path
     }
 
     fn write_app_validate_fixture(
