@@ -230,8 +230,9 @@ Use these in order:
 
 1. [examples/hello-world/README.md](../examples/hello-world/README.md) for the smallest runnable Traverse example
 2. [quickstart.md](../quickstart.md) for the first browser-consumable flow
-3. [docs/expedition-example-authoring.md](./expedition-example-authoring.md) for the full governed expedition artifact set
-4. [docs/wasm-agent-authoring-guide.md](./wasm-agent-authoring-guide.md) for packaged WASM agent authoring
-5. [docs/wasm-microservice-authoring-guide.md](./wasm-microservice-authoring-guide.md) for packaged WASM microservice authoring
+3. [examples/applications/registry-consumer/README.md](../examples/applications/registry-consumer/README.md) for an application composed entirely from synced public `registry_ref` capabilities
+4. [docs/expedition-example-authoring.md](./expedition-example-authoring.md) for the full governed expedition artifact set
+5. [docs/wasm-agent-authoring-guide.md](./wasm-agent-authoring-guide.md) for packaged WASM agent authoring
+6. [docs/wasm-microservice-authoring-guide.md](./wasm-microservice-authoring-guide.md) for packaged WASM microservice authoring
 
 If a local command or CI check fails while you work through those paths, use [docs/troubleshooting.md](./troubleshooting.md).

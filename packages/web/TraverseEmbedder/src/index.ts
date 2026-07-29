@@ -85,6 +85,15 @@ export type {
   VerifiedRegistryDependency,
 } from "./registryCache.js";
 
+export { IndexedDbDataStore, IndexedDbDataStoreError } from "./indexedDbDataStore.js";
+export type {
+  DataClassification,
+  IndexedDbDataStoreConfig,
+  IndexedDbDataStoreErrorCode,
+  IndexedDbDataStoreOperation,
+  StateRecord,
+} from "./indexedDbDataStore.js";
+
 export {
   HOST_ABI_V1_WHITELIST,
   SUPPORTED_HOST_ABI_VERSION,

@@ -86,6 +86,38 @@ embedder.submit("my-app.process", { note: "hello" });
 embedder.shutdown();
 ```
 
+## IndexedDB DataStore
+
+`IndexedDbDataStore` is the browser backend for the existing host-owned
+DataStore port (Spec `085-datastore-indexeddb`). The embedding application
+must supply an origin-scoped database name and owns its lifecycle, retention,
+backup, and deletion policy. Traverse does not choose a default database.
+
+```ts
+import { IndexedDbDataStore } from "traverse-embedder-web";
+
+const store = await IndexedDbDataStore.open({
+  databaseName: "my-app-state",
+  classification: "public",
+});
+await store.write({
+  key: "draft",
+  value: { status: "ready" },
+  lamport_clock: 1,
+  writer_id: "browser-host",
+});
+const draft = await store.read("draft");
+store.close();
+```
+
+The adapter holds an exclusive Web Lock for its lifetime. A contender receives
+`store_locked`; a browser without Web Locks receives `locking_unsupported`.
+Public records use the same `local-datastore/1` SHA-256 integrity envelope as
+the native backend. Quota and persistence failures are typed and writes are
+never silently dropped. Private operations fail with `key_provider_required`,
+and `prune`, `backup`, and `restore` fail with `unsupported`; IndexedDB v1 does
+not store private plaintext or provide maintenance archives.
+
 ## Error mapping
 
 Boundary failures use stable `EmbedderErrorCode` values —

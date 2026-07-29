@@ -2,8 +2,22 @@
 //!
 //! General operations are governed by spec `032-universal-data-access`; the
 //! local-file adapter durability boundary is governed by spec
-//! `518-durable-local-datastore`.
+//! `518-durable-local-datastore`. Retention prune and verified backup/restore
+//! are governed by spec `083-datastore-retention-backup`.
 
+#[path = "data_store_maintenance.rs"]
+mod maintenance;
+pub use maintenance::{
+    BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
+    MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
+};
+
+#[cfg(feature = "datastore-encryption")]
+use aes_gcm::aead::consts::U12;
+#[cfg(feature = "datastore-encryption")]
+use aes_gcm::aead::{Aead, KeyInit, Payload};
+#[cfg(feature = "datastore-encryption")]
+use aes_gcm::{Aes256Gcm, Nonce};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
@@ -11,7 +25,9 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
 use std::io::Write;
 use std::path::PathBuf;
+use std::sync::Arc;
 use traverse_contracts::CapabilityContract;
+use zeroize::Zeroizing;
 
 const DATA_STORE_SPEC: &str = "032-universal-data-access";
 const LOCAL_DATA_STORE_FORMAT: &str = "local-datastore/1";
@@ -68,12 +84,15 @@ pub enum DataStoreErrorCode {
     IntegrityCheckFailed,
     StoreLocked,
     DurabilityCommitFailed,
+    KeyProviderRequired,
+    KeyNotFound,
+    KeyExpired,
+    KeyProviderFailure,
+    CryptoFailure,
+    ClassificationChangeNotAllowed,
 }
 
 /// Classification recorded with each locally durable record.
-///
-/// This is metadata only. Encryption and key management are intentionally
-/// deferred to a successor decision.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum LocalDataClassification {
@@ -85,8 +104,138 @@ pub enum LocalDataClassification {
 struct LocalDataStoreEnvelope {
     format: String,
     classification: LocalDataClassification,
-    record: StateRecord,
     digest: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record: Option<StateRecord>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    record_key: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    key_id: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    nonce: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    ciphertext: Option<String>,
+    /// Host-supplied RFC3339 instant stamped at write time for age-based prune.
+    /// Absent on legacy envelopes; age prune treats missing stamps as retained.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    retained_at: Option<String>,
+}
+
+/// Stable, secret-free key-provider failure codes.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum KeyProviderErrorCode {
+    MissingKey,
+    ExpiredKeyId,
+    ProviderFailure,
+}
+
+/// A key-provider failure that never includes key material or provider internals.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct KeyProviderError {
+    pub code: KeyProviderErrorCode,
+    pub message: String,
+}
+
+impl KeyProviderError {
+    #[must_use]
+    pub fn missing_key() -> Self {
+        Self {
+            code: KeyProviderErrorCode::MissingKey,
+            message: "key_not_found".to_string(),
+        }
+    }
+
+    #[must_use]
+    pub fn expired_key_id() -> Self {
+        Self {
+            code: KeyProviderErrorCode::ExpiredKeyId,
+            message: "key_expired".to_string(),
+        }
+    }
+
+    #[must_use]
+    pub fn provider_failure() -> Self {
+        Self {
+            code: KeyProviderErrorCode::ProviderFailure,
+            message: "key_provider_failed".to_string(),
+        }
+    }
+}
+
+/// Host-owned source of AES-256 keys.
+pub trait KeyProvider: Send + Sync {
+    /// Returns the key id used for new private writes.
+    ///
+    /// # Errors
+    ///
+    /// Returns a secret-free [`KeyProviderError`] when no write key is available.
+    fn active_key_id(&self) -> Result<String, KeyProviderError>;
+
+    /// Returns key material for an envelope key id.
+    ///
+    /// # Errors
+    ///
+    /// Returns a secret-free [`KeyProviderError`] for missing, expired, or
+    /// unavailable keys.
+    fn key_for(&self, key_id: &str) -> Result<Zeroizing<[u8; 32]>, KeyProviderError>;
+}
+
+/// In-memory provider for tests and host wiring.
+#[derive(Clone)]
+pub struct InMemoryKeyProvider {
+    active_key_id: String,
+    keys: BTreeMap<String, Zeroizing<[u8; 32]>>,
+    expired_key_ids: BTreeSet<String>,
+}
+
+impl InMemoryKeyProvider {
+    #[must_use]
+    pub fn new(active_key_id: impl Into<String>, key: [u8; 32]) -> Self {
+        let active_key_id = active_key_id.into();
+        let mut keys = BTreeMap::new();
+        keys.insert(active_key_id.clone(), Zeroizing::new(key));
+        Self {
+            active_key_id,
+            keys,
+            expired_key_ids: BTreeSet::new(),
+        }
+    }
+
+    #[must_use]
+    pub fn with_read_key(mut self, key_id: impl Into<String>, key: [u8; 32]) -> Self {
+        self.keys.insert(key_id.into(), Zeroizing::new(key));
+        self
+    }
+
+    #[must_use]
+    pub fn with_expired_key_id(mut self, key_id: impl Into<String>) -> Self {
+        self.expired_key_ids.insert(key_id.into());
+        self
+    }
+}
+
+impl KeyProvider for InMemoryKeyProvider {
+    fn active_key_id(&self) -> Result<String, KeyProviderError> {
+        if self.expired_key_ids.contains(&self.active_key_id) {
+            return Err(KeyProviderError::expired_key_id());
+        }
+        if self.keys.contains_key(&self.active_key_id) {
+            Ok(self.active_key_id.clone())
+        } else {
+            Err(KeyProviderError::missing_key())
+        }
+    }
+
+    fn key_for(&self, key_id: &str) -> Result<Zeroizing<[u8; 32]>, KeyProviderError> {
+        if self.expired_key_ids.contains(key_id) {
+            return Err(KeyProviderError::expired_key_id());
+        }
+        self.keys
+            .get(key_id)
+            .cloned()
+            .ok_or_else(KeyProviderError::missing_key)
+    }
 }
 
 pub trait DataStore {
@@ -259,11 +408,25 @@ impl<A: DataStore> RuntimeDataStore<A> {
     }
 }
 
-#[derive(Debug)]
 pub struct LocalFileDataStore {
     root: PathBuf,
     classification: LocalDataClassification,
     lock_file: File,
+    key_provider: Option<Arc<dyn KeyProvider>>,
+    /// Host-supplied retained-at stamp applied to subsequent writes (no OS clock).
+    write_retained_at: Option<String>,
+}
+
+impl std::fmt::Debug for LocalFileDataStore {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("LocalFileDataStore")
+            .field("root", &self.root)
+            .field("classification", &self.classification)
+            .field("key_provider_configured", &self.key_provider.is_some())
+            .field("write_retained_at", &self.write_retained_at)
+            .finish_non_exhaustive()
+    }
 }
 
 impl Drop for LocalFileDataStore {
@@ -309,7 +472,30 @@ impl LocalFileDataStore {
             root,
             classification,
             lock_file,
+            key_provider: None,
+            write_retained_at: None,
         })
+    }
+
+    /// Configures the host-owned key provider used for private records.
+    #[must_use]
+    pub fn with_key_provider(mut self, key_provider: Arc<dyn KeyProvider>) -> Self {
+        self.key_provider = Some(key_provider);
+        self
+    }
+
+    /// Sets the host-supplied retained-at stamp used by subsequent writes.
+    ///
+    /// Traverse does not read the OS clock; hosts must supply RFC3339 instants
+    /// when age-based retention is desired.
+    pub fn set_write_retained_at(&mut self, retained_at: Option<String>) {
+        self.write_retained_at = retained_at;
+    }
+
+    /// Returns the store root path for host-owned maintenance construction.
+    #[must_use]
+    pub fn root(&self) -> &PathBuf {
+        &self.root
     }
 
     fn path_for_key(&self, key: &str) -> Result<PathBuf, DataStoreError> {
@@ -346,24 +532,49 @@ impl DataStore for LocalFileDataStore {
         if envelope.format != LOCAL_DATA_STORE_FORMAT {
             return Err(integrity_error("unknown_format_version"));
         }
-        let expected_digest = digest_for_record(&envelope.record)?;
-        if envelope.digest != expected_digest {
-            return Err(integrity_error("digest_mismatch"));
+        match envelope.classification {
+            LocalDataClassification::Public => {
+                let record = envelope
+                    .record
+                    .ok_or_else(|| integrity_error("malformed_envelope"))?;
+                if envelope.key_id.is_some()
+                    || envelope.nonce.is_some()
+                    || envelope.ciphertext.is_some()
+                    || envelope.record_key.is_some()
+                {
+                    return Err(integrity_error("malformed_envelope"));
+                }
+                let expected_digest = digest_for_record(&record)?;
+                if envelope.digest != expected_digest {
+                    return Err(integrity_error("digest_mismatch"));
+                }
+                Ok(Some(record))
+            }
+            LocalDataClassification::Private => self.decrypt_private_envelope(key, envelope),
         }
-        Ok(Some(envelope.record))
     }
 
     fn write(&mut self, record: StateRecord) -> Result<(), DataStoreError> {
         let path = self.path_for_key(&record.key)?;
-        let envelope = LocalDataStoreEnvelope {
-            format: LOCAL_DATA_STORE_FORMAT.to_string(),
-            classification: self.classification,
-            digest: digest_for_record(&record)?,
-            record,
+        self.ensure_classification_unchanged(&path)?;
+        let record_key = record.key.clone();
+        let envelope = match self.classification {
+            LocalDataClassification::Public => LocalDataStoreEnvelope {
+                format: LOCAL_DATA_STORE_FORMAT.to_string(),
+                classification: self.classification,
+                digest: digest_for_record(&record)?,
+                record: Some(record),
+                record_key: None,
+                key_id: None,
+                nonce: None,
+                ciphertext: None,
+                retained_at: self.write_retained_at.clone(),
+            },
+            LocalDataClassification::Private => self.encrypt_private_record(record)?,
         };
         let text = serde_json::to_vec(&envelope)
             .map_err(|error| serialization_error("serialize state record envelope", &error))?;
-        let temporary_path = self.temporary_path_for_key(&envelope.record.key);
+        let temporary_path = self.temporary_path_for_key(&record_key);
         let write_result = (|| {
             let mut temporary_file = File::create(&temporary_path)
                 .map_err(|error| io_error("create temporary state record", &error))?;
@@ -409,6 +620,152 @@ impl DataStore for LocalFileDataStore {
     }
 }
 
+impl LocalFileDataStore {
+    #[cfg(feature = "datastore-encryption")]
+    fn encrypt_private_record(
+        &self,
+        record: StateRecord,
+    ) -> Result<LocalDataStoreEnvelope, DataStoreError> {
+        let provider = self.required_key_provider()?;
+        let key_id = provider.active_key_id().map_err(map_key_provider_error)?;
+        let key = provider.key_for(&key_id).map_err(map_key_provider_error)?;
+        let plaintext = Zeroizing::new(
+            serde_json::to_vec(&record)
+                .map_err(|error| serialization_error("serialize private state record", &error))?,
+        );
+        let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| crypto_error())?;
+        let nonce = fresh_aes_nonce();
+        let aad = private_record_aad(&key_id, &record.key);
+        let ciphertext = cipher
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: plaintext.as_ref(),
+                    aad: &aad,
+                },
+            )
+            .map_err(|_| crypto_error())?;
+        let nonce = hex_encode(&nonce);
+        let ciphertext = hex_encode(&ciphertext);
+        let digest = digest_for_private_envelope(&key_id, &record.key, &nonce, &ciphertext);
+        Ok(LocalDataStoreEnvelope {
+            format: LOCAL_DATA_STORE_FORMAT.to_string(),
+            classification: LocalDataClassification::Private,
+            digest,
+            record: None,
+            record_key: Some(record.key),
+            key_id: Some(key_id),
+            nonce: Some(nonce),
+            ciphertext: Some(ciphertext),
+            retained_at: self.write_retained_at.clone(),
+        })
+    }
+
+    #[cfg(not(feature = "datastore-encryption"))]
+    fn encrypt_private_record(
+        &self,
+        _record: StateRecord,
+    ) -> Result<LocalDataStoreEnvelope, DataStoreError> {
+        Err(encryption_feature_disabled())
+    }
+
+    #[cfg(feature = "datastore-encryption")]
+    fn decrypt_private_envelope(
+        &self,
+        requested_key: &str,
+        envelope: LocalDataStoreEnvelope,
+    ) -> Result<Option<StateRecord>, DataStoreError> {
+        if envelope.record.is_some() {
+            return Err(integrity_error("malformed_envelope"));
+        }
+        let record_key = envelope
+            .record_key
+            .ok_or_else(|| integrity_error("malformed_envelope"))?;
+        let key_id = envelope
+            .key_id
+            .ok_or_else(|| integrity_error("malformed_envelope"))?;
+        let nonce_hex = envelope
+            .nonce
+            .ok_or_else(|| integrity_error("malformed_envelope"))?;
+        let ciphertext_hex = envelope
+            .ciphertext
+            .ok_or_else(|| integrity_error("malformed_envelope"))?;
+        if record_key != requested_key {
+            return Err(integrity_error("record_key_mismatch"));
+        }
+        let expected_digest =
+            digest_for_private_envelope(&key_id, &record_key, &nonce_hex, &ciphertext_hex);
+        if envelope.digest != expected_digest {
+            return Err(integrity_error("digest_mismatch"));
+        }
+        let provider = self.required_key_provider()?;
+        let key = provider.key_for(&key_id).map_err(map_key_provider_error)?;
+        let nonce_bytes = hex_decode(&nonce_hex)?;
+        let nonce = Nonce::try_from(nonce_bytes.as_slice())
+            .map_err(|_| integrity_error("invalid_nonce"))?;
+        let ciphertext = hex_decode(&ciphertext_hex)?;
+        let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| crypto_error())?;
+        let aad = private_record_aad(&key_id, &record_key);
+        let plaintext = Zeroizing::new(
+            cipher
+                .decrypt(
+                    &nonce,
+                    Payload {
+                        msg: &ciphertext,
+                        aad: &aad,
+                    },
+                )
+                .map_err(|_| integrity_error("authentication_failed"))?,
+        );
+        let record: StateRecord = serde_json::from_slice(&plaintext)
+            .map_err(|_| integrity_error("malformed_plaintext"))?;
+        if record.key != record_key {
+            return Err(integrity_error("record_key_mismatch"));
+        }
+        Ok(Some(record))
+    }
+
+    #[cfg(not(feature = "datastore-encryption"))]
+    fn decrypt_private_envelope(
+        &self,
+        _requested_key: &str,
+        _envelope: LocalDataStoreEnvelope,
+    ) -> Result<Option<StateRecord>, DataStoreError> {
+        Err(encryption_feature_disabled())
+    }
+
+    #[cfg(feature = "datastore-encryption")]
+    fn required_key_provider(&self) -> Result<&dyn KeyProvider, DataStoreError> {
+        self.key_provider.as_deref().ok_or_else(|| {
+            data_store_error(
+                DataStoreErrorCode::KeyProviderRequired,
+                "key_provider_required",
+                json!({ "reason": "private_record" }),
+            )
+        })
+    }
+
+    fn ensure_classification_unchanged(&self, path: &PathBuf) -> Result<(), DataStoreError> {
+        if !path.exists() {
+            return Ok(());
+        }
+        let bytes = fs::read(path).map_err(|error| io_error("read existing envelope", &error))?;
+        let envelope: LocalDataStoreEnvelope =
+            serde_json::from_slice(&bytes).map_err(|_| integrity_error("malformed_envelope"))?;
+        if envelope.format != LOCAL_DATA_STORE_FORMAT {
+            return Err(integrity_error("unknown_format_version"));
+        }
+        if envelope.classification != self.classification {
+            return Err(data_store_error(
+                DataStoreErrorCode::ClassificationChangeNotAllowed,
+                "classification_change_not_allowed",
+                json!({ "reason": "delete_before_reclassifying" }),
+            ));
+        }
+        Ok(())
+    }
+}
+
 fn digest_for_record(record: &StateRecord) -> Result<String, DataStoreError> {
     let canonical = serde_json::to_vec(record)
         .map_err(|error| serialization_error("serialize canonical state record", &error))?;
@@ -419,6 +776,125 @@ fn digest_for_record(record: &StateRecord) -> Result<String, DataStoreError> {
         hexadecimal.push(char::from(HEXADECIMAL_DIGITS[usize::from(byte & 0x0f)]));
     }
     Ok(format!("sha256:{hexadecimal}"))
+}
+
+fn digest_for_private_envelope(
+    key_id: &str,
+    record_key: &str,
+    nonce: &str,
+    ciphertext: &str,
+) -> String {
+    let mut hasher = Sha256::new();
+    update_length_prefixed(&mut hasher, key_id.as_bytes());
+    update_length_prefixed(&mut hasher, record_key.as_bytes());
+    update_length_prefixed(&mut hasher, b"private");
+    update_length_prefixed(&mut hasher, nonce.as_bytes());
+    update_length_prefixed(&mut hasher, ciphertext.as_bytes());
+    format!("sha256:{}", hex_encode(&hasher.finalize()))
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn private_record_aad(key_id: &str, record_key: &str) -> Vec<u8> {
+    let mut aad = Vec::new();
+    append_length_prefixed(&mut aad, key_id.as_bytes());
+    append_length_prefixed(&mut aad, record_key.as_bytes());
+    append_length_prefixed(&mut aad, b"private");
+    aad
+}
+
+fn update_length_prefixed(hasher: &mut Sha256, value: &[u8]) {
+    hasher.update(value.len().to_le_bytes());
+    hasher.update(value);
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn append_length_prefixed(output: &mut Vec<u8>, value: &[u8]) {
+    output.extend_from_slice(&value.len().to_le_bytes());
+    output.extend_from_slice(value);
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut hexadecimal = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        hexadecimal.push(char::from(HEXADECIMAL_DIGITS[usize::from(byte >> 4)]));
+        hexadecimal.push(char::from(HEXADECIMAL_DIGITS[usize::from(byte & 0x0f)]));
+    }
+    hexadecimal
+}
+
+fn hex_decode(value: &str) -> Result<Vec<u8>, DataStoreError> {
+    if !value.len().is_multiple_of(2) {
+        return Err(integrity_error("invalid_hex"));
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let high = decode_hex_digit(pair[0]).ok_or_else(|| integrity_error("invalid_hex"))?;
+            let low = decode_hex_digit(pair[1]).ok_or_else(|| integrity_error("invalid_hex"))?;
+            Ok((high << 4) | low)
+        })
+        .collect()
+}
+
+fn decode_hex_digit(value: u8) -> Option<u8> {
+    match value {
+        b'0'..=b'9' => Some(value - b'0'),
+        b'a'..=b'f' => Some(value - b'a' + 10),
+        _ => None,
+    }
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn map_key_provider_error(error: KeyProviderError) -> DataStoreError {
+    let code = match error.code {
+        KeyProviderErrorCode::MissingKey => DataStoreErrorCode::KeyNotFound,
+        KeyProviderErrorCode::ExpiredKeyId => DataStoreErrorCode::KeyExpired,
+        KeyProviderErrorCode::ProviderFailure => DataStoreErrorCode::KeyProviderFailure,
+    };
+    let message = error.message;
+    data_store_error(
+        code,
+        &message,
+        json!({ "provider_error_code": key_provider_error_code(error.code) }),
+    )
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn key_provider_error_code(code: KeyProviderErrorCode) -> &'static str {
+    match code {
+        KeyProviderErrorCode::MissingKey => "missing_key",
+        KeyProviderErrorCode::ExpiredKeyId => "expired_key_id",
+        KeyProviderErrorCode::ProviderFailure => "provider_failure",
+    }
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn crypto_error() -> DataStoreError {
+    data_store_error(
+        DataStoreErrorCode::CryptoFailure,
+        "crypto_failed",
+        json!({ "reason": "encryption_failed" }),
+    )
+}
+
+#[cfg(not(feature = "datastore-encryption"))]
+fn encryption_feature_disabled() -> DataStoreError {
+    data_store_error(
+        DataStoreErrorCode::KeyProviderRequired,
+        "key_provider_required",
+        json!({ "reason": "datastore_encryption_feature_disabled" }),
+    )
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn fresh_aes_nonce() -> Nonce<U12> {
+    // Host-local UUID entropy avoids aes-gcm's getrandom Generate path so
+    // wasm32 `--no-default-features` checks do not require a getrandom backend.
+    let entropy = *uuid::Uuid::new_v4().as_bytes();
+    let mut nonce_bytes = [0_u8; 12];
+    nonce_bytes.copy_from_slice(&entropy[..12]);
+    Nonce::<U12>::from(nonce_bytes)
 }
 
 fn lock_error(error: TryLockError) -> DataStoreError {
@@ -684,6 +1160,18 @@ mod tests {
     #[derive(Debug, Clone, Default)]
     struct PhantomKeyStore;
 
+    struct FailingKeyProvider;
+
+    impl KeyProvider for FailingKeyProvider {
+        fn active_key_id(&self) -> Result<String, KeyProviderError> {
+            Err(KeyProviderError::provider_failure())
+        }
+
+        fn key_for(&self, _key_id: &str) -> Result<Zeroizing<[u8; 32]>, KeyProviderError> {
+            Err(KeyProviderError::provider_failure())
+        }
+    }
+
     impl DataStore for MemoryDataStore {
         fn read(&self, key: &str) -> Result<Option<StateRecord>, DataStoreError> {
             Ok(self.records.get(key).cloned())
@@ -732,7 +1220,7 @@ mod tests {
     #[test]
     fn runtime_data_store_validates_writes_and_reads_from_local_file_adapter() {
         let root = temp_root("valid");
-        let adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        let adapter = public_store(&root);
         let mut store = RuntimeDataStore::new(adapter, "writer-a");
         let contract = stateful_contract(Some(json!({
             "type": "object",
@@ -1034,9 +1522,340 @@ mod tests {
     }
 
     #[test]
+    fn private_records_encrypt_reopen_and_require_provider() {
+        let root = temp_root("private-encryption");
+        let provider: Arc<dyn KeyProvider> = Arc::new(InMemoryKeyProvider::new("key-1", [7; 32]));
+        let original = record("secret", "writer-a", 1, json!("classified value"));
+        let mut store = LocalFileDataStore::new(&root)
+            .expect("private store should open")
+            .with_key_provider(Arc::clone(&provider));
+        store.write(original.clone()).expect("private write");
+
+        let bytes = fs::read(root.join("secret.json")).expect("private envelope");
+        let text = String::from_utf8(bytes.clone()).expect("json utf8");
+        let envelope: LocalDataStoreEnvelope =
+            serde_json::from_slice(&bytes).expect("private envelope shape");
+        assert_eq!(envelope.classification, LocalDataClassification::Private);
+        assert!(envelope.record.is_none());
+        assert_eq!(envelope.record_key.as_deref(), Some("secret"));
+        assert_eq!(envelope.key_id.as_deref(), Some("key-1"));
+        assert!(envelope.nonce.is_some());
+        assert!(envelope.ciphertext.is_some());
+        assert!(!text.contains("classified value"));
+        assert!(!text.contains(&hex_encode(&[7; 32])));
+
+        let first_nonce = envelope.nonce;
+        store.write(original.clone()).expect("second private write");
+        let second: LocalDataStoreEnvelope =
+            serde_json::from_slice(&fs::read(root.join("secret.json")).expect("second envelope"))
+                .expect("second envelope shape");
+        assert_ne!(first_nonce, second.nonce);
+        drop(store);
+
+        let reopened = LocalFileDataStore::new(&root)
+            .expect("private store should reopen")
+            .with_key_provider(Arc::clone(&provider));
+        assert_eq!(
+            reopened.read("secret").expect("private read"),
+            Some(original)
+        );
+        drop(reopened);
+
+        let no_provider = LocalFileDataStore::new(&root).expect("store without provider opens");
+        let read_error = no_provider
+            .read("secret")
+            .expect_err("private read must require provider");
+        assert_eq!(read_error.code, DataStoreErrorCode::KeyProviderRequired);
+    }
+
+    #[test]
+    fn private_write_without_provider_fails_before_commit_and_public_crud_works() {
+        let private_root = temp_root("private-provider-required");
+        let mut private =
+            LocalFileDataStore::new(&private_root).expect("private store should open");
+        let error = private
+            .write(record("secret", "writer-a", 1, json!("value")))
+            .expect_err("private write must fail");
+        assert_eq!(error.code, DataStoreErrorCode::KeyProviderRequired);
+        assert!(!private_root.join("secret.json").exists());
+
+        let public_root = temp_root("public-without-provider");
+        let mut public = public_store(&public_root);
+        let public_record = record("cache", "writer-a", 1, json!("visible"));
+        public.write(public_record.clone()).expect("public write");
+        assert_eq!(
+            public.read("cache").expect("public read"),
+            Some(public_record)
+        );
+        public.delete("cache").expect("public delete");
+        assert!(public.list_keys().expect("public list").is_empty());
+    }
+
+    #[test]
+    fn private_authentication_and_key_provider_failures_are_stable() {
+        let root = temp_root("private-authentication");
+        let key = [9; 32];
+        let provider: Arc<dyn KeyProvider> =
+            Arc::new(InMemoryKeyProvider::new("key-a", key).with_read_key("key-b", key));
+        let mut store = LocalFileDataStore::new(&root)
+            .expect("private store should open")
+            .with_key_provider(Arc::clone(&provider));
+        store
+            .write(record("secret", "writer-a", 1, json!("value")))
+            .expect("private write");
+
+        let path = root.join("secret.json");
+        let mut envelope: LocalDataStoreEnvelope =
+            serde_json::from_slice(&fs::read(&path).expect("envelope")).expect("shape");
+        let original_envelope = envelope.clone();
+        let mut ciphertext =
+            hex_decode(envelope.ciphertext.as_deref().expect("ciphertext")).expect("valid hex");
+        ciphertext[0] ^= 1;
+        envelope.ciphertext = Some(hex_encode(&ciphertext));
+        envelope.digest = digest_for_private_envelope(
+            envelope.key_id.as_deref().expect("key id"),
+            envelope.record_key.as_deref().expect("record key"),
+            envelope.nonce.as_deref().expect("nonce"),
+            envelope.ciphertext.as_deref().expect("ciphertext"),
+        );
+        fs::write(&path, serde_json::to_vec(&envelope).expect("serialize")).expect("tamper");
+        let ciphertext_authentication = store
+            .read("secret")
+            .expect_err("ciphertext tampering must fail");
+        assert_eq!(
+            ciphertext_authentication.code,
+            DataStoreErrorCode::IntegrityCheckFailed
+        );
+        assert_eq!(
+            ciphertext_authentication.details["reason"],
+            "authentication_failed"
+        );
+
+        envelope = original_envelope;
+        envelope.key_id = Some("key-b".to_string());
+        envelope.digest = digest_for_private_envelope(
+            "key-b",
+            envelope.record_key.as_deref().expect("record key"),
+            envelope.nonce.as_deref().expect("nonce"),
+            envelope.ciphertext.as_deref().expect("ciphertext"),
+        );
+        fs::write(&path, serde_json::to_vec(&envelope).expect("serialize")).expect("tamper");
+        let authentication = store.read("secret").expect_err("AAD tampering must fail");
+        assert_eq!(
+            authentication.code,
+            DataStoreErrorCode::IntegrityCheckFailed
+        );
+        assert_eq!(authentication.details["reason"], "authentication_failed");
+        drop(store);
+
+        let missing_provider: Arc<dyn KeyProvider> =
+            Arc::new(InMemoryKeyProvider::new("other", [3; 32]));
+        let missing = LocalFileDataStore::new(&root)
+            .expect("reopen")
+            .with_key_provider(missing_provider)
+            .read("secret")
+            .expect_err("missing key must fail");
+        assert_eq!(missing.code, DataStoreErrorCode::KeyNotFound);
+        assert_eq!(missing.message, "key_not_found");
+
+        let expired_provider: Arc<dyn KeyProvider> =
+            Arc::new(InMemoryKeyProvider::new("key-b", key).with_expired_key_id("key-b"));
+        let expired = LocalFileDataStore::new(&root)
+            .expect("reopen")
+            .with_key_provider(expired_provider)
+            .read("secret")
+            .expect_err("expired key must fail");
+        assert_eq!(expired.code, DataStoreErrorCode::KeyExpired);
+
+        let failing_provider: Arc<dyn KeyProvider> = Arc::new(FailingKeyProvider);
+        let failure_root = temp_root("provider-failure");
+        let provider_failure = LocalFileDataStore::new(&failure_root)
+            .expect("open")
+            .with_key_provider(failing_provider)
+            .write(record("secret", "writer-a", 1, json!("value")))
+            .expect_err("provider failure must fail");
+        assert_eq!(
+            provider_failure.code,
+            DataStoreErrorCode::KeyProviderFailure
+        );
+        assert_eq!(provider_failure.message, "key_provider_failed");
+    }
+
+    #[test]
+    fn classification_change_requires_delete_before_write() {
+        let root = temp_root("classification-immutable");
+        let mut public = public_store(&root);
+        public
+            .write(record("shared", "writer-a", 1, json!("public")))
+            .expect("public write");
+        drop(public);
+
+        let provider: Arc<dyn KeyProvider> = Arc::new(InMemoryKeyProvider::new("key-1", [4; 32]));
+        let mut private = LocalFileDataStore::new(&root)
+            .expect("private reopen")
+            .with_key_provider(provider);
+        let rejected = private
+            .write(record("shared", "writer-a", 2, json!("private")))
+            .expect_err("in-place reclassification must fail");
+        assert_eq!(
+            rejected.code,
+            DataStoreErrorCode::ClassificationChangeNotAllowed
+        );
+        private.delete("shared").expect("delete old classification");
+        private
+            .write(record("shared", "writer-a", 2, json!("private")))
+            .expect("write after delete");
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)]
+    fn private_envelope_corruption_and_error_helpers_fail_closed() {
+        let root = temp_root("private-corruption-branches");
+        let key = [23; 32];
+        let provider: Arc<dyn KeyProvider> = Arc::new(InMemoryKeyProvider::new("key-1", key));
+        let mut store = LocalFileDataStore::new(&root)
+            .expect("open")
+            .with_key_provider(Arc::clone(&provider));
+        store
+            .write(record("secret", "writer-a", 1, json!("value")))
+            .expect("write");
+        let path = root.join("secret.json");
+        let original: LocalDataStoreEnvelope =
+            serde_json::from_slice(&fs::read(&path).expect("read")).expect("shape");
+
+        let mut plaintext_leak = original.clone();
+        plaintext_leak.record = Some(record("secret", "writer-a", 1, json!("value")));
+        write_envelope_fixture(&path, &plaintext_leak);
+        assert_integrity_reason(&store, "malformed_envelope");
+
+        let mut wrong_key = original.clone();
+        wrong_key.record_key = Some("other".to_string());
+        wrong_key.digest = digest_for_private_envelope(
+            wrong_key.key_id.as_deref().expect("key id"),
+            "other",
+            wrong_key.nonce.as_deref().expect("nonce"),
+            wrong_key.ciphertext.as_deref().expect("ciphertext"),
+        );
+        write_envelope_fixture(&path, &wrong_key);
+        assert_integrity_reason(&store, "record_key_mismatch");
+
+        let mut bad_digest = original.clone();
+        bad_digest.digest = "sha256:deadbeef".to_string();
+        write_envelope_fixture(&path, &bad_digest);
+        assert_integrity_reason(&store, "digest_mismatch");
+
+        let mut odd_nonce = original.clone();
+        odd_nonce.nonce = Some("0".to_string());
+        odd_nonce.digest = digest_for_private_envelope(
+            odd_nonce.key_id.as_deref().expect("key id"),
+            odd_nonce.record_key.as_deref().expect("record key"),
+            "0",
+            odd_nonce.ciphertext.as_deref().expect("ciphertext"),
+        );
+        write_envelope_fixture(&path, &odd_nonce);
+        assert_integrity_reason(&store, "invalid_hex");
+
+        let mut invalid_nonce = original.clone();
+        invalid_nonce.nonce = Some("00".to_string());
+        invalid_nonce.digest = digest_for_private_envelope(
+            invalid_nonce.key_id.as_deref().expect("key id"),
+            invalid_nonce.record_key.as_deref().expect("record key"),
+            "00",
+            invalid_nonce.ciphertext.as_deref().expect("ciphertext"),
+        );
+        write_envelope_fixture(&path, &invalid_nonce);
+        assert_integrity_reason(&store, "invalid_nonce");
+
+        let mut invalid_ciphertext = original.clone();
+        invalid_ciphertext.ciphertext = Some("gg".to_string());
+        invalid_ciphertext.digest = digest_for_private_envelope(
+            invalid_ciphertext.key_id.as_deref().expect("key id"),
+            invalid_ciphertext
+                .record_key
+                .as_deref()
+                .expect("record key"),
+            invalid_ciphertext.nonce.as_deref().expect("nonce"),
+            "gg",
+        );
+        write_envelope_fixture(&path, &invalid_ciphertext);
+        assert_integrity_reason(&store, "invalid_hex");
+
+        let malformed_plaintext = encrypted_fixture("secret", "key-1", key, b"not-json".as_slice());
+        write_envelope_fixture(&path, &malformed_plaintext);
+        assert_integrity_reason(&store, "malformed_plaintext");
+
+        let mismatched_record =
+            serde_json::to_vec(&record("other", "writer-a", 1, json!("value"))).expect("serialize");
+        let mismatched_plaintext = encrypted_fixture("secret", "key-1", key, &mismatched_record);
+        write_envelope_fixture(&path, &mismatched_plaintext);
+        assert_integrity_reason(&store, "record_key_mismatch");
+
+        let mut unknown_format = original;
+        unknown_format.format = "local-datastore/unknown".to_string();
+        write_envelope_fixture(&path, &unknown_format);
+        let unknown = store
+            .write(record("secret", "writer-a", 2, json!("new")))
+            .expect_err("unknown existing format");
+        assert_eq!(unknown.details["reason"], "unknown_format_version");
+
+        assert_eq!(crypto_error().code, DataStoreErrorCode::CryptoFailure);
+        assert_eq!(
+            FailingKeyProvider
+                .key_for("key-1")
+                .expect_err("provider failure")
+                .code,
+            KeyProviderErrorCode::ProviderFailure
+        );
+        assert_eq!(KeyProviderError::missing_key().message, "key_not_found");
+        for code in [
+            KeyProviderErrorCode::MissingKey,
+            KeyProviderErrorCode::ExpiredKeyId,
+            KeyProviderErrorCode::ProviderFailure,
+        ] {
+            let encoded = serde_json::to_vec(&code).expect("serialize provider code");
+            let decoded: KeyProviderErrorCode =
+                serde_json::from_slice(&encoded).expect("deserialize provider code");
+            assert_eq!(decoded, code);
+        }
+
+        let mut missing_active = InMemoryKeyProvider::new("missing", [1; 32]);
+        missing_active.keys.clear();
+        assert_eq!(
+            missing_active
+                .active_key_id()
+                .expect_err("missing active key")
+                .code,
+            KeyProviderErrorCode::MissingKey
+        );
+        let expired_active =
+            InMemoryKeyProvider::new("expired", [1; 32]).with_expired_key_id("expired");
+        assert_eq!(
+            expired_active
+                .active_key_id()
+                .expect_err("expired active key")
+                .code,
+            KeyProviderErrorCode::ExpiredKeyId
+        );
+        assert!(format!("{store:?}").contains("key_provider_configured"));
+
+        let public_root = temp_root("public-extra-encryption-fields");
+        let mut public = public_store(&public_root);
+        public
+            .write(record("cache", "writer-a", 1, json!("value")))
+            .expect("public write");
+        let public_path = public_root.join("cache.json");
+        let mut public_envelope: LocalDataStoreEnvelope =
+            serde_json::from_slice(&fs::read(&public_path).expect("read")).expect("shape");
+        public_envelope.key_id = Some("unexpected".to_string());
+        write_envelope_fixture(&public_path, &public_envelope);
+        let malformed_public = public.read("cache").expect_err("extra private metadata");
+        assert_eq!(malformed_public.details["reason"], "malformed_envelope");
+    }
+
+    #[test]
     fn local_file_adapter_rejects_tampered_and_legacy_records() {
         let root = temp_root("tampered");
-        let mut adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        let mut adapter = public_store(&root);
         adapter
             .write(record("draft", "writer-a", 1, json!("ready")))
             .expect("write should succeed");
@@ -1069,7 +1888,7 @@ mod tests {
     #[test]
     fn local_file_adapter_ignores_temporary_records_and_rejects_second_owner() {
         let root = temp_root("temporary-and-lock");
-        let mut adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        let mut adapter = public_store(&root);
         adapter
             .write(record("draft", "writer-a", 1, json!("committed")))
             .expect("write should succeed");
@@ -1109,7 +1928,7 @@ mod tests {
     #[test]
     fn local_file_adapter_rejects_cross_process_owner_and_recovers_after_exit() {
         let root = temp_root("cross-process-lock");
-        let mut initial_owner = LocalFileDataStore::new(&root).expect("initial owner should open");
+        let mut initial_owner = public_store(&root);
         let committed = record("draft", "writer-a", 1, json!("committed"));
         initial_owner
             .write(committed.clone())
@@ -1139,7 +1958,7 @@ mod tests {
     #[test]
     fn local_file_adapter_recovers_after_lock_owner_crash() {
         let root = temp_root("owner-crash-lock");
-        let mut initial_owner = LocalFileDataStore::new(&root).expect("initial owner should open");
+        let mut initial_owner = public_store(&root);
         initial_owner
             .write(record("draft", "writer-a", 1, json!("committed")))
             .expect("initial write should succeed");
@@ -1162,7 +1981,7 @@ mod tests {
     #[test]
     fn local_file_adapter_reports_unknown_version_and_helper_failures_stably() {
         let root = temp_root("helper-failures");
-        let mut adapter = LocalFileDataStore::new(&root).expect("local adapter should initialize");
+        let mut adapter = public_store(&root);
         adapter
             .write(record("draft", "writer-a", 1, json!("ready")))
             .expect("write should succeed");
@@ -1237,6 +2056,58 @@ mod tests {
 
     fn temp_root(name: &str) -> PathBuf {
         std::env::temp_dir().join(format!("traverse-data-store-{name}-{}", Uuid::new_v4()))
+    }
+
+    fn public_store(root: &Path) -> LocalFileDataStore {
+        LocalFileDataStore::with_classification(root, LocalDataClassification::Public)
+            .expect("public local adapter should initialize")
+    }
+
+    fn write_envelope_fixture(path: &Path, envelope: &LocalDataStoreEnvelope) {
+        fs::write(
+            path,
+            serde_json::to_vec(envelope).expect("serialize envelope"),
+        )
+        .expect("write envelope");
+    }
+
+    fn assert_integrity_reason(store: &LocalFileDataStore, reason: &str) {
+        let error = store.read("secret").expect_err("corruption must fail");
+        assert_eq!(error.code, DataStoreErrorCode::IntegrityCheckFailed);
+        assert_eq!(error.details["reason"], reason);
+    }
+
+    #[cfg(feature = "datastore-encryption")]
+    fn encrypted_fixture(
+        record_key: &str,
+        key_id: &str,
+        key: [u8; 32],
+        plaintext: &[u8],
+    ) -> LocalDataStoreEnvelope {
+        let cipher = Aes256Gcm::new_from_slice(&key).expect("valid AES-256 key");
+        let nonce = fresh_aes_nonce();
+        let ciphertext = cipher
+            .encrypt(
+                &nonce,
+                Payload {
+                    msg: plaintext,
+                    aad: &private_record_aad(key_id, record_key),
+                },
+            )
+            .expect("fixture encryption");
+        let nonce = hex_encode(&nonce);
+        let ciphertext = hex_encode(&ciphertext);
+        LocalDataStoreEnvelope {
+            format: LOCAL_DATA_STORE_FORMAT.to_string(),
+            classification: LocalDataClassification::Private,
+            digest: digest_for_private_envelope(key_id, record_key, &nonce, &ciphertext),
+            record: None,
+            record_key: Some(record_key.to_string()),
+            key_id: Some(key_id.to_string()),
+            nonce: Some(nonce),
+            ciphertext: Some(ciphertext),
+            retained_at: None,
+        }
     }
 
     fn lock_child_ready_path(root: &Path) -> PathBuf {

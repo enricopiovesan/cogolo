@@ -1,0 +1,30 @@
+{
+  "component_id": "registry-consumer.validate-component",
+  "version": "1.0.0",
+  "schema_version": "1.0.0",
+  "capability_id": "traverse-starter.validate",
+  "capability_version": "1.1.0",
+  "registry_ref": {
+    "namespace": "traverse-starter",
+    "id": "traverse-starter.validate",
+    "version_range": "=1.1.0"
+  },
+  "runtime_constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "permitted_targets": [
+    "local",
+    "device"
+  ],
+  "dependencies": [],
+  "connector_requirements": [],
+  "validation_evidence": [
+    {
+      "evidence_type": "published_registry_fixture",
+      "status": "passed",
+      "produced_by": "registry_consumer_golden_app"
+    }
+  ]
+}
