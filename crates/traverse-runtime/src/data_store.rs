@@ -12,7 +12,11 @@ pub use maintenance::{
     MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
 };
 
-use aes_gcm::aead::{Aead, Generate, KeyInit, Payload};
+#[cfg(feature = "datastore-encryption")]
+use aes_gcm::aead::consts::U12;
+#[cfg(feature = "datastore-encryption")]
+use aes_gcm::aead::{Aead, KeyInit, Payload};
+#[cfg(feature = "datastore-encryption")]
 use aes_gcm::{Aes256Gcm, Nonce};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -617,6 +621,7 @@ impl DataStore for LocalFileDataStore {
 }
 
 impl LocalFileDataStore {
+    #[cfg(feature = "datastore-encryption")]
     fn encrypt_private_record(
         &self,
         record: StateRecord,
@@ -629,7 +634,7 @@ impl LocalFileDataStore {
                 .map_err(|error| serialization_error("serialize private state record", &error))?,
         );
         let cipher = Aes256Gcm::new_from_slice(key.as_ref()).map_err(|_| crypto_error())?;
-        let nonce = Nonce::generate();
+        let nonce = fresh_aes_nonce();
         let aad = private_record_aad(&key_id, &record.key);
         let ciphertext = cipher
             .encrypt(
@@ -656,6 +661,15 @@ impl LocalFileDataStore {
         })
     }
 
+    #[cfg(not(feature = "datastore-encryption"))]
+    fn encrypt_private_record(
+        &self,
+        _record: StateRecord,
+    ) -> Result<LocalDataStoreEnvelope, DataStoreError> {
+        Err(encryption_feature_disabled())
+    }
+
+    #[cfg(feature = "datastore-encryption")]
     fn decrypt_private_envelope(
         &self,
         requested_key: &str,
@@ -711,6 +725,16 @@ impl LocalFileDataStore {
         Ok(Some(record))
     }
 
+    #[cfg(not(feature = "datastore-encryption"))]
+    fn decrypt_private_envelope(
+        &self,
+        _requested_key: &str,
+        _envelope: LocalDataStoreEnvelope,
+    ) -> Result<Option<StateRecord>, DataStoreError> {
+        Err(encryption_feature_disabled())
+    }
+
+    #[cfg(feature = "datastore-encryption")]
     fn required_key_provider(&self) -> Result<&dyn KeyProvider, DataStoreError> {
         self.key_provider.as_deref().ok_or_else(|| {
             data_store_error(
@@ -769,6 +793,7 @@ fn digest_for_private_envelope(
     format!("sha256:{}", hex_encode(&hasher.finalize()))
 }
 
+#[cfg(feature = "datastore-encryption")]
 fn private_record_aad(key_id: &str, record_key: &str) -> Vec<u8> {
     let mut aad = Vec::new();
     append_length_prefixed(&mut aad, key_id.as_bytes());
@@ -782,6 +807,7 @@ fn update_length_prefixed(hasher: &mut Sha256, value: &[u8]) {
     hasher.update(value);
 }
 
+#[cfg(feature = "datastore-encryption")]
 fn append_length_prefixed(output: &mut Vec<u8>, value: &[u8]) {
     output.extend_from_slice(&value.len().to_le_bytes());
     output.extend_from_slice(value);
@@ -819,6 +845,7 @@ fn decode_hex_digit(value: u8) -> Option<u8> {
     }
 }
 
+#[cfg(feature = "datastore-encryption")]
 fn map_key_provider_error(error: KeyProviderError) -> DataStoreError {
     let code = match error.code {
         KeyProviderErrorCode::MissingKey => DataStoreErrorCode::KeyNotFound,
@@ -833,6 +860,7 @@ fn map_key_provider_error(error: KeyProviderError) -> DataStoreError {
     )
 }
 
+#[cfg(feature = "datastore-encryption")]
 fn key_provider_error_code(code: KeyProviderErrorCode) -> &'static str {
     match code {
         KeyProviderErrorCode::MissingKey => "missing_key",
@@ -841,12 +869,32 @@ fn key_provider_error_code(code: KeyProviderErrorCode) -> &'static str {
     }
 }
 
+#[cfg(feature = "datastore-encryption")]
 fn crypto_error() -> DataStoreError {
     data_store_error(
         DataStoreErrorCode::CryptoFailure,
         "crypto_failed",
         json!({ "reason": "encryption_failed" }),
     )
+}
+
+#[cfg(not(feature = "datastore-encryption"))]
+fn encryption_feature_disabled() -> DataStoreError {
+    data_store_error(
+        DataStoreErrorCode::KeyProviderRequired,
+        "key_provider_required",
+        json!({ "reason": "datastore_encryption_feature_disabled" }),
+    )
+}
+
+#[cfg(feature = "datastore-encryption")]
+fn fresh_aes_nonce() -> Nonce<U12> {
+    // Host-local UUID entropy avoids aes-gcm's getrandom Generate path so
+    // wasm32 `--no-default-features` checks do not require a getrandom backend.
+    let entropy = *uuid::Uuid::new_v4().as_bytes();
+    let mut nonce_bytes = [0_u8; 12];
+    nonce_bytes.copy_from_slice(&entropy[..12]);
+    Nonce::<U12>::from(nonce_bytes)
 }
 
 fn lock_error(error: TryLockError) -> DataStoreError {
@@ -2029,6 +2077,7 @@ mod tests {
         assert_eq!(error.details["reason"], reason);
     }
 
+    #[cfg(feature = "datastore-encryption")]
     fn encrypted_fixture(
         record_key: &str,
         key_id: &str,
@@ -2036,7 +2085,7 @@ mod tests {
         plaintext: &[u8],
     ) -> LocalDataStoreEnvelope {
         let cipher = Aes256Gcm::new_from_slice(&key).expect("valid AES-256 key");
-        let nonce = Nonce::generate();
+        let nonce = fresh_aes_nonce();
         let ciphertext = cipher
             .encrypt(
                 &nonce,
