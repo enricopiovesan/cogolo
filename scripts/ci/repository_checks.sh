@@ -324,7 +324,7 @@ grep -q "Rust Checks" docs/troubleshooting.md
 grep -q "Coverage Gate" docs/troubleshooting.md
 grep -q "Spec Alignment" docs/troubleshooting.md
 grep -q "Generated Local State And Safe Cleanup" docs/troubleshooting.md
-grep -q "cargo run -p traverse-cli-rs -- agent execute" examples/hello-world/README.md
+grep -q "cargo run -p traverse-cli-rs -- capability-package execute" examples/hello-world/README.md
 grep -q "hello.world.say-hello" examples/hello-world/README.md
 grep -q "traverse-starter.process" contracts/examples/traverse-starter/capabilities/process/contract.json
 grep -q "traverse-starter.process-agent" examples/traverse-starter/process-agent/manifest.json

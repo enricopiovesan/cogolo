@@ -2,28 +2,28 @@
 
 Traverse's first governed WASM AI agent example packages the AI-assisted expedition capability:
 
-- package: `examples/agents/expedition-intent-agent/manifest.json`
+- package: `examples/capabilities/expedition-intent-agent/manifest.json`
 - approved capability: `expedition.planning.interpret-expedition-intent`
 - approved workflow interaction: `expedition.planning.plan-expedition`
 
 Build the deterministic local WASM fixture:
 
 ```bash
-bash examples/agents/expedition-intent-agent/build-fixture.sh
+bash examples/capabilities/expedition-intent-agent/build-fixture.sh
 ```
 
 Inspect the governed package:
 
 ```bash
-cargo run -p traverse-cli-rs -- agent inspect examples/agents/expedition-intent-agent/manifest.json
+cargo run -p traverse-cli-rs -- capability-package inspect examples/capabilities/expedition-intent-agent/manifest.json
 ```
 
 Execute the agent through the Traverse runtime model:
 
 ```bash
-cargo run -p traverse-cli-rs -- agent execute \
-  examples/agents/expedition-intent-agent/manifest.json \
-  examples/agents/runtime-requests/interpret-expedition-intent.json
+cargo run -p traverse-cli-rs -- capability-package execute \
+  examples/capabilities/expedition-intent-agent/manifest.json \
+  examples/capabilities/runtime-requests/interpret-expedition-intent.json
 ```
 
 Run the deterministic smoke path:

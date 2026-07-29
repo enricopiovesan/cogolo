@@ -5,8 +5,8 @@ This guide shows how to create a new governed WASM agent in Traverse without inv
 Use the checked-in examples as the source of truth:
 
 - [`examples/templates/executable-capability-package/manifest.template.json`](../examples/templates/executable-capability-package/manifest.template.json)
-- [`examples/agents/expedition-intent-agent/manifest.json`](../examples/agents/expedition-intent-agent/manifest.json)
-- [`examples/agents/team-readiness-agent/manifest.json`](../examples/agents/team-readiness-agent/manifest.json)
+- [`examples/capabilities/expedition-intent-agent/manifest.json`](../examples/capabilities/expedition-intent-agent/manifest.json)
+- [`examples/capabilities/team-readiness-agent/manifest.json`](../examples/capabilities/team-readiness-agent/manifest.json)
 - [`docs/wasm-io-contract.md`](wasm-io-contract.md)
 
 ## From Hello World to Your First Custom Capability
@@ -72,8 +72,8 @@ Its execution boundary is the governed stdin/stdout JSON contract documented in
 3. Point `source.path` at the agent implementation file.
 4. Build the deterministic local fixture for the agent package.
 5. Update the expected digest after the fixture is built.
-6. Verify the package with `traverse-cli agent inspect`.
-7. Verify the runtime path with `traverse-cli agent execute`.
+6. Verify the package with `traverse-cli capability-package inspect`.
+7. Verify the runtime path with `traverse-cli capability-package execute`.
 8. Run the example smoke script before opening a PR.
 
 ## Validation

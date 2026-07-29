@@ -2,28 +2,28 @@
 
 Traverse's second governed WASM AI agent example packages the expedition readiness validation capability:
 
-- package: `examples/agents/team-readiness-agent/manifest.json`
+- package: `examples/capabilities/team-readiness-agent/manifest.json`
 - approved capability: `expedition.planning.validate-team-readiness`
 - approved workflow interaction: `expedition.planning.plan-expedition`
 
 Build the deterministic local WASM fixture:
 
 ```bash
-bash examples/agents/team-readiness-agent/build-fixture.sh
+bash examples/capabilities/team-readiness-agent/build-fixture.sh
 ```
 
 Inspect the governed package:
 
 ```bash
-cargo run -p traverse-cli-rs -- agent inspect examples/agents/team-readiness-agent/manifest.json
+cargo run -p traverse-cli-rs -- capability-package inspect examples/capabilities/team-readiness-agent/manifest.json
 ```
 
 Execute the agent through the Traverse runtime model:
 
 ```bash
-cargo run -p traverse-cli-rs -- agent execute \
-  examples/agents/team-readiness-agent/manifest.json \
-  examples/agents/runtime-requests/validate-team-readiness.json
+cargo run -p traverse-cli-rs -- capability-package execute \
+  examples/capabilities/team-readiness-agent/manifest.json \
+  examples/capabilities/runtime-requests/validate-team-readiness.json
 ```
 
 Run the deterministic smoke path:

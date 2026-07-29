@@ -1,7 +1,7 @@
 {
-  "kind": "agent_package",
+  "kind": "capability_package",
   "schema_version": "1.0.0",
-  "package_id": "example.domain.replace-me-agent",
+  "package_id": "example.domain.replace-me",
   "version": "0.1.0",
   "summary": "Replace this summary with the governed executable capability package purpose.",
   "capability_ref": {

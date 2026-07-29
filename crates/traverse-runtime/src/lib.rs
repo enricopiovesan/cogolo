@@ -4979,7 +4979,7 @@ mod tests {
                 "wasm_digest": "sha256:5647c39a1d25d8728350f9619025292a62e78a602068a2ad9b6f075751c93d99",
                 "manifest_path": repo.join("examples/applications/expedition-readiness/components/validate-team-readiness/component.manifest.json").display().to_string(),
                 "contract_path": repo.join(format!("contracts/examples/expedition/capabilities/{leaf}/contract.json")).display().to_string(),
-                "artifact_ref": repo.join("examples/agents/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm").display().to_string()
+                "artifact_ref": repo.join("examples/capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm").display().to_string()
             })
         })
         .collect()
