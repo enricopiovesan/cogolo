@@ -302,14 +302,19 @@ fn validate_manifest_shape(
         );
     }
     if manifest.capability_ref.contract_path.trim().is_empty() {
-        return Err("capability package capability_ref.contract_path must be non-empty".to_string());
+        return Err(
+            "capability package capability_ref.contract_path must be non-empty".to_string(),
+        );
     }
     if manifest.source.path.trim().is_empty() || manifest.source.entry.trim().is_empty() {
-        return Err("capability package source.path and source.entry must be non-empty".to_string());
+        return Err(
+            "capability package source.path and source.entry must be non-empty".to_string(),
+        );
     }
     if manifest.binary.path.trim().is_empty() || manifest.binary.expected_digest.trim().is_empty() {
         return Err(
-            "capability package binary.path and binary.expected_digest must be non-empty".to_string(),
+            "capability package binary.path and binary.expected_digest must be non-empty"
+                .to_string(),
         );
     }
     if manifest.binary.abi_version != SUPPORTED_HOST_ABI_VERSION {
@@ -689,7 +694,8 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest_path = dir.join("manifest.json");
         fs::write(&manifest_path, "not json").expect("manifest should write");
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("failed to parse capability package manifest"));
     }
 
@@ -805,7 +811,8 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("missing capability contract file"));
     }
 
@@ -827,7 +834,8 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("missing capability source file"));
     }
 
@@ -849,7 +857,8 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("missing capability binary file"));
     }
 
@@ -868,7 +877,8 @@ mod tests {
                 .expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("is invalid") || error.contains("failed to read"));
     }
 
@@ -897,7 +907,8 @@ mod tests {
         let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
         manifest["capability_ref"]["id"] = json!("different.capability");
         let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("does not match contract"));
     }
 
@@ -924,7 +935,8 @@ mod tests {
         let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
         manifest["constraints"]["host_api_access"] = json!("exception_required");
         let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("must keep host_api_access=none"));
     }
 
@@ -949,7 +961,8 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest = base_manifest_value("fnv1a64:0000000000000000");
         let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("capability binary digest mismatch"));
     }
 
@@ -967,7 +980,8 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
         make_unreadable(&dir.join("contract.json"));
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("failed to read capability contract"));
     }
 
@@ -976,7 +990,8 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
         make_unreadable(&dir.join("artifacts/agent.wasm"));
-        let error = load_capability_package(&manifest_path).expect_err("load_capability_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("failed to read capability binary"));
     }
 }

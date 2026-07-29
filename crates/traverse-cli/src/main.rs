@@ -4,8 +4,8 @@ mod federation_operator;
 mod http_api;
 mod supply_chain;
 
-use capability_packages::load_capability_package;
 use browser_adapter::serve_local_browser_adapter;
+use capability_packages::load_capability_package;
 use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
 };
@@ -402,7 +402,9 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("registry"), Some("search")) => parse_registry_search_command(args),
         (Some("component"), Some("new")) => parse_component_new_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
-        (Some("capability-package"), Some("execute")) => parse_capability_package_execute_command(args),
+        (Some("capability-package"), Some("execute")) => {
+            parse_capability_package_execute_command(args)
+        }
         (Some("artifact"), Some("verify")) => parse_artifact_verify_command(args),
         (Some("wasm"), Some("abi")) => parse_wasm_abi_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
@@ -3743,7 +3745,10 @@ fn inspect_capability_package(manifest_path: &Path) -> Result<String, CliError> 
     Ok(package.render_summary())
 }
 
-fn execute_capability_package(manifest_path: &Path, request_path: &Path) -> Result<String, CliError> {
+fn execute_capability_package(
+    manifest_path: &Path,
+    request_path: &Path,
+) -> Result<String, CliError> {
     let package = load_capability_package(manifest_path).map_err(CliError::IoError)?;
     let request = load_runtime_request(request_path)?;
     let mut registry = CapabilityRegistry::new();
@@ -7298,9 +7303,7 @@ mod tests {
         let output = inspect_capability_package(&fixture.manifest_path)
             .expect("capability-package inspect should succeed");
 
-        assert!(
-            output.contains("package_id: expedition.planning.interpret-expedition-intent")
-        );
+        assert!(output.contains("package_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("binary_digest: fnv1a64:"));
         assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
@@ -7329,9 +7332,7 @@ mod tests {
         let output = execute_capability_package(&manifest_path, &request_path)
             .expect("capability package execution should succeed");
 
-        assert!(
-            output.contains("package_id: expedition.planning.interpret-expedition-intent")
-        );
+        assert!(output.contains("package_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("route_preferences: conservative-alpine-push, same-day-return"));
@@ -7355,8 +7356,8 @@ mod tests {
         let manifest_path =
             repo_root().join("examples/capabilities/team-readiness-agent/manifest.json");
         build_real_capability_package_artifact(&manifest_path);
-        let request_path = repo_root()
-            .join("examples/capabilities/runtime-requests/validate-team-readiness.json");
+        let request_path =
+            repo_root().join("examples/capabilities/runtime-requests/validate-team-readiness.json");
 
         let output = execute_capability_package(&manifest_path, &request_path)
             .expect("capability package execution should succeed");
