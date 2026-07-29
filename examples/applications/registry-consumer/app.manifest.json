@@ -1,0 +1,69 @@
+{
+  "app_id": "registry-consumer",
+  "version": "1.0.0",
+  "schema_version": "1.0.0",
+  "workspace_defaults": {
+    "workspace_id": "local-default",
+    "registry_scope": "private"
+  },
+  "components": [
+    {
+      "component_id": "registry-consumer.validate-component",
+      "version": "1.0.0",
+      "digest": "sha256:7b7f4e7cff89190f965ddfab8611c1a872c9636196a863884dee28d2335b7858",
+      "manifest_path": "components/validate/component.manifest.json"
+    },
+    {
+      "component_id": "registry-consumer.process-component",
+      "version": "1.0.0",
+      "digest": "sha256:3b1e45d5d49f5e52524aa8a6420444c2fc97351c283e47fcddb5f46200030f24",
+      "manifest_path": "components/process/component.manifest.json"
+    },
+    {
+      "component_id": "registry-consumer.summarize-component",
+      "version": "1.0.0",
+      "digest": "sha256:0918755a5bff7fdb1e614003a610482c8b4482b3f08f630c86c9dbba4c437150",
+      "manifest_path": "components/summarize/component.manifest.json"
+    }
+  ],
+  "workflows": [
+    {
+      "workflow_id": "registry-consumer.pipeline",
+      "workflow_version": "1.0.0",
+      "path": "workflows/pipeline.json"
+    }
+  ],
+  "model_dependencies": [],
+  "config_schema": {
+    "type": "object",
+    "required": [
+      "workspace_id"
+    ],
+    "properties": {
+      "workspace_id": {
+        "type": "string"
+      },
+      "processing_mode": {
+        "type": "string",
+        "enum": [
+          "deterministic"
+        ]
+      }
+    },
+    "additionalProperties": false
+  },
+  "default_config": {
+    "workspace_id": "local-default",
+    "processing_mode": "deterministic"
+  },
+  "placement_policy": {
+    "preferred_targets": [
+      "local"
+    ],
+    "allow_fallback": false
+  },
+  "public_surfaces": [
+    "cli",
+    "http_json"
+  ]
+}

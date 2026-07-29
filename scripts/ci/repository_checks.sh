@@ -312,6 +312,11 @@ grep -q "cargo run -p traverse-cli-rs -- bundle register" docs/getting-started.m
 grep -q "cargo run -p traverse-cli-rs -- expedition execute" docs/getting-started.md
 grep -q "cargo run -p traverse-cli-rs -- trace inspect" docs/getting-started.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/getting-started.md
+grep -q "examples/applications/registry-consumer/README.md" docs/getting-started.md
+grep -q '"registry_ref"' examples/applications/registry-consumer/components/validate/component.manifest.json
+grep -q '"registry_ref"' examples/applications/registry-consumer/components/process/component.manifest.json
+grep -q '"registry_ref"' examples/applications/registry-consumer/components/summarize/component.manifest.json
+! grep -R -q -E '"(contract_path|wasm_binary_path)"' examples/applications/registry-consumer/components
 grep -q "docs/troubleshooting.md" quickstart.md
 grep -q "docs/troubleshooting.md" docs/tutorial-index.md
 grep -q "Repository Checks" docs/troubleshooting.md
