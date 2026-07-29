@@ -2,7 +2,7 @@
 
 **Feature Branch**: `527-datastore-encryption-at-rest`  
 **Created**: 2026-07-29  
-**Status**: Draft  
+**Status**: Approved  
 **Canonical governing ID**: `084-datastore-encryption-at-rest`  
 **Extends**: `518-durable-local-datastore`, `519-embedder-owned-datastore-integration`  
 **Input**: Project 1 Specify encryption ticket; planning locks recorded in Decision 40.

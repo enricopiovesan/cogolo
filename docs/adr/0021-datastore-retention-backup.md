@@ -1,6 +1,6 @@
 # ADR-0021: Host-Explicit DataStore Retention and Verified Zip Backup/Restore
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-29
 - Governing spec: `526-datastore-retention-backup` / `083-datastore-retention-backup` (Draft)
 - Extends: ADR-0018, ADR-0019

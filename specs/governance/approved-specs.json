@@ -870,14 +870,14 @@
       "status": "approved",
       "immutable": true,
       "path": "specs/074-swift-native-resource-control-certification/spec.md",
-    "governs": [
-      "packages/swift/TraverseEmbedder/",
-      "crates/traverse-swift-host/",
-      "scripts/ci/embedder_conformance/swift_package.sh",
-      "scripts/build_swift_host_xcframework.sh",
-      "scripts/swift_host_macos_smoke.sh",
-      "docs/swift-host-device-test.md",
-      "docs/adr/0011-swift-native-resource-controls.md",
+      "governs": [
+        "packages/swift/TraverseEmbedder/",
+        "crates/traverse-swift-host/",
+        "scripts/ci/embedder_conformance/swift_package.sh",
+        "scripts/build_swift_host_xcframework.sh",
+        "scripts/swift_host_macos_smoke.sh",
+        "docs/swift-host-device-test.md",
+        "docs/adr/0011-swift-native-resource-controls.md",
         "specs/074-swift-native-resource-control-certification/"
       ]
     },
@@ -1057,6 +1057,47 @@
       "governs": [
         "docs/adr/0020-explicit-datastore-format-migration.md",
         "specs/522-datastore-format-migration/"
+      ]
+    },
+    {
+      "id": "083-datastore-retention-backup",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/526-datastore-retention-backup/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/data_store.rs",
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "docs/adr/0021-datastore-retention-backup.md",
+        "specs/526-datastore-retention-backup/"
+      ]
+    },
+    {
+      "id": "084-datastore-encryption-at-rest",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/527-datastore-encryption-at-rest/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/data_store.rs",
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "docs/adr/0022-datastore-encryption-at-rest.md",
+        "specs/527-datastore-encryption-at-rest/"
+      ]
+    },
+    {
+      "id": "085-datastore-indexeddb",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/528-datastore-indexeddb/spec.md",
+      "governs": [
+        "packages/web/TraverseEmbedder/",
+        "crates/traverse-embedder/",
+        "docs/adr/0023-datastore-indexeddb.md",
+        "specs/528-datastore-indexeddb/"
       ]
     }
   ]

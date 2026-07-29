@@ -1,6 +1,6 @@
 # ADR-0023: IndexedDB as a Same-Port Public DataStore Backend
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-29
 - Governing spec: `528-datastore-indexeddb` / `085-datastore-indexeddb` (Draft)
 - Extends: ADR-0018, ADR-0019

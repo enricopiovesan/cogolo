@@ -1122,7 +1122,7 @@ it is not itself an implementation authorization.
 ## Decision 39: Host-Explicit DataStore Retention and Verified Zip Backup/Restore
 
 - **Date**: 2026-07-29
-- **Status**: Accepted (planning); governing Spec/ADR Proposed pending approval
+- **Status**: Accepted
 - **Governing spec**: `083-datastore-retention-backup` (`specs/526-datastore-retention-backup`)
 - **Related ADR**: ADR-0021
 - **Related Project 1**: Specify DataStore retention compaction backup and restore policy
@@ -1143,7 +1143,7 @@ approval. Does not authorize compaction or auto-prune.
 ## Decision 40: Encrypt Only Private DataStore Records via KeyProvider
 
 - **Date**: 2026-07-29
-- **Status**: Accepted (planning); governing Spec/ADR Proposed pending approval
+- **Status**: Accepted
 - **Governing spec**: `084-datastore-encryption-at-rest` (`specs/527-datastore-encryption-at-rest`)
 - **Related ADR**: ADR-0022
 - **Related Project 1**: Specify DataStore encryption at rest and key lifecycle
@@ -1163,7 +1163,7 @@ follow-on after IndexedDB CRUD.
 ## Decision 41: IndexedDB as Same-Port Public DataStore Backend
 
 - **Date**: 2026-07-29
-- **Status**: Accepted (planning); governing Spec/ADR Proposed pending approval
+- **Status**: Accepted
 - **Governing spec**: `085-datastore-indexeddb` (`specs/528-datastore-indexeddb`)
 - **Related ADR**: ADR-0023
 - **Related Project 1**: Specify browser IndexedDB DataStore adapter contract

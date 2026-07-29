@@ -2,7 +2,7 @@
 
 **Feature Branch**: `526-datastore-retention-backup`  
 **Created**: 2026-07-29  
-**Status**: Draft  
+**Status**: Approved  
 **Canonical governing ID**: `083-datastore-retention-backup`  
 **Extends**: `518-durable-local-datastore`, `519-embedder-owned-datastore-integration`  
 **Input**: Project 1 Specify retention ticket; planning locks recorded in Decision 39.

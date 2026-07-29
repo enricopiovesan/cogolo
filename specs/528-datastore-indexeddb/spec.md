@@ -2,7 +2,7 @@
 
 **Feature Branch**: `528-datastore-indexeddb`  
 **Created**: 2026-07-29  
-**Status**: Draft  
+**Status**: Approved  
 **Canonical governing ID**: `085-datastore-indexeddb`  
 **Extends**: `518-durable-local-datastore`, `519-embedder-owned-datastore-integration`  
 **Related**: `084-datastore-encryption-at-rest` (private deferred on this backend)  
