@@ -87,16 +87,15 @@ mod test_double;
 pub use registry_cache::{
     HostRegistryCache, RegistryArtifactFetcher, RegistryCacheError, RegistryCacheErrorCode,
     RegistryPrepareEvidence, VerifiedRegistryDependency, prepare as prepare_registry_dependency,
+    resolve_component as resolve_registry_component,
     resolve_offline as resolve_registry_dependency_offline,
 };
 pub use test_double::EmbedderTestDouble;
 
 use serde_json::{Value, json};
 use std::collections::{BTreeMap, VecDeque};
-use std::fs;
 use std::path::{Path, PathBuf};
 use std::sync::atomic::{AtomicU64, Ordering};
-use traverse_contracts::parse_contract;
 use traverse_registry::{
     ApplicationManifestError, ApplicationManifestErrorCode, ApplicationManifestFailure,
     ApplicationRegistrationFailure, ApplicationRegistrationRequest, ApplicationRegistry,
@@ -1717,48 +1716,14 @@ impl RegistryComponentResolver for OfflineRegistryCacheResolver<'_> {
         &self,
         reference: &RegistryReference,
     ) -> Result<ResolvedRegistryComponent, ApplicationManifestFailure> {
-        let resolved =
-            resolve_registry_dependency_offline(self.cache, reference).map_err(|failure| {
-                ApplicationManifestFailure {
-                    errors: vec![ApplicationManifestError {
-                        code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
-                        path: "$.registry_ref".to_string(),
-                        message: format!("{}: {}", failure.code.as_str(), failure.message),
-                    }],
-                }
-            })?;
-        let contract_text = fs::read_to_string(&resolved.contract_path).map_err(|error| {
+        crate::registry_cache::resolve_component(self.cache, reference).map_err(|failure| {
             ApplicationManifestFailure {
                 errors: vec![ApplicationManifestError {
                     code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
                     path: "$.registry_ref".to_string(),
-                    message: format!(
-                        "{}: failed to read verified registry contract ({error})",
-                        RegistryCacheErrorCode::RegistryCacheEntryMissing.as_str()
-                    ),
+                    message: format!("{}: {}", failure.code.as_str(), failure.message),
                 }],
             }
-        })?;
-        let contract =
-            parse_contract(&contract_text).map_err(|failure| ApplicationManifestFailure {
-                errors: vec![ApplicationManifestError {
-                    code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
-                    path: "$.registry_ref".to_string(),
-                    message: format!(
-                        "{}: verified registry contract is invalid ({})",
-                        RegistryCacheErrorCode::RegistryPrepareFailed.as_str(),
-                        failure
-                            .errors
-                            .first()
-                            .map_or("parse failed", |e| e.message.as_str())
-                    ),
-                }],
-            })?;
-        Ok(ResolvedRegistryComponent {
-            contract_path: resolved.contract_path,
-            contract,
-            wasm_binary_path: resolved.wasm_binary_path,
-            wasm_digest: resolved.wasm_digest,
         })
     }
 }
@@ -1841,6 +1806,8 @@ fn workflow_step_status_str(status: WorkflowTraversalStepStatus) -> &'static str
 
 #[cfg(test)]
 mod tests {
+    #![allow(clippy::expect_used, clippy::unwrap_used)]
+
     use super::*;
 
     #[test]
@@ -2246,5 +2213,136 @@ mod tests {
         for (reason, expected) in failures {
             assert_eq!(execution_failure_code(reason), expected);
         }
+    }
+
+    #[test]
+    fn offline_registry_resolver_loads_prepared_contract_and_reports_missing() {
+        use crate::registry_cache::{
+            HostRegistryCache, RegistryArtifactFetcher, prepare, resolve_component,
+        };
+        use sha2::{Digest, Sha256};
+        use std::collections::HashMap;
+        use std::fmt::Write as _;
+        use traverse_registry::{
+            PublicRegistryCapabilityRecord, RegistryComponentResolver, RegistryReference,
+            SyncedPublicRegistryState,
+        };
+
+        struct MapFetcher {
+            assets: HashMap<String, Vec<u8>>,
+        }
+        impl RegistryArtifactFetcher for MapFetcher {
+            fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
+                self.assets
+                    .get(url)
+                    .cloned()
+                    .ok_or_else(|| "missing".to_string())
+            }
+        }
+
+        fn sha256_hex(bytes: &[u8]) -> String {
+            let digest = Sha256::digest(bytes);
+            let mut value = String::with_capacity(digest.len() * 2);
+            for byte in digest {
+                let _ = write!(value, "{byte:02x}");
+            }
+            value
+        }
+
+        let contract = include_str!(
+            "../../../contracts/examples/traverse-starter/capabilities/process/contract.json"
+        )
+        .as_bytes()
+        .to_vec();
+        let artifact = b"\0asm\x01\0\0\0".to_vec();
+        let artifact_digest = format!("sha256:{}", sha256_hex(&artifact));
+        let contract_digest = format!("sha256:{}", sha256_hex(&contract));
+        let record = PublicRegistryCapabilityRecord {
+            namespace: "traverse-starter".to_string(),
+            id: "process".to_string(),
+            version: "1.0.0".to_string(),
+            digest: artifact_digest.clone(),
+            artifact_url: "https://example.test/process.wasm".to_string(),
+            contract_digest: contract_digest.clone(),
+            contract_url: "https://example.test/process.json".to_string(),
+            deprecated: false,
+        };
+        let snapshot = SyncedPublicRegistryState {
+            schema_version: "1".to_string(),
+            workspace_id: "ws".to_string(),
+            state_scope: "public".to_string(),
+            source_repo: "traverse-framework/registry".to_string(),
+            release_tag: "index-v1".to_string(),
+            index_version: 1,
+            generated_at: "2026-07-29T00:00:00Z".to_string(),
+            source_commit: None,
+            synced_at: "2026-07-29T00:00:00Z".to_string(),
+            record_count: 1,
+            validation_status: "valid".to_string(),
+            governing_spec: "055-registry-sync".to_string(),
+            capabilities: vec![record.clone()],
+        };
+        let mut assets = HashMap::new();
+        assets.insert(record.artifact_url.clone(), artifact);
+        assets.insert(record.contract_url.clone(), contract);
+        let fetcher = MapFetcher { assets };
+        let reference = RegistryReference {
+            namespace: "traverse-starter".to_string(),
+            id: "process".to_string(),
+            version_range: "^1.0.0".to_string(),
+        };
+        let root = std::env::temp_dir().join(format!(
+            "traverse-embedder-resolver-{}-{}",
+            std::process::id(),
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .expect("clock")
+                .as_nanos()
+        ));
+        std::fs::create_dir_all(&root).expect("root");
+        let cache = HostRegistryCache::new(root);
+        prepare(&cache, &snapshot, &reference, &fetcher).expect("prepare");
+        let resolver = OfflineRegistryCacheResolver { cache: &cache };
+        let loaded = resolver.resolve(&reference).expect("resolve");
+        assert_eq!(loaded.wasm_digest, artifact_digest);
+        assert_eq!(loaded.contract.id, "traverse-starter.process");
+
+        let missing_ref = RegistryReference {
+            namespace: "missing".to_string(),
+            id: "capability".to_string(),
+            version_range: "^1.0.0".to_string(),
+        };
+        let missing = resolver.resolve(&missing_ref).expect_err("missing");
+        assert!(
+            missing.errors[0]
+                .message
+                .contains("registry_cache_entry_missing")
+        );
+        let _ = resolve_component(&cache, &reference);
+    }
+
+    #[test]
+    fn map_manifest_failure_marks_registry_cache_misses() {
+        let failure = ApplicationManifestFailure {
+            errors: vec![ApplicationManifestError {
+                code: ApplicationManifestErrorCode::RegistryReferenceRequiresResolution,
+                path: "$.registry_ref".to_string(),
+                message: "registry_cache_entry_missing: absent".to_string(),
+            }],
+        };
+        let mapped = map_manifest_failure(&failure);
+        assert_eq!(mapped.code, EmbedderErrorCode::BundleLoadFailed);
+        assert!(mapped.message.contains("registry_cache_entry_missing"));
+
+        let other = ApplicationManifestFailure {
+            errors: vec![ApplicationManifestError {
+                code: ApplicationManifestErrorCode::ManifestReadFailed,
+                path: "$".to_string(),
+                message: "boom".to_string(),
+            }],
+        };
+        let mapped_other = map_manifest_failure(&other);
+        assert!(mapped_other.message.contains("application bundle failed to load"));
+        assert!(!mapped_other.message.contains("registry_cache_entry_missing):"));
     }
 }
