@@ -773,7 +773,7 @@ fn read_member_bytes_error(error: &std::io::Error) -> MaintenanceError {
 
 fn open_restore_zip(archive: &Path) -> Result<ZipArchive<File>, MaintenanceError> {
     let file = File::open(archive).map_err(|error| maintenance_io("reopen archive", &error))?;
-    ZipArchive::new(file).map_err(restore_invalid_zip_error)
+    ZipArchive::new(file).map_err(|error| restore_invalid_zip_error(&error))
 }
 
 fn restore_invalid_zip_error(error: &zip::result::ZipError) -> MaintenanceError {
