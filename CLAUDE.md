@@ -1,6 +1,6 @@
 # Traverse Development Guidelines
 
-Auto-generated. Last updated: 2026-07-03
+Auto-generated. Last updated: 2026-07-28
 
 ## Governance
 
@@ -9,6 +9,8 @@ This repo's constitution, NFRs, quality standards, antipatterns, compatibility p
 Repo-specific product scope stays here: see `specs/001-foundation-v0-1/spec.md` for this repo's v0.1 scope, and `specs/051-registry-extraction/spec.md` for the in-progress registry extraction.
 
 ## Active Technologies
+- Rust 1.94+; host packages in TypeScript, Swift, Kotlin, and .NET + Cargo workspace, serde, semver, existing registry and embedder packages (524-production-app-readiness)
+- host-owned verified artifact cache, append-only trace journal, host-owned file-backed DataStore v2 (524-production-app-readiness)
 
 - Rust 1.94+
 - Cargo workspace
@@ -67,3 +69,6 @@ jq -r '.specs[].id' specs/governance/approved-specs.json
 
 <!-- MANUAL ADDITIONS START -->
 <!-- MANUAL ADDITIONS END -->
+
+## Recent Changes
+- 524-production-app-readiness: Added Rust 1.94+; host packages in TypeScript, Swift, Kotlin, and .NET + Cargo workspace, serde, semver, existing registry and embedder packages
