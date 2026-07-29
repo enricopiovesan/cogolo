@@ -2342,7 +2342,15 @@ mod tests {
             }],
         };
         let mapped_other = map_manifest_failure(&other);
-        assert!(mapped_other.message.contains("application bundle failed to load"));
-        assert!(!mapped_other.message.contains("registry_cache_entry_missing):"));
+        assert!(
+            mapped_other
+                .message
+                .contains("application bundle failed to load")
+        );
+        assert!(
+            !mapped_other
+                .message
+                .contains("registry_cache_entry_missing):")
+        );
     }
 }

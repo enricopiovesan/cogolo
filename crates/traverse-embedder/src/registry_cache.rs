@@ -1019,8 +1019,7 @@ mod tests {
     fn evict_all_and_missing_evict_paths_are_idempotent() {
         let cache = unique_cache();
         cache.evict_all().expect("empty evict_all");
-        let digest =
-            "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
+        let digest = "sha256:bbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbbb";
         cache.evict(digest).expect("missing evict ok");
         let (snapshot, fetcher, reference) = sample_snapshot(false);
         let evidence = prepare(&cache, &snapshot, &reference, &fetcher).expect("prepare");
@@ -1069,7 +1068,9 @@ mod tests {
         fs::remove_file(&meta).expect("remove meta file");
         fs::create_dir_all(&meta).expect("meta dir");
         fs::write(meta.join("nested"), b"x").expect("nested");
-        let meta_evict = cache.evict(&evidence.artifact_digest).expect_err("meta evict");
+        let meta_evict = cache
+            .evict(&evidence.artifact_digest)
+            .expect_err("meta evict");
         assert_eq!(
             meta_evict.code,
             RegistryCacheErrorCode::RegistryPrepareFailed
@@ -1218,10 +1219,7 @@ mod tests {
         #[derive(Debug)]
         struct Boom;
         impl serde::Serialize for Boom {
-            fn serialize<S: serde::Serializer>(
-                &self,
-                _serializer: S,
-            ) -> Result<S::Ok, S::Error> {
+            fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
                 Err(serde::ser::Error::custom("boom"))
             }
         }
