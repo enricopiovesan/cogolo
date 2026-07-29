@@ -9,14 +9,15 @@ use common::{
     RENDER_CAPABILITY_ID, collect_events, snapshot,
 };
 use serde_json::{Value, json};
+use std::sync::Arc;
 use traverse_embedder::{
     BundleEmbedder, CompatibleLifecycleStatus, EMBEDDED_TRACE_API_VERSION, EmbeddedTraceApi,
     EmbeddedTraceOutcome, EmbedderConfig, EmbedderErrorCode, HostDataStore, SecurityPosture,
     SubmitStatus, TraverseEmbedderApi,
 };
 use traverse_runtime::data_store::{
-    DataStore, DataStoreError, DataStoreErrorCode, LocalDataClassification, LocalFileDataStore,
-    StateRecord,
+    DataStore, DataStoreError, DataStoreErrorCode, InMemoryKeyProvider, KeyProvider,
+    LocalDataClassification, LocalFileDataStore, StateRecord,
 };
 
 struct FailingDataStore {
@@ -283,7 +284,11 @@ fn host_injected_datastore_reopens_without_leaking_record_metadata_to_events() {
     ));
     let mut first = development_embedder(&fixture, "linux");
     let events = collect_events(&mut first);
-    let store = LocalFileDataStore::new(&root).expect("host should create store");
+    let provider: Arc<dyn KeyProvider> =
+        Arc::new(InMemoryKeyProvider::new("embedder-test", [17; 32]));
+    let store = LocalFileDataStore::new(&root)
+        .expect("host should create store")
+        .with_key_provider(Arc::clone(&provider));
     first.inject_data_store(HostDataStore::new(store, LocalDataClassification::Private));
     let record = StateRecord {
         key: "host-note".to_string(),
@@ -297,7 +302,9 @@ fn host_injected_datastore_reopens_without_leaking_record_metadata_to_events() {
     drop(first);
 
     let mut second = development_embedder(&fixture, "linux");
-    let reopened = LocalFileDataStore::new(&root).expect("host should reopen released store");
+    let reopened = LocalFileDataStore::new(&root)
+        .expect("host should reopen released store")
+        .with_key_provider(provider);
     second.inject_data_store(HostDataStore::new(
         reopened,
         LocalDataClassification::Private,
@@ -394,6 +401,21 @@ fn host_datastore_failure_codes_are_safe_and_classified() {
             "lamport_clock_overflow",
         ),
         (DataStoreErrorCode::SyncFailure, "sync_failed"),
+        (
+            DataStoreErrorCode::KeyProviderRequired,
+            "key_provider_required",
+        ),
+        (DataStoreErrorCode::KeyNotFound, "key_not_found"),
+        (DataStoreErrorCode::KeyExpired, "key_expired"),
+        (
+            DataStoreErrorCode::KeyProviderFailure,
+            "key_provider_failed",
+        ),
+        (DataStoreErrorCode::CryptoFailure, "crypto_failed"),
+        (
+            DataStoreErrorCode::ClassificationChangeNotAllowed,
+            "classification_change_not_allowed",
+        ),
     ];
 
     for (code, expected) in cases {

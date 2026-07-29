@@ -22,6 +22,7 @@ uuid = { version = "1", features = ["v4", "js"] }
 chrono = { version = "0.4", features = ["serde"] }
 rayon = { version = "1.11", optional = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+aes-gcm = { version = "0.11.0", features = ["zeroize"] }
 
 [features]
 default = ["native-executors", "wasmtime-executor"]
