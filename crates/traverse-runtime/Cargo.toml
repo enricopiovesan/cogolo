@@ -22,11 +22,15 @@ uuid = { version = "1", features = ["v4", "js"] }
 chrono = { version = "0.4", features = ["serde"] }
 rayon = { version = "1.11", optional = true }
 zip = { version = "2", default-features = false, features = ["deflate"] }
+aes-gcm = { version = "0.11.0", optional = true, features = ["zeroize"] }
 
 [features]
-default = ["native-executors", "wasmtime-executor"]
+default = ["native-executors", "wasmtime-executor", "datastore-encryption"]
 native-executors = ["dep:rayon"]
 wasmtime-executor = ["dep:wasmtime", "dep:wasmtime-wasi"]
+# Local-file private-record AEAD (Spec 084). Omitted from wasm32
+# `--no-default-features` checks so getrandom backends are not required.
+datastore-encryption = ["dep:aes-gcm"]
 
 [dev-dependencies]
 wat = "1"

@@ -404,6 +404,14 @@ impl EmbeddedDataStoreError {
             DataStoreErrorCode::NoStateSchemaDeclared => "state_schema_unavailable",
             DataStoreErrorCode::LamportClockOverflow => "lamport_clock_overflow",
             DataStoreErrorCode::SyncFailure => "sync_failed",
+            DataStoreErrorCode::KeyProviderRequired => "key_provider_required",
+            DataStoreErrorCode::KeyNotFound => "key_not_found",
+            DataStoreErrorCode::KeyExpired => "key_expired",
+            DataStoreErrorCode::KeyProviderFailure => "key_provider_failed",
+            DataStoreErrorCode::CryptoFailure => "crypto_failed",
+            DataStoreErrorCode::ClassificationChangeNotAllowed => {
+                "classification_change_not_allowed"
+            }
         };
         Self { code, operation }
     }
@@ -1879,6 +1887,21 @@ mod tests {
                 "lamport_clock_overflow",
             ),
             (DataStoreErrorCode::SyncFailure, "sync_failed"),
+            (
+                DataStoreErrorCode::KeyProviderRequired,
+                "key_provider_required",
+            ),
+            (DataStoreErrorCode::KeyNotFound, "key_not_found"),
+            (DataStoreErrorCode::KeyExpired, "key_expired"),
+            (
+                DataStoreErrorCode::KeyProviderFailure,
+                "key_provider_failed",
+            ),
+            (DataStoreErrorCode::CryptoFailure, "crypto_failed"),
+            (
+                DataStoreErrorCode::ClassificationChangeNotAllowed,
+                "classification_change_not_allowed",
+            ),
         ];
         for (code, expected) in codes {
             let error = EmbeddedDataStoreError::from_error(

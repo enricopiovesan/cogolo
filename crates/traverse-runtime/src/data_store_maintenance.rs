@@ -4,7 +4,8 @@
 
 use super::{
     DataStoreError, LOCAL_DATA_STORE_FORMAT, LOCAL_DATA_STORE_LOCK_FILE, LocalDataClassification,
-    LocalDataStoreEnvelope, digest_for_record, lock_error, validate_key,
+    LocalDataStoreEnvelope, digest_for_private_envelope, digest_for_record, hex_decode, lock_error,
+    validate_key,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -354,16 +355,9 @@ impl DataStoreMaintenance for LocalFileDataStoreMaintenance {
         let _ = parse_as_of(as_of)?;
         let verified = verify_backup_archive(archive)?;
         let parent = restore_parent(&self.root)?;
-        let temp_root = parent.join(format!(
-            ".traverse-datastore-restore-{}-{}",
-            std::process::id(),
-            as_of.replace(':', "")
-        ));
-        let backup_root = parent.join(format!(
-            ".traverse-datastore-replaced-{}-{}",
-            std::process::id(),
-            as_of.replace(':', "")
-        ));
+        let work_suffix = restore_work_suffix(&self.root, as_of);
+        let temp_root = parent.join(format!(".traverse-datastore-restore-{work_suffix}"));
+        let backup_root = parent.join(format!(".traverse-datastore-replaced-{work_suffix}"));
         let _ = fs::remove_dir_all(&temp_root);
         let _ = fs::remove_dir_all(&backup_root);
         fs::create_dir_all(&temp_root)
@@ -478,15 +472,79 @@ fn parse_envelope_bytes(bytes: &[u8]) -> Result<LocalDataStoreEnvelope, Maintena
             details: json!({ "reason": "unknown_format_version", "format": envelope.format }),
         });
     }
-    let expected = digest_for_record(&envelope.record).map_err(map_data_store_error)?;
+    let key = envelope_record_key(&envelope)?;
+    let expected = match envelope.classification {
+        LocalDataClassification::Public => {
+            if envelope.key_id.is_some()
+                || envelope.record_key.is_some()
+                || envelope.nonce.is_some()
+                || envelope.ciphertext.is_some()
+            {
+                return Err(malformed_envelope_error());
+            }
+            digest_for_record(
+                envelope
+                    .record
+                    .as_ref()
+                    .ok_or_else(malformed_envelope_error)?,
+            )
+            .map_err(map_data_store_error)?
+        }
+        LocalDataClassification::Private => {
+            if envelope.record.is_some() {
+                return Err(malformed_envelope_error());
+            }
+            let key_id = envelope
+                .key_id
+                .as_deref()
+                .ok_or_else(malformed_envelope_error)?;
+            let nonce = envelope
+                .nonce
+                .as_deref()
+                .ok_or_else(malformed_envelope_error)?;
+            let ciphertext = envelope
+                .ciphertext
+                .as_deref()
+                .ok_or_else(malformed_envelope_error)?;
+            let nonce_bytes = hex_decode(nonce).map_err(|_| malformed_envelope_error())?;
+            let ciphertext_bytes =
+                hex_decode(ciphertext).map_err(|_| malformed_envelope_error())?;
+            if nonce_bytes.len() != 12 || ciphertext_bytes.len() < 16 {
+                return Err(malformed_envelope_error());
+            }
+            digest_for_private_envelope(key_id, &key, nonce, ciphertext)
+        }
+    };
     if envelope.digest != expected {
         return Err(MaintenanceError {
             code: MaintenanceErrorCode::RestoreVerifyFailed,
             message: "restore_verify_failed".to_string(),
-            details: json!({ "reason": "digest_mismatch", "key": envelope.record.key }),
+            details: json!({ "reason": "digest_mismatch", "key": key }),
         });
     }
     Ok(envelope)
+}
+
+fn envelope_record_key(envelope: &LocalDataStoreEnvelope) -> Result<String, MaintenanceError> {
+    match envelope.classification {
+        LocalDataClassification::Public => envelope
+            .record
+            .as_ref()
+            .map(|record| record.key.clone())
+            .ok_or_else(malformed_envelope_error),
+        LocalDataClassification::Private => envelope
+            .record_key
+            .clone()
+            .ok_or_else(malformed_envelope_error),
+    }
+}
+
+fn malformed_envelope_error() -> MaintenanceError {
+    MaintenanceError {
+        code: MaintenanceErrorCode::RestoreVerifyFailed,
+        message: "restore_verify_failed".to_string(),
+        details: json!({ "reason": "malformed_envelope" }),
+    }
 }
 
 fn archive_content_digest_from_members(members: &[(&str, &[u8])]) -> String {
@@ -502,6 +560,16 @@ fn archive_content_digest_from_members(members: &[(&str, &[u8])]) -> String {
 
 fn sha256_hex(bytes: &[u8]) -> String {
     format!("sha256:{}", hex_encode(&Sha256::digest(bytes)))
+}
+
+fn restore_work_suffix(root: &Path, as_of: &str) -> String {
+    let root_digest = hex_encode(&Sha256::digest(root.as_os_str().as_encoded_bytes()));
+    format!(
+        "{}-{}-{}",
+        std::process::id(),
+        &root_digest[..16],
+        as_of.replace(':', "")
+    )
 }
 
 fn hex_encode(digest: &[u8]) -> String {
@@ -610,7 +678,7 @@ fn verify_manifest_member_payloads(
             });
         }
         let envelope = parse_envelope_bytes(&bytes)?;
-        if envelope.record.key != entry.key {
+        if envelope_record_key(&envelope)? != entry.key {
             return Err(MaintenanceError {
                 code: MaintenanceErrorCode::BackupVerifyFailed,
                 message: "backup_verify_failed".to_string(),
@@ -891,11 +959,13 @@ mod tests {
 
     use super::*;
     use crate::data_store::{
-        DataStore, DataStoreError, DataStoreErrorCode, LocalFileDataStore, StateRecord,
+        DataStore, DataStoreError, DataStoreErrorCode, InMemoryKeyProvider, KeyProvider,
+        LocalFileDataStore, StateRecord,
     };
     use serde_json::json;
     use std::fs::{self, File, OpenOptions, TryLockError};
     use std::path::Path;
+    use std::sync::Arc;
     use uuid::Uuid;
 
     fn temp_root(label: &str) -> PathBuf {
@@ -909,7 +979,9 @@ mod tests {
     }
 
     fn seed_store(root: &Path, count: usize, stamp: Option<&str>) -> LocalFileDataStore {
-        let mut store = LocalFileDataStore::new(root).expect("open");
+        let mut store =
+            LocalFileDataStore::with_classification(root, LocalDataClassification::Public)
+                .expect("open");
         if let Some(stamp) = stamp {
             store.set_write_retained_at(Some(stamp.to_string()));
         }
@@ -1025,7 +1097,9 @@ mod tests {
         }
         // Mutate store then restore.
         {
-            let mut store = LocalFileDataStore::new(&root).expect("open");
+            let mut store =
+                LocalFileDataStore::with_classification(&root, LocalDataClassification::Public)
+                    .expect("open");
             store
                 .write(StateRecord {
                     key: "extra".to_string(),
@@ -1063,6 +1137,42 @@ mod tests {
                 .restore(&empty_archive, "2026-07-29T00:00:00Z")
                 .expect("empty restore");
         }
+    }
+
+    #[test]
+    fn backup_restore_verifies_private_envelopes_without_plaintext() {
+        let root = temp_root("private-backup");
+        let provider: Arc<dyn KeyProvider> =
+            Arc::new(InMemoryKeyProvider::new("backup-key", [11; 32]));
+        let expected = StateRecord {
+            key: "secret".to_string(),
+            value: json!({ "private": true }),
+            lamport_clock: 1,
+            writer_id: "host".to_string(),
+        };
+        let mut store = LocalFileDataStore::new(&root)
+            .expect("open")
+            .with_key_provider(Arc::clone(&provider));
+        store.write(expected.clone()).expect("private write");
+        drop(store);
+
+        let archive = root
+            .parent()
+            .expect("parent")
+            .join(format!("private-{}.zip", Uuid::new_v4()));
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        maintenance
+            .backup(&archive, "2026-07-29T00:00:00Z")
+            .expect("private backup");
+        maintenance
+            .restore(&archive, "2026-07-29T05:00:00Z")
+            .expect("private restore");
+        drop(maintenance);
+
+        let reopened = LocalFileDataStore::new(&root)
+            .expect("reopen")
+            .with_key_provider(provider);
+        assert_eq!(reopened.read("secret").expect("decrypt"), Some(expected));
     }
 
     #[test]
@@ -1330,6 +1440,48 @@ mod tests {
             .expect_err("digest");
         assert_eq!(digest_err.code, MaintenanceErrorCode::RestoreVerifyFailed);
         assert_eq!(digest_err.details["reason"], "digest_mismatch");
+
+        let public_with_private_metadata = json!({
+            "format": LOCAL_DATA_STORE_FORMAT,
+            "classification": "public",
+            "record": record,
+            "digest": digest,
+            "key_id": "unexpected"
+        });
+        let public_shape = parse_envelope_bytes(
+            &serde_json::to_vec(&public_with_private_metadata).expect("serialize"),
+        )
+        .expect_err("public private metadata");
+        assert_eq!(public_shape.details["reason"], "malformed_envelope");
+
+        let private_with_plaintext = json!({
+            "format": LOCAL_DATA_STORE_FORMAT,
+            "classification": "private",
+            "record": record,
+            "record_key": "k",
+            "key_id": "key-1",
+            "nonce": "000000000000000000000000",
+            "ciphertext": "00000000000000000000000000000000",
+            "digest": "sha256:00"
+        });
+        let private_shape =
+            parse_envelope_bytes(&serde_json::to_vec(&private_with_plaintext).expect("serialize"))
+                .expect_err("private plaintext");
+        assert_eq!(private_shape.details["reason"], "malformed_envelope");
+
+        let private_short_nonce = json!({
+            "format": LOCAL_DATA_STORE_FORMAT,
+            "classification": "private",
+            "record_key": "k",
+            "key_id": "key-1",
+            "nonce": "00",
+            "ciphertext": "00000000000000000000000000000000",
+            "digest": "sha256:00"
+        });
+        let private_lengths =
+            parse_envelope_bytes(&serde_json::to_vec(&private_short_nonce).expect("serialize"))
+                .expect_err("private lengths");
+        assert_eq!(private_lengths.details["reason"], "malformed_envelope");
     }
 
     #[test]
@@ -1615,10 +1767,11 @@ mod tests {
         let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
         let parent = root.parent().expect("parent");
         let backup_root = parent.join(format!(
-            ".traverse-datastore-replaced-{}-{}",
-            std::process::id(),
-            "2026-07-29T01:00:00Z".replace(':', "")
+            ".traverse-datastore-replaced-{}",
+            restore_work_suffix(&root, "2026-07-29T01:00:00Z")
         ));
+        let _ = fs::remove_dir_all(&backup_root);
+        let _ = fs::remove_file(&backup_root);
         fs::write(&backup_root, "blocker").expect("blocker");
         let blocked = maintenance
             .restore(&archive, "2026-07-29T01:00:00Z")
