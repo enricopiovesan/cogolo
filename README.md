@@ -7,13 +7,31 @@
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/traverse-framework/traverse/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.94%2B-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-v0.8.0-blue)](https://github.com/traverse-framework/traverse/releases)
+[![Version](https://img.shields.io/badge/version-v0.8.1-blue)](https://github.com/traverse-framework/traverse/releases)
 
 Your business logic runs in the browser, on your server, and in a cloud function.
 They drift. You maintain three versions of the same behavior.
 Traverse keeps it in one contract and runs it anywhere — with a full execution trace every time.
 
 Traverse is the working implementation of [Universal Microservices Architecture](https://www.universalmicroservices.com/).
+
+---
+
+## Current State & Roadmap
+
+Traverse is pre-1.0 (`v0.8.1`) and evolving under spec-driven governance — every capability below is real, running code, not a plan.
+
+- **8 crates in this repo** plus the capability registry (now its own repo, see below) — 7 of these 9 are [published on crates.io](https://crates.io/search?q=traverse-): runtime, contracts, registry, CLI, MCP server, embedder SDK, and the expedition WASM example. `traverse-native-bridge` and `traverse-swift-host` are newer, not yet published.
+- **87 approved, immutable specs** govern the runtime, contracts, registry, MCP surface, WASM execution, native embedding, and durable local storage. Full list: `jq -r '.specs[].id' specs/governance/approved-specs.json` (or see [Governance](#governance) below).
+- **100% coverage enforced on core logic**, spec-alignment and supply-chain gates on every PR, 5-platform CI matrix (Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64).
+- **Capability registry** was extracted into its own repo, [`traverse-framework/registry`](https://github.com/traverse-framework/registry), so capabilities can be published, versioned, and consumed independently of the runtime.
+- **Reference apps** for multiple platforms (web, iOS, macOS, Android, Windows, Linux, CLI) live in [`traverse-framework/reference-apps`](https://github.com/traverse-framework/reference-apps).
+
+### Where this is going: v1.0.0
+
+v1.0.0 is gated, not a date — governed by [`spec 049-v1-milestone-gate`](specs/049-v1-milestone-gate/spec.md) and checkable locally with `bash scripts/ci/v1_gate_check.sh`. It signals stable public API surfaces, every published crate live on crates.io, and the runtime stress-tested on every supported platform. Full gate conditions: [docs/v1-milestone.md](docs/v1-milestone.md).
+
+Explicitly **not** required for v1.0.0: a reference app in this repo (that's `reference-apps`), an HTTP admin API, a cloud deployment surface, or worker-isolation message passing (planned for v2).
 
 ---
 
@@ -141,15 +159,24 @@ Scaffolds a governed app bundle. Add your capability contracts, workflows, and W
 
 ### Crates
 
+In this repo:
+
 | Crate | Role |
 |---|---|
 | `traverse-runtime` | Core execution engine — validates, places, and executes capabilities |
 | `traverse-contracts` | Contract definitions, parsing, and validation |
-| `traverse-registry` | Capability and event registries with deterministic traversal |
 | `traverse-cli-rs` | Command-line interface (binary: `traverse-cli`) — register, list, validate, run |
 | `traverse-mcp` | Model Context Protocol stdio server and governed MCP-facing surface |
 | `traverse-embedder` | Public Rust embedder SDK (`embedder-api/1.0.0`) for Linux GTK and CLI clients |
 | `traverse-expedition-wasm` | Expedition example domain compiled to `wasm32-wasi` |
+| `traverse-native-bridge` | Deterministic builder for the governed native runtime WebAssembly bridge |
+| `traverse-swift-host` | Apple static-library feasibility host for the Traverse runtime bridge |
+
+In a separate repo:
+
+| Crate | Repo | Role |
+|---|---|---|
+| `traverse-registry` | [`traverse-framework/registry`](https://github.com/traverse-framework/registry) | Capability and event registries with deterministic traversal — extracted from this repo (spec 051) so capabilities can be published and versioned independently |
 
 ---
 
@@ -197,17 +224,13 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 
 ### Approved Specs
 
-| ID | Spec | Governs |
-|---|---|---|
-| 001 | [foundation-v0-1](specs/001-foundation-v0-1/spec.md) | Core runtime, CLI, MCP surface |
-| 002 | [capability-contracts](specs/002-capability-contracts/spec.md) | Contract definitions and validation |
-| 003 | [event-contracts](specs/003-event-contracts/spec.md) | Event contract definitions |
-| 004 | [spec-alignment-gate](specs/004-spec-alignment-gate/spec.md) | CI merge gate |
-| 005 | [capability-registry](specs/005-capability-registry/spec.md) | Registry behavior |
-| 006 | [runtime-request-execution](specs/006-runtime-request-execution/spec.md) | Execution model |
-| 007 | [workflow-registry-traversal](specs/007-workflow-registry-traversal/spec.md) | Workflow composition |
-| 008 | [expedition-example-domain](specs/008-expedition-example-domain/spec.md) | Example domain |
-| 009 | [expedition-example-artifacts](specs/009-expedition-example-artifacts/spec.md) | Example artifacts |
+87 approved specs currently govern this repo, spanning the runtime, contracts, registry integration, CLI, MCP surface, WASM execution, native embedding, and durable local storage. The list changes as specs are approved — query it instead of reading a snapshot:
+
+```bash
+jq -r '.specs[].id' specs/governance/approved-specs.json
+```
+
+Foundational specs worth reading first: [001-foundation-v0-1](specs/001-foundation-v0-1/spec.md) (core runtime, CLI, MCP surface), [004-spec-alignment-gate](specs/004-spec-alignment-gate/spec.md) (this CI gate), [049-v1-milestone-gate](specs/049-v1-milestone-gate/spec.md) (what v1.0.0 requires).
 
 ---
 
@@ -221,7 +244,7 @@ This project supports AI-assisted development with Codex and Claude Code running
 |---|---|---|
 | Claude Code | [`CLAUDE.md`](CLAUDE.md) | Project context, governance rules, speckit workflow |
 | Codex | [`AGENTS.md`](AGENTS.md) | Project context, coordination rules, speckit workflow |
-| All agents | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Governing constitution v1.2.0 |
+| All agents | [`.specify/memory/constitution.md`](.specify/memory/constitution.md) | Governing constitution — mirrors [`traverse-framework/.github`](https://github.com/traverse-framework/.github) at the version in [`.governance-version`](.governance-version) |
 
 ### Agent workflow
 
