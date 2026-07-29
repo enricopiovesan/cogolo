@@ -30,7 +30,7 @@ Every executable capability package should declare:
 
 The manifest template follows this pattern:
 
-- `kind: agent_package`
+- `kind: capability_package`
 - `schema_version: 1.0.0`
 - `package_id`
 - `version`

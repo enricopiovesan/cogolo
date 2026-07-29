@@ -48,7 +48,7 @@ done
 
 starter_output="$(
   cd "${repo_root}"
-  cargo run -q -p traverse-cli-rs -- agent execute \
+  cargo run -q -p traverse-cli-rs -- capability-package execute \
     examples/traverse-starter/process-agent/manifest.json \
     examples/traverse-starter/runtime-requests/process.json
 )"
@@ -57,7 +57,7 @@ grep -q "capability_id: traverse-starter.process" <<<"${starter_output}"
 
 meeting_output="$(
   cd "${repo_root}"
-  cargo run -q -p traverse-cli-rs -- agent execute \
+  cargo run -q -p traverse-cli-rs -- capability-package execute \
     examples/meeting-notes/process-agent/manifest.json \
     examples/meeting-notes/runtime-requests/process.json
 )"

@@ -1,11 +1,11 @@
-mod agent_packages;
 mod browser_adapter;
+mod capability_packages;
 mod federation_operator;
 mod http_api;
 mod supply_chain;
 
-use agent_packages::load_agent_package;
 use browser_adapter::serve_local_browser_adapter;
+use capability_packages::load_capability_package;
 use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
 };
@@ -99,10 +99,10 @@ enum Command {
     BrowserAdapterServe {
         bind_address: String,
     },
-    AgentInspect {
+    CapabilityPackageInspect {
         manifest_path: PathBuf,
     },
-    AgentExecute {
+    CapabilityPackageExecute {
         manifest_path: PathBuf,
         request_path: PathBuf,
     },
@@ -296,11 +296,13 @@ fn run_command(command: Command) -> Result<String, CliError> {
         Command::BrowserAdapterServe { .. } | Command::Serve { .. } => {
             Err(CliError::UsageError(usage()))
         }
-        Command::AgentInspect { manifest_path } => inspect_agent(&manifest_path),
-        Command::AgentExecute {
+        Command::CapabilityPackageInspect { manifest_path } => {
+            inspect_capability_package(&manifest_path)
+        }
+        Command::CapabilityPackageExecute {
             manifest_path,
             request_path,
-        } => execute_agent(&manifest_path, &request_path),
+        } => execute_capability_package(&manifest_path, &request_path),
         Command::WasmAbiVerify { wasm_paths } => verify_wasm_abi_imports(&wasm_paths),
         Command::ArtifactVerify { artifact_path } => verify_supply_chain_artifact(&artifact_path),
         Command::FederationPeers { manifest_path } => {
@@ -400,7 +402,9 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("registry"), Some("search")) => parse_registry_search_command(args),
         (Some("component"), Some("new")) => parse_component_new_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
-        (Some("agent"), Some("execute")) => parse_agent_execute_command(args),
+        (Some("capability-package"), Some("execute")) => {
+            parse_capability_package_execute_command(args)
+        }
         (Some("artifact"), Some("verify")) => parse_artifact_verify_command(args),
         (Some("wasm"), Some("abi")) => parse_wasm_abi_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
@@ -426,9 +430,9 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("registry"), _) => help_registry(),
         (Some("component"), Some("new")) => help_component_new(),
         (Some("component"), _) => help_component(),
-        (Some("agent"), Some("inspect")) => help_agent_inspect(),
-        (Some("agent"), Some("execute")) => help_agent_execute(),
-        (Some("agent"), _) => help_agent(),
+        (Some("capability-package"), Some("inspect")) => help_capability_package_inspect(),
+        (Some("capability-package"), Some("execute")) => help_capability_package_execute(),
+        (Some("capability-package"), _) => help_capability_package(),
         (Some("artifact"), Some("verify")) => help_artifact_verify(),
         (Some("artifact"), _) => help_artifact(),
         (Some("wasm"), Some("abi")) => help_wasm_abi(),
@@ -744,55 +748,55 @@ fn help_bundle() -> String {
         .to_string()
 }
 
-fn help_agent_inspect() -> String {
-    "traverse-cli agent inspect <manifest-path>
+fn help_capability_package_inspect() -> String {
+    "traverse-cli capability-package inspect <manifest-path>
 
   Purpose:
-    Load and summarize a governed WASM agent package manifest. Verifies the
+    Load and summarize a governed WASM capability package manifest. Verifies the
     binary digest, resolves the capability contract, and prints package metadata
     including model dependencies and workflow references.
 
   Required arguments:
-    <manifest-path>   Path to the agent package manifest.json file.
+    <manifest-path>   Path to the capability package manifest.json file.
 
   Optional flags:
     --help            Print this help text.
 
   Example:
-    traverse-cli agent inspect examples/agents/expedition-intent-agent/manifest.json"
+    traverse-cli capability-package inspect examples/capabilities/expedition-intent-agent/manifest.json"
         .to_string()
 }
 
-fn help_agent_execute() -> String {
-    "traverse-cli agent execute <manifest-path> <request-path>
+fn help_capability_package_execute() -> String {
+    "traverse-cli capability-package execute <manifest-path> <request-path>
 
   Purpose:
-    Load a governed WASM agent package and execute it against a runtime request.
+    Load a governed WASM capability package and execute it against a runtime request.
     Validates the package binary digest, registers the capability, and runs the
     request through the Traverse runtime.
 
   Required arguments:
-    <manifest-path>   Path to the agent package manifest.json file.
+    <manifest-path>   Path to the capability package manifest.json file.
     <request-path>    Path to the runtime request JSON file.
 
   Optional flags:
     --help            Print this help text.
 
   Example:
-    traverse-cli agent execute \\
-      examples/agents/expedition-intent-agent/manifest.json \\
-      examples/agents/runtime-requests/interpret-expedition-intent.json"
+    traverse-cli capability-package execute \\
+      examples/capabilities/expedition-intent-agent/manifest.json \\
+      examples/capabilities/runtime-requests/interpret-expedition-intent.json"
         .to_string()
 }
 
-fn help_agent() -> String {
-    "traverse-cli agent <subcommand> [options]
+fn help_capability_package() -> String {
+    "traverse-cli capability-package <subcommand> [options]
 
   Subcommands:
-    inspect <manifest-path>                      Summarize a governed agent package.
-    execute <manifest-path> <request-path>       Execute an agent against a runtime request.
+    inspect <manifest-path>                      Summarize a governed capability package.
+    execute <manifest-path> <request-path>       Execute a capability package against a runtime request.
 
-  Run `traverse-cli agent <subcommand> --help` for subcommand-specific help."
+  Run `traverse-cli capability-package <subcommand> --help` for subcommand-specific help."
         .to_string()
 }
 
@@ -1401,7 +1405,7 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
             manifest_path: PathBuf::from(positional[3]),
             json_output,
         }),
-        ("agent", "inspect") => Ok(Command::AgentInspect {
+        ("capability-package", "inspect") => Ok(Command::CapabilityPackageInspect {
             manifest_path: PathBuf::from(positional[3]),
         }),
         ("federation", "peers") => Ok(Command::FederationPeers {
@@ -1432,9 +1436,9 @@ fn parse_artifact_verify_command(args: &[String]) -> Result<Command, String> {
     }
 }
 
-fn parse_agent_execute_command(args: &[String]) -> Result<Command, String> {
+fn parse_capability_package_execute_command(args: &[String]) -> Result<Command, String> {
     match args {
-        [_, _, _, manifest_path, request_path] => Ok(Command::AgentExecute {
+        [_, _, _, manifest_path, request_path] => Ok(Command::CapabilityPackageExecute {
             manifest_path: PathBuf::from(manifest_path),
             request_path: PathBuf::from(request_path),
         }),
@@ -3736,13 +3740,16 @@ fn discover_capabilities(manifest_path: &Path, json_output: bool) -> Result<Stri
     }
 }
 
-fn inspect_agent(manifest_path: &Path) -> Result<String, CliError> {
-    let package = load_agent_package(manifest_path).map_err(CliError::IoError)?;
+fn inspect_capability_package(manifest_path: &Path) -> Result<String, CliError> {
+    let package = load_capability_package(manifest_path).map_err(CliError::IoError)?;
     Ok(package.render_summary())
 }
 
-fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, CliError> {
-    let package = load_agent_package(manifest_path).map_err(CliError::IoError)?;
+fn execute_capability_package(
+    manifest_path: &Path,
+    request_path: &Path,
+) -> Result<String, CliError> {
+    let package = load_capability_package(manifest_path).map_err(CliError::IoError)?;
     let request = load_runtime_request(request_path)?;
     let mut registry = CapabilityRegistry::new();
     registry
@@ -3761,7 +3768,7 @@ fn execute_agent(manifest_path: &Path, request_path: &Path) -> Result<String, Cl
         )));
     }
 
-    Ok(render_agent_execution_summary(
+    Ok(render_capability_package_execution_summary(
         &package.manifest.package_id,
         &package.manifest.capability_ref.id,
         &outcome,
@@ -4222,7 +4229,7 @@ fn render_runtime_execution_summary(
     lines.join("\n")
 }
 
-fn render_agent_execution_summary(
+fn render_capability_package_execution_summary(
     package_id: &str,
     capability_id: &str,
     outcome: &RuntimeExecutionOutcome,
@@ -4411,7 +4418,7 @@ fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
 }
 
 fn usage() -> String {
-    "usage: traverse-cli app <new|validate|register> [options] | traverse-cli registry sync --workspace <id> --json | traverse-cli component new <component-id> | traverse-cli <bundle|agent|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>] | traverse-cli serve [--bind <address>] [--port <N>] [--allow-unauthenticated]".to_string()
+    "usage: traverse-cli app <new|validate|register> [options] | traverse-cli registry sync --workspace <id> --json | traverse-cli component new <component-id> | traverse-cli <bundle|capability-package|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>] | traverse-cli serve [--bind <address>] [--port <N>] [--allow-unauthenticated]".to_string()
 }
 
 fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), CliError> {
@@ -5471,9 +5478,9 @@ mod tests {
         PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher, RegistrySyncError,
         app_new_at, app_register_at, app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
-        ensure_clean_registry_checkout, execute_agent, execute_expedition,
+        ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, help_serve, inspect_agent, inspect_bundle,
+        execute_traverse_starter_validate, help_serve, inspect_bundle, inspect_capability_package,
         inspect_event, inspect_trace, latest_index_release_asset, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
@@ -5481,7 +5488,7 @@ mod tests {
         registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
         validate_registry_path_segment,
     };
-    use crate::agent_packages::fnv1a64;
+    use crate::capability_packages::fnv1a64;
     use serde_json::Value;
     use std::cell::RefCell;
     use std::fs;
@@ -5509,18 +5516,18 @@ mod tests {
             "register".to_string(),
             "examples/expedition/registry-bundle/manifest.json".to_string(),
         ];
-        let agent_inspect = vec![
+        let capability_package_inspect = vec![
             "traverse-cli".to_string(),
-            "agent".to_string(),
+            "capability-package".to_string(),
             "inspect".to_string(),
-            "examples/agents/expedition-intent-agent/manifest.json".to_string(),
+            "examples/capabilities/expedition-intent-agent/manifest.json".to_string(),
         ];
-        let agent_execute = vec![
+        let capability_package_execute = vec![
             "traverse-cli".to_string(),
-            "agent".to_string(),
+            "capability-package".to_string(),
             "execute".to_string(),
-            "examples/agents/expedition-intent-agent/manifest.json".to_string(),
-            "examples/agents/runtime-requests/interpret-expedition-intent.json".to_string(),
+            "examples/capabilities/expedition-intent-agent/manifest.json".to_string(),
+            "examples/capabilities/runtime-requests/interpret-expedition-intent.json".to_string(),
         ];
         let wasm_abi_verify = vec![
             "traverse-cli".to_string(),
@@ -5582,8 +5589,8 @@ mod tests {
         ];
         assert!(parse_command(&bundle).is_ok());
         assert!(parse_command(&bundle_register).is_ok());
-        assert!(parse_command(&agent_inspect).is_ok());
-        assert!(parse_command(&agent_execute).is_ok());
+        assert!(parse_command(&capability_package_inspect).is_ok());
+        assert!(parse_command(&capability_package_execute).is_ok());
         assert!(parse_command(&wasm_abi_verify).is_ok());
         assert!(parse_command(&artifact_verify).is_ok());
         assert!(parse_command(&expedition_execute).is_ok());
@@ -6273,7 +6280,7 @@ mod tests {
             "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
         );
         let artifact_path = repo.join(
-            "examples/agents/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
+            "examples/capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
         );
         let contract_digest = format!(
             "sha256:{}",
@@ -6930,33 +6937,33 @@ mod tests {
     }
 
     #[test]
-    fn parse_command_returns_agent_inspect_help_on_help_flag() {
+    fn parse_command_returns_capability_package_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
-            "agent".to_string(),
+            "capability-package".to_string(),
             "inspect".to_string(),
             "--help".to_string(),
         ];
         let result = parse_command(&args);
         assert!(result.is_err(), "expected Err for --help");
         let text = result.err().unwrap_or_default();
-        assert!(text.contains("agent inspect"));
+        assert!(text.contains("capability-package inspect"));
         assert!(text.contains("<manifest-path>"));
         assert!(text.contains("Example:"));
     }
 
     #[test]
-    fn parse_command_returns_agent_execute_help_on_help_flag() {
+    fn parse_command_returns_capability_package_execute_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
-            "agent".to_string(),
+            "capability-package".to_string(),
             "execute".to_string(),
             "--help".to_string(),
         ];
         let result = parse_command(&args);
         assert!(result.is_err(), "expected Err for --help");
         let text = result.err().unwrap_or_default();
-        assert!(text.contains("agent execute"));
+        assert!(text.contains("capability-package execute"));
         assert!(text.contains("<manifest-path>"));
         assert!(text.contains("<request-path>"));
         assert!(text.contains("Example:"));
@@ -7088,7 +7095,10 @@ mod tests {
     fn parse_command_returns_family_help_when_only_family_and_help_flag() {
         let cases = vec![
             (vec!["traverse-cli", "bundle", "--help"], "bundle"),
-            (vec!["traverse-cli", "agent", "--help"], "agent"),
+            (
+                vec!["traverse-cli", "capability-package", "--help"],
+                "capability-package",
+            ),
             (vec!["traverse-cli", "workflow", "--help"], "workflow"),
             (vec!["traverse-cli", "expedition", "--help"], "expedition"),
             (vec!["traverse-cli", "event", "--help"], "event"),
@@ -7287,25 +7297,24 @@ mod tests {
     }
 
     #[test]
-    fn inspect_agent_renders_governed_wasm_agent_package() {
-        let fixture = create_interpret_expedition_intent_agent_fixture();
+    fn inspect_capability_package_renders_governed_wasm_capability_package() {
+        let fixture = create_interpret_expedition_intent_capability_fixture();
 
-        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+        let output = inspect_capability_package(&fixture.manifest_path)
+            .expect("capability-package inspect should succeed");
 
-        assert!(
-            output.contains("package_id: expedition.planning.interpret-expedition-intent-agent")
-        );
+        assert!(output.contains("package_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("binary_digest: fnv1a64:"));
         assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
     }
 
     #[test]
-    fn execute_agent_runs_non_hardcoded_wasm_package() {
+    fn execute_capability_package_runs_non_hardcoded_wasm_package() {
         let manifest_path = repo_root().join("examples/doc-approval/analyze-agent/manifest.json");
         let request_path = repo_root().join("examples/doc-approval/runtime-requests/analyze.json");
 
-        let output = execute_agent(&manifest_path, &request_path)
+        let output = execute_capability_package(&manifest_path, &request_path)
             .expect("real doc-approval WASM execution should succeed");
 
         assert!(output.contains("capability_id: doc-approval.analyze"));
@@ -7313,57 +7322,58 @@ mod tests {
     }
 
     #[test]
-    fn execute_agent_runs_governed_ai_agent_request() {
+    fn execute_capability_package_runs_governed_capability_package_request() {
         let manifest_path =
-            repo_root().join("examples/agents/expedition-intent-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
-        let request_path =
-            repo_root().join("examples/agents/runtime-requests/interpret-expedition-intent.json");
+            repo_root().join("examples/capabilities/expedition-intent-agent/manifest.json");
+        build_real_capability_package_artifact(&manifest_path);
+        let request_path = repo_root()
+            .join("examples/capabilities/runtime-requests/interpret-expedition-intent.json");
 
-        let output =
-            execute_agent(&manifest_path, &request_path).expect("agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("capability package execution should succeed");
 
-        assert!(
-            output.contains("package_id: expedition.planning.interpret-expedition-intent-agent")
-        );
+        assert!(output.contains("package_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("route_preferences: conservative-alpine-push, same-day-return"));
     }
 
     #[test]
-    fn inspect_agent_renders_second_governed_wasm_agent_package() {
-        let fixture = create_validate_team_readiness_agent_fixture();
+    fn inspect_capability_package_renders_second_governed_wasm_capability_package() {
+        let fixture = create_validate_team_readiness_capability_fixture();
 
-        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+        let output = inspect_capability_package(&fixture.manifest_path)
+            .expect("capability-package inspect should succeed");
 
-        assert!(output.contains("package_id: expedition.planning.validate-team-readiness-agent"));
+        assert!(output.contains("package_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("capability_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("binary_digest: fnv1a64:"));
         assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
     }
 
     #[test]
-    fn execute_agent_runs_second_governed_ai_agent_request() {
-        let manifest_path = repo_root().join("examples/agents/team-readiness-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
+    fn execute_capability_package_runs_second_governed_capability_package_request() {
+        let manifest_path =
+            repo_root().join("examples/capabilities/team-readiness-agent/manifest.json");
+        build_real_capability_package_artifact(&manifest_path);
         let request_path =
-            repo_root().join("examples/agents/runtime-requests/validate-team-readiness.json");
+            repo_root().join("examples/capabilities/runtime-requests/validate-team-readiness.json");
 
-        let output =
-            execute_agent(&manifest_path, &request_path).expect("agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("capability package execution should succeed");
 
-        assert!(output.contains("package_id: expedition.planning.validate-team-readiness-agent"));
+        assert!(output.contains("package_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("capability_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("readiness_status: ready"));
     }
 
     #[test]
-    fn inspect_agent_renders_hello_world_package() {
-        let fixture = create_hello_world_agent_fixture();
+    fn inspect_capability_package_renders_hello_world_package() {
+        let fixture = create_hello_world_capability_fixture();
 
-        let output = inspect_agent(&fixture.manifest_path).expect("agent inspect should succeed");
+        let output = inspect_capability_package(&fixture.manifest_path)
+            .expect("capability-package inspect should succeed");
 
         assert!(output.contains("package_id: hello.world.say-hello-agent"));
         assert!(output.contains("capability_id: hello.world.say-hello"));
@@ -7372,13 +7382,13 @@ mod tests {
     }
 
     #[test]
-    fn execute_agent_runs_hello_world_request() {
+    fn execute_capability_package_runs_hello_world_request() {
         let manifest_path = repo_root().join("examples/hello-world/say-hello-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
+        build_real_capability_package_artifact(&manifest_path);
         let request_path = repo_root().join("examples/hello-world/runtime-requests/say-hello.json");
 
-        let output = execute_agent(&manifest_path, &request_path)
-            .expect("hello-world agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("hello-world capability package execution should succeed");
 
         assert!(output.contains("package_id: hello.world.say-hello-agent"));
         assert!(output.contains("capability_id: hello.world.say-hello"));
@@ -7388,15 +7398,15 @@ mod tests {
     }
 
     #[test]
-    fn execute_agent_runs_traverse_starter_process_request() {
+    fn execute_capability_package_runs_traverse_starter_process_request() {
         let manifest_path =
             repo_root().join("examples/traverse-starter/process-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
+        build_real_capability_package_artifact(&manifest_path);
         let request_path =
             repo_root().join("examples/traverse-starter/runtime-requests/process.json");
 
-        let output = execute_agent(&manifest_path, &request_path)
-            .expect("traverse-starter agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("traverse-starter capability package execution should succeed");
 
         assert!(output.contains("package_id: traverse-starter.process-agent"));
         assert!(output.contains("capability_id: traverse-starter.process"));
@@ -7409,15 +7419,15 @@ mod tests {
     }
 
     #[test]
-    fn execute_agent_runs_traverse_starter_validate_request() {
+    fn execute_capability_package_runs_traverse_starter_validate_request() {
         let manifest_path =
             repo_root().join("examples/traverse-starter/validate-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
+        build_real_capability_package_artifact(&manifest_path);
         let request_path =
             repo_root().join("examples/traverse-starter/runtime-requests/validate.json");
 
-        let output = execute_agent(&manifest_path, &request_path)
-            .expect("traverse-starter validate agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("traverse-starter validate capability package execution should succeed");
 
         assert!(output.contains("package_id: traverse-starter.validate-agent"));
         assert!(output.contains("capability_id: traverse-starter.validate"));
@@ -7427,15 +7437,15 @@ mod tests {
     }
 
     #[test]
-    fn execute_agent_runs_traverse_starter_summarize_request() {
+    fn execute_capability_package_runs_traverse_starter_summarize_request() {
         let manifest_path =
             repo_root().join("examples/traverse-starter/summarize-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
+        build_real_capability_package_artifact(&manifest_path);
         let request_path =
             repo_root().join("examples/traverse-starter/runtime-requests/summarize.json");
 
-        let output = execute_agent(&manifest_path, &request_path)
-            .expect("traverse-starter summarize agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("traverse-starter summarize capability package execution should succeed");
 
         assert!(output.contains("package_id: traverse-starter.summarize-agent"));
         assert!(output.contains("capability_id: traverse-starter.summarize"));
@@ -7591,13 +7601,13 @@ mod tests {
     }
 
     #[test]
-    fn execute_agent_runs_meeting_notes_process_request() {
+    fn execute_capability_package_runs_meeting_notes_process_request() {
         let manifest_path = repo_root().join("examples/meeting-notes/process-agent/manifest.json");
-        build_real_agent_artifact(&manifest_path);
+        build_real_capability_package_artifact(&manifest_path);
         let request_path = repo_root().join("examples/meeting-notes/runtime-requests/process.json");
 
-        let output = execute_agent(&manifest_path, &request_path)
-            .expect("meeting-notes agent execution should succeed");
+        let output = execute_capability_package(&manifest_path, &request_path)
+            .expect("meeting-notes capability package execution should succeed");
 
         assert!(output.contains("package_id: meeting-notes.process-agent"));
         assert!(output.contains("capability_id: meeting-notes.process"));
@@ -8079,7 +8089,7 @@ mod tests {
                 "capability_id": "expedition.planning.validate-team-readiness",
                 "capability_version": "1.0.0",
                 "contract_path": repo.join("contracts/examples/expedition/capabilities/validate-team-readiness/contract.json").display().to_string(),
-                "wasm_binary_path": repo.join("examples/agents/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm").display().to_string(),
+                "wasm_binary_path": repo.join("examples/capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm").display().to_string(),
                 "wasm_digest": component_digest,
                 "runtime_constraints": {
                     "host_api_access": "none",
@@ -8111,30 +8121,30 @@ mod tests {
         contents
     }
 
-    struct AgentFixture {
+    struct CapabilityPackageFixture {
         manifest_path: PathBuf,
     }
 
-    fn build_real_agent_artifact(manifest_path: &Path) {
+    fn build_real_capability_package_artifact(manifest_path: &Path) {
         let package_dir = manifest_path
             .parent()
-            .expect("real agent manifest must have a package directory");
+            .expect("real capability package manifest must have a package directory");
         let status = ProcessCommand::new("bash")
             .arg(package_dir.join("build-fixture.sh"))
             .status()
-            .expect("real agent fixture builder should start");
+            .expect("real capability package fixture builder should start");
         assert!(
             status.success(),
-            "real agent fixture builder should succeed"
+            "real capability package fixture builder should succeed"
         );
     }
 
-    fn create_interpret_expedition_intent_agent_fixture() -> AgentFixture {
-        create_agent_package_fixture(&AgentPackageFixtureSpec {
-            package_id: "expedition.planning.interpret-expedition-intent-agent",
+    fn create_interpret_expedition_intent_capability_fixture() -> CapabilityPackageFixture {
+        create_capability_package_fixture(&CapabilityPackageFixtureSpec {
+            package_id: "expedition.planning.interpret-expedition-intent",
             capability_id: "expedition.planning.interpret-expedition-intent",
             binary_name: "interpret-expedition-intent-agent.wasm",
-            summary: "Governed WASM AI agent example for expedition intent interpretation.",
+            summary: "Governed WASM capability example for expedition intent interpretation.",
             contract_path: "contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
             model_interface: "expedition-intent-interpretation-v1",
             model_purpose: "Interpret free-form expedition planning intent into governed route preferences and assumptions.",
@@ -8142,12 +8152,12 @@ mod tests {
         })
     }
 
-    fn create_validate_team_readiness_agent_fixture() -> AgentFixture {
-        create_agent_package_fixture(&AgentPackageFixtureSpec {
-            package_id: "expedition.planning.validate-team-readiness-agent",
+    fn create_validate_team_readiness_capability_fixture() -> CapabilityPackageFixture {
+        create_capability_package_fixture(&CapabilityPackageFixtureSpec {
+            package_id: "expedition.planning.validate-team-readiness",
             capability_id: "expedition.planning.validate-team-readiness",
             binary_name: "validate-team-readiness-agent.wasm",
-            summary: "Governed WASM AI agent example for expedition readiness validation.",
+            summary: "Governed WASM capability example for expedition readiness validation.",
             contract_path: "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
             model_interface: "expedition-readiness-validation-v1",
             model_purpose: "Validate expedition team readiness against governed objective, conditions, and team profile context.",
@@ -8155,8 +8165,8 @@ mod tests {
         })
     }
 
-    fn create_hello_world_agent_fixture() -> AgentFixture {
-        create_agent_package_fixture(&AgentPackageFixtureSpec {
+    fn create_hello_world_capability_fixture() -> CapabilityPackageFixture {
+        create_capability_package_fixture(&CapabilityPackageFixtureSpec {
             package_id: "hello.world.say-hello-agent",
             capability_id: "hello.world.say-hello",
             binary_name: "say-hello-agent.wasm",
@@ -8168,7 +8178,7 @@ mod tests {
         })
     }
 
-    struct AgentPackageFixtureSpec<'a> {
+    struct CapabilityPackageFixtureSpec<'a> {
         package_id: &'a str,
         capability_id: &'a str,
         binary_name: &'a str,
@@ -8179,9 +8189,11 @@ mod tests {
         workflow_id: &'a str,
     }
 
-    fn create_agent_package_fixture(spec: &AgentPackageFixtureSpec<'_>) -> AgentFixture {
+    fn create_capability_package_fixture(
+        spec: &CapabilityPackageFixtureSpec<'_>,
+    ) -> CapabilityPackageFixture {
         let temp_dir = unique_temp_dir();
-        let package_dir = temp_dir.join("agent");
+        let package_dir = temp_dir.join("capability-package");
         let artifact_dir = package_dir.join("artifacts");
         let source_dir = package_dir.join("src");
         fs::create_dir_all(&artifact_dir).expect("artifact directory should create");
@@ -8205,7 +8217,7 @@ mod tests {
         let manifest_path = package_dir.join("manifest.json");
         let manifest = format!(
             r#"{{
-  "kind": "agent_package",
+  "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "{}",
   "version": "1.0.0",
@@ -8256,7 +8268,7 @@ mod tests {
         );
         fs::write(&manifest_path, manifest).expect("manifest should write");
 
-        AgentFixture { manifest_path }
+        CapabilityPackageFixture { manifest_path }
     }
 
     fn hex_to_bytes(value: &str) -> Vec<u8> {
@@ -8301,9 +8313,9 @@ mod tests {
             ("registry", None),
             ("component", Some("new")),
             ("component", None),
-            ("agent", Some("inspect")),
-            ("agent", Some("execute")),
-            ("agent", None),
+            ("capability-package", Some("inspect")),
+            ("capability-package", Some("execute")),
+            ("capability-package", None),
             ("artifact", Some("verify")),
             ("artifact", None),
             ("wasm", Some("abi")),
@@ -8403,10 +8415,10 @@ mod tests {
                 workspace_id: "ws".to_string(),
                 json_output: true,
             },
-            Command::AgentInspect {
+            Command::CapabilityPackageInspect {
                 manifest_path: missing.clone(),
             },
-            Command::AgentExecute {
+            Command::CapabilityPackageExecute {
                 manifest_path: missing.clone(),
                 request_path: missing.clone(),
             },

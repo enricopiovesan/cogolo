@@ -526,7 +526,7 @@ fn mint_local_dev_token(local_addr: &str) -> String {
     format!(
         "trv_local_{}_{}",
         std::process::id(),
-        crate::agent_packages::fnv1a64(format!("{local_addr}:{now}").as_bytes())
+        crate::capability_packages::fnv1a64(format!("{local_addr}:{now}").as_bytes())
     )
 }
 
@@ -6365,7 +6365,7 @@ fn idempotency_subject(request: &HttpRequest) -> &str {
 }
 
 fn idempotency_body_digest(request: &HttpRequest) -> String {
-    crate::agent_packages::fnv1a64(&request.body)
+    crate::capability_packages::fnv1a64(&request.body)
 }
 
 fn prune_idempotency_records<E: LocalExecutor + Clone>(state: &ApiState<E>) {

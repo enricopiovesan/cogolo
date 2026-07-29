@@ -7,8 +7,8 @@ repo_root=$(git rev-parse --show-toplevel)
 required_files=(
   "docs/wasm-agent-authoring-guide.md"
   "examples/templates/executable-capability-package/manifest.template.json"
-  "examples/agents/expedition-intent-agent/manifest.json"
-  "examples/agents/team-readiness-agent/manifest.json"
+  "examples/capabilities/expedition-intent-agent/manifest.json"
+  "examples/capabilities/team-readiness-agent/manifest.json"
 )
 
 for file in "${required_files[@]}"; do
@@ -29,10 +29,10 @@ if grep -q "documentation-only" "${repo_root}/docs/wasm-agent-authoring-guide.md
   exit 1
 fi
 grep -q "examples/templates/executable-capability-package/manifest.template.json" "${repo_root}/docs/wasm-agent-authoring-guide.md"
-grep -q "examples/agents/expedition-intent-agent/manifest.json" "${repo_root}/docs/wasm-agent-authoring-guide.md"
-grep -q "examples/agents/team-readiness-agent/manifest.json" "${repo_root}/docs/wasm-agent-authoring-guide.md"
-grep -q "traverse-cli agent inspect" "${repo_root}/docs/wasm-agent-authoring-guide.md"
-grep -q "traverse-cli agent execute" "${repo_root}/docs/wasm-agent-authoring-guide.md"
+grep -q "examples/capabilities/expedition-intent-agent/manifest.json" "${repo_root}/docs/wasm-agent-authoring-guide.md"
+grep -q "examples/capabilities/team-readiness-agent/manifest.json" "${repo_root}/docs/wasm-agent-authoring-guide.md"
+grep -q "traverse-cli capability-package inspect" "${repo_root}/docs/wasm-agent-authoring-guide.md"
+grep -q "traverse-cli capability-package execute" "${repo_root}/docs/wasm-agent-authoring-guide.md"
 grep -q "bash scripts/ci/wasm_agent_authoring_guide_smoke.sh" "${repo_root}/docs/wasm-agent-authoring-guide.md"
 
 echo "Traverse WASM agent authoring guide is ready."

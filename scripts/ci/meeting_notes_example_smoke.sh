@@ -11,14 +11,14 @@ app_manifest="examples/applications/meeting-notes/app.manifest.json"
 
 bash examples/meeting-notes/process-agent/build-fixture.sh >/tmp/meeting-notes-build.out
 
-inspect_output="$(cargo run -q -p traverse-cli-rs -- agent inspect "$agent_manifest")"
+inspect_output="$(cargo run -q -p traverse-cli-rs -- capability-package inspect "$agent_manifest")"
 printf '%s\n' "$inspect_output"
 
 grep -q "package_id: meeting-notes.process-agent" <<<"$inspect_output"
 grep -q "capability_id: meeting-notes.process" <<<"$inspect_output"
 grep -q "workflow_refs: meeting-notes.process@1.0.0" <<<"$inspect_output"
 
-execute_output="$(cargo run -q -p traverse-cli-rs -- agent execute "$agent_manifest" "$agent_request")"
+execute_output="$(cargo run -q -p traverse-cli-rs -- capability-package execute "$agent_manifest" "$agent_request")"
 printf '%s\n' "$execute_output"
 
 grep -q "status: completed" <<<"$execute_output"

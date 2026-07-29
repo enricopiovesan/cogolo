@@ -1,9 +1,9 @@
 {
-  "kind": "agent_package",
+  "kind": "capability_package",
   "schema_version": "1.0.0",
-  "package_id": "expedition.planning.interpret-expedition-intent-agent",
+  "package_id": "expedition.planning.interpret-expedition-intent",
   "version": "1.0.0",
-  "summary": "Governed WASM AI agent example for expedition intent interpretation.",
+  "summary": "Governed WASM capability example for expedition intent interpretation.",
   "capability_ref": {
     "id": "expedition.planning.interpret-expedition-intent",
     "version": "1.0.0",

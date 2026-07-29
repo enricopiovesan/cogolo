@@ -20,7 +20,7 @@ Family-level help (lists available subcommands):
 
 ```
 traverse-cli bundle --help
-traverse-cli agent --help
+traverse-cli capability-package --help
 traverse-cli workflow --help
 traverse-cli expedition --help
 traverse-cli event --help
@@ -37,8 +37,8 @@ traverse-cli app new --help
 traverse-cli app validate --help
 traverse-cli app register --help
 traverse-cli component new --help
-traverse-cli agent inspect --help
-traverse-cli agent execute --help
+traverse-cli capability-package inspect --help
+traverse-cli capability-package execute --help
 traverse-cli workflow inspect --help
 traverse-cli expedition execute --help
 traverse-cli event inspect --help
@@ -60,8 +60,8 @@ consistent with error output behaviour across the CLI.
 | `app register --manifest <path> --workspace <workspace-id> --json` | Validate a downstream app manifest and atomically persist local workspace registration state. | `cargo run -p traverse-cli-rs -- app register --manifest examples/applications/expedition-readiness/app.manifest.json --workspace local --json` | Prints JSON with `status: registered` or `status: already_registered`, app identity, workspace id, `state_scope: workspace_persisted`, `state_path`, digest evidence, and runtime references. |
 | `component new <component-id>` | Create a governed WASM component package scaffold under `components/<component-id>`. | `cargo run -p traverse-cli-rs -- component new knowledge.retrieve` | Creates a component `manifest.json`, draft capability `contract.json`, Rust package shell, source directory, and artifact directory without creating executable WASM behavior. |
 | `browser-adapter serve [--bind <address>]` | Start the local browser adapter for the governed browser consumer path. | `cargo run -p traverse-cli-rs -- browser-adapter serve --bind 127.0.0.1:4174` | Prints `local browser adapter listening on http://...` and stays running until stopped. |
-| `agent inspect <manifest-path>` | Load and summarize a governed WASM agent package manifest. | `cargo run -p traverse-cli-rs -- agent inspect examples/agents/expedition-intent-agent/manifest.json` | Prints `path`, `package_id`, `package_version`, `capability_id`, binary location, digest, and model/workflow references. |
-| `agent execute <manifest-path> <request-path>` | Load a governed WASM agent package and execute it against a runtime request. | `cargo run -p traverse-cli-rs -- agent execute examples/agents/expedition-intent-agent/manifest.json examples/agents/runtime-requests/interpret-expedition-intent.json` | Prints `request_id`, `execution_id`, `package_id`, `capability_id`, `trace_ref`, `status`, and capability-specific result fields. |
+| `capability-package inspect <manifest-path>` | Load and summarize a governed WASM capability package manifest. | `cargo run -p traverse-cli-rs -- capability-package inspect examples/capabilities/expedition-intent-agent/manifest.json` | Prints `path`, `package_id`, `package_version`, `capability_id`, binary location, digest, and model/workflow references. |
+| `capability-package execute <manifest-path> <request-path>` | Load a governed WASM capability package and execute it against a runtime request. | `cargo run -p traverse-cli-rs -- capability-package execute examples/capabilities/expedition-intent-agent/manifest.json examples/capabilities/runtime-requests/interpret-expedition-intent.json` | Prints `request_id`, `execution_id`, `package_id`, `capability_id`, `trace_ref`, `status`, and capability-specific result fields. |
 | `event inspect <contract-path>` | Parse and validate an event contract. | `cargo run -p traverse-cli-rs -- event inspect contracts/examples/expedition/events/expedition-objective-captured/contract.json` | Prints `path`, `id`, `version`, lifecycle, classification, publisher/subscriber counts, and publisher/subscriber ids. |
 | `trace inspect <trace-path>` | Parse and summarize a runtime trace artifact. | `cargo run -p traverse-cli-rs -- trace inspect target/traces/plan-expedition.json` | Prints `trace_id`, `execution_id`, `request_id`, governing spec, state-machine validation, state transition counts, and terminal outcome details. |
 | `workflow inspect <workflow-path>` | Parse and summarize a workflow definition artifact. | `cargo run -p traverse-cli-rs -- workflow inspect workflows/examples/expedition/plan-expedition/workflow.json` | Prints `id`, `version`, lifecycle, start node, terminal nodes, node/edge counts, and workflow edges. |
@@ -78,8 +78,8 @@ The following command families are intended to be the public documented surface 
 - `app register`
 - `component new`
 - `browser-adapter serve`
-- `agent inspect`
-- `agent execute`
+- `capability-package inspect`
+- `capability-package execute`
 - `event inspect`
 - `trace inspect`
 - `workflow inspect`
@@ -193,8 +193,8 @@ This reference was checked against the live CLI behavior with:
 - `cargo run -p traverse-cli-rs -- app validate --help`
 - `cargo run -p traverse-cli-rs -- app register --help`
 - `cargo run -p traverse-cli-rs -- component new --help`
-- `cargo run -p traverse-cli-rs -- agent inspect --help`
-- `cargo run -p traverse-cli-rs -- agent execute --help`
+- `cargo run -p traverse-cli-rs -- capability-package inspect --help`
+- `cargo run -p traverse-cli-rs -- capability-package execute --help`
 - `cargo run -p traverse-cli-rs -- workflow inspect --help`
 - `cargo run -p traverse-cli-rs -- expedition execute --help`
 - `cargo run -p traverse-cli-rs -- event inspect --help`

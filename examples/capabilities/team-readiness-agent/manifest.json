@@ -1,9 +1,9 @@
 {
-  "kind": "agent_package",
+  "kind": "capability_package",
   "schema_version": "1.0.0",
-  "package_id": "expedition.planning.validate-team-readiness-agent",
+  "package_id": "expedition.planning.validate-team-readiness",
   "version": "1.0.0",
-  "summary": "Governed WASM AI agent example for expedition readiness validation.",
+  "summary": "Governed WASM capability example for expedition readiness validation.",
   "capability_ref": {
     "id": "expedition.planning.validate-team-readiness",
     "version": "1.0.0",

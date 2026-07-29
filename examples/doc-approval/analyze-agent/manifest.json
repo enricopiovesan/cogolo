@@ -1,5 +1,5 @@
 {
-  "kind": "agent_package",
+  "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "doc-approval.analyze-agent",
   "version": "1.0.0",

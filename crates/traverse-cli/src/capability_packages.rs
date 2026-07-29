@@ -12,14 +12,14 @@ use traverse_registry::{
 };
 use traverse_runtime::executor::SUPPORTED_HOST_ABI_VERSION;
 
-const AGENT_PACKAGE_KIND: &str = "agent_package";
-const AGENT_PACKAGE_SCHEMA_VERSION: &str = "1.0.0";
+const CAPABILITY_PACKAGE_KIND: &str = "capability_package";
+const CAPABILITY_PACKAGE_SCHEMA_VERSION: &str = "1.0.0";
 const AGENT_GOVERNING_SPEC: &str = "017-ai-agent-packaging";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub struct LoadedAgentPackage {
+pub struct LoadedCapabilityPackage {
     manifest_path: PathBuf,
-    pub manifest: AgentPackageManifest,
+    pub manifest: CapabilityPackageManifest,
     pub contract: CapabilityContract,
     pub source_path: PathBuf,
     pub binary_path: PathBuf,
@@ -27,44 +27,44 @@ pub struct LoadedAgentPackage {
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AgentPackageManifest {
+pub struct CapabilityPackageManifest {
     pub kind: String,
     pub schema_version: String,
     pub package_id: String,
     pub version: String,
     pub summary: String,
-    pub capability_ref: AgentCapabilityReference,
+    pub capability_ref: CapabilityPackageReference,
     #[serde(default)]
-    pub workflow_refs: Vec<AgentWorkflowReference>,
-    pub source: AgentSourceReference,
-    pub binary: AgentBinaryReference,
-    pub constraints: AgentConstraintDeclaration,
+    pub workflow_refs: Vec<PackageWorkflowReference>,
+    pub source: PackageSourceReference,
+    pub binary: PackageBinaryReference,
+    pub constraints: PackageConstraintDeclaration,
     #[serde(default)]
-    pub model_dependencies: Vec<AgentModelDependency>,
+    pub model_dependencies: Vec<PackageModelDependency>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AgentCapabilityReference {
+pub struct CapabilityPackageReference {
     pub id: String,
     pub version: String,
     pub contract_path: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AgentWorkflowReference {
+pub struct PackageWorkflowReference {
     pub workflow_id: String,
     pub workflow_version: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AgentSourceReference {
+pub struct PackageSourceReference {
     pub path: String,
     pub language: String,
     pub entry: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AgentBinaryReference {
+pub struct PackageBinaryReference {
     pub path: String,
     pub format: String,
     pub expected_digest: String,
@@ -73,19 +73,19 @@ pub struct AgentBinaryReference {
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
 #[allow(clippy::struct_field_names)]
-pub struct AgentConstraintDeclaration {
+pub struct PackageConstraintDeclaration {
     pub host_api_access: String,
     pub network_access: String,
     pub filesystem_access: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize)]
-pub struct AgentModelDependency {
+pub struct PackageModelDependency {
     pub interface: String,
     pub purpose: String,
 }
 
-impl LoadedAgentPackage {
+impl LoadedCapabilityPackage {
     #[must_use]
     pub fn render_summary(&self) -> String {
         let mut lines = vec![
@@ -142,7 +142,7 @@ impl LoadedAgentPackage {
                 .to_string(),
             artifact: CapabilityArtifactRecord {
                 artifact_ref: format!(
-                    "agent-package:{}:{}",
+                    "capability-package:{}:{}",
                     self.manifest.package_id, self.manifest.version
                 ),
                 implementation_kind: ImplementationKind::Executable,
@@ -169,11 +169,11 @@ impl LoadedAgentPackage {
                 },
             },
             registered_at: format!(
-                "agent-package:{}@{}",
+                "capability-package:{}@{}",
                 self.manifest.package_id, self.manifest.version
             ),
             tags: vec![
-                "ai-agent".to_string(),
+                "capability-package".to_string(),
                 "wasm".to_string(),
                 "expedition".to_string(),
             ],
@@ -194,17 +194,17 @@ impl LoadedAgentPackage {
     }
 }
 
-pub fn load_agent_package(manifest_path: &Path) -> Result<LoadedAgentPackage, String> {
+pub fn load_capability_package(manifest_path: &Path) -> Result<LoadedCapabilityPackage, String> {
     let manifest_contents = fs::read_to_string(manifest_path).map_err(|error| {
         format!(
-            "failed to read agent package manifest {}: {error}",
+            "failed to read capability package manifest {}: {error}",
             manifest_path.display()
         )
     })?;
     let manifest =
-        serde_json::from_str::<AgentPackageManifest>(&manifest_contents).map_err(|error| {
+        serde_json::from_str::<CapabilityPackageManifest>(&manifest_contents).map_err(|error| {
             format!(
-                "failed to parse agent package manifest {}: {error}",
+                "failed to parse capability package manifest {}: {error}",
                 manifest_path.display()
             )
         })?;
@@ -213,7 +213,7 @@ pub fn load_agent_package(manifest_path: &Path) -> Result<LoadedAgentPackage, St
 
     let manifest_dir = manifest_path.parent().ok_or_else(|| {
         format!(
-            "agent package manifest {} has no parent directory",
+            "capability package manifest {} has no parent directory",
             manifest_path.display()
         )
     })?;
@@ -222,8 +222,8 @@ pub fn load_agent_package(manifest_path: &Path) -> Result<LoadedAgentPackage, St
     let binary_path = manifest_dir.join(&manifest.binary.path);
 
     ensure_file_exists(&contract_path, "capability contract")?;
-    ensure_file_exists(&source_path, "agent source")?;
-    ensure_file_exists(&binary_path, "agent binary")?;
+    ensure_file_exists(&source_path, "capability source")?;
+    ensure_file_exists(&binary_path, "capability binary")?;
 
     let contract_contents = fs::read_to_string(&contract_path).map_err(|error| {
         format!(
@@ -248,21 +248,21 @@ pub fn load_agent_package(manifest_path: &Path) -> Result<LoadedAgentPackage, St
 
     let binary_bytes = fs::read(&binary_path).map_err(|error| {
         format!(
-            "failed to read agent binary {}: {error}",
+            "failed to read capability binary {}: {error}",
             binary_path.display()
         )
     })?;
     let binary_digest = fnv1a64(&binary_bytes);
     if binary_digest != manifest.binary.expected_digest {
         return Err(format!(
-            "agent binary digest mismatch for {}: expected {}, got {}",
+            "capability binary digest mismatch for {}: expected {}, got {}",
             binary_path.display(),
             manifest.binary.expected_digest,
             binary_digest
         ));
     }
 
-    Ok(LoadedAgentPackage {
+    Ok(LoadedCapabilityPackage {
         manifest_path: manifest_path.to_path_buf(),
         manifest,
         contract: validated_contract,
@@ -273,56 +273,61 @@ pub fn load_agent_package(manifest_path: &Path) -> Result<LoadedAgentPackage, St
 }
 
 fn validate_manifest_shape(
-    manifest: &AgentPackageManifest,
+    manifest: &CapabilityPackageManifest,
     manifest_path: &Path,
 ) -> Result<(), String> {
-    if manifest.kind != AGENT_PACKAGE_KIND {
+    if manifest.kind != CAPABILITY_PACKAGE_KIND {
         return Err(format!(
-            "agent package manifest {} must declare kind={AGENT_PACKAGE_KIND}",
+            "capability package manifest {} must declare kind={CAPABILITY_PACKAGE_KIND}",
             manifest_path.display()
         ));
     }
-    if manifest.schema_version != AGENT_PACKAGE_SCHEMA_VERSION {
+    if manifest.schema_version != CAPABILITY_PACKAGE_SCHEMA_VERSION {
         return Err(format!(
-            "agent package manifest {} must declare schema_version={AGENT_PACKAGE_SCHEMA_VERSION}",
+            "capability package manifest {} must declare schema_version={CAPABILITY_PACKAGE_SCHEMA_VERSION}",
             manifest_path.display()
         ));
     }
     if manifest.package_id.trim().is_empty() {
-        return Err("agent package package_id must be non-empty".to_string());
+        return Err("capability package package_id must be non-empty".to_string());
     }
     if manifest.version.trim().is_empty() {
-        return Err("agent package version must be non-empty".to_string());
+        return Err("capability package version must be non-empty".to_string());
     }
     if manifest.capability_ref.id.trim().is_empty()
         || manifest.capability_ref.version.trim().is_empty()
     {
         return Err(
-            "agent package capability_ref must declare non-empty id and version".to_string(),
+            "capability package capability_ref must declare non-empty id and version".to_string(),
         );
     }
     if manifest.capability_ref.contract_path.trim().is_empty() {
-        return Err("agent package capability_ref.contract_path must be non-empty".to_string());
+        return Err(
+            "capability package capability_ref.contract_path must be non-empty".to_string(),
+        );
     }
     if manifest.source.path.trim().is_empty() || manifest.source.entry.trim().is_empty() {
-        return Err("agent package source.path and source.entry must be non-empty".to_string());
+        return Err(
+            "capability package source.path and source.entry must be non-empty".to_string(),
+        );
     }
     if manifest.binary.path.trim().is_empty() || manifest.binary.expected_digest.trim().is_empty() {
         return Err(
-            "agent package binary.path and binary.expected_digest must be non-empty".to_string(),
+            "capability package binary.path and binary.expected_digest must be non-empty"
+                .to_string(),
         );
     }
     if manifest.binary.abi_version != SUPPORTED_HOST_ABI_VERSION {
         return Err(format!(
-            "agent package binary.abi_version must equal {SUPPORTED_HOST_ABI_VERSION}"
+            "capability package binary.abi_version must equal {SUPPORTED_HOST_ABI_VERSION}"
         ));
     }
     if manifest.binary.format != "wasm" {
-        return Err("agent package binary.format must equal wasm".to_string());
+        return Err("capability package binary.format must equal wasm".to_string());
     }
     if manifest.workflow_refs.is_empty() {
         return Err(
-            "agent package must declare at least one approved workflow reference".to_string(),
+            "capability package must declare at least one approved workflow reference".to_string(),
         );
     }
     Ok(())
@@ -340,14 +345,14 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
 }
 
 fn validate_manifest_against_contract(
-    manifest: &AgentPackageManifest,
+    manifest: &CapabilityPackageManifest,
     contract: &CapabilityContract,
 ) -> Result<(), String> {
     if contract.id != manifest.capability_ref.id
         || contract.version != manifest.capability_ref.version
     {
         return Err(format!(
-            "agent package capability_ref {}@{} does not match contract {}@{}",
+            "capability package capability_ref {}@{} does not match contract {}@{}",
             manifest.capability_ref.id,
             manifest.capability_ref.version,
             contract.id,
@@ -356,7 +361,7 @@ fn validate_manifest_against_contract(
     }
     if contract.execution.binary_format != ContractBinaryFormat::Wasm {
         return Err(format!(
-            "agent package capability {} must declare wasm execution",
+            "capability package capability {} must declare wasm execution",
             contract.id
         ));
     }
@@ -364,7 +369,7 @@ fn validate_manifest_against_contract(
         || contract.execution.entrypoint.command != "run"
     {
         return Err(format!(
-            "agent package capability {} must declare a wasi-command entrypoint named run",
+            "capability package capability {} must declare a wasi-command entrypoint named run",
             contract.id
         ));
     }
@@ -372,7 +377,7 @@ fn validate_manifest_against_contract(
         || manifest.constraints.host_api_access != "none"
     {
         return Err(format!(
-            "agent package capability {} must keep host_api_access=none",
+            "capability package capability {} must keep host_api_access=none",
             contract.id
         ));
     }
@@ -380,7 +385,7 @@ fn validate_manifest_against_contract(
         || manifest.constraints.network_access != "forbidden"
     {
         return Err(format!(
-            "agent package capability {} must keep network_access=forbidden",
+            "capability package capability {} must keep network_access=forbidden",
             contract.id
         ));
     }
@@ -388,7 +393,7 @@ fn validate_manifest_against_contract(
         || manifest.constraints.filesystem_access != "none"
     {
         return Err(format!(
-            "agent package capability {} must keep filesystem_access=none",
+            "capability package capability {} must keep filesystem_access=none",
             contract.id
         ));
     }
@@ -433,7 +438,7 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::{
-        LoadedAgentPackage, fnv1a64, load_agent_package, provenance_source_label,
+        LoadedCapabilityPackage, fnv1a64, load_capability_package, provenance_source_label,
         render_contract_failure,
     };
     use serde_json::{Value, json};
@@ -504,7 +509,7 @@ mod tests {
 
     fn base_manifest_value(expected_digest: &str) -> Value {
         json!({
-            "kind": "agent_package",
+            "kind": "capability_package",
             "schema_version": "1.0.0",
             "package_id": "test.agent-pkg",
             "version": "1.0.0",
@@ -613,7 +618,7 @@ mod tests {
     fn render_summary_includes_workflow_refs_when_present() {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
-        let loaded = load_agent_package(&manifest_path).expect("package should load");
+        let loaded = load_capability_package(&manifest_path).expect("package should load");
         let summary = loaded.render_summary();
         assert!(summary.contains("package_id: test.agent-pkg"));
         assert!(summary.contains("model_interfaces: test-model-v1"));
@@ -626,12 +631,12 @@ mod tests {
         let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
         manifest["workflow_refs"] = json!([]);
         // An empty workflow_refs fails validate_manifest_shape, so this test constructs the
-        // loaded package directly rather than through load_agent_package.
+        // loaded package directly rather than through load_capability_package.
         write_fixture(&dir, &manifest, &base_contract_value());
         let contract = parse_contract(&base_contract_value().to_string())
             .expect("contract should parse")
             .clone();
-        let loaded = LoadedAgentPackage {
+        let loaded = LoadedCapabilityPackage {
             manifest_path: dir.join("manifest.json"),
             manifest: serde_json::from_value(manifest).expect("manifest should deserialize"),
             contract,
@@ -649,7 +654,7 @@ mod tests {
         let contract = parse_contract(&base_contract_value().to_string())
             .expect("contract should parse")
             .clone();
-        let loaded = LoadedAgentPackage {
+        let loaded = LoadedCapabilityPackage {
             manifest_path: dir.join("manifest.json"),
             manifest: serde_json::from_value(base_manifest_value(&fnv1a64(BINARY_BYTES)))
                 .expect("manifest should deserialize"),
@@ -668,10 +673,10 @@ mod tests {
     }
 
     #[test]
-    fn loads_valid_agent_package_successfully() {
+    fn loads_valid_capability_package_successfully() {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
-        let loaded = load_agent_package(&manifest_path).expect("package should load");
+        let loaded = load_capability_package(&manifest_path).expect("package should load");
         assert_eq!(loaded.manifest.package_id, "test.agent-pkg");
         assert_eq!(loaded.binary_digest, fnv1a64(BINARY_BYTES));
     }
@@ -679,9 +684,9 @@ mod tests {
     #[test]
     fn missing_manifest_file_is_reported() {
         let dir = unique_temp_dir();
-        let error = load_agent_package(&dir.join("manifest.json"))
-            .expect_err("load_agent_package should fail");
-        assert!(error.contains("failed to read agent package manifest"));
+        let error = load_capability_package(&dir.join("manifest.json"))
+            .expect_err("load_capability_package should fail");
+        assert!(error.contains("failed to read capability package manifest"));
     }
 
     #[test]
@@ -689,8 +694,9 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest_path = dir.join("manifest.json");
         fs::write(&manifest_path, "not json").expect("manifest should write");
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
-        assert!(error.contains("failed to parse agent package manifest"));
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
+        assert!(error.contains("failed to parse capability package manifest"));
     }
 
     fn shape_rejection(mutate: impl FnOnce(&mut Value)) -> String {
@@ -703,13 +709,13 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        load_agent_package(&manifest_path).expect_err("load_agent_package should fail")
+        load_capability_package(&manifest_path).expect_err("load_capability_package should fail")
     }
 
     #[test]
     fn rejects_wrong_kind() {
         let error = shape_rejection(|manifest| manifest["kind"] = json!("wrong_kind"));
-        assert!(error.contains("must declare kind=agent_package"));
+        assert!(error.contains("must declare kind=capability_package"));
     }
 
     #[test]
@@ -727,7 +733,7 @@ mod tests {
     #[test]
     fn rejects_empty_version() {
         let error = shape_rejection(|manifest| manifest["version"] = json!(""));
-        assert!(error.contains("agent package version must be non-empty"));
+        assert!(error.contains("capability package version must be non-empty"));
     }
 
     #[test]
@@ -805,7 +811,8 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("missing capability contract file"));
     }
 
@@ -827,8 +834,9 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
-        assert!(error.contains("missing agent source file"));
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
+        assert!(error.contains("missing capability source file"));
     }
 
     #[test]
@@ -849,8 +857,9 @@ mod tests {
             serde_json::to_string_pretty(&manifest).expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
-        assert!(error.contains("missing agent binary file"));
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
+        assert!(error.contains("missing capability binary file"));
     }
 
     #[test]
@@ -868,7 +877,8 @@ mod tests {
                 .expect("manifest should serialize"),
         )
         .expect("manifest should write");
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("is invalid") || error.contains("failed to read"));
     }
 
@@ -881,7 +891,7 @@ mod tests {
             &base_manifest_value(&fnv1a64(BINARY_BYTES)),
             &contract,
         );
-        load_agent_package(&manifest_path).expect_err("load_agent_package should fail")
+        load_capability_package(&manifest_path).expect_err("load_capability_package should fail")
     }
 
     #[test]
@@ -897,7 +907,8 @@ mod tests {
         let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
         manifest["capability_ref"]["id"] = json!("different.capability");
         let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("does not match contract"));
     }
 
@@ -924,7 +935,8 @@ mod tests {
         let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
         manifest["constraints"]["host_api_access"] = json!("exception_required");
         let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("must keep host_api_access=none"));
     }
 
@@ -949,8 +961,9 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest = base_manifest_value("fnv1a64:0000000000000000");
         let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
-        assert!(error.contains("agent binary digest mismatch"));
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
+        assert!(error.contains("capability binary digest mismatch"));
     }
 
     fn make_unreadable(path: &std::path::Path) {
@@ -967,7 +980,8 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
         make_unreadable(&dir.join("contract.json"));
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
         assert!(error.contains("failed to read capability contract"));
     }
 
@@ -976,7 +990,8 @@ mod tests {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
         make_unreadable(&dir.join("artifacts/agent.wasm"));
-        let error = load_agent_package(&manifest_path).expect_err("load_agent_package should fail");
-        assert!(error.contains("failed to read agent binary"));
+        let error = load_capability_package(&manifest_path)
+            .expect_err("load_capability_package should fail");
+        assert!(error.contains("failed to read capability binary"));
     }
 }
