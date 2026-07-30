@@ -1117,6 +1117,21 @@
         "docs/adr/0028-ecca-event-product-standard.md",
         "specs/534-ecca-event-products/"
       ]
+    },
+    {
+      "id": "087-hosted-datastore-transport",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/535-hosted-datastore-transport/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "packages/",
+        "examples/",
+        "docs/adr/0029-hosted-datastore-transport.md",
+        "specs/535-hosted-datastore-transport/"
+      ]
     }
   ]
 }
