@@ -2,7 +2,7 @@
 
 **Feature Branch**: `534-ecca-event-products`  
 **Created**: 2026-07-29  
-**Status**: Draft  
+**Status**: Approved
 **Version**: 1.0.0  
 **Input**: Traverse #894 and its recorded architecture decisions; ECCA.
 
@@ -163,11 +163,10 @@ Out of scope:
 
 ## Governing Relationship
 
-This draft extends `003-event-contracts`, `018-event-driven-composition`,
+This approved specification extends `003-event-contracts`, `018-event-driven-composition`,
 `036-event-subscription-replay`, `066-durable-identity-event-delivery`,
 `070-runtime-event-sink-boundary`, and `207-event-broker`. It does not amend
-their approved status until this specification and ADR have explicit maintainer
-approval.
+their approved status; the #894 decision log is its recorded approval evidence.
 
 ## Implementation Tickets
 

@@ -1099,6 +1099,24 @@
         "docs/adr/0023-datastore-indexeddb.md",
         "specs/528-datastore-indexeddb/"
       ]
+    },
+    {
+      "id": "534-ecca-event-products",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/534-ecca-event-products/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "crates/traverse-runtime/",
+        "crates/traverse-registry/",
+        "crates/traverse-embedder/",
+        "packages/",
+        "examples/",
+        "contracts/",
+        "docs/adr/0028-ecca-event-product-standard.md",
+        "specs/534-ecca-event-products/"
+      ]
     }
   ]
 }

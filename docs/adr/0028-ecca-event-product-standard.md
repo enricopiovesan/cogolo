@@ -1,6 +1,6 @@
 # ADR-0028: ECCA Event-Product Standard
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-29
 - Governing spec: `534-ecca-event-products`
 - Related: Traverse #894, #895, #896, #897, #898, #899
