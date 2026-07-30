@@ -38,6 +38,16 @@ persists raw request or output payloads.
 - **FR-006**: Stable secret-free errors are `trace_workspace_unauthorized`,
   `trace_payload_forbidden`, `trace_retention_invalid`, `trace_export_denied`,
   and `trace_recovery_failed`.
+- **FR-007**: The host-owned journal format is canonical UTF-8 JSON Lines.
+  Each committed line contains a format version, workspace-scoped trace
+  identity, safe public evidence, and a canonical record hash; append MUST
+  `fsync` before an auditable execution succeeds. A final incomplete line is
+  discarded on startup with recovery evidence; an earlier malformed or hash
+  mismatched line fails closed as `trace_recovery_failed`.
+- **FR-008**: Deletion is host-explicit and workspace-scoped. It MUST emit
+  `trace_pruned` evidence and MUST NOT silently erase records, merge journals,
+  or delete another workspace's evidence. Private entries remain in-memory
+  only; an attempted private-payload append fails as `trace_payload_forbidden`.
 
 ## Acceptance Scenarios
 
@@ -50,6 +60,9 @@ persists raw request or output payloads.
    `trace_workspace_unauthorized` without record metadata.
 4. Given an authorized export with a redaction profile, when it completes,
    then it emits only allowed evidence and declares exclusions.
+5. Given a torn final write, when the host restarts, then it discards only that
+   final line and records recovery evidence; given earlier corruption, it fails
+   closed with `trace_recovery_failed`.
 
 ## Compatibility and Governed Files
 
