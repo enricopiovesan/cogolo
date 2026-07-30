@@ -1,0 +1,127 @@
+{
+  "kind": "ecca_capability_inventory",
+  "schema_version": "1.0.0",
+  "governing_spec": "534-ecca-event-products@1.0.0",
+  "governing_issue": "traverse-framework/traverse#899",
+  "generated_at": "2026-07-30T00:00:00Z",
+  "capabilities": [
+    {
+      "capability_id": "doc-approval.analyze",
+      "version": "1.0.0",
+      "path": "contracts/examples/doc-approval/capabilities/analyze/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; result returns directly to the caller with no asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "doc-approval.recommend",
+      "version": "1.0.0",
+      "path": "contracts/examples/doc-approval/capabilities/recommend/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; result returns directly to the caller with no asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "hello.world.say-hello",
+      "version": "1.0.0",
+      "path": "contracts/examples/hello-world/capabilities/say-hello/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; trivial synchronous response with no externally meaningful asynchronous effect."
+    },
+    {
+      "capability_id": "meeting-notes.process",
+      "version": "1.0.0",
+      "path": "contracts/examples/meeting-notes/capabilities/process/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; result returns directly to the caller with no asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "traverse-starter.pipeline",
+      "version": "1.0.0",
+      "path": "contracts/examples/traverse-starter/capabilities/pipeline/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[state_change] only, no event_emission side effect and no emits; state_change is capability-local persisted state via the runtime DataStore with no declared consumers, so no domain fact is broadcast."
+    },
+    {
+      "capability_id": "traverse-starter.process",
+      "version": "1.0.0",
+      "path": "contracts/examples/traverse-starter/capabilities/process/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; result returns directly to the caller with no asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "traverse-starter.summarize",
+      "version": "1.0.0",
+      "path": "contracts/examples/traverse-starter/capabilities/summarize/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; result returns directly to the caller with no asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "traverse-starter.validate",
+      "version": "1.0.0",
+      "path": "contracts/examples/traverse-starter/capabilities/validate/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[memory_only]; no emits; result returns directly to the caller with no asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "traverse.inference.generate",
+      "version": "1.0.0",
+      "path": "contracts/inference/traverse.inference.generate/contract.json",
+      "classification": "no-event-required",
+      "evidence": "side_effects=[external_call]; no emits; the model-provider call is a synchronous request/response returned directly to the caller, not an asynchronous domain fact broadcast to independent consumers."
+    },
+    {
+      "capability_id": "expedition.planning.capture-expedition-objective",
+      "version": "1.0.0",
+      "path": "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+      "classification": "governed-event-declared",
+      "governed_events": ["expedition.planning.expedition-objective-captured"],
+      "evidence": "side_effects includes event_emission; declared emits matches the published expedition-objective-captured event contract, which lists this capability as a publisher."
+    },
+    {
+      "capability_id": "expedition.planning.interpret-expedition-intent",
+      "version": "1.0.0",
+      "path": "contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
+      "classification": "governed-event-declared",
+      "governed_events": ["expedition.planning.expedition-intent-interpreted"],
+      "evidence": "side_effects includes event_emission; declared emits matches the published expedition-intent-interpreted event contract, which lists this capability as a publisher."
+    },
+    {
+      "capability_id": "expedition.planning.assess-conditions-summary",
+      "version": "1.0.0",
+      "path": "contracts/examples/expedition/capabilities/assess-conditions-summary/contract.json",
+      "classification": "governed-event-declared",
+      "governed_events": ["expedition.planning.conditions-summary-assessed"],
+      "evidence": "side_effects includes event_emission; declared emits matches the published conditions-summary-assessed event contract, which lists this capability as a publisher."
+    },
+    {
+      "capability_id": "expedition.planning.validate-team-readiness",
+      "version": "1.0.0",
+      "path": "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
+      "classification": "governed-event-declared",
+      "governed_events": ["expedition.planning.team-readiness-validated"],
+      "evidence": "side_effects includes event_emission; declared emits matches the published team-readiness-validated event contract, which lists this capability as a publisher."
+    },
+    {
+      "capability_id": "expedition.planning.assemble-expedition-plan",
+      "version": "1.0.0",
+      "path": "contracts/examples/expedition/capabilities/assemble-expedition-plan/contract.json",
+      "classification": "governed-event-declared",
+      "governed_events": ["expedition.planning.expedition-plan-assembled"],
+      "evidence": "side_effects includes event_emission; declared emits matches the published expedition-plan-assembled event contract, which lists this capability as a publisher."
+    },
+    {
+      "capability_id": "expedition.planning.plan-expedition",
+      "version": "1.0.0",
+      "path": "contracts/examples/expedition/capabilities/plan-expedition/contract.json",
+      "classification": "governed-event-declared",
+      "governed_events": ["expedition.planning.expedition-plan-assembled"],
+      "evidence": "Composite workflow capability whose terminal step re-emits expedition-plan-assembled; side_effects includes event_emission and this capability is now declared as a second publisher on the expedition-plan-assembled event contract, closing a prior declared/observed producer gap found during this inventory."
+    }
+  ],
+  "excluded": [
+    {
+      "kind": "connector_contract",
+      "reason": "Connectors (traverse.http, traverse.fs.read, traverse.env) are resource adapters, not capabilities, per the constitution's capability-first boundary principle. They are out of scope for the ECCA existing-catalog migration in FR-020.",
+      "ids": ["traverse.http", "traverse.fs.read", "traverse.env"]
+    }
+  ]
+}

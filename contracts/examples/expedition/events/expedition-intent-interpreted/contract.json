@@ -71,7 +71,12 @@
       "version": "1.0.0"
     }
   ],
-  "subscribers": [],
+  "subscribers": [
+    {
+      "capability_id": "expedition.planning.assess-conditions-summary",
+      "version": "1.0.0"
+    }
+  ],
   "policies": [
     {
       "id": "manual-approval-required"

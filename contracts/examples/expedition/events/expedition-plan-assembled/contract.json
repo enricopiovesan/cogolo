@@ -77,6 +77,10 @@
     {
       "capability_id": "expedition.planning.assemble-expedition-plan",
       "version": "1.0.0"
+    },
+    {
+      "capability_id": "expedition.planning.plan-expedition",
+      "version": "1.0.0"
     }
   ],
   "subscribers": [],
