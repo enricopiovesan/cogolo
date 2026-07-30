@@ -48,6 +48,8 @@ pub struct TraverseEvent {
 /// Errors that can occur during event broker operations.
 #[derive(Debug, PartialEq, Eq)]
 pub enum EventError {
+    /// A governed event failed enforcement-mode envelope validation.
+    ValidationRejected(String),
     /// Attempted to publish an event whose catalog entry is `Deprecated` or `Draft`.
     LifecycleViolation(String),
     /// Attempted to publish an event type not registered in the catalog.
@@ -75,6 +77,7 @@ pub enum EventError {
 impl std::fmt::Display for EventError {
     fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
         match self {
+            Self::ValidationRejected(code) => write!(f, "event validation rejected: {code}"),
             Self::LifecycleViolation(msg) => write!(f, "lifecycle violation: {msg}"),
             Self::UnregisteredEventType(t) => write!(f, "unregistered event type: {t}"),
             Self::InvalidCursor(msg) => write!(f, "invalid cursor: {msg}"),
@@ -286,6 +289,7 @@ mod tests {
     #[test]
     fn event_error_display_covers_all_variants() {
         let cases: Vec<EventError> = vec![
+            EventError::ValidationRejected("EVP-005".to_string()),
             EventError::LifecycleViolation("x".to_string()),
             EventError::UnregisteredEventType("t".to_string()),
             EventError::InvalidCursor("c".to_string()),
