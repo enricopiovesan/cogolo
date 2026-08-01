@@ -74,6 +74,7 @@ struct BrokerState {
     /// See [`EventBroker::seed_restart_floor`].
     restart_floor: u64,
     validation_evidence: Vec<EventValidationEvidence>,
+    quarantine_records: Vec<EventQuarantineRecord>,
     observed_lineage: Vec<EventLineageRecord>,
 }
 
@@ -90,6 +91,15 @@ pub struct EventLineageRecord {
     pub consumer_id: String,
     pub subscription_id: SubscriptionId,
     pub cursor: EventCursor,
+}
+
+/// Sanitized record written when enforcement rejects an event envelope.
+///
+/// The record is deliberately distinct from migration diagnostics: it models
+/// the governed quarantine stream without retaining the rejected payload.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventQuarantineRecord {
+    pub evidence: EventValidationEvidence,
 }
 
 /// Synchronous, in-memory implementation of [`EventBroker`].
@@ -176,6 +186,15 @@ impl InProcessBroker {
         self.state
             .lock()
             .map(|state| state.validation_evidence.clone())
+            .unwrap_or_default()
+    }
+
+    /// Returns sanitized enforcement rejections prepared for governed quarantine.
+    #[must_use]
+    pub fn quarantine_records(&self) -> Vec<EventQuarantineRecord> {
+        self.state
+            .lock()
+            .map(|state| state.quarantine_records.clone())
             .unwrap_or_default()
     }
 
@@ -286,7 +305,12 @@ impl InProcessBroker {
                 .state
                 .lock()
                 .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
-            state.validation_evidence.push(evidence);
+            state.validation_evidence.push(evidence.clone());
+            if !validation.accepted {
+                state
+                    .quarantine_records
+                    .push(EventQuarantineRecord { evidence });
+            }
         }
         if !validation.accepted {
             let code = validation
@@ -923,6 +947,21 @@ mod tests {
     }
 
     #[test]
+    fn quarantine_records_fail_closed_when_broker_state_is_poisoned() {
+        let broker = InProcessBroker::new(make_catalog(
+            "dev.traverse.quarantine.poison",
+            LifecycleStatus::Active,
+        ))
+        .expect("broker must be created");
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = broker.state.lock().expect("state lock must be available");
+            panic!("poison state lock");
+        }));
+
+        assert!(broker.quarantine_records().is_empty());
+    }
+
+    #[test]
     fn publish_rejects_deprecated_and_draft_event_types() {
         let deprecated = InProcessBroker::new(make_catalog(
             "dev.traverse.deprecated",
@@ -966,6 +1005,10 @@ mod tests {
         assert_eq!(evidence[0].contract_id, event_type);
         assert_eq!(evidence[0].diagnostics[0].code, "EVP-005");
         assert!(!format!("{evidence:?}").contains("private@example.test"));
+        let quarantine = broker.quarantine_records();
+        assert_eq!(quarantine.len(), 1);
+        assert_eq!(quarantine[0].evidence, evidence[0]);
+        assert!(!format!("{quarantine:?}").contains("private@example.test"));
     }
 
     #[test]
@@ -980,6 +1023,7 @@ mod tests {
             .publish(invalid)
             .expect("migration mode must preserve delivery");
         assert_eq!(broker.validation_evidence().len(), 1);
+        assert!(broker.quarantine_records().is_empty());
     }
 
     #[test]
