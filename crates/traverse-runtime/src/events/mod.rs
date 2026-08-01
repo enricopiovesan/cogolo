@@ -7,6 +7,7 @@ pub mod catalog;
 pub mod durable;
 pub mod journal;
 pub mod types;
+pub mod validation;
 
 pub use broker::{BrokerClock, BrokerConfig, InProcessBroker, SystemClock};
 pub use catalog::{EventCatalog, EventCatalogEntry};
@@ -18,4 +19,8 @@ pub use types::{
     BrokerEvent, BrokerEventSink, EventBroker, EventCursor, EventError, LifecycleStatus,
     NoopRuntimeEventSink, RuntimeEventSink, Subscription, SubscriptionId, SubscriptionPoll,
     TraverseEvent,
+};
+pub use validation::{
+    EventValidationDiagnostic, EventValidationEvidence, EventValidationMode, EventValidationResult,
+    validate_event,
 };

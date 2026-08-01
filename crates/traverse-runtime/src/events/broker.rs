@@ -14,6 +14,7 @@ use super::{
         BrokerEvent, EventBroker, EventCursor, EventError, LifecycleStatus, Subscription,
         SubscriptionId, SubscriptionPoll, TraverseEvent,
     },
+    validation::{EventValidationEvidence, EventValidationMode, validate_event},
 };
 
 /// Clock abstraction used by the broker for retention pruning.
@@ -71,6 +72,7 @@ struct BrokerState {
     subscriptions: HashMap<SubscriptionId, SubscriptionState>,
     /// See [`EventBroker::seed_restart_floor`].
     restart_floor: u64,
+    validation_evidence: Vec<EventValidationEvidence>,
 }
 
 /// Synchronous, in-memory implementation of [`EventBroker`].
@@ -83,6 +85,7 @@ pub struct InProcessBroker {
     config: BrokerConfig,
     clock: Arc<dyn BrokerClock>,
     state: Mutex<BrokerState>,
+    validation_mode: EventValidationMode,
 }
 
 impl std::fmt::Debug for InProcessBroker {
@@ -111,6 +114,24 @@ impl InProcessBroker {
         config: BrokerConfig,
         clock: Arc<dyn BrokerClock>,
     ) -> Result<Self, EventError> {
+        Self::with_clock_and_validation(catalog, config, clock, EventValidationMode::Migration)
+    }
+
+    /// Create a broker with an explicit governed-event enforcement policy.
+    ///
+    /// Migration mode records violations without interrupting existing traffic;
+    /// enforcement mode rejects invalid envelopes.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EventError::InvalidRetentionWindow`] when the configuration
+    /// cannot maintain replay and queue guarantees.
+    pub fn with_clock_and_validation(
+        catalog: Arc<EventCatalog>,
+        config: BrokerConfig,
+        clock: Arc<dyn BrokerClock>,
+        validation_mode: EventValidationMode,
+    ) -> Result<Self, EventError> {
         if config.retention_window == Duration::from_secs(0) {
             return Err(EventError::InvalidRetentionWindow(
                 "retention_window must be > 0".to_string(),
@@ -127,7 +148,18 @@ impl InProcessBroker {
             config,
             clock,
             state: Mutex::new(BrokerState::default()),
+            validation_mode,
         })
+    }
+
+    /// Returns sanitized validation and quarantine evidence. Payload data is
+    /// never retained through this interface.
+    #[must_use]
+    pub fn validation_evidence(&self) -> Vec<EventValidationEvidence> {
+        self.state
+            .lock()
+            .map(|state| state.validation_evidence.clone())
+            .unwrap_or_default()
     }
 
     fn subscribe_with_subject(
@@ -197,6 +229,21 @@ impl InProcessBroker {
         event: &TraverseEvent,
         assigned_cursor: Option<u64>,
     ) -> Result<(), EventError> {
+        let validation = validate_event(event, self.validation_mode);
+        if let Some(evidence) = EventValidationEvidence::from_result(&validation) {
+            let mut state = self
+                .state
+                .lock()
+                .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
+            state.validation_evidence.push(evidence);
+        }
+        if !validation.accepted {
+            let code = validation
+                .diagnostics
+                .first()
+                .map_or("EVP-000", |diagnostic| diagnostic.code);
+            return Err(EventError::ValidationRejected(code.to_owned()));
+        }
         let entry = self
             .catalog
             .get(&event.event_type)
@@ -789,6 +836,45 @@ mod tests {
             .publish(sample_event("dev.traverse.draft", "evt-001"))
             .expect_err("draft publish must fail");
         assert!(matches!(err, EventError::LifecycleViolation(_)));
+    }
+
+    #[test]
+    fn enforcement_rejects_invalid_events_and_retains_sanitized_evidence() {
+        let event_type = "dev.traverse.orders.created";
+        let broker = InProcessBroker::with_clock_and_validation(
+            make_catalog(event_type, LifecycleStatus::Active),
+            BrokerConfig::default(),
+            Arc::new(SystemClock),
+            EventValidationMode::Enforcement,
+        )
+        .expect("broker must be created");
+        let mut invalid = sample_event(event_type, "evt-invalid");
+        invalid.owner.clear();
+        invalid.data = serde_json::json!({"customer_email": "private@example.test"});
+
+        let error = broker
+            .publish(invalid)
+            .expect_err("enforcement must reject a missing owner");
+        assert!(matches!(error, EventError::ValidationRejected(code) if code == "EVP-005"));
+        let evidence = broker.validation_evidence();
+        assert_eq!(evidence.len(), 1);
+        assert_eq!(evidence[0].contract_id, event_type);
+        assert_eq!(evidence[0].diagnostics[0].code, "EVP-005");
+        assert!(!format!("{evidence:?}").contains("private@example.test"));
+    }
+
+    #[test]
+    fn migration_records_invalid_event_evidence_without_rejecting_delivery() {
+        let event_type = "dev.traverse.orders.created";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let mut invalid = sample_event(event_type, "evt-migration");
+        invalid.owner.clear();
+
+        broker
+            .publish(invalid)
+            .expect("migration mode must preserve delivery");
+        assert_eq!(broker.validation_evidence().len(), 1);
     }
 
     #[test]
