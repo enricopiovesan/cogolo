@@ -9,7 +9,7 @@ pub mod journal;
 pub mod types;
 pub mod validation;
 
-pub use broker::{BrokerClock, BrokerConfig, InProcessBroker, SystemClock};
+pub use broker::{BrokerClock, BrokerConfig, EventLineageRecord, InProcessBroker, SystemClock};
 pub use catalog::{EventCatalog, EventCatalogEntry};
 pub use durable::{
     DurableBroker, DurableBrokerConfig, JournalSink, JournalWriteAuditRecord, JournalWriteAuditSink,

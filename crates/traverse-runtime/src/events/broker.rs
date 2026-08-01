@@ -59,6 +59,7 @@ struct SubscriptionState {
     subscription_id: SubscriptionId,
     event_type: String,
     subject_id: Option<String>,
+    consumer_id: Option<String>,
     cursor: u64,
     queue: VecDeque<BufferedEvent>,
 }
@@ -73,6 +74,22 @@ struct BrokerState {
     /// See [`EventBroker::seed_restart_floor`].
     restart_floor: u64,
     validation_evidence: Vec<EventValidationEvidence>,
+    observed_lineage: Vec<EventLineageRecord>,
+}
+
+/// Sanitized observation that a broker delivered one governed event.
+///
+/// This is runtime evidence, not a catalog declaration. It intentionally
+/// excludes the event payload and authenticated subject data.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventLineageRecord {
+    pub contract_id: String,
+    pub contract_version: String,
+    pub event_id: String,
+    pub producer_id: String,
+    pub consumer_id: String,
+    pub subscription_id: SubscriptionId,
+    pub cursor: EventCursor,
 }
 
 /// Synchronous, in-memory implementation of [`EventBroker`].
@@ -162,11 +179,21 @@ impl InProcessBroker {
             .unwrap_or_default()
     }
 
+    /// Returns sanitized runtime delivery observations for catalog reconciliation.
+    #[must_use]
+    pub fn observed_lineage(&self) -> Vec<EventLineageRecord> {
+        self.state
+            .lock()
+            .map(|state| state.observed_lineage.clone())
+            .unwrap_or_default()
+    }
+
     fn subscribe_with_subject(
         &self,
         event_type: &str,
         from_cursor: &str,
         subject_id: Option<&str>,
+        consumer_id: Option<&str>,
     ) -> Result<Subscription, EventError> {
         if self.catalog.get(event_type).is_none() {
             return Err(EventError::UnregisteredEventType(event_type.to_owned()));
@@ -205,6 +232,7 @@ impl InProcessBroker {
                 subscription_id: subscription_id.clone(),
                 event_type: event_type.to_string(),
                 subject_id: subject_id.map(str::to_owned),
+                consumer_id: consumer_id.map(str::to_owned),
                 cursor: from_cursor,
                 queue,
             },
@@ -215,6 +243,29 @@ impl InProcessBroker {
             event_type: event_type.to_string(),
             cursor: cursor_to_string(from_cursor),
         })
+    }
+
+    /// Subscribe with the consuming capability identity needed for observed lineage.
+    ///
+    /// The identity is runtime evidence only; it does not declare a catalog relationship.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`EventError::LifecycleViolation`] when `consumer_id` is empty,
+    /// plus the same errors as [`EventBroker::subscribe_for_subject`].
+    pub fn subscribe_for_consumer(
+        &self,
+        event_type: &str,
+        from_cursor: &str,
+        consumer_id: &str,
+        subject_id: Option<&str>,
+    ) -> Result<Subscription, EventError> {
+        if consumer_id.trim().is_empty() {
+            return Err(EventError::LifecycleViolation(
+                "consumer_id must not be empty".to_string(),
+            ));
+        }
+        self.subscribe_with_subject(event_type, from_cursor, subject_id, Some(consumer_id))
     }
 
     /// Shared implementation for `publish` and `publish_with_cursor`.
@@ -448,7 +499,7 @@ impl EventBroker for InProcessBroker {
         from_cursor: &str,
         subject_id: Option<&str>,
     ) -> Result<Subscription, EventError> {
-        self.subscribe_with_subject(event_type, from_cursor, subject_id)
+        self.subscribe_with_subject(event_type, from_cursor, subject_id, None)
     }
 
     fn seed_restart_floor(&self, floor: u64) {
@@ -491,7 +542,7 @@ impl EventBroker for InProcessBroker {
     ///
     /// Returns [`EventError::UnregisteredEventType`] if the event type is not catalogued.
     fn subscribe(&self, event_type: &str, from_cursor: &str) -> Result<Subscription, EventError> {
-        self.subscribe_with_subject(event_type, from_cursor, None)
+        self.subscribe_with_subject(event_type, from_cursor, None, None)
     }
 
     /// Poll a subscription for up to `max_events`.
@@ -551,6 +602,18 @@ impl EventBroker for InProcessBroker {
                 break;
             };
             delivered_cursor = item.cursor;
+            state.observed_lineage.push(EventLineageRecord {
+                contract_id: item.event.event_type.clone(),
+                contract_version: item.event.version.clone(),
+                event_id: item.event.id.clone(),
+                producer_id: item.event.owner.clone(),
+                consumer_id: subscription
+                    .consumer_id
+                    .clone()
+                    .unwrap_or_else(|| subscription.subscription_id.clone()),
+                subscription_id: subscription.subscription_id.clone(),
+                cursor: cursor_to_string(item.cursor),
+            });
             out.push(BrokerEvent {
                 cursor: cursor_to_string(item.cursor),
                 event: item.event,
@@ -815,6 +878,48 @@ mod tests {
             .expect("live poll must succeed");
         assert_eq!(live.events.len(), 1);
         assert_eq!(live.events[0].event.id, live_expected.id);
+    }
+
+    #[test]
+    fn consumer_subscription_records_sanitized_observed_lineage() {
+        let event_type = "dev.traverse.lineage.observed";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe_for_consumer(event_type, "0", "capability.audit", None)
+            .expect("consumer subscription must succeed");
+        let mut event = sample_event(event_type, "evt-lineage");
+        event.owner = "capability.orders".to_string();
+        event.version = "1.2.3".to_string();
+        event.data = serde_json::json!({"secret":"not lineage"});
+        broker.publish(event).expect("publish must succeed");
+
+        let _ = broker
+            .poll(&subscription.subscription_id, 1)
+            .expect("poll must succeed");
+        assert_eq!(
+            broker.observed_lineage(),
+            vec![EventLineageRecord {
+                contract_id: event_type.to_string(),
+                contract_version: "1.2.3".to_string(),
+                event_id: "evt-lineage".to_string(),
+                producer_id: "capability.orders".to_string(),
+                consumer_id: "capability.audit".to_string(),
+                subscription_id: subscription.subscription_id,
+                cursor: "1".to_string(),
+            }]
+        );
+    }
+
+    #[test]
+    fn consumer_subscription_rejects_empty_identity() {
+        let event_type = "dev.traverse.lineage.identity";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let err = broker
+            .subscribe_for_consumer(event_type, "0", " ", None)
+            .expect_err("empty consumer identity must fail");
+        assert!(matches!(err, EventError::LifecycleViolation(_)));
     }
 
     #[test]
