@@ -10,8 +10,8 @@ pub mod types;
 pub mod validation;
 
 pub use broker::{
-    BrokerClock, BrokerConfig, EventLineageRecord, EventQuarantineRecord, InProcessBroker,
-    SystemClock,
+    BrokerClock, BrokerConfig, EventLineageRecord, EventQuarantineRecord, EventRuntimeMetrics,
+    InProcessBroker, SystemClock,
 };
 pub use catalog::{EventCatalog, EventCatalogEntry};
 pub use durable::{
