@@ -76,6 +76,7 @@ struct BrokerState {
     validation_evidence: Vec<EventValidationEvidence>,
     quarantine_records: Vec<EventQuarantineRecord>,
     observed_lineage: Vec<EventLineageRecord>,
+    metrics: EventRuntimeMetrics,
 }
 
 /// Sanitized observation that a broker delivered one governed event.
@@ -100,6 +101,15 @@ pub struct EventLineageRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventQuarantineRecord {
     pub evidence: EventValidationEvidence,
+}
+
+/// Counter snapshot for OpenTelemetry-compatible event runtime evidence.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct EventRuntimeMetrics {
+    pub publications: u64,
+    pub deliveries: u64,
+    pub validation_failures: u64,
+    pub quarantines: u64,
 }
 
 /// Synchronous, in-memory implementation of [`EventBroker`].
@@ -207,6 +217,15 @@ impl InProcessBroker {
             .unwrap_or_default()
     }
 
+    /// Returns a deterministic counter snapshot for event runtime evidence.
+    #[must_use]
+    pub fn metrics(&self) -> EventRuntimeMetrics {
+        self.state
+            .lock()
+            .map(|state| state.metrics.clone())
+            .unwrap_or_default()
+    }
+
     fn subscribe_with_subject(
         &self,
         event_type: &str,
@@ -306,10 +325,12 @@ impl InProcessBroker {
                 .lock()
                 .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
             state.validation_evidence.push(evidence.clone());
+            state.metrics.validation_failures = state.metrics.validation_failures.saturating_add(1);
             if !validation.accepted {
                 state
                     .quarantine_records
                     .push(EventQuarantineRecord { evidence });
+                state.metrics.quarantines = state.metrics.quarantines.saturating_add(1);
             }
         }
         if !validation.accepted {
@@ -363,6 +384,7 @@ impl InProcessBroker {
             return Ok(());
         }
         seen.insert(event.id.clone());
+        state.metrics.publications = state.metrics.publications.saturating_add(1);
 
         let next = state
             .next_cursor
@@ -644,6 +666,7 @@ impl EventBroker for InProcessBroker {
             });
         }
         subscription.cursor = delivered_cursor;
+        state.metrics.deliveries = state.metrics.deliveries.saturating_add(out.len() as u64);
 
         let subscription_id_value = subscription.subscription_id.clone();
         let event_type_value = subscription.event_type.clone();
@@ -933,6 +956,15 @@ mod tests {
                 cursor: "1".to_string(),
             }]
         );
+        assert_eq!(
+            broker.metrics(),
+            EventRuntimeMetrics {
+                publications: 1,
+                deliveries: 1,
+                validation_failures: 0,
+                quarantines: 0,
+            }
+        );
     }
 
     #[test]
@@ -959,6 +991,7 @@ mod tests {
         }));
 
         assert!(broker.quarantine_records().is_empty());
+        assert_eq!(broker.metrics(), EventRuntimeMetrics::default());
     }
 
     #[test]
@@ -1009,6 +1042,15 @@ mod tests {
         assert_eq!(quarantine.len(), 1);
         assert_eq!(quarantine[0].evidence, evidence[0]);
         assert!(!format!("{quarantine:?}").contains("private@example.test"));
+        assert_eq!(
+            broker.metrics(),
+            EventRuntimeMetrics {
+                publications: 0,
+                deliveries: 0,
+                validation_failures: 1,
+                quarantines: 1,
+            }
+        );
     }
 
     #[test]
@@ -1024,6 +1066,8 @@ mod tests {
             .expect("migration mode must preserve delivery");
         assert_eq!(broker.validation_evidence().len(), 1);
         assert!(broker.quarantine_records().is_empty());
+        assert_eq!(broker.metrics().validation_failures, 1);
+        assert_eq!(broker.metrics().quarantines, 0);
     }
 
     #[test]
