@@ -1145,6 +1145,19 @@
         "docs/adr/0024-mode-a-registry-mcp-host.md",
         "specs/530-mode-a-registry-mcp/"
       ]
+    },
+    {
+      "id": "088-runtime-usage-telemetry",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/536-runtime-usage-telemetry/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "crates/traverse-cli/",
+        "docs/adr/0030-runtime-usage-telemetry.md",
+        "specs/536-runtime-usage-telemetry/"
+      ]
     }
   ]
 }
