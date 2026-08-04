@@ -29,6 +29,7 @@ Traverse uses split, focused governing specs instead of one giant spec file. Thi
 | Event delivery, replay, and missed-event recovery | `036-event-subscription-replay` |
 | Semver range matching and compatible version selection | `037-semver-range-resolution` |
 | WASI and host ABI insulation from standards churn | `038-wasi-host-insulation` |
+| Audited guest-side WASI stdin/stdout FFI exception | `090-governed-wasi-stdio-ffi` |
 | Connector/plugin model and third-party integrations | `039-connector-plugin-architecture` |
 | Contractual enforcement gates and fail-fast validation | `040-contractual-enforcement-gate` |
 | Programmatic workflow building and composition | `041-workflow-composition-api` |

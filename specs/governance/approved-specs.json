@@ -1170,6 +1170,19 @@
         "docs/adr/0027-datastore-synchronization.md",
         "specs/533-datastore-synchronization/"
       ]
+    },
+    {
+      "id": "090-governed-wasi-stdio-ffi",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/537-governed-wasi-stdio-ffi/spec.md",
+      "governs": [
+        "crates/traverse-expedition-wasm/",
+        "scripts/ci/scoped_unsafe_boundary_check.sh",
+        "docs/adr/0031-governed-wasi-stdio-ffi-boundary.md",
+        "specs/537-governed-wasi-stdio-ffi/"
+      ]
     }
   ]
 }
