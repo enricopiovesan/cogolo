@@ -127,12 +127,12 @@ Out of scope (tracked elsewhere or deliberately deferred):
 
 ## Implementation Tickets
 
-- Traverse #925 — add `UsageTelemetrySink` port trait to `traverse-contracts`
-- Traverse #926 — `traverse-cli`: `telemetry enable`/`disable` command,
+- Traverse #927 — add `UsageTelemetrySink` port trait to `traverse-contracts`
+- Traverse #928 — `traverse-cli`: `telemetry enable`/`disable` command,
   install ID, PostHog adapter
-- Traverse #927 — `traverse-cli`: emit `execute` event from `capability
+- Traverse #929 — `traverse-cli`: emit `execute` event from `capability
   execute`/`serve`
-- Traverse #928 — `traverse-cli`: bump `traverse-registry` dependency once
+- Traverse #930 — `traverse-cli`: bump `traverse-registry` dependency once
   registry's resolve-hook (registry Spec 015) ships
-- `traverse-framework/registry`#144 — `crates/traverse-registry`: emit
+- `traverse-framework/registry`#145 — `crates/traverse-registry`: emit
   `resolve` event via the port (registry Spec 015, that repo's Project 3)
