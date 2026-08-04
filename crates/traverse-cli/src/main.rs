@@ -934,6 +934,17 @@ fn help_expedition_execute() -> String {
     a structured execution summary. Optionally writes the full runtime trace to
     a JSON file for later inspection with `trace inspect`.
 
+    Execution honesty: this command runs the canonical expedition bundle's
+    six capabilities through explicit, hand-written example implementations,
+    not their checked-in WASM artifacts. Two of the six
+    ('interpret-expedition-intent', 'validate-team-readiness') also have a
+    checked-in WASM artifact under examples/capabilities/; real, end-to-end
+    WASM execution for them is proven separately by
+    `traverse-cli capability-package execute`, since their current fixture
+    output does not satisfy this composite workflow's node-to-node input
+    contract. This command only recognizes the six capabilities in the
+    canonical expedition bundle; an unregistered capability ID fails closed.
+
   Required arguments:
     <request-path>          Path to the runtime request JSON file.
 
@@ -4930,10 +4941,61 @@ fn canonical_expedition_request_path() -> PathBuf {
     repo_root().join("examples/expedition/runtime-requests/plan-expedition.json")
 }
 
+/// `traverse-cli expedition execute`'s executor for the canonical expedition
+/// registry bundle. Runs each of the six registered capabilities' native
+/// example implementation — disclosed honestly in `help_expedition_execute`,
+/// rather than left unstated. Any capability id this bundle does not
+/// register fails closed with a stable, typed error rather than a
+/// fabricated result.
+///
+/// `interpret-expedition-intent` and `validate-team-readiness` also have a
+/// checked-in WASM artifact under `examples/capabilities/`, and real,
+/// end-to-end WASM execution for them is already correctly proven by
+/// `capability-package execute`
+/// (`execute_capability_package_runs_governed_capability_package_request`).
+/// They are not wired into this composite executor: both artifacts are
+/// fixed-output ABI-conformance fixtures whose bytes are digest-pinned by
+/// other example manifests (`examples/applications/expedition-readiness`,
+/// `examples/capabilities/*/manifest.json`), and whose static output does
+/// not satisfy the next workflow node's input contract in this composite —
+/// swapping them in here would break either those pinned digests or this
+/// working, tested composite demo. Authoring real, chain-compatible business
+/// logic for the expedition-planning capabilities is tracked as follow-up
+/// work, separate from this fix.
+#[derive(Debug, Default, Clone, Copy)]
+struct ExpeditionCliExecutor;
+
+impl LocalExecutor for ExpeditionCliExecutor {
+    fn execute(
+        &self,
+        capability: &traverse_registry::ResolvedCapability,
+        input: &Value,
+    ) -> Result<Value, LocalExecutionFailure> {
+        match capability.contract.id.as_str() {
+            "expedition.planning.capture-expedition-objective" => {
+                execute_capture_expedition_objective(input)
+            }
+            "expedition.planning.interpret-expedition-intent" => {
+                execute_interpret_expedition_intent(input)
+            }
+            "expedition.planning.assess-conditions-summary" => {
+                execute_assess_conditions_summary(input)
+            }
+            "expedition.planning.validate-team-readiness" => execute_validate_team_readiness(input),
+            "expedition.planning.assemble-expedition-plan" => {
+                execute_assemble_expedition_plan(input)
+            }
+            other => Err(executor_failure(&format!(
+                "unsupported expedition example capability: {other}"
+            ))),
+        }
+    }
+}
+
 fn execute_expedition_outcome(request_path: &Path) -> Result<RuntimeExecutionOutcome, CliError> {
     let request = load_runtime_request(request_path)?;
     let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
-    let runtime = Runtime::new(registered.capability_registry, ExpeditionExampleExecutor)
+    let runtime = Runtime::new(registered.capability_registry, ExpeditionCliExecutor)
         .with_workflow_registry(registered.workflow_registry)
         .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
     Ok(runtime.execute(request))
@@ -5480,10 +5542,10 @@ mod tests {
         canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, help_serve, inspect_bundle, inspect_capability_package,
-        inspect_event, inspect_trace, latest_index_release_asset, load_registered_bundle,
-        load_registered_bundle_with_public_records, load_runtime_request, parse_command,
-        publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
+        execute_traverse_starter_validate, help_expedition_execute, help_serve, inspect_bundle,
+        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
+        load_registered_bundle, load_registered_bundle_with_public_records, load_runtime_request,
+        parse_command, publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
         registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
         validate_registry_path_segment,
@@ -7294,6 +7356,53 @@ mod tests {
         assert!(output.contains("capability_id: expedition.planning.plan-expedition"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("recommended_route_style: conservative-alpine-push"));
+    }
+
+    #[test]
+    fn expedition_execute_help_discloses_execution_honesty() {
+        let help = help_expedition_execute();
+
+        assert!(
+            help.contains("example implementations"),
+            "help text must disclose that capabilities run example implementations, not WASM"
+        );
+        assert!(
+            help.contains("capability-package execute"),
+            "help text must point to the command that proves real WASM execution"
+        );
+    }
+
+    #[test]
+    fn execute_expedition_rejects_a_capability_not_in_the_canonical_bundle() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.join("unknown-capability-request.json");
+        fs::write(
+            &path,
+            r#"{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "unknown-capability-request",
+  "intent": {
+    "capability_id": "expedition.planning.not-a-real-capability",
+    "capability_version": "1.0.0"
+  },
+  "input": {},
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}"#,
+        )
+        .expect("runtime request should write");
+
+        let error = execute_expedition(&path, None, false, false)
+            .expect_err("unregistered capability id must fail closed");
+
+        assert!(error.message().contains("runtime execution failed"));
     }
 
     #[test]
