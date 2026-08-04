@@ -12,6 +12,7 @@ name = "traverse-cli"
 path = "src/main.rs"
 
 [dependencies]
+chrono = "0.4"
 ed25519-dalek = "3.0.0"
 qrcode = { version = "0.14.1", default-features = false }
 semver = "1.0.27"

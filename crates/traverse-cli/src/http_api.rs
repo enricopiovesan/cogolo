@@ -4716,8 +4716,14 @@ fn handle_execute<W: Write, E: LocalExecutor + Clone>(
         }
     };
 
-    let outcome: RuntimeExecutionOutcome =
-        state.with_workspace_mut(&workspace_id, |ws| Ok(ws.runtime.execute(runtime_request)))?;
+    let sink = crate::telemetry::wire_usage_telemetry_sink();
+    let outcome: RuntimeExecutionOutcome = state.with_workspace_mut(&workspace_id, |ws| {
+        Ok(crate::telemetry::execute_with_telemetry(
+            &ws.runtime,
+            runtime_request,
+            sink.as_ref(),
+        ))
+    })?;
 
     match serialize_outcome(&outcome) {
         Ok(body_str) => write_json_raw(w, 200, "OK", &body_str),
@@ -4836,8 +4842,14 @@ fn handle_sync_workspace_execution<W: Write, E: LocalExecutor + Clone>(
         capability_id.as_deref(),
         capability_version.as_deref(),
     )?;
-    let outcome: RuntimeExecutionOutcome =
-        state.with_workspace_mut(workspace_id, |ws| Ok(ws.runtime.execute(runtime_request)))?;
+    let sink = crate::telemetry::wire_usage_telemetry_sink();
+    let outcome: RuntimeExecutionOutcome = state.with_workspace_mut(workspace_id, |ws| {
+        Ok(crate::telemetry::execute_with_telemetry(
+            &ws.runtime,
+            runtime_request,
+            sink.as_ref(),
+        ))
+    })?;
     let status = if outcome.result.status == RuntimeResultStatus::Error {
         "failed"
     } else {
@@ -5641,7 +5653,9 @@ fn run_app_command_invoke<E: LocalExecutor + Clone>(
         },
         governing_spec: "006-runtime-request-execution".to_string(),
     };
-    let outcome = ws.runtime.execute(runtime_request);
+    let sink = crate::telemetry::wire_usage_telemetry_sink();
+    let outcome =
+        crate::telemetry::execute_with_telemetry(&ws.runtime, runtime_request, sink.as_ref());
     let execution_id = outcome.result.execution_id.clone();
     let succeeded = outcome.result.status != RuntimeResultStatus::Error;
     ws.executions.insert(

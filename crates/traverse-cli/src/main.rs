@@ -3845,7 +3845,8 @@ fn execute_capability_package(
         ArtifactRouter::new().map_err(|error| CliError::ExecutionFailed(error.message))?,
     )
     .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
-    let outcome = runtime.execute(request);
+    let sink = telemetry::wire_usage_telemetry_sink();
+    let outcome = telemetry::execute_with_telemetry(&runtime, request, sink.as_ref());
 
     if outcome.result.status == RuntimeResultStatus::Error {
         return Err(CliError::ExecutionFailed(render_runtime_execution_failure(
@@ -5609,20 +5610,22 @@ mod tests {
     #![allow(clippy::expect_used)]
 
     use super::{
-        CapabilityPublishRequest, CliError, Command, DEFAULT_PUBLIC_REGISTRY_SOURCE,
-        ExpeditionExampleExecutor, FetchedRegistryIndex, PublishCommandOutput,
-        PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher, RegistrySyncError,
-        app_new_at, app_register_at, app_registration_state_path, app_validate, app_validate_at,
+        ArtifactRouter, CapabilityPublishRequest, CapabilityRegistry, CliError, Command,
+        DEFAULT_PUBLIC_REGISTRY_SOURCE, ExpeditionExampleExecutor, FetchedRegistryIndex,
+        PublishCommandOutput, PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher,
+        RegistrySyncError, Runtime, RuntimeResultStatus, app_new_at, app_register_at,
+        app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, help_expedition_execute, help_serve, inspect_bundle,
         inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_registered_bundle, load_registered_bundle_with_public_records, load_runtime_request,
-        parse_command, publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
+        load_capability_package, load_registered_bundle,
+        load_registered_bundle_with_public_records, load_runtime_request, parse_command,
+        publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
         registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
-        validate_registry_path_segment,
+        telemetry, validate_registry_path_segment,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
@@ -5631,8 +5634,10 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command as ProcessCommand;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{SystemTime, UNIX_EPOCH};
     use traverse_contracts::parse_contract;
+    use traverse_contracts::{UsageEvent, UsageEventKind, UsageTelemetrySink};
     use traverse_registry::{
         PublicRegistryCapabilityRecord, PublicRegistryIndex, load_application_bundle_manifest,
         load_synced_public_registry_state, write_synced_public_registry_state,
@@ -7502,6 +7507,53 @@ mod tests {
 
         assert!(output.contains("capability_id: doc-approval.analyze"));
         assert!(output.contains("status: completed"));
+    }
+
+    #[derive(Default)]
+    struct SpyTelemetrySink {
+        events: Arc<Mutex<Vec<UsageEvent>>>,
+    }
+
+    impl UsageTelemetrySink for SpyTelemetrySink {
+        fn record(&self, event: UsageEvent) {
+            self.events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(event);
+        }
+    }
+
+    #[test]
+    fn execute_with_telemetry_fires_exactly_one_execute_event_on_real_success() {
+        let manifest_path = repo_root().join("examples/doc-approval/analyze-agent/manifest.json");
+        let request_path = repo_root().join("examples/doc-approval/runtime-requests/analyze.json");
+
+        let package =
+            load_capability_package(&manifest_path).expect("doc-approval package must load");
+        let request = load_runtime_request(&request_path).expect("request must load");
+        let mut registry = CapabilityRegistry::new();
+        registry
+            .register(package.capability_registration())
+            .expect("capability must register");
+        let runtime = Runtime::new(
+            registry,
+            ArtifactRouter::new().expect("artifact router must construct"),
+        )
+        .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
+
+        let sink = SpyTelemetrySink::default();
+        let events = sink.events.clone();
+        let outcome = telemetry::execute_with_telemetry(&runtime, request, &sink);
+
+        assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+        let recorded = events.lock().expect("lock must not be poisoned");
+        assert_eq!(
+            recorded.len(),
+            1,
+            "a successful real WASM invocation must fire exactly one execute event"
+        );
+        assert_eq!(recorded[0].kind, UsageEventKind::Execute);
+        assert_eq!(recorded[0].capability_ref, "doc-approval.analyze@1.0.0");
     }
 
     #[test]

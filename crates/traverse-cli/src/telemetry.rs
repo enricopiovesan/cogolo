@@ -1,10 +1,10 @@
 //! Local telemetry opt-in configuration and the real `UsageTelemetrySink`
-//! adapter (spec `088-runtime-usage-telemetry` FR-002 through FR-005, FR-007).
+//! adapter (spec `088-runtime-usage-telemetry` FR-002 through FR-007).
 //!
-//! `wire_usage_telemetry_sink` and `load_telemetry_config` are not yet called
-//! from any command: wiring the sink into `capability execute`/`serve`'s
-//! success path is issue #929, deliberately out of this ticket's scope. Both
-//! are fully implemented and tested here so #929 only needs to call them.
+//! [`execute_with_telemetry`] is the wiring point `capability-package
+//! execute` and `serve`'s execution handlers call on every real WASM
+//! invocation; it fires an `execute` event through whatever sink it's given
+//! on success, and nothing on failure (FR-006).
 //!
 //! The collector endpoint and API key are provisioned separately from this
 //! code (infrastructure setup, not code): both are read from environment
@@ -14,12 +14,14 @@
 //! instead — consistent with "never fail the caller" (FR-005) and the honest
 //! state before a real collector project exists.
 
-#![allow(dead_code)] // wired into capability execute/serve in #929
-
+use chrono::Utc;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::path::{Path, PathBuf};
 use traverse_contracts::{NoOpUsageTelemetrySink, UsageEvent, UsageEventKind, UsageTelemetrySink};
+use traverse_runtime::{
+    LocalExecutor, Runtime, RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus,
+};
 use uuid::Uuid;
 
 const CONFIG_FILE_NAME: &str = "cli-config.json";
@@ -227,13 +229,78 @@ pub fn wire_usage_telemetry_sink() -> Box<dyn UsageTelemetrySink> {
     )
 }
 
+/// Pure decision: records an `execute` event through `sink` when `status`
+/// is not an error and a capability was actually resolved (FR-006). No
+/// event for a failed/errored execution, and none if no capability id or
+/// version is present (should not occur when `status` is `Completed`, but
+/// the runtime's trace fields are `Option`s at the type level).
+fn record_execute_event(
+    status: RuntimeResultStatus,
+    selected_capability_id: Option<&str>,
+    selected_capability_version: Option<&str>,
+    sink: &dyn UsageTelemetrySink,
+) {
+    if status == RuntimeResultStatus::Error {
+        return;
+    }
+    let (Some(id), Some(version)) = (selected_capability_id, selected_capability_version) else {
+        return;
+    };
+    sink.record(UsageEvent {
+        kind: UsageEventKind::Execute,
+        capability_ref: format!("{id}@{version}"),
+        timestamp: Utc::now().to_rfc3339(),
+    });
+}
+
+/// Executes `request` against `runtime`, then records an `execute`
+/// usage-telemetry event through `sink` on successful completion (spec 088
+/// FR-006). Called by `capability-package execute` and every `serve`
+/// execution handler on every real WASM invocation; the caller supplies the
+/// sink (typically [`wire_usage_telemetry_sink`]'s result) so this stays
+/// independently testable without touching the real environment or config
+/// file.
+pub fn execute_with_telemetry<E: LocalExecutor>(
+    runtime: &Runtime<E>,
+    request: RuntimeRequest,
+    sink: &dyn UsageTelemetrySink,
+) -> RuntimeExecutionOutcome {
+    let outcome = runtime.execute(request);
+    record_execute_event(
+        outcome.result.status,
+        outcome.trace.selection.selected_capability_id.as_deref(),
+        outcome
+            .trace
+            .selection
+            .selected_capability_version
+            .as_deref(),
+        sink,
+    );
+    outcome
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
 
     use super::*;
     use std::sync::atomic::{AtomicU64, Ordering};
+    use std::sync::{Arc, Mutex};
     use std::time::{Instant, SystemTime, UNIX_EPOCH};
+
+    #[derive(Default)]
+    struct SpySink {
+        events: Arc<Mutex<Vec<UsageEvent>>>,
+    }
+
+    impl UsageTelemetrySink for SpySink {
+        fn record(&self, event: UsageEvent) {
+            self.events
+                .lock()
+                .unwrap_or_else(std::sync::PoisonError::into_inner)
+                .push(event);
+        }
+    }
 
     fn unique_temp_config_path() -> PathBuf {
         static NEXT_TEST_DIR: AtomicU64 = AtomicU64::new(1);
@@ -421,6 +488,50 @@ mod tests {
             elapsed.as_millis() < 500,
             "record() must return immediately after spawning, not wait for the \
              collector or its {SEND_TIMEOUT_SECS}s timeout; took {elapsed:?}"
+        );
+    }
+
+    #[test]
+    fn record_execute_event_fires_on_successful_completion() {
+        let spy = SpySink::default();
+        record_execute_event(
+            RuntimeResultStatus::Completed,
+            Some("hello.world.say-hello"),
+            Some("1.0.0"),
+            &spy,
+        );
+        let events = spy.events.lock().expect("lock must not be poisoned");
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].kind, UsageEventKind::Execute);
+        assert_eq!(events[0].capability_ref, "hello.world.say-hello@1.0.0");
+    }
+
+    #[test]
+    fn record_execute_event_is_silent_on_error_status() {
+        let spy = SpySink::default();
+        record_execute_event(
+            RuntimeResultStatus::Error,
+            Some("hello.world.say-hello"),
+            Some("1.0.0"),
+            &spy,
+        );
+        assert!(
+            spy.events
+                .lock()
+                .expect("lock must not be poisoned")
+                .is_empty()
+        );
+    }
+
+    #[test]
+    fn record_execute_event_is_silent_when_no_capability_was_resolved() {
+        let spy = SpySink::default();
+        record_execute_event(RuntimeResultStatus::Completed, None, None, &spy);
+        assert!(
+            spy.events
+                .lock()
+                .expect("lock must not be poisoned")
+                .is_empty()
         );
     }
 
