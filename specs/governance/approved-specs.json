@@ -1183,6 +1183,18 @@
         "docs/adr/0031-governed-wasi-stdio-ffi-boundary.md",
         "specs/537-governed-wasi-stdio-ffi/"
       ]
+    },
+    {
+      "id": "091-no-std-wasi-guest-profile",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/538-no-std-wasi-guest-profile/spec.md",
+      "governs": [
+        "crates/traverse-expedition-wasm/",
+        "docs/adr/0032-no-std-wasi-guest-profile.md",
+        "specs/538-no-std-wasi-guest-profile/"
+      ]
     }
   ]
 }
