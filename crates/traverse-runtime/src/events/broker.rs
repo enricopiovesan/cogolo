@@ -1393,4 +1393,25 @@ mod tests {
         let err = broker.cancel("sub-missing").expect_err("cancel must fail");
         assert!(matches!(err, EventError::SubscriptionNotFound(_)));
     }
+
+    #[test]
+    fn publish_tolerates_a_stale_event_type_index_entry() {
+        let event_type = "dev.traverse.stale-index";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .state
+            .lock()
+            .expect("broker lock must be available")
+            .subscriptions
+            .remove(&subscription.subscription_id);
+
+        broker
+            .publish(sample_event(event_type, "evt-stale-index"))
+            .expect("stale index entry must not prevent publication");
+    }
 }
