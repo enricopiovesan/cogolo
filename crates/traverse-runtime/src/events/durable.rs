@@ -184,7 +184,7 @@ type Ack = Arc<(Mutex<AckState>, Condvar)>;
 
 enum WriterJob {
     Write {
-        event: TraverseEvent,
+        event: Box<TraverseEvent>,
         ack: Ack,
     },
     Revoke {
@@ -302,7 +302,7 @@ impl<B: EventBroker> EventBroker for DurableBroker<B> {
         let ack: Ack = Arc::new((Mutex::new(AckState::Pending), Condvar::new()));
         self.jobs
             .send(WriterJob::Write {
-                event: event.clone(),
+                event: Box::new(event.clone()),
                 ack: Arc::clone(&ack),
             })
             .map_err(|_| EventError::JournalWrite("journal writer is unavailable".to_string()))?;
@@ -739,6 +739,10 @@ mod tests {
             owner: "test.capability".to_string(),
             version: "1.0.0".to_string(),
             lifecycle_status: LifecycleStatus::Active,
+            deduplication_id: Some("durable-test".to_string()),
+            ordering_scope: Some("test".to_string()),
+            correlation_id: Some("correlation-test".to_string()),
+            causation_id: Some("command-test".to_string()),
             subject_id: None,
             actor_id: None,
         }

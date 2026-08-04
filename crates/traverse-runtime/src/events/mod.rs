@@ -11,7 +11,7 @@ pub mod validation;
 
 pub use broker::{
     BrokerClock, BrokerConfig, EventLineageRecord, EventQuarantineRecord, EventRuntimeMetrics,
-    InProcessBroker, SystemClock,
+    EventTelemetryRecord, InProcessBroker, SystemClock,
 };
 pub use catalog::{EventCatalog, EventCatalogEntry};
 pub use durable::{
