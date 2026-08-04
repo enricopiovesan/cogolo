@@ -1178,3 +1178,60 @@ maintenance are unsupported in v1.
 
 Unlocks Spec 085 approval path for web permanence without blocking on crypto
 or zip-backup parity.
+
+## Decision 42: Opt-In, Anonymous Runtime Usage Telemetry Behind a Provider-Neutral Port
+
+- **Date**: 2026-08-04
+- **Status**: Accepted
+- **Governing spec**: `088-runtime-usage-telemetry` (`specs/536-runtime-usage-telemetry`)
+- **Related ADR**: ADR-0030
+- **Related Project 1**: Runtime usage telemetry for capability resolve/execute
+- **Origin**: `traverse-framework/registry`'s `docs/decision-log.md` Decision 47
+  (registry `/brainstorm`, closing registry#134), handed off here per that
+  entry's own execution boundary since the actual instrumentation touches
+  `traverse-cli` and the shared `traverse-contracts` port, both owned by this
+  repo (`crates/traverse-registry`, where capability *resolution* actually
+  happens, was extracted to `traverse-framework/registry` by Spec 051 and is
+  governed there under its own `013-inherited-registry-governance`/FR-002 —
+  this decision does not re-litigate that boundary).
+
+### Decision
+
+Runtime usage telemetry answers "is a published capability actually being
+resolved/executed," distinct from this repo's OTel integrated-observability
+work (Spec 029, operator-facing traces/logs/metrics for a single deployment).
+It is a separate, deliberately minimal, opt-in-only signal reported to the
+Traverse maintainers, not an operator-facing signal.
+
+- Two counters, not one: a `resolve` event (registry version lookup) and an
+  `execute` event (`capability execute`/`serve`, actual WASM invocation),
+  tracked per exact `namespace/id@version`.
+- **Opt-in, off by default.** No prompts, ever. A persistent CLI config
+  command (`traverse-cli telemetry enable`/`disable`) is the only way to turn
+  it on.
+- Each event carries `namespace/id@version`, event type, timestamp, and an
+  anonymous random install ID (a UUID generated once locally on first
+  opt-in) — enough to distinguish one automated pipeline from many distinct
+  users, nothing that identifies a real person or machine.
+- Collected by a purpose-built hosted product-analytics tool (e.g. PostHog),
+  not this repo's website-analytics account (a different, cookie-based-web
+  shaped tool) and not new self-hosted infrastructure.
+- Sent fire-and-forget with a short timeout; any failure is swallowed
+  silently and must never delay or fail the real CLI command it's attached
+  to.
+- Architecturally: a `UsageTelemetrySink` port trait lives in
+  `traverse-contracts` (the existing pattern for provider-neutral ports, see
+  ADR-0029's transport-port precedent) with a no-op default. `traverse-cli`
+  owns the only real adapter (config, install ID, PostHog HTTP client).
+  `crates/traverse-registry` (external, `traverse-framework/registry`-owned)
+  calls the port at its resolution call site but never depends on the
+  concrete adapter, network code, or opt-in state directly — that keeps the
+  registry crate portable and testable without a live collector, matching
+  how the hosted-transport port (Spec 087) keeps DataStore sync provider-blind.
+
+### Outcome
+
+Unlocks Spec 088 approval path. `crates/traverse-registry`'s own resolve-side
+hook is out of this repo's governance — tracked as its own spec
+(`traverse-framework/registry`'s Spec 015) and ticket in that repo's Project 3,
+sequenced behind this repo publishing the new `traverse-contracts` trait.
