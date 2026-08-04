@@ -416,11 +416,7 @@ impl InProcessBroker {
             .or_default()
             .push_back(buffered.clone());
 
-        let subscription_ids = state
-            .subscriptions_by_event_type
-            .get(&event.event_type)
-            .cloned()
-            .unwrap_or_default();
+        let subscription_ids = subscription_ids_for_event_type(&state, &event.event_type);
         for subscription_id in subscription_ids {
             let Some(sub) = state.subscriptions.get_mut(&subscription_id) else {
                 continue;
@@ -493,11 +489,7 @@ fn prune_expired(
     };
 
     // Sync per-subscription queues so they don't deliver events that are no longer retained.
-    let subscription_ids = state
-        .subscriptions_by_event_type
-        .get(event_type)
-        .cloned()
-        .unwrap_or_default();
+    let subscription_ids = subscription_ids_for_event_type(state, event_type);
     for subscription_id in subscription_ids {
         let Some(sub) = state.subscriptions.get_mut(&subscription_id) else {
             continue;
@@ -552,6 +544,17 @@ fn validate_from_cursor(
     }
 
     Ok(())
+}
+
+fn subscription_ids_for_event_type(
+    state: &BrokerState,
+    event_type: &str,
+) -> HashSet<SubscriptionId> {
+    state
+        .subscriptions_by_event_type
+        .get(event_type)
+        .cloned()
+        .unwrap_or_default()
 }
 
 impl EventBroker for InProcessBroker {
