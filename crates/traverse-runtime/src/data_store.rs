@@ -29,7 +29,9 @@ use std::sync::Arc;
 use traverse_contracts::CapabilityContract;
 use zeroize::Zeroizing;
 
-const DATA_STORE_SPEC: &str = "032-universal-data-access";
+/// The synchronization report is governed by the approved protocol, rather
+/// than the earlier generic `DataStore` surface that supplied its merge helper.
+const DATA_STORE_SPEC: &str = "089-datastore-synchronization";
 const LOCAL_DATA_STORE_FORMAT: &str = "local-datastore/1";
 const LOCAL_DATA_STORE_LOCK_FILE: &str = ".traverse-datastore.lock";
 const HEXADECIMAL_DIGITS: &[u8; 16] = b"0123456789abcdef";
@@ -1358,7 +1360,7 @@ mod tests {
 
         let report = sync_adapters(&mut local, &mut remote).expect("sync should succeed");
 
-        assert_eq!(report.governing_spec, "032-universal-data-access");
+        assert_eq!(report.governing_spec, "089-datastore-synchronization");
         assert_eq!(report.decisions.len(), 4);
         assert_eq!(
             local.read("remote_only").expect("read should succeed"),
