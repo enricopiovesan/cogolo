@@ -71,6 +71,7 @@ struct BrokerState {
     buffers: HashMap<String, VecDeque<BufferedEvent>>,
     seen_event_ids: HashMap<String, HashSet<String>>,
     subscriptions: HashMap<SubscriptionId, SubscriptionState>,
+    subscriptions_by_event_type: HashMap<String, HashSet<SubscriptionId>>,
     /// See [`EventBroker::seed_restart_floor`].
     restart_floor: u64,
     validation_evidence: Vec<EventValidationEvidence>,
@@ -275,6 +276,11 @@ impl InProcessBroker {
                 queue,
             },
         );
+        state
+            .subscriptions_by_event_type
+            .entry(event_type.to_string())
+            .or_default()
+            .insert(subscription_id.clone());
 
         Ok(Subscription {
             subscription_id,
@@ -410,10 +416,15 @@ impl InProcessBroker {
             .or_default()
             .push_back(buffered.clone());
 
-        for sub in state.subscriptions.values_mut() {
-            if sub.event_type != event.event_type {
+        let subscription_ids = state
+            .subscriptions_by_event_type
+            .get(&event.event_type)
+            .cloned()
+            .unwrap_or_default();
+        for subscription_id in subscription_ids {
+            let Some(sub) = state.subscriptions.get_mut(&subscription_id) else {
                 continue;
-            }
+            };
             if sub
                 .subject_id
                 .as_deref()
@@ -482,10 +493,15 @@ fn prune_expired(
     };
 
     // Sync per-subscription queues so they don't deliver events that are no longer retained.
-    for sub in state.subscriptions.values_mut() {
-        if sub.event_type != event_type {
+    let subscription_ids = state
+        .subscriptions_by_event_type
+        .get(event_type)
+        .cloned()
+        .unwrap_or_default();
+    for subscription_id in subscription_ids {
+        let Some(sub) = state.subscriptions.get_mut(&subscription_id) else {
             continue;
-        }
+        };
         while let Some(front) = sub.queue.front() {
             if front.cursor >= oldest_cursor {
                 break;
@@ -694,10 +710,21 @@ impl EventBroker for InProcessBroker {
             .lock()
             .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
 
-        if state.subscriptions.remove(subscription_id).is_none() {
+        let Some(subscription) = state.subscriptions.remove(subscription_id) else {
             return Err(EventError::SubscriptionNotFound(
                 subscription_id.to_string(),
             ));
+        };
+        if let Some(ids) = state
+            .subscriptions_by_event_type
+            .get_mut(&subscription.event_type)
+        {
+            let _ = ids.remove(subscription_id);
+            if ids.is_empty() {
+                let _ = state
+                    .subscriptions_by_event_type
+                    .remove(&subscription.event_type);
+            }
         }
         Ok(())
     }
