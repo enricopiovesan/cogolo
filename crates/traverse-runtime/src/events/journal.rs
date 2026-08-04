@@ -6,10 +6,11 @@
 //! The bounded publish write path that drives this journal lives in
 //! [`super::durable`].
 
+use std::collections::HashMap;
 use std::fs;
 use std::io::Write;
 use std::path::{Path, PathBuf};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex, PoisonError};
 
 use serde::{Deserialize, Serialize};
 
@@ -110,6 +111,19 @@ struct SegmentMeta {
     bytes: u64,
 }
 
+/// Incrementally accumulated parse state for one on-disk segment, keyed by
+/// path in [`DurableEventJournal::read_cache`]. A sealed segment is read to
+/// completion once and never re-read; the active (still-growing) segment
+/// only has the bytes appended since the previous call re-read and parsed,
+/// so repeated `replay_from` polling does not re-read and re-parse the
+/// whole segment on every call.
+#[derive(Debug, Default)]
+struct SegmentReadCache {
+    consumed_bytes: u64,
+    consumed_lines: usize,
+    records: Vec<JournalRecordV1>,
+}
+
 /// Append-only segmented journal with fsync-before-acknowledgement.
 pub struct DurableEventJournal {
     root: PathBuf,
@@ -118,6 +132,7 @@ pub struct DurableEventJournal {
     sealed: Vec<SegmentMeta>,
     active: Option<(SegmentMeta, fs::File)>,
     next_seq: u64,
+    read_cache: Mutex<HashMap<PathBuf, SegmentReadCache>>,
 }
 
 impl DurableEventJournal {
@@ -194,6 +209,7 @@ impl DurableEventJournal {
             sealed,
             active: None,
             next_seq,
+            read_cache: Mutex::new(HashMap::new()),
         })
     }
 
@@ -316,7 +332,7 @@ impl DurableEventJournal {
                 continue;
             }
             let allow_torn_tail = index == last_index;
-            for record in read_segment_records(&meta.path, allow_torn_tail)? {
+            for record in self.cached_segment_records(&meta.path, allow_torn_tail)? {
                 if let Some(revoked_seq) = record.revokes {
                     let _ = revoked.insert(revoked_seq);
                 } else if record.seq > after
@@ -391,6 +407,16 @@ impl DurableEventJournal {
             }
         }
 
+        if !deleted.is_empty() {
+            let mut cache = self
+                .read_cache
+                .lock()
+                .unwrap_or_else(PoisonError::into_inner);
+            for path in &deleted {
+                cache.remove(path);
+            }
+        }
+
         Ok(deleted)
     }
 
@@ -414,6 +440,22 @@ impl DurableEventJournal {
 
     fn oldest_retained_seq(&self) -> Option<u64> {
         self.segments().map(|meta| meta.first_seq).next()
+    }
+
+    /// Returns `path`'s parsed records, reading and parsing from disk only
+    /// the bytes appended since the previous call for this path.
+    fn cached_segment_records(
+        &self,
+        path: &Path,
+        allow_torn_tail: bool,
+    ) -> Result<Vec<JournalRecordV1>, JournalError> {
+        let mut cache = self
+            .read_cache
+            .lock()
+            .unwrap_or_else(PoisonError::into_inner);
+        let entry = cache.entry(path.to_path_buf()).or_default();
+        refresh_segment_cache(entry, path, allow_torn_tail)?;
+        Ok(entry.records.clone())
     }
 }
 
@@ -478,10 +520,98 @@ fn write_durable(file: &mut fs::File, line: &[u8]) -> Result<(), JournalError> {
     write_then_sync(file).map_err(|e| io_err("append journal record", &e))
 }
 
+/// Reads and parses only the bytes appended to `path` since `cache` was last
+/// refreshed (tracked by `cache.consumed_bytes`), appending newly parsed
+/// records to `cache.records`. Applies exactly the same corrupt/torn-tail
+/// semantics as [`read_segment_records`] to the incremental slice, using
+/// `cache`'s prior state (consumed line count, last parsed sequence) as
+/// context. On error, `cache` is left unmodified so a retry re-parses the
+/// same bytes rather than duplicating already-cached records.
+fn refresh_segment_cache(
+    cache: &mut SegmentReadCache,
+    path: &Path,
+    allow_torn_tail: bool,
+) -> Result<(), JournalError> {
+    use std::io::{Read, Seek, SeekFrom};
+
+    let mut file = fs::File::open(path).map_err(|e| io_err("read journal segment", &e))?;
+    let file_len = file
+        .metadata()
+        .map_err(|e| io_err("read journal segment", &e))?
+        .len();
+    if file_len <= cache.consumed_bytes {
+        return Ok(());
+    }
+
+    file.seek(SeekFrom::Start(cache.consumed_bytes))
+        .map_err(|e| io_err("read journal segment", &e))?;
+    let mut new_bytes =
+        Vec::with_capacity(usize::try_from(file_len - cache.consumed_bytes).unwrap_or(0));
+    file.read_to_end(&mut new_bytes)
+        .map_err(|e| io_err("read journal segment", &e))?;
+
+    let ends_with_newline = new_bytes.last() == Some(&b'\n');
+    let chunks: Vec<&[u8]> = new_bytes
+        .split(|byte| *byte == b'\n')
+        .filter(|chunk| !chunk.is_empty())
+        .collect();
+
+    let mut new_records: Vec<JournalRecordV1> = Vec::new();
+    let mut bytes_advanced = 0u64;
+    let mut last_seq = cache.records.last().map(|record| record.seq);
+    for (offset, chunk) in chunks.iter().enumerate() {
+        let is_torn_tail = !ends_with_newline && offset + 1 == chunks.len();
+        let line = cache.consumed_lines + offset;
+        match serde_json::from_slice::<JournalRecordV1>(chunk) {
+            Ok(record) => {
+                if is_torn_tail {
+                    // A record is only acknowledged once its full line
+                    // (including the terminator) is fsynced; a tail without a
+                    // terminator was never acknowledged, even if it parses.
+                    if allow_torn_tail {
+                        break;
+                    }
+                    return Err(corrupt(path, line, "unterminated record"));
+                }
+                if let Some(previous_seq) = last_seq
+                    && record.seq <= previous_seq
+                {
+                    return Err(corrupt(
+                        path,
+                        line,
+                        &format!(
+                            "sequence {} is not greater than prior sequence {}",
+                            record.seq, previous_seq
+                        ),
+                    ));
+                }
+                bytes_advanced += chunk.len() as u64 + 1;
+                last_seq = Some(record.seq);
+                new_records.push(record);
+            }
+            Err(error) => {
+                if is_torn_tail && allow_torn_tail {
+                    break;
+                }
+                return Err(corrupt(path, line, &format!("malformed record: {error}")));
+            }
+        }
+    }
+
+    cache.consumed_lines += new_records.len();
+    cache.consumed_bytes += bytes_advanced;
+    cache.records.extend(new_records);
+    Ok(())
+}
+
 /// Parse every record in a segment. A trailing chunk without a newline
 /// terminator is an incomplete final record: ignored when `allow_torn_tail`
 /// (the newest segment interrupted mid-write), corrupt otherwise. Any
 /// newline-terminated record that fails to parse is corrupt (066 FR-009).
+///
+/// Used only for the one-time recovery scan in [`DurableEventJournal::open`];
+/// [`DurableEventJournal::replay_from`] uses the incremental
+/// [`refresh_segment_cache`] instead.
 fn read_segment_records(
     path: &Path,
     allow_torn_tail: bool,
@@ -676,6 +806,60 @@ mod tests {
 
         let capped = journal.replay_from("0", 1).expect("replay must succeed");
         assert_eq!(capped.len(), 1, "max_events must bound the replay");
+    }
+
+    #[test]
+    fn replay_from_does_not_reread_previously_returned_records() {
+        let root = test_root("incremental-replay");
+        let clock = TestClock::at_secs(1_000);
+        let mut journal = open_journal(&root, JournalConfig::default(), clock);
+
+        journal
+            .append(&test_event("a"))
+            .expect("append must succeed");
+        let second = journal
+            .append(&test_event("b"))
+            .expect("append must succeed");
+
+        let first_pass = journal.replay_from("0", 10).expect("replay must succeed");
+        assert_eq!(first_pass.len(), 2, "both records must replay initially");
+
+        // Corrupt the on-disk bytes for the already-consumed prefix (the
+        // first record). If a later call re-reads and re-parses the whole
+        // segment from byte 0 (the pre-fix behavior), this now-invalid JSON
+        // makes it fail with JournalError::Corrupt. If it correctly reuses
+        // its cached parse of the consumed prefix and only reads bytes
+        // appended after it, this corruption is never touched again.
+        let segment_path = root.join(format!("{SEGMENT_PREFIX}{:020}{SEGMENT_SUFFIX}", 1));
+        let mut contents = fs::read(&segment_path).expect("segment must be readable");
+        let first_newline = contents
+            .iter()
+            .position(|byte| *byte == b'\n')
+            .expect("first record must be newline-terminated");
+        for byte in &mut contents[..first_newline] {
+            *byte = b'x';
+        }
+        fs::write(&segment_path, &contents).expect("segment must be writable");
+
+        // Advancing the cursor past the corrupted prefix must succeed: only
+        // the bytes after `second` are new, and nothing new has been
+        // appended yet, so this must return empty without touching disk.
+        let empty = journal
+            .replay_from(&second, 10)
+            .expect("replay of an already-corrupted, already-cached prefix must not re-read it");
+        assert!(empty.is_empty());
+
+        // Appending and replaying a genuinely new record must also succeed,
+        // proving only the newly appended bytes were read and parsed.
+        let third = journal
+            .append(&test_event("c"))
+            .expect("append must succeed");
+        let tail = journal
+            .replay_from(&second, 10)
+            .expect("replay must only read bytes appended after the cached prefix");
+        assert_eq!(tail.len(), 1);
+        assert_eq!(tail[0].0, third);
+        assert_eq!(tail[0].1.data["marker"], "c");
     }
 
     #[test]
