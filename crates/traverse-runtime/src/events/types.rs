@@ -37,6 +37,18 @@ pub struct TraverseEvent {
     pub version: String,
     /// Lifecycle status at the time the event was created.
     pub lifecycle_status: LifecycleStatus,
+    /// Stable identity consumers use to deduplicate at-least-once delivery.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub deduplication_id: Option<String>,
+    /// The ordering partition declared by the event contract.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub ordering_scope: Option<String>,
+    /// Correlates related domain events across a workflow or request.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub correlation_id: Option<String>,
+    /// Identifies the event or command that directly caused this event.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub causation_id: Option<String>,
     /// Authenticated subject that caused this event, when known.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub subject_id: Option<String>,
@@ -281,6 +293,10 @@ mod tests {
             owner: "traverse-runtime".to_string(),
             version: "1.0.0".to_string(),
             lifecycle_status: LifecycleStatus::Active,
+            deduplication_id: Some("f0f83e66-4d87-4dd6-884d-0128d94f730f".to_string()),
+            ordering_scope: Some("subject_test".to_string()),
+            correlation_id: Some("correlation-test".to_string()),
+            causation_id: Some("command-test".to_string()),
             subject_id: Some("subject_test".to_string()),
             actor_id: Some("actor_test".to_string()),
         }

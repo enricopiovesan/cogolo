@@ -1182,6 +1182,10 @@ where
             owner: "traverse-runtime".to_string(),
             version: SUPPORTED_SCHEMA_VERSION.to_string(),
             lifecycle_status: events::LifecycleStatus::Active,
+            deduplication_id: Some(outcome.result.execution_id.clone()),
+            ordering_scope: Some(outcome.result.request_id.clone()),
+            correlation_id: Some(outcome.result.request_id.clone()),
+            causation_id: Some(outcome.result.request_id.clone()),
             subject_id: identity.map(|identity| identity.subject_id.clone()),
             actor_id: identity.and_then(|identity| identity.actor_id.clone()),
         };

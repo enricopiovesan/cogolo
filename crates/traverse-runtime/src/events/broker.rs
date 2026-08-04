@@ -77,6 +77,7 @@ struct BrokerState {
     validation_evidence: Vec<EventValidationEvidence>,
     quarantine_records: Vec<EventQuarantineRecord>,
     observed_lineage: Vec<EventLineageRecord>,
+    telemetry: Vec<EventTelemetryRecord>,
     metrics: EventRuntimeMetrics,
 }
 
@@ -102,6 +103,28 @@ pub struct EventLineageRecord {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct EventQuarantineRecord {
     pub evidence: EventValidationEvidence,
+}
+
+/// Portable, OpenTelemetry-compatible event boundary evidence.
+///
+/// Host adapters can map this stable, payload-free shape to their chosen
+/// OpenTelemetry SDK. The in-process broker retains it for deterministic
+/// conformance tests and never exports an event payload or subject identity.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct EventTelemetryRecord {
+    pub operation: &'static str,
+    pub outcome: &'static str,
+    pub contract_id: String,
+    pub contract_version: String,
+    pub event_id: String,
+    pub deduplication_id: Option<String>,
+    pub ordering_scope: Option<String>,
+    pub correlation_id: Option<String>,
+    pub causation_id: Option<String>,
+    pub consumer_id: Option<String>,
+    pub cursor: Option<EventCursor>,
+    pub retry_count: u32,
+    pub latency_ms: u64,
 }
 
 /// Counter snapshot for OpenTelemetry-compatible event runtime evidence.
@@ -218,6 +241,15 @@ impl InProcessBroker {
             .unwrap_or_default()
     }
 
+    /// Returns deterministic, sanitized boundary telemetry for host export.
+    #[must_use]
+    pub fn telemetry(&self) -> Vec<EventTelemetryRecord> {
+        self.state
+            .lock()
+            .map(|state| state.telemetry.clone())
+            .unwrap_or_default()
+    }
+
     /// Returns a deterministic counter snapshot for event runtime evidence.
     #[must_use]
     pub fn metrics(&self) -> EventRuntimeMetrics {
@@ -312,6 +344,47 @@ impl InProcessBroker {
         self.subscribe_with_subject(event_type, from_cursor, subject_id, Some(consumer_id))
     }
 
+    fn validate_boundary(&self, event: &TraverseEvent) -> Result<(), EventError> {
+        let validation = validate_event(event, self.validation_mode);
+        let validation_outcome = if validation.is_valid() {
+            "accepted"
+        } else if validation.accepted {
+            "reported"
+        } else {
+            "rejected"
+        };
+        let evidence = EventValidationEvidence::from_result(&validation);
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
+        if let Some(evidence) = evidence {
+            state.validation_evidence.push(evidence.clone());
+            state.metrics.validation_failures = state.metrics.validation_failures.saturating_add(1);
+            if !validation.accepted {
+                state
+                    .quarantine_records
+                    .push(EventQuarantineRecord { evidence });
+                state.metrics.quarantines = state.metrics.quarantines.saturating_add(1);
+            }
+        }
+        state.telemetry.push(telemetry_record(
+            "traverse.event.validation",
+            validation_outcome,
+            event,
+            None,
+            None,
+        ));
+        if !validation.accepted {
+            let code = validation
+                .diagnostics
+                .first()
+                .map_or("EVP-000", |diagnostic| diagnostic.code);
+            return Err(EventError::ValidationRejected(code.to_owned()));
+        }
+        Ok(())
+    }
+
     /// Shared implementation for `publish` and `publish_with_cursor`.
     /// `assigned_cursor`, when given, is adopted as this event's cursor
     /// instead of self-incrementing the per-type counter (spec 066 FR-007:
@@ -324,28 +397,7 @@ impl InProcessBroker {
         event: &TraverseEvent,
         assigned_cursor: Option<u64>,
     ) -> Result<(), EventError> {
-        let validation = validate_event(event, self.validation_mode);
-        if let Some(evidence) = EventValidationEvidence::from_result(&validation) {
-            let mut state = self
-                .state
-                .lock()
-                .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
-            state.validation_evidence.push(evidence.clone());
-            state.metrics.validation_failures = state.metrics.validation_failures.saturating_add(1);
-            if !validation.accepted {
-                state
-                    .quarantine_records
-                    .push(EventQuarantineRecord { evidence });
-                state.metrics.quarantines = state.metrics.quarantines.saturating_add(1);
-            }
-        }
-        if !validation.accepted {
-            let code = validation
-                .diagnostics
-                .first()
-                .map_or("EVP-000", |diagnostic| diagnostic.code);
-            return Err(EventError::ValidationRejected(code.to_owned()));
-        }
+        self.validate_boundary(event)?;
         let entry = self
             .catalog
             .get(&event.event_type)
@@ -391,6 +443,13 @@ impl InProcessBroker {
         }
         seen.insert(event.id.clone());
         state.metrics.publications = state.metrics.publications.saturating_add(1);
+        state.telemetry.push(telemetry_record(
+            "traverse.event.publish",
+            "accepted",
+            event,
+            None,
+            None,
+        ));
 
         let next = state
             .next_cursor
@@ -679,6 +738,17 @@ impl EventBroker for InProcessBroker {
                 subscription_id: subscription.subscription_id.clone(),
                 cursor: cursor_to_string(item.cursor),
             });
+            let consumer_id = subscription
+                .consumer_id
+                .clone()
+                .unwrap_or_else(|| subscription.subscription_id.clone());
+            state.telemetry.push(telemetry_record(
+                "traverse.event.delivery",
+                "delivered",
+                &item.event,
+                Some(consumer_id),
+                Some(cursor_to_string(item.cursor)),
+            ));
             out.push(BrokerEvent {
                 cursor: cursor_to_string(item.cursor),
                 event: item.event,
@@ -733,6 +803,30 @@ impl EventBroker for InProcessBroker {
     }
 }
 
+fn telemetry_record(
+    operation: &'static str,
+    outcome: &'static str,
+    event: &TraverseEvent,
+    consumer_id: Option<String>,
+    cursor: Option<EventCursor>,
+) -> EventTelemetryRecord {
+    EventTelemetryRecord {
+        operation,
+        outcome,
+        contract_id: event.event_type.clone(),
+        contract_version: event.version.clone(),
+        event_id: event.id.clone(),
+        deduplication_id: event.deduplication_id.clone(),
+        ordering_scope: event.ordering_scope.clone(),
+        correlation_id: event.correlation_id.clone(),
+        causation_id: event.causation_id.clone(),
+        consumer_id,
+        cursor,
+        retry_count: 0,
+        latency_ms: 0,
+    }
+}
+
 #[cfg(test)]
 mod tests {
     #![allow(clippy::expect_used)]
@@ -779,6 +873,10 @@ mod tests {
             owner: "cap.test".to_string(),
             version: "1.0.0".to_string(),
             lifecycle_status: LifecycleStatus::Active,
+            deduplication_id: Some(id.to_string()),
+            ordering_scope: Some("test".to_string()),
+            correlation_id: Some("correlation-test".to_string()),
+            causation_id: Some("command-test".to_string()),
             subject_id: None,
             actor_id: None,
         }
@@ -995,6 +1093,21 @@ mod tests {
                 quarantines: 0,
             }
         );
+        let telemetry = broker.telemetry();
+        assert_eq!(telemetry.len(), 3);
+        assert_eq!(telemetry[0].operation, "traverse.event.validation");
+        assert_eq!(telemetry[0].outcome, "accepted");
+        assert_eq!(telemetry[1].operation, "traverse.event.publish");
+        assert_eq!(telemetry[2].operation, "traverse.event.delivery");
+        assert_eq!(
+            telemetry[2].consumer_id.as_deref(),
+            Some("capability.audit")
+        );
+        assert_eq!(telemetry[2].cursor.as_deref(), Some("1"));
+        assert_eq!(telemetry[2].contract_version, "1.2.3");
+        assert_eq!(telemetry[2].retry_count, 0);
+        assert_eq!(telemetry[2].latency_ms, 0);
+        assert!(!format!("{telemetry:?}").contains("not lineage"));
     }
 
     #[test]

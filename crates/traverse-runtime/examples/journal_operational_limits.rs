@@ -113,6 +113,10 @@ fn fixture_event(index: usize, payload_bytes: usize) -> TraverseEvent {
         owner: "traverse-runtime".to_string(),
         version: "1.0.0".to_string(),
         lifecycle_status: LifecycleStatus::Active,
+        deduplication_id: Some(format!("journal-benchmark-{index:08}")),
+        ordering_scope: Some(format!("benchmark-{}", index % 32)),
+        correlation_id: Some(format!("benchmark-{index:08}")),
+        causation_id: Some("benchmark-command".to_string()),
         subject_id: Some(format!("benchmark-subject-{}", index % 32)),
         actor_id: None,
     }

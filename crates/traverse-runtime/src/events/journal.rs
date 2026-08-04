@@ -727,6 +727,10 @@ mod tests {
             owner: "test.capability".to_string(),
             version: "1.0.0".to_string(),
             lifecycle_status: LifecycleStatus::Active,
+            deduplication_id: Some(marker.to_string()),
+            ordering_scope: Some("test".to_string()),
+            correlation_id: Some("correlation-test".to_string()),
+            causation_id: Some("command-test".to_string()),
             subject_id: None,
             actor_id: None,
         }
