@@ -1235,3 +1235,70 @@ Unlocks Spec 088 approval path. `crates/traverse-registry`'s own resolve-side
 hook is out of this repo's governance — tracked as its own spec
 (`traverse-framework/registry`'s Spec 015) and ticket in that repo's Project 3,
 sequenced behind this repo publishing the new `traverse-contracts` trait.
+
+## Decision 43: Provision the Real Collector as a Hardcoded PostHog Cloud Key in the Published Crate
+
+- **Date**: 2026-08-04
+- **Status**: Accepted (provisioning itself deferred — see Outcome)
+- **Governing spec**: `088-runtime-usage-telemetry`
+- **Related issues**: `#928`
+- **Origin**: `/brainstorm 928`, closing the one open question left in Decision 42
+  — *which* hosted collector, and how its endpoint/API key actually reaches a
+  running `traverse-cli`.
+
+### Context
+
+Decision 42 named "a purpose-built hosted product-analytics tool (e.g.
+PostHog)" but left the concrete provider and delivery mechanism open. #927
+(port trait) and #928 (config commands, install ID, real HTTP sink) both
+shipped fully coded and tested against that open slot — `wire_usage_telemetry_sink()`
+reads `TRAVERSE_TELEMETRY_ENDPOINT`/`TRAVERSE_TELEMETRY_API_KEY` from the
+process environment, falling back to the no-op sink when either is unset —
+but #928's Definition of Done also requires "a real hosted PostHog (or
+equivalent) project is provisioned and its endpoint/key wired into the
+adapter," which is account/infrastructure setup, not code, and stayed
+unresolved.
+
+This surfaced a second, non-obvious question once the provider was picked:
+this repo's only release channel is `cargo publish` to crates.io on a `v*`
+tag (`scripts/ci/publish_crates.sh`) — there is no separate compiled-binary
+release pipeline. crates.io distributes source, compiled by `cargo install`
+on each user's own machine. An env-var-only design (the current shipped
+code) means telemetry only ever activates for whoever manually exports both
+variables in their own shell — in practice nobody but the maintainers
+testing locally — which defeats the "real adoption signal" this feature
+exists for (Decision 42, registry Decision 47).
+
+### Decision
+
+- **Provider: PostHog Cloud** (free tier), not self-hosted and not a
+  different tool. `build_event_payload()` in `crates/traverse-cli/src/telemetry.rs`
+  already emits PostHog's exact capture-API shape (`api_key`, `event`,
+  `distinct_id`, `properties`), so this needs no code rework.
+- **Delivery: baked into the published crate as a hardcoded constant**, not
+  an env-var-only runtime lookup and not a build.rs-generated secret
+  injected only at publish time. A PostHog *project* API key (as opposed to
+  PostHog's secret *personal* API key) is a write-only capture token,
+  designed to be publicly embeddable — the same trust model as putting it in
+  client-side JS, and no different from what `strings` would recover from a
+  compiled binary. Being visible in git history and on crates.io is expected
+  and not a leak for this token type. The existing env-var path
+  (`TRAVERSE_TELEMETRY_ENDPOINT`/`TRAVERSE_TELEMETRY_API_KEY`) stays as a
+  dev-only override for testing against a different collector, rather than
+  being removed.
+- **A real, separate compiled-binary release pipeline (e.g. GitHub Releases,
+  cargo-dist) was explicitly considered and rejected for this ticket** — it
+  would let the key stay out of the published crate source entirely, but is
+  a substantially larger, unscoped project belonging to its own future
+  ticket, not #928.
+
+### Outcome
+
+The PostHog project itself has **not** been created — creating third-party
+accounts is outside what Claude Code performs on the user's behalf under any
+instruction. #928 stays open/Blocked exactly as-is: fully coded, tested, and
+merged (#932, #933), with the no-op sink wired whenever the two config
+values are absent, and #929's execute-path wiring (#934) already shipped
+against the same port. Whenever the user creates the PostHog project and
+hands over its endpoint/key, the remaining work is a one-line hardcode into
+`telemetry.rs` plus a PR — no further design decisions.
