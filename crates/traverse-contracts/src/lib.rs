@@ -5,7 +5,9 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
+pub mod usage_telemetry;
 pub mod violations;
+pub use usage_telemetry::{NoOpUsageTelemetrySink, UsageEvent, UsageEventKind, UsageTelemetrySink};
 pub use violations::ViolationRecord;
 
 const CAPABILITY_CONTRACT_KIND: &str = "capability_contract";
