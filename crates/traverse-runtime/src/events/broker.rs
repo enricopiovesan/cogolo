@@ -1431,4 +1431,25 @@ mod tests {
         let state = broker.state.lock().expect("broker lock must be available");
         assert!(!state.subscriptions_by_event_type.contains_key(event_type));
     }
+
+    #[test]
+    fn cancel_tolerates_a_missing_event_type_index_entry() {
+        let event_type = "dev.traverse.cancel-missing-index";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .state
+            .lock()
+            .expect("broker lock must be available")
+            .subscriptions_by_event_type
+            .remove(event_type);
+
+        broker
+            .cancel(&subscription.subscription_id)
+            .expect("missing index entry must not prevent cancellation");
+    }
 }
