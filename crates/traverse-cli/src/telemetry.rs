@@ -6,13 +6,13 @@
 //! invocation; it fires an `execute` event through whatever sink it's given
 //! on success, and nothing on failure (FR-006).
 //!
-//! The collector endpoint and API key are provisioned separately from this
-//! code (infrastructure setup, not code): both are read from environment
-//! variables (`TRAVERSE_TELEMETRY_ENDPOINT`, `TRAVERSE_TELEMETRY_API_KEY`) by
-//! [`wire_usage_telemetry_sink`], never hardcoded or committed. If either is
-//! unset, the real sink is never constructed and the no-op sink is used
-//! instead — consistent with "never fail the caller" (FR-005) and the honest
-//! state before a real collector project exists.
+//! The collector endpoint and API key default to the real, provisioned
+//! `PostHog` Cloud project (Decision 43, `docs/decision-log.md`): a project
+//! API key is a write-only capture token, designed by `PostHog` to be publicly
+//! embeddable (the same trust model as client-side JS), so committing it
+//! here is expected, not a leak. `TRAVERSE_TELEMETRY_ENDPOINT` /
+//! `TRAVERSE_TELEMETRY_API_KEY` env vars still override the defaults, for
+//! local testing against a different collector.
 
 use chrono::Utc;
 use serde::{Deserialize, Serialize};
@@ -26,6 +26,16 @@ use uuid::Uuid;
 
 const CONFIG_FILE_NAME: &str = "cli-config.json";
 const SEND_TIMEOUT_SECS: &str = "2";
+
+/// `PostHog` US Cloud's single-event capture endpoint (Decision 43). Project
+/// ID 542459, US region.
+const DEFAULT_TELEMETRY_ENDPOINT: &str = "https://us.i.posthog.com/i/v0/e/";
+
+/// `PostHog` project token for project 542459 (Decision 43). A write-only
+/// capture token — `PostHog` documents this key as "safe to use in public
+/// apps," distinct from the project's secret personal/backend API keys,
+/// which must never appear here.
+const DEFAULT_TELEMETRY_API_KEY: &str = "phc_sfxB4CGzDYn346ntzf685P7UWMJ28gtHTGJxfWRNUcEF";
 
 /// Persistent local telemetry opt-in state (FR-002, FR-003). Lives at the
 /// CLI-user level (outside any workspace), so it survives across workspaces
@@ -136,17 +146,24 @@ fn event_kind_label(kind: UsageEventKind) -> &'static str {
     }
 }
 
-/// Builds the exact FR-004 payload: event type, `namespace/id@version`,
-/// timestamp, and install ID -- no other field.
+/// Builds the exact FR-004 field set (event type, `namespace/id@version`,
+/// timestamp, install ID) as a `PostHog` `/i/v0/e/` capture request: `api_key`,
+/// `event`, `distinct_id`, and a top-level `timestamp` are `PostHog`'s own
+/// required/recognized fields (a `properties.timestamp` is silently ignored
+/// by `PostHog` in favor of server-side ingestion time, so it must be
+/// top-level, not nested). `$process_person_profile: false` keeps every
+/// event anonymous, matching Decision 42's explicit anonymity design intent
+/// (no `PostHog` "person" profile is created per install ID).
 fn build_event_payload(api_key: &str, install_id: &str, event: &UsageEvent) -> Value {
     serde_json::json!({
         "api_key": api_key,
         "event": event_kind_label(event.kind),
         "distinct_id": install_id,
+        "timestamp": event.timestamp,
         "properties": {
             "capability_ref": event.capability_ref,
-            "timestamp": event.timestamp,
             "install_id": install_id,
+            "$process_person_profile": false,
         }
     })
 }
@@ -217,16 +234,18 @@ fn wire_usage_telemetry_sink_from(
 }
 
 /// Builds the sink `capability execute`/`serve` should use for this process:
-/// the no-op sink when telemetry is disabled or the collector is
-/// unconfigured (FR-007), or the real HTTP sink when enabled and configured
+/// the no-op sink when telemetry is disabled (FR-007), or the real HTTP sink
+/// -- pointed at the provisioned `PostHog` project by default, or at
+/// `TRAVERSE_TELEMETRY_ENDPOINT`/`TRAVERSE_TELEMETRY_API_KEY` when either is
+/// set, for local testing against a different collector -- when enabled
 /// (FR-005).
 #[must_use]
 pub fn wire_usage_telemetry_sink() -> Box<dyn UsageTelemetrySink> {
-    wire_usage_telemetry_sink_from(
-        &load_telemetry_config(),
-        std::env::var("TRAVERSE_TELEMETRY_ENDPOINT").ok(),
-        std::env::var("TRAVERSE_TELEMETRY_API_KEY").ok(),
-    )
+    let endpoint = std::env::var("TRAVERSE_TELEMETRY_ENDPOINT")
+        .unwrap_or_else(|_| DEFAULT_TELEMETRY_ENDPOINT.to_string());
+    let api_key = std::env::var("TRAVERSE_TELEMETRY_API_KEY")
+        .unwrap_or_else(|_| DEFAULT_TELEMETRY_API_KEY.to_string());
+    wire_usage_telemetry_sink_from(&load_telemetry_config(), Some(endpoint), Some(api_key))
 }
 
 /// Pure decision: records an `execute` event through `sink` when `status`
@@ -390,19 +409,30 @@ mod tests {
             &test_event(UsageEventKind::Resolve),
         );
 
+        assert_eq!(payload["api_key"], "test-key");
         assert_eq!(payload["event"], "resolve");
         assert_eq!(payload["distinct_id"], "install-123");
+        assert_eq!(
+            payload["timestamp"], "2026-08-04T00:00:00Z",
+            "PostHog only recognizes a top-level timestamp; a nested \
+             properties.timestamp is silently ignored in favor of \
+             server-side ingestion time"
+        );
         let properties = payload["properties"]
             .as_object()
             .expect("properties must be an object");
         assert_eq!(
             properties.len(),
             3,
-            "properties must contain exactly capability_ref, timestamp, and install_id -- no more"
+            "properties must contain exactly capability_ref, install_id, and \
+             $process_person_profile -- no more"
         );
         assert_eq!(properties["capability_ref"], "hello.world/say-hello@1.0.0");
-        assert_eq!(properties["timestamp"], "2026-08-04T00:00:00Z");
         assert_eq!(properties["install_id"], "install-123");
+        assert_eq!(
+            properties["$process_person_profile"], false,
+            "events must stay anonymous -- no PostHog person profile per install id"
+        );
 
         let execute_payload = build_event_payload(
             "test-key",
