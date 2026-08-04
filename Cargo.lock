@@ -1988,6 +1988,7 @@ dependencies = [
  "traverse-contracts",
  "traverse-registry",
  "traverse-runtime",
+ "uuid",
  "zeroize",
 ]
 

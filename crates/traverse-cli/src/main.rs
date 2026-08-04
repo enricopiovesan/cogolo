@@ -3,6 +3,7 @@ mod capability_packages;
 mod federation_operator;
 mod http_api;
 mod supply_chain;
+mod telemetry;
 
 use browser_adapter::serve_local_browser_adapter;
 use capability_packages::load_capability_package;
@@ -156,6 +157,8 @@ enum Command {
         allowed_origins: Vec<String>,
         render_mobile_qr: bool,
     },
+    TelemetryEnable,
+    TelemetryDisable,
 }
 
 #[derive(Debug)]
@@ -341,6 +344,19 @@ fn run_command(command: Command) -> Result<String, CliError> {
             version,
             workspace_id,
         } => workflow_inspect(&workflow_id, version.as_deref(), &workspace_id),
+        Command::TelemetryEnable => telemetry::enable_telemetry()
+            .map(|config| render_telemetry_state("enabled", &config))
+            .map_err(CliError::IoError),
+        Command::TelemetryDisable => telemetry::disable_telemetry()
+            .map(|config| render_telemetry_state("disabled", &config))
+            .map_err(CliError::IoError),
+    }
+}
+
+fn render_telemetry_state(action: &str, config: &telemetry::TelemetryConfig) -> String {
+    match &config.install_id {
+        Some(install_id) => format!("telemetry {action} (install_id: {install_id})"),
+        None => format!("telemetry {action}"),
     }
 }
 
@@ -411,6 +427,9 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("capability"), Some("discover")) => parse_capability_discover_command(args),
         (Some("capability"), Some("publish")) => parse_capability_publish_command(args),
         (Some("workflow"), Some(_)) => parse_workflow_command(args),
+        (Some("telemetry"), Some("enable")) => Ok(Command::TelemetryEnable),
+        (Some("telemetry"), Some("disable")) => Ok(Command::TelemetryDisable),
+        (Some("telemetry"), _) => Err(usage()),
         _ => parse_fixed_arity_command(args),
     }
 }
@@ -454,8 +473,63 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("browser-adapter"), Some("serve")) => help_browser_adapter_serve(),
         (Some("browser-adapter"), _) => help_browser_adapter(),
         (Some("serve"), _) => help_serve(),
+        (Some("telemetry"), Some("enable")) => help_telemetry_enable(),
+        (Some("telemetry"), Some("disable")) => help_telemetry_disable(),
+        (Some("telemetry"), _) => help_telemetry(),
         _ => usage(),
     }
+}
+
+fn help_telemetry_enable() -> String {
+    "traverse-cli telemetry enable
+
+  Purpose:
+    Opt in to anonymous usage telemetry: how often published capabilities are
+    resolved and executed, reported to the Traverse maintainers. Off by
+    default. Never shown as an interactive prompt anywhere else -- this
+    command is the only way to turn it on.
+
+    On first enable, generates and persists a random local install ID (a v4
+    UUID, not derived from any machine-identifying value). Running enable
+    again does not regenerate it.
+
+    Each reported event contains exactly: event type (resolve/execute), the
+    capability reference (namespace/id@version), a timestamp, and the
+    install ID. Nothing else -- no CLI version, OS, hostname, or IP address.
+
+  Optional flags:
+    --help   Print this help text.
+
+  Example:
+    traverse-cli telemetry enable"
+        .to_string()
+}
+
+fn help_telemetry_disable() -> String {
+    "traverse-cli telemetry disable
+
+  Purpose:
+    Opt back out of anonymous usage telemetry. The no-op sink is wired
+    immediately; no further usage events are ever sent. The install ID from
+    a prior enable is retained, so a later enable does not mint a new one.
+
+  Optional flags:
+    --help   Print this help text.
+
+  Example:
+    traverse-cli telemetry disable"
+        .to_string()
+}
+
+fn help_telemetry() -> String {
+    "traverse-cli telemetry <subcommand>
+
+  Subcommands:
+    enable    Opt in to anonymous usage telemetry.
+    disable   Opt out of anonymous usage telemetry (the default).
+
+  Run `traverse-cli telemetry <subcommand> --help` for subcommand-specific help."
+        .to_string()
 }
 
 fn help_app_new() -> String {
@@ -8446,6 +8520,9 @@ mod tests {
             ("browser-adapter", Some("serve")),
             ("browser-adapter", None),
             ("serve", None),
+            ("telemetry", Some("enable")),
+            ("telemetry", Some("disable")),
+            ("telemetry", None),
         ];
         for (family, sub) in pairs {
             let help = match sub {
