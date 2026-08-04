@@ -1246,11 +1246,11 @@ fn unauthorized(code: &'static str, message: impl Into<String>) -> ApiError {
 /// Derive a caller identity from a JWT bearer token.
 ///
 /// The token signature is verified against the configured `Ed25519` key before
-/// any claim is trusted. A token is only allowed to yield an admin identity
-/// when its signature verified. In the dev auth modes, when no key is
-/// configured, claims are accepted as unverified but `is_admin` is forced to
-/// `false`. In `bearer-required` mode a missing key rejects every token
-/// (fail closed).
+/// any claim is trusted. A token is only allowed to yield an admin identity or
+/// non-empty scopes when its signature verified. In the dev auth modes, when
+/// no key is configured, claims are accepted as unverified but `is_admin` is
+/// forced to `false` and `scopes` is forced empty. In `bearer-required` mode a
+/// missing key rejects every token (fail closed).
 fn derive_identity_from_jwt(
     token: &str,
     auth_mode: &str,
@@ -1317,13 +1317,19 @@ fn derive_identity_from_jwt(
     validate_jwt_time_claims(&value)?;
 
     // Privilege claims are only honored for a signature-verified token. An
-    // unverified (dev, no-key) token can name a subject but never escalates.
+    // unverified (dev, no-key) token can name a subject but never escalates:
+    // neither `is_admin` nor `scopes` may be forged without a valid signature.
     let is_admin = signature_verified && jwt_claims_admin(&value);
+    let scopes = if signature_verified {
+        parse_jwt_scopes(&value)
+    } else {
+        Vec::new()
+    };
 
     Ok(DerivedIdentity {
         subject_id,
         is_admin,
-        scopes: parse_jwt_scopes(&value),
+        scopes,
     })
 }
 
@@ -8553,7 +8559,11 @@ mod tests {
 
     #[test]
     fn non_loopback_allows_valid_bearer_with_required_scope() {
-        let state = empty_state();
+        let mut state = empty_state();
+        state.jwt_verification_key = Some(
+            parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
+                .expect("test verifying key must parse"),
+        );
         let token = make_scoped_jwt("alice", future_exp(), &["registry:read"]);
         let req = with_bearer(
             with_workspace_query(
@@ -8605,7 +8615,11 @@ mod tests {
 
     #[test]
     fn runtime_grant_approval_returns_created_grant() {
-        let state = empty_state();
+        let mut state = empty_state();
+        state.jwt_verification_key = Some(
+            parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
+                .expect("test verifying key must parse"),
+        );
         persist_test_workspace(&state.registry_root, "ws-test", "alice");
         let token = make_scoped_jwt("alice", future_exp(), &["grants:approve"]);
         let req = with_bearer(
@@ -8636,7 +8650,11 @@ mod tests {
 
     #[test]
     fn execution_runtime_grant_is_available_once_then_consumed() {
-        let state = test_state_with("test.api.do-something", "1.0.0");
+        let mut state = test_state_with("test.api.do-something", "1.0.0");
+        state.jwt_verification_key = Some(
+            parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
+                .expect("test verifying key must parse"),
+        );
         persist_test_workspace(&state.registry_root, "ws-test", "alice");
         let approve_token = make_scoped_jwt("alice", future_exp(), &["grants:approve"]);
         let approve_req = with_bearer(
@@ -8693,8 +8711,12 @@ mod tests {
 
     #[test]
     fn expired_session_grant_is_pruned_and_static_permissions_remain() {
-        let state =
+        let mut state =
             test_state_with_permission("test.api.permissioned", "1.0.0", "static.permission.read");
+        state.jwt_verification_key = Some(
+            parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
+                .expect("test verifying key must parse"),
+        );
         persist_test_workspace(&state.registry_root, "ws-test", "alice");
         let approve_token = make_scoped_jwt("alice", future_exp(), &["grants:approve"]);
         let approve_req = with_bearer(
@@ -8740,7 +8762,11 @@ mod tests {
 
     #[test]
     fn runtime_grant_lifecycle_writes_secret_free_audit_entries() {
-        let state = test_state_with("test.api.do-something", "1.0.0");
+        let mut state = test_state_with("test.api.do-something", "1.0.0");
+        state.jwt_verification_key = Some(
+            parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
+                .expect("test verifying key must parse"),
+        );
         persist_test_workspace(&state.registry_root, "ws-test", "alice");
         let approve_token = make_scoped_jwt("alice", future_exp(), &["grants:approve"]);
         let approve_req = with_bearer(
@@ -8948,6 +8974,32 @@ mod tests {
             .expect("dev token must resolve to a subject");
         assert_eq!(identity.subject_id, "admin-user");
         assert!(!identity.is_admin);
+    }
+
+    #[test]
+    fn dev_mode_unverified_jwt_cannot_forge_scopes() {
+        // dev-any, no key configured: a signed-shaped token still parses a
+        // subject but must never yield scopes, because its signature was
+        // never verified. Mirrors dev_mode_unverified_jwt_cannot_be_admin.
+        let token = make_scoped_jwt(
+            "attacker",
+            future_exp(),
+            &["grants:approve", "registry:write", "runtime:execute"],
+        );
+        let mut headers = HashMap::new();
+        headers.insert("authorization".to_string(), format!("Bearer {token}"));
+
+        let identity = subject_from_request(&headers, "dev-any", false, false, None)
+            .expect("dev token must resolve to a subject");
+        assert_eq!(identity.subject_id, "attacker");
+        assert!(!identity.is_admin);
+        assert!(
+            identity.scopes.is_empty(),
+            "unverified token must not carry any scopes"
+        );
+        assert!(!identity_has_scope(&identity, "grants:approve"));
+        assert!(!identity_has_scope(&identity, "registry:write"));
+        assert!(!identity_has_scope(&identity, "runtime:execute"));
     }
 
     #[test]
