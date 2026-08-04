@@ -1071,6 +1071,110 @@ mod tests {
         assert!(matches!(err, JournalError::Corrupt { .. }), "{err}");
     }
 
+    /// Appends `raw` directly to `path`'s bytes, bypassing `DurableEventJournal`
+    /// entirely. Used to simulate a segment corrupted after the journal last
+    /// validated it, so the first `replay_from` for that segment (not
+    /// `DurableEventJournal::open`'s recovery scan) is what encounters it.
+    fn append_raw_bytes(path: &Path, raw: &[u8]) {
+        let mut contents = fs::read(path).expect("segment must be readable");
+        contents.extend_from_slice(raw);
+        fs::write(path, &contents).expect("segment must be writable");
+    }
+
+    #[test]
+    fn replay_from_rejects_a_torn_tail_in_a_non_final_segment() {
+        let root = test_root("replay-torn-non-final");
+        let clock = TestClock::at_secs(1_000);
+        let config = JournalConfig {
+            max_segment_bytes: 1,
+            ..JournalConfig::default()
+        };
+        let mut journal = open_journal(&root, config, clock);
+        journal
+            .append(&test_event("a"))
+            .expect("append must succeed");
+        journal
+            .append(&test_event("b"))
+            .expect("append must succeed");
+
+        let oldest = fs::read_dir(&root)
+            .expect("root must list")
+            .filter_map(Result::ok)
+            .map(|entry| entry.path())
+            .min()
+            .expect("oldest segment must exist");
+        // A syntactically valid record with no trailing newline: parseable,
+        // but only acknowledged once fsynced with its terminator, so this
+        // must still be rejected as an unterminated tail (not malformed).
+        let unterminated = serde_json::to_vec(&JournalRecordV1 {
+            seq: 9,
+            written_at_secs: 1_000,
+            event: Some(test_event("x")),
+            revokes: None,
+        })
+        .expect("record must serialize");
+        append_raw_bytes(&oldest, &unterminated);
+
+        let err = journal
+            .replay_from("0", 10)
+            .expect_err("a torn tail in a non-final segment must fail on first replay");
+        assert!(matches!(err, JournalError::Corrupt { .. }), "{err}");
+    }
+
+    #[test]
+    fn replay_from_rejects_a_non_monotonic_sequence_on_first_read() {
+        let root = test_root("replay-non-monotonic");
+        let clock = TestClock::at_secs(1_000);
+        let mut journal = open_journal(&root, JournalConfig::default(), clock);
+        let first = journal
+            .append(&test_event("a"))
+            .expect("append must succeed");
+
+        let mut line = serde_json::to_vec(&JournalRecordV1 {
+            seq: first.parse().expect("cursor must be numeric"),
+            written_at_secs: 1_000,
+            event: Some(test_event("x")),
+            revokes: None,
+        })
+        .expect("record must serialize");
+        line.push(b'\n');
+        let segment = fs::read_dir(&root)
+            .expect("root must list")
+            .next()
+            .expect("segment must exist")
+            .expect("entry must read")
+            .path();
+        append_raw_bytes(&segment, &line);
+
+        let err = journal
+            .replay_from("0", 10)
+            .expect_err("a non-increasing sequence must fail on first replay");
+        assert!(matches!(err, JournalError::Corrupt { .. }), "{err}");
+    }
+
+    #[test]
+    fn replay_from_rejects_a_malformed_completed_record_on_first_read() {
+        let root = test_root("replay-malformed");
+        let clock = TestClock::at_secs(1_000);
+        let mut journal = open_journal(&root, JournalConfig::default(), clock);
+        journal
+            .append(&test_event("a"))
+            .expect("append must succeed");
+
+        let segment = fs::read_dir(&root)
+            .expect("root must list")
+            .next()
+            .expect("segment must exist")
+            .expect("entry must read")
+            .path();
+        append_raw_bytes(&segment, b"not-json\n");
+
+        let err = journal
+            .replay_from("0", 10)
+            .expect_err("a malformed completed record must fail on first replay");
+        assert!(matches!(err, JournalError::Corrupt { .. }), "{err}");
+    }
+
     #[test]
     fn recovery_drops_segments_with_no_acknowledged_records() {
         let clock = TestClock::at_secs(1_000);
