@@ -1,7 +1,7 @@
 # ADR-0027: Keep DataStore Synchronization Host-Owned and Deterministic
 
 **Status:** Accepted
-**Governing spec:** `086-datastore-synchronization`
+**Governing spec:** `088-datastore-synchronization`
 
 ## Decision
 

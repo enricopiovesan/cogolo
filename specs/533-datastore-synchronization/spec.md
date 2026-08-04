@@ -1,7 +1,7 @@
 # Feature Specification: Provider-Neutral DataStore Synchronization
 
 **Status**: Approved
-**Canonical governing ID**: `086-datastore-synchronization`
+**Canonical governing ID**: `088-datastore-synchronization`
 **Extends**: `518-durable-local-datastore`, `519-embedder-owned-datastore-integration`
 
 ## Purpose
