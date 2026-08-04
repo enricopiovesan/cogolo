@@ -71,6 +71,7 @@ struct BrokerState {
     buffers: HashMap<String, VecDeque<BufferedEvent>>,
     seen_event_ids: HashMap<String, HashSet<String>>,
     subscriptions: HashMap<SubscriptionId, SubscriptionState>,
+    subscriptions_by_event_type: HashMap<String, HashSet<SubscriptionId>>,
     /// See [`EventBroker::seed_restart_floor`].
     restart_floor: u64,
     validation_evidence: Vec<EventValidationEvidence>,
@@ -275,6 +276,11 @@ impl InProcessBroker {
                 queue,
             },
         );
+        state
+            .subscriptions_by_event_type
+            .entry(event_type.to_string())
+            .or_default()
+            .insert(subscription_id.clone());
 
         Ok(Subscription {
             subscription_id,
@@ -410,10 +416,11 @@ impl InProcessBroker {
             .or_default()
             .push_back(buffered.clone());
 
-        for sub in state.subscriptions.values_mut() {
-            if sub.event_type != event.event_type {
+        let subscription_ids = subscription_ids_for_event_type(&state, &event.event_type);
+        for subscription_id in subscription_ids {
+            let Some(sub) = state.subscriptions.get_mut(&subscription_id) else {
                 continue;
-            }
+            };
             if sub
                 .subject_id
                 .as_deref()
@@ -482,10 +489,11 @@ fn prune_expired(
     };
 
     // Sync per-subscription queues so they don't deliver events that are no longer retained.
-    for sub in state.subscriptions.values_mut() {
-        if sub.event_type != event_type {
+    let subscription_ids = subscription_ids_for_event_type(state, event_type);
+    for subscription_id in subscription_ids {
+        let Some(sub) = state.subscriptions.get_mut(&subscription_id) else {
             continue;
-        }
+        };
         while let Some(front) = sub.queue.front() {
             if front.cursor >= oldest_cursor {
                 break;
@@ -536,6 +544,17 @@ fn validate_from_cursor(
     }
 
     Ok(())
+}
+
+fn subscription_ids_for_event_type(
+    state: &BrokerState,
+    event_type: &str,
+) -> HashSet<SubscriptionId> {
+    state
+        .subscriptions_by_event_type
+        .get(event_type)
+        .cloned()
+        .unwrap_or_default()
 }
 
 impl EventBroker for InProcessBroker {
@@ -694,10 +713,21 @@ impl EventBroker for InProcessBroker {
             .lock()
             .map_err(|_| EventError::LifecycleViolation("broker lock poisoned".to_owned()))?;
 
-        if state.subscriptions.remove(subscription_id).is_none() {
+        let Some(subscription) = state.subscriptions.remove(subscription_id) else {
             return Err(EventError::SubscriptionNotFound(
                 subscription_id.to_string(),
             ));
+        };
+        if let Some(ids) = state
+            .subscriptions_by_event_type
+            .get_mut(&subscription.event_type)
+        {
+            let _ = ids.remove(subscription_id);
+            if ids.is_empty() {
+                let _ = state
+                    .subscriptions_by_event_type
+                    .remove(&subscription.event_type);
+            }
         }
         Ok(())
     }
@@ -1365,5 +1395,64 @@ mod tests {
         .expect("broker must be created");
         let err = broker.cancel("sub-missing").expect_err("cancel must fail");
         assert!(matches!(err, EventError::SubscriptionNotFound(_)));
+    }
+
+    #[test]
+    fn publish_tolerates_a_stale_event_type_index_entry() {
+        let event_type = "dev.traverse.stale-index";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .state
+            .lock()
+            .expect("broker lock must be available")
+            .subscriptions
+            .remove(&subscription.subscription_id);
+
+        broker
+            .publish(sample_event(event_type, "evt-stale-index"))
+            .expect("stale index entry must not prevent publication");
+    }
+
+    #[test]
+    fn cancel_removes_an_empty_event_type_index() {
+        let event_type = "dev.traverse.cancel-index";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .cancel(&subscription.subscription_id)
+            .expect("cancel must succeed");
+
+        let state = broker.state.lock().expect("broker lock must be available");
+        assert!(!state.subscriptions_by_event_type.contains_key(event_type));
+    }
+
+    #[test]
+    fn cancel_tolerates_a_missing_event_type_index_entry() {
+        let event_type = "dev.traverse.cancel-missing-index";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .state
+            .lock()
+            .expect("broker lock must be available")
+            .subscriptions_by_event_type
+            .remove(event_type);
+
+        broker
+            .cancel(&subscription.subscription_id)
+            .expect("missing index entry must not prevent cancellation");
     }
 }
