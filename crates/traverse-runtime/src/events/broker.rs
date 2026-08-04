@@ -1414,4 +1414,21 @@ mod tests {
             .publish(sample_event(event_type, "evt-stale-index"))
             .expect("stale index entry must not prevent publication");
     }
+
+    #[test]
+    fn cancel_removes_an_empty_event_type_index() {
+        let event_type = "dev.traverse.cancel-index";
+        let broker = InProcessBroker::new(make_catalog(event_type, LifecycleStatus::Active))
+            .expect("broker must be created");
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe must succeed");
+
+        broker
+            .cancel(&subscription.subscription_id)
+            .expect("cancel must succeed");
+
+        let state = broker.state.lock().expect("broker lock must be available");
+        assert!(!state.subscriptions_by_event_type.contains_key(event_type));
+    }
 }
