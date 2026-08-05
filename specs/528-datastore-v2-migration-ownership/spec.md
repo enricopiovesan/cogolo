@@ -2,7 +2,8 @@
 
 **Feature Branch**: `codex/issue-848-datastore-v2-migration`
 **Created**: 2026-07-28
-**Status**: Draft — successor specification requiring maintainer approval before implementation.
+**Status**: Approved
+**Canonical governing ID**: `092-datastore-v2-migration-ownership`
 **Input**: Issue #848, Decision 38, `524-production-app-readiness`, and Spec 082.
 
 ## Purpose
