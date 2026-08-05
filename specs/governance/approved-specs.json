@@ -1207,6 +1207,19 @@
         "crates/traverse-embedder/",
         "specs/528-datastore-v2-migration-ownership/"
       ]
+    },
+    {
+      "id": "093-datastore-multiprocess-coordination",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/539-datastore-multiprocess-coordination/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "docs/adr/0033-datastore-multiprocess-coordination.md",
+        "specs/539-datastore-multiprocess-coordination/"
+      ]
     }
   ]
 }
