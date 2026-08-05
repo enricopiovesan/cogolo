@@ -1008,16 +1008,12 @@ fn help_expedition_execute() -> String {
     a structured execution summary. Optionally writes the full runtime trace to
     a JSON file for later inspection with `trace inspect`.
 
-    Execution honesty: this command runs the canonical expedition bundle's
-    six capabilities through explicit, hand-written example implementations,
-    not their checked-in WASM artifacts. Two of the six
-    ('interpret-expedition-intent', 'validate-team-readiness') also have a
-    checked-in WASM artifact under examples/capabilities/; real, end-to-end
-    WASM execution for them is proven separately by
-    `traverse-cli capability-package execute`, since their current fixture
-    output does not satisfy this composite workflow's node-to-node input
-    contract. This command only recognizes the six capabilities in the
-    canonical expedition bundle; an unregistered capability ID fails closed.
+    Execution honesty: this command runs each of the five expedition-planning
+    capabilities' real, checked-in WASM artifact through ArtifactRouter — the
+    same execution path `traverse-cli capability-package execute` and `serve`
+    use — chained end to end through the plan-expedition workflow. This
+    command only recognizes the capabilities registered in the canonical
+    expedition bundle; an unregistered capability ID fails closed.
 
   Required arguments:
     <request-path>          Path to the runtime request JSON file.
@@ -5016,63 +5012,86 @@ fn canonical_expedition_request_path() -> PathBuf {
     repo_root().join("examples/expedition/runtime-requests/plan-expedition.json")
 }
 
-/// `traverse-cli expedition execute`'s executor for the canonical expedition
-/// registry bundle. Runs each of the six registered capabilities' native
-/// example implementation — disclosed honestly in `help_expedition_execute`,
-/// rather than left unstated. Any capability id this bundle does not
-/// register fails closed with a stable, typed error rather than a
-/// fabricated result.
-///
-/// `interpret-expedition-intent` and `validate-team-readiness` also have a
-/// checked-in WASM artifact under `examples/capabilities/`, and real,
-/// end-to-end WASM execution for them is already correctly proven by
-/// `capability-package execute`
-/// (`execute_capability_package_runs_governed_capability_package_request`).
-/// They are not wired into this composite executor: both artifacts are
-/// fixed-output ABI-conformance fixtures whose bytes are digest-pinned by
-/// other example manifests (`examples/applications/expedition-readiness`,
-/// `examples/capabilities/*/manifest.json`), and whose static output does
-/// not satisfy the next workflow node's input contract in this composite —
-/// swapping them in here would break either those pinned digests or this
-/// working, tested composite demo. Authoring real, chain-compatible business
-/// logic for the expedition-planning capabilities is tracked as follow-up
-/// work, separate from this fix.
-#[derive(Debug, Default, Clone, Copy)]
-struct ExpeditionCliExecutor;
+/// Manifest paths for the five atomic expedition-planning capabilities' real
+/// WASM agent packages (spec 916/921). Each is registered individually via
+/// [`load_capability_package`] so its `CapabilityRegistration` carries a real
+/// binary path and digest — the canonical expedition registry bundle's own
+/// capability entries only ever carry a fabricated `bundled://...` artifact
+/// reference (see `build_capability_artifact`), which `ArtifactRouter` cannot
+/// resolve.
+fn expedition_atomic_capability_manifest_paths() -> [PathBuf; 5] {
+    let root = repo_root();
+    [
+        root.join("examples/capabilities/capture-expedition-objective-agent/manifest.json"),
+        root.join("examples/capabilities/expedition-intent-agent/manifest.json"),
+        root.join("examples/capabilities/assess-conditions-summary-agent/manifest.json"),
+        root.join("examples/capabilities/team-readiness-agent/manifest.json"),
+        root.join("examples/capabilities/assemble-expedition-plan-agent/manifest.json"),
+    ]
+}
 
-impl LocalExecutor for ExpeditionCliExecutor {
-    fn execute(
-        &self,
-        capability: &traverse_registry::ResolvedCapability,
-        input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        match capability.contract.id.as_str() {
-            "expedition.planning.capture-expedition-objective" => {
-                execute_capture_expedition_objective(input)
-            }
-            "expedition.planning.interpret-expedition-intent" => {
-                execute_interpret_expedition_intent(input)
-            }
-            "expedition.planning.assess-conditions-summary" => {
-                execute_assess_conditions_summary(input)
-            }
-            "expedition.planning.validate-team-readiness" => execute_validate_team_readiness(input),
-            "expedition.planning.assemble-expedition-plan" => {
-                execute_assemble_expedition_plan(input)
-            }
-            other => Err(executor_failure(&format!(
-                "unsupported expedition example capability: {other}"
-            ))),
-        }
+/// Builds a `traverse-cli expedition execute` runtime executing the real
+/// registered WASM artifact for every expedition-planning capability, via
+/// the same `ArtifactRouter` execution path `capability-package execute` and
+/// `serve` use. The composite `plan-expedition` capability (workflow kind,
+/// no binary of its own) is registered from the canonical expedition
+/// registry bundle; the five atomic capabilities are registered from their
+/// real agent packages so their artifact info is genuine, not fabricated.
+fn build_expedition_runtime() -> Result<Runtime<ArtifactRouter>, CliError> {
+    let bundle_path = canonical_expedition_bundle_path();
+    let bundle = load_registry_bundle(&bundle_path)
+        .map_err(|failure| CliError::IoError(failure.errors[0].message.clone()))?;
+
+    let mut capability_registry = CapabilityRegistry::new();
+    let composite = bundle
+        .capabilities
+        .iter()
+        .find(|capability| capability.contract.id == "expedition.planning.plan-expedition")
+        .ok_or_else(|| {
+            CliError::IoError(
+                "expedition registry bundle is missing the plan-expedition capability".to_string(),
+            )
+        })?;
+    let composite_registration = build_capability_registration(&bundle, composite)?;
+    capability_registry
+        .register(composite_registration)
+        .map_err(|f| CliError::RegistrationConflict(render_registry_failure(f)))?;
+
+    for manifest_path in expedition_atomic_capability_manifest_paths() {
+        let package = load_capability_package(&manifest_path).map_err(CliError::IoError)?;
+        capability_registry
+            .register(package.capability_registration())
+            .map_err(|f| CliError::RegistrationConflict(render_registry_failure(f)))?;
     }
+
+    let mut workflow_registry = WorkflowRegistry::new();
+    for workflow in &bundle.workflows {
+        workflow_registry
+            .register(
+                &capability_registry,
+                WorkflowRegistration {
+                    scope: bundle.scope,
+                    definition: workflow.definition.clone(),
+                    workflow_path: workflow.path.display().to_string(),
+                    registered_at: bundle_registered_at(&bundle),
+                    validator_version: env!("CARGO_PKG_VERSION").to_string(),
+                },
+            )
+            .map_err(|f| CliError::ValidationFailed(render_workflow_failure(f)))?;
+    }
+
+    let runtime = Runtime::new(
+        capability_registry,
+        ArtifactRouter::new().map_err(|error| CliError::ExecutionFailed(error.message))?,
+    )
+    .with_workflow_registry(workflow_registry)
+    .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
+    Ok(runtime)
 }
 
 fn execute_expedition_outcome(request_path: &Path) -> Result<RuntimeExecutionOutcome, CliError> {
     let request = load_runtime_request(request_path)?;
-    let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
-    let runtime = Runtime::new(registered.capability_registry, ExpeditionCliExecutor)
-        .with_workflow_registry(registered.workflow_registry)
-        .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
+    let runtime = build_expedition_runtime()?;
     Ok(runtime.execute(request))
 }
 
@@ -6271,8 +6290,8 @@ mod tests {
         let temp_dir = unique_temp_dir();
         let manifest_path = write_app_validate_fixture(
             &temp_dir,
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
             None,
         );
         let mut manifest: Value =
@@ -6302,8 +6321,8 @@ mod tests {
         let temp_dir = unique_temp_dir();
         let manifest_path = write_app_validate_fixture(
             &temp_dir,
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
             None,
         );
         let mut manifest: Value =
@@ -6336,8 +6355,8 @@ mod tests {
         let temp_dir = unique_temp_dir();
         let manifest_path = write_app_validate_fixture(
             &temp_dir,
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
             Some(serde_json::json!({
                 "overrides": {
                     "readiness_mode": "deterministic"
@@ -6614,8 +6633,8 @@ mod tests {
         let fixture_root = unique_temp_dir();
         let manifest_path = write_app_validate_fixture(
             &fixture_root,
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
-            "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
             Some(serde_json::json!({
                 "overrides": {
                     "readiness_mode": "deterministic"
@@ -7438,16 +7457,53 @@ mod tests {
     }
 
     #[test]
+    fn execute_expedition_output_changes_with_real_wasm_input_across_the_full_chain() {
+        // Directly proves #916's bug is fixed: the composite workflow now
+        // genuinely consults its capabilities' real WASM artifacts end to
+        // end, rather than a hardcoded native reimplementation that would
+        // ignore the request and always emit the same fabricated values.
+        let canonical_path =
+            repo_root().join("examples/expedition/runtime-requests/plan-expedition.json");
+        let mut request: Value = serde_json::from_str(
+            &fs::read_to_string(&canonical_path).expect("canonical request must read"),
+        )
+        .expect("canonical request must parse");
+        request["input"]["destination"] = Value::String("Mount Rainier".to_string());
+        request["request_id"] = Value::String("expedition-plan-request-mount-rainier".to_string());
+
+        let temp_dir = unique_temp_dir();
+        let request_path = temp_dir.join("mount-rainier-request.json");
+        fs::write(
+            &request_path,
+            serde_json::to_string_pretty(&request).expect("request must serialize"),
+        )
+        .expect("request must write");
+
+        let output = execute_expedition(&request_path, None, false, false)
+            .expect("expedition execution should succeed");
+
+        assert!(output.contains("status: completed"));
+        assert!(
+            output.contains("objective_id: objective-mountrainier"),
+            "objective_id must be derived from the real destination the WASM artifact received, not a fixed value; got: {output}"
+        );
+        assert!(
+            output.contains("plan_id: plan-objective-mountrainier"),
+            "plan_id must reflect the same real, request-derived objective_id all the way through the chain; got: {output}"
+        );
+    }
+
+    #[test]
     fn expedition_execute_help_discloses_execution_honesty() {
         let help = help_expedition_execute();
 
         assert!(
-            help.contains("example implementations"),
-            "help text must disclose that capabilities run example implementations, not WASM"
+            help.contains("ArtifactRouter"),
+            "help text must disclose that capabilities run through the real WASM execution path"
         );
         assert!(
             help.contains("capability-package execute"),
-            "help text must point to the command that proves real WASM execution"
+            "help text must name the shared execution path this command also uses"
         );
     }
 
