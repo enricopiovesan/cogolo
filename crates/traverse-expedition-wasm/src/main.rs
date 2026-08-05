@@ -1,3 +1,6 @@
+#![cfg_attr(target_arch = "wasm32", no_std)]
+#![cfg_attr(target_arch = "wasm32", no_main)]
+
 //! Expedition example domain — WASM binary entry point.
 //!
 //! Governed by spec 027-expedition-wasm-port
@@ -32,9 +35,23 @@
 //! }
 //! ```
 
-use std::io::{self, Read, Write};
+extern crate alloc;
 
+use alloc::{
+    format,
+    string::{String, ToString},
+    vec,
+    vec::Vec,
+};
 use serde::{Deserialize, Serialize};
+
+#[cfg(target_arch = "wasm32")]
+#[global_allocator]
+static ALLOCATOR: wee_alloc::WeeAlloc = wee_alloc::WeeAlloc::INIT;
+
+mod capabilities;
+#[allow(unsafe_code)]
+mod wasi_stdio;
 
 // ---------------------------------------------------------------------------
 // Input / Output types
@@ -167,32 +184,28 @@ fn slugify(s: &str) -> String {
 // WASI entry point
 // ---------------------------------------------------------------------------
 
-fn run() -> Result<(), String> {
-    let mut input = String::new();
-    io::stdin()
-        .read_to_string(&mut input)
-        .map_err(|e| format!("failed to read stdin: {e}"))?;
+pub fn run() -> Result<(), String> {
+    let input = wasi_stdio::read_stdin()?;
 
-    let request: ExpeditionRequest =
-        serde_json::from_str(&input).map_err(|e| format!("invalid JSON input: {e}"))?;
+    let request = serde_json::from_str(&input).map_err(|e| format!("invalid JSON input: {e}"))?;
+    let output = serde_json::to_string(&capabilities::execute(&request)?)
+        .map_err(|e| format!("failed to serialize output: {e}"))?;
 
-    let plan = plan_expedition(&request);
-
-    let output =
-        serde_json::to_string(&plan).map_err(|e| format!("failed to serialize output: {e}"))?;
-
-    io::stdout()
-        .write_all(output.as_bytes())
-        .map_err(|e| format!("failed to write stdout: {e}"))?;
+    wasi_stdio::write_stdout(output.as_bytes())?;
 
     Ok(())
 }
 
+#[cfg(not(target_arch = "wasm32"))]
 fn main() {
     if let Err(e) = run() {
-        // Write error to stderr; exit with non-zero status.
-        let _ = writeln!(io::stderr(), "traverse-expedition-wasm error: {e}");
-        std::process::exit(1);
+        let encoded_error = match serde_json::to_string(&e) {
+            Ok(encoded) => encoded,
+            Err(_) => "\"execution failed\"".to_string(),
+        };
+        let error = format!("{{\"error\":{encoded_error}}}");
+        let _ = wasi_stdio::write_stdout(error.as_bytes());
+        wasi_stdio::exit_failure();
     }
 }
 

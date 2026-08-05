@@ -10,31 +10,31 @@
     {
       "component_id": "expedition.readiness.validate-team-readiness-component",
       "version": "1.0.0",
-      "digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+      "digest": "sha256:d8b20d05c80b56943b288b1e3508b1905a5d7a41492c1b088b2b6185b46c3709",
       "manifest_path": "components/validate-team-readiness/component.manifest.json"
     },
     {
       "component_id": "expedition.readiness.capture-expedition-objective-component",
       "version": "1.0.0",
-      "digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+      "digest": "sha256:d8b20d05c80b56943b288b1e3508b1905a5d7a41492c1b088b2b6185b46c3709",
       "manifest_path": "components/capture-expedition-objective/component.manifest.json"
     },
     {
       "component_id": "expedition.readiness.interpret-expedition-intent-component",
       "version": "1.0.0",
-      "digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+      "digest": "sha256:d8b20d05c80b56943b288b1e3508b1905a5d7a41492c1b088b2b6185b46c3709",
       "manifest_path": "components/interpret-expedition-intent/component.manifest.json"
     },
     {
       "component_id": "expedition.readiness.assess-conditions-summary-component",
       "version": "1.0.0",
-      "digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+      "digest": "sha256:d8b20d05c80b56943b288b1e3508b1905a5d7a41492c1b088b2b6185b46c3709",
       "manifest_path": "components/assess-conditions-summary/component.manifest.json"
     },
     {
       "component_id": "expedition.readiness.assemble-expedition-plan-component",
       "version": "1.0.0",
-      "digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+      "digest": "sha256:d8b20d05c80b56943b288b1e3508b1905a5d7a41492c1b088b2b6185b46c3709",
       "manifest_path": "components/assemble-expedition-plan/component.manifest.json"
     }
   ],
