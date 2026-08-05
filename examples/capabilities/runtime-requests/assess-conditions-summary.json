@@ -1,0 +1,31 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "agent-assess-conditions-summary-001",
+  "intent": {
+    "capability_id": "expedition.planning.assess-conditions-summary",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "objective": {
+      "objective_id": "objective-skypilot-001"
+    },
+    "interpreted_intent": {
+      "intent_id": "intent-objective-skypilot-001",
+      "objective_id": "objective-skypilot-001",
+      "route_preferences": ["conservative-alpine-push", "same-day-return"],
+      "constraints": ["priority:same-day-return"],
+      "assumptions": ["Plan a same-day alpine push with a conservative turnaround point."],
+      "confidence": 0.87
+    }
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "wasm-agent-example-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

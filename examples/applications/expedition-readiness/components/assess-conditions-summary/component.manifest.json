@@ -5,8 +5,8 @@
   "capability_id": "expedition.planning.assess-conditions-summary",
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/assess-conditions-summary/contract.json",
-  "wasm_binary_path": "../../../../capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
-  "wasm_digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+  "wasm_binary_path": "../../../../capabilities/assess-conditions-summary-agent/artifacts/assess-conditions-summary-agent.wasm",
+  "wasm_digest": "sha256:405635d95e40cc4dad55da78f697afbe2469915ebfed74091765556ba82012f9",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",

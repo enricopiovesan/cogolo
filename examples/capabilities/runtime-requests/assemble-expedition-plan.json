@@ -1,0 +1,41 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "agent-assemble-expedition-plan-001",
+  "intent": {
+    "capability_id": "expedition.planning.assemble-expedition-plan",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "objective": {
+      "objective_id": "objective-skypilot-001"
+    },
+    "interpreted_intent": {
+      "intent_id": "intent-objective-skypilot-001",
+      "objective_id": "objective-skypilot-001",
+      "route_preferences": ["conservative-alpine-push", "same-day-return"],
+      "constraints": ["priority:same-day-return"]
+    },
+    "conditions_summary": {
+      "conditions_summary_id": "conditions-objective-skypilot-001",
+      "objective_id": "objective-skypilot-001",
+      "overall_rating": "watchful"
+    },
+    "readiness_result": {
+      "readiness_result_id": "readiness-objective-skypilot-001",
+      "objective_id": "objective-skypilot-001",
+      "status": "ready",
+      "reasons": ["team profile satisfies baseline expedition requirements"],
+      "required_actions": []
+    }
+  },
+  "lookup": {
+    "scope": "public_only",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "wasm-agent-example-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
