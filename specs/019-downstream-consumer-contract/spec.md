@@ -2,7 +2,7 @@
 
 **Feature Branch**: `019-downstream-consumer-contract`  
 **Created**: 2026-04-03  
-**Status**: Draft  
+**Status**: Approved
 **Input**: The agreed Traverse architecture for `youaskm3`, where Traverse provides the runtime and MCP substrate while the downstream app owns UI, product UX, and presentation behavior.
 
 ## Purpose

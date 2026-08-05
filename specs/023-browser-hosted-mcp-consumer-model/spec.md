@@ -2,7 +2,7 @@
 
 **Feature Branch**: `codex/issue-174-browser-hosted-mcp-consumer-model`  
 **Created**: 2026-04-07  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Issue `#174`, the approved downstream consumer contract, the local browser adapter transport slice, the dedicated Traverse MCP server model, and the need for one governed browser-hosted consumption model for apps like `youaskm3`.
 
 ## Purpose

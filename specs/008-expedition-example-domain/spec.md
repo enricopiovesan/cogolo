@@ -2,7 +2,7 @@
 
 **Feature Branch**: `008-expedition-example-domain`  
 **Created**: 2026-03-27  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Issue `#30`, existing Traverse foundation specs, and the agreed product direction for the first real example domain and canonical workflow.
 
 ## Purpose

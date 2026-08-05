@@ -2,7 +2,7 @@
 
 **Feature Branch**: `018-event-driven-composition`  
 **Created**: 2026-03-30  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Issue `#36`, the approved foundation, event-contract, and workflow-traversal slices, plus the agreed decisions for governed event-driven workflow progression.
 
 ## Purpose

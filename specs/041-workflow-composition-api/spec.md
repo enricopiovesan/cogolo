@@ -2,7 +2,7 @@
 
 **Feature Branch**: `041-workflow-composition-api`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Spec slice defining the runtime and registry surface for registering, inspecting, and executing DAG-based workflows composed of capability nodes — covering JSON document format, HTTP API endpoints, CLI commands, cycle detection, and edge schema validation. Unblocks GitHub issue #309.
 
 ## Purpose

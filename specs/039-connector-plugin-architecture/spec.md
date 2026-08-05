@@ -2,7 +2,7 @@
 
 **Feature Branch**: `039-connector-plugin-architecture`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Plugin model that allows capabilities to declare external resource dependencies (HTTP, filesystem, environment variables) through a `ConnectorPlugin` trait and a `connector_contract.json`; connectors are registered in the Traverse registry alongside capabilities and injected at execution time. Governs `crates/traverse-contracts/` and `crates/traverse-registry/`. Unblocks GitHub issue #331.
 
 ## Purpose

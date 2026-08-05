@@ -2,7 +2,7 @@
 
 **Feature Branch**: `043-module-dependency-management`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Spec slice defining how capabilities declare, resolve, lock, and verify inter-capability dependencies within Traverse's registry and contracts model. Covers dependency declaration in contracts, registration-time resolution using semver range matching, dependency lock records, execution-time digest verification, transitive resolution up to depth 5, circular dependency detection, and workspace-scoped resolution. Unblocks GitHub issue #338.
 
 ## Purpose

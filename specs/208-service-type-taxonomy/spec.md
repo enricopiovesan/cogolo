@@ -3,7 +3,7 @@
 **Feature Branch**: `208-service-type-taxonomy`
 **Spec ID**: 014
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #208
 
 > **Governance note**: Amends spec 002-capability-contracts. All existing contract parsing must remain backward-compatible. No runtime or CI gate changes — only traverse-contracts crate and contract files in contracts/.

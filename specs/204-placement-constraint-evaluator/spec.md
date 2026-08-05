@@ -3,7 +3,7 @@
 **Feature Branch**: `204-placement-constraint-evaluator`
 **Spec ID**: 024
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #204
 
 > **Governance note**: This spec governs a new deterministic evaluation subsystem inside `traverse-runtime`. It extends spec 006-runtime-request-execution by replacing the stub `local`-only placement constant with a three-tier evaluator. It depends on issue #208 landing first to add `service_type` and `permitted_targets` fields to capability contracts — no placement evaluation can be implemented against contract constraints until those fields exist.

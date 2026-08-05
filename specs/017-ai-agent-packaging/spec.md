@@ -2,7 +2,7 @@
 
 **Feature Branch**: `017-ai-agent-packaging`  
 **Created**: 2026-04-01  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Issue `#49`, the approved runtime, workflow, event, and MCP-adjacent foundation slices, plus the MVP need for real governed WASM-backed AI agents.
 
 ## Purpose

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `010-runtime-state-machine`  
 **Created**: 2026-03-30  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Dedicated runtime-governance slice for the Traverse runtime state machine, including state values, transition rules, emitted state-event semantics, and terminal behavior.
 
 ## Purpose

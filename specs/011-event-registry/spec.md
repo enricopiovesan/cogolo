@@ -2,7 +2,7 @@
 
 **Feature Branch**: `011-event-registry`  
 **Created**: 2026-03-30  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Dedicated registry slice for governed event contract publication, storage, lookup, indexing, and compatibility-aware discovery.
 
 ## Purpose

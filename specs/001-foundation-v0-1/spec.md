@@ -2,7 +2,7 @@
 
 **Feature Branch**: `001-foundation-v0-1`  
 **Created**: 2026-03-26  
-**Status**: Draft  
+**Status**: Approved
 **Input**: User description: "Foundation v0.1 for a Rust + WASM portable capability runtime with contracts, registries, event-driven communication, graph-based workflows, structured traces, and a React browser demo."
 
 ## User Scenarios & Testing *(mandatory)*

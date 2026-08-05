@@ -2,7 +2,7 @@
 
 **Feature Branch**: `032-universal-data-access`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Offline-first state access layer for capabilities running across browser, edge, and cloud environments, covering the `DataStore` trait, schema validation, deterministic conflict resolution, and sync lifecycle.
 
 ## Purpose

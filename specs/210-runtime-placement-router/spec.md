@@ -3,7 +3,7 @@
 **Feature Branch**: `210-runtime-placement-router`
 **Spec ID**: 016
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #210
 
 > **Governance note**: Extends spec 006-runtime-request-execution. Integrates #204 (placement evaluator), #205 (executor adapter), #206 (trace), #207 (event broker). This is the final integration step for the v0.2.0 execution path.

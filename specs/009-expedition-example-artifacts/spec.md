@@ -2,7 +2,7 @@
 
 **Feature Branch**: `009-expedition-example-artifacts`  
 **Created**: 2026-03-27  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Issue `#33`, the approved expedition example domain, capability contract rules, event contract rules, and workflow registry rules.
 
 ## Purpose

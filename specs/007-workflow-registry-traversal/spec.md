@@ -2,7 +2,7 @@
 
 **Feature Branch**: `007-workflow-registry-traversal`  
 **Created**: 2026-03-27  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Foundation workflow slice for deterministic workflow registration, workflow metadata, and runtime traversal over registered capabilities and event edges.
 
 ## Purpose

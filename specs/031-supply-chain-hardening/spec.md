@@ -2,7 +2,7 @@
 
 **Feature Branch**: `031-supply-chain-hardening`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Supply chain security layer for `scripts/ci/`, `.github/workflows/`, and `Cargo.toml`, covering SBOM generation, reproducible builds, SLSA provenance, artifact checksum verification, and nightly supply-chain CI checks.
 
 ## Purpose

@@ -2,7 +2,7 @@
 
 **Feature Branch**: `042-mcp-library-surface`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Spec slice defining the refactoring of `traverse-mcp` into a dual-surface crate: a public Rust library API callable by agents without MCP wire protocol, and a thin stdio server binary that wraps the library. Covers public function signatures, `McpToolRegistry`, semver stability guarantees, and embedding rules. Unblocks GitHub issue #310.
 
 ## Purpose

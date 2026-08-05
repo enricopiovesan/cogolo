@@ -2,7 +2,7 @@
 
 **Feature Branch**: `002-capability-contracts`  
 **Created**: 2026-03-26  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Existing Traverse foundation specification, data model, constitution, and project source material derived from UMA, ECCA, and C-DAD.
 
 ## Purpose

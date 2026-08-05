@@ -2,7 +2,7 @@
 
 **Feature Branch**: `006-runtime-request-execution`  
 **Created**: 2026-03-27  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Foundation runtime slice for `traverse-runtime`, covering request schema, deterministic local execution, ambiguity behavior, runtime state transitions, and trace output.
 
 ## Purpose
