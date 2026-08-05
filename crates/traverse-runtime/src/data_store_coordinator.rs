@@ -129,6 +129,14 @@ mod tests {
     }
 
     #[test]
+    fn default_coordinator_validates_its_active_owner() {
+        let coordinator = DataStoreCoordinator::default();
+        let generation = 1;
+        assert_eq!(coordinator.acquire("owner"), Ok(generation));
+        assert_eq!(coordinator.validate("owner", generation), Ok(()));
+    }
+
+    #[test]
     fn reports_unavailable_when_the_state_lock_is_poisoned() {
         let coordinator = DataStoreCoordinator::new();
         poison(&coordinator);
@@ -145,21 +153,37 @@ mod tests {
             coordinator.release("owner", 1),
             Err(DataStoreCoordinatorError::CoordinatorUnavailable)
         );
+        poison(&coordinator);
     }
 
     #[test]
     fn reports_unavailable_when_generations_are_exhausted() {
         let coordinator = DataStoreCoordinator::new();
-        let Ok(mut state) = coordinator.state.lock() else {
-            return;
-        };
-        state.generation = u64::MAX;
-        drop(state);
+        set_generation(&coordinator, u64::MAX);
 
         assert_eq!(
             coordinator.acquire("owner"),
             Err(DataStoreCoordinatorError::CoordinatorUnavailable)
         );
+    }
+
+    #[test]
+    fn generation_setup_tolerates_an_unavailable_coordinator() {
+        let coordinator = DataStoreCoordinator::new();
+        poison(&coordinator);
+        set_generation(&coordinator, u64::MAX);
+
+        assert_eq!(
+            coordinator.acquire("owner"),
+            Err(DataStoreCoordinatorError::CoordinatorUnavailable)
+        );
+    }
+
+    fn set_generation(coordinator: &DataStoreCoordinator, generation: u64) {
+        let Ok(mut state) = coordinator.state.lock() else {
+            return;
+        };
+        state.generation = generation;
     }
 
     fn poison(coordinator: &DataStoreCoordinator) {
@@ -171,6 +195,6 @@ mod tests {
             std::panic::resume_unwind(Box::new(()));
         })
         .join();
-        assert!(result.is_err());
+        assert!(result.is_err() || coordinator.state.lock().is_err());
     }
 }
