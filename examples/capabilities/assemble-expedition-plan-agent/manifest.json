@@ -1,0 +1,35 @@
+{
+  "kind": "capability_package",
+  "schema_version": "1.0.0",
+  "package_id": "expedition.planning.assemble-expedition-plan",
+  "version": "1.0.0",
+  "summary": "Governed WASM capability example for expedition plan assembly.",
+  "capability_ref": {
+    "id": "expedition.planning.assemble-expedition-plan",
+    "version": "1.0.0",
+    "contract_path": "../../../contracts/examples/expedition/capabilities/assemble-expedition-plan/contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "expedition.planning.plan-expedition",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/assemble-expedition-plan-agent.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:7887a3a12767fa58",
+    "abi_version": "1.0.0"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": []
+}

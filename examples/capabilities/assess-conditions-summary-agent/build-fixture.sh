@@ -4,7 +4,7 @@ set -euo pipefail
 
 script_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 artifact_dir="$script_dir/artifacts"
-artifact_path="$artifact_dir/validate-team-readiness-agent.wasm"
+artifact_path="$artifact_dir/assess-conditions-summary-agent.wasm"
 
 mkdir -p "$artifact_dir"
 

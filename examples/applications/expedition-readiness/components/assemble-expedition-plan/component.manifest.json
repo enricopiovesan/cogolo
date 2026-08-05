@@ -5,8 +5,8 @@
   "capability_id": "expedition.planning.assemble-expedition-plan",
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/assemble-expedition-plan/contract.json",
-  "wasm_binary_path": "../../../../capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
-  "wasm_digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+  "wasm_binary_path": "../../../../capabilities/assemble-expedition-plan-agent/artifacts/assemble-expedition-plan-agent.wasm",
+  "wasm_digest": "sha256:5f7b1ae551aec06df2b433568365cd6c53da955e5eb9ca5fbc4da2ff98f1aea4",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",

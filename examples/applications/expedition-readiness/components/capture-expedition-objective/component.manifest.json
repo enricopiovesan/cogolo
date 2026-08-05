@@ -5,8 +5,8 @@
   "capability_id": "expedition.planning.capture-expedition-objective",
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
-  "wasm_binary_path": "../../../../capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
-  "wasm_digest": "sha256:e975c0eac1491c7c9e7dc004fac8aecb209f5fe238ae1832364e0de10fd4b48a",
+  "wasm_binary_path": "../../../../capabilities/capture-expedition-objective-agent/artifacts/capture-expedition-objective-agent.wasm",
+  "wasm_digest": "sha256:dca80dca13fa3c052b650cf08a7607677cc79796617b39719cfe216f25c3ef66",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",
