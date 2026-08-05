@@ -1195,6 +1195,18 @@
         "docs/adr/0032-no-std-wasi-guest-profile.md",
         "specs/538-no-std-wasi-guest-profile/"
       ]
+    },
+    {
+      "id": "092-datastore-v2-migration-ownership",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/528-datastore-v2-migration-ownership/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "specs/528-datastore-v2-migration-ownership/"
+      ]
     }
   ]
 }
