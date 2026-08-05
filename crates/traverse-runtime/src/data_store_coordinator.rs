@@ -87,4 +87,18 @@ mod tests {
             Err(DataStoreCoordinatorError::OwnerLocked)
         );
     }
+
+    #[test]
+    fn rejects_contending_and_invalid_owner_requests() {
+        let coordinator = DataStoreCoordinator::new();
+        let generation = coordinator.acquire("owner").expect("owner");
+        assert_eq!(
+            coordinator.acquire("contender"),
+            Err(DataStoreCoordinatorError::OwnerLocked)
+        );
+        assert_eq!(
+            coordinator.release("contender", generation),
+            Err(DataStoreCoordinatorError::OwnerLocked)
+        );
+    }
 }
