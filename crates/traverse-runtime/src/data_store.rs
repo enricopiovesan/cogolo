@@ -5,8 +5,11 @@
 //! `518-durable-local-datastore`. Retention prune and verified backup/restore
 //! are governed by spec `083-datastore-retention-backup`.
 
+#[path = "data_store_coordinator.rs"]
+mod coordinator;
 #[path = "data_store_maintenance.rs"]
 mod maintenance;
+pub use coordinator::{DataStoreCoordinator, DataStoreCoordinatorError};
 pub use maintenance::{
     BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
     MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
