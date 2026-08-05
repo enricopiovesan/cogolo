@@ -26,6 +26,13 @@ impl DataStoreCoordinator {
         }
     }
 
+    /// Acquires the exclusive writer lease for `owner` and returns its generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreCoordinatorError::OwnerLocked`] when another owner holds
+    /// the lease, or [`DataStoreCoordinatorError::CoordinatorUnavailable`] when
+    /// the coordinator state is unavailable or cannot issue another generation.
     pub fn acquire(&self, owner: &str) -> Result<u64, DataStoreCoordinatorError> {
         let mut state = self
             .state
@@ -42,6 +49,13 @@ impl DataStoreCoordinator {
         Ok(state.generation)
     }
 
+    /// Validates that `owner` still holds the supplied lease generation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreCoordinatorError::OwnerLocked`] when the owner or
+    /// generation is stale, or [`DataStoreCoordinatorError::CoordinatorUnavailable`]
+    /// when the coordinator state is unavailable.
     pub fn validate(&self, owner: &str, generation: u64) -> Result<(), DataStoreCoordinatorError> {
         let state = self
             .state
@@ -54,12 +68,21 @@ impl DataStoreCoordinator {
         }
     }
 
+    /// Releases the exclusive writer lease held by `owner` at `generation`.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreCoordinatorError::OwnerLocked`] when the owner or
+    /// generation is stale, or [`DataStoreCoordinatorError::CoordinatorUnavailable`]
+    /// when the coordinator state is unavailable.
     pub fn release(&self, owner: &str, generation: u64) -> Result<(), DataStoreCoordinatorError> {
-        self.validate(owner, generation)?;
         let mut state = self
             .state
             .lock()
             .map_err(|_| DataStoreCoordinatorError::CoordinatorUnavailable)?;
+        if state.owner.as_deref() != Some(owner) || state.generation != generation {
+            return Err(DataStoreCoordinatorError::OwnerLocked);
+        }
         state.owner = None;
         Ok(())
     }
@@ -78,9 +101,11 @@ mod tests {
     #[test]
     fn fences_stale_owner_after_takeover() {
         let coordinator = DataStoreCoordinator::new();
-        let first = coordinator.acquire("first").expect("first owner");
-        coordinator.release("first", first).expect("release");
-        let second = coordinator.acquire("second").expect("takeover");
+        let first = 1;
+        assert_eq!(coordinator.acquire("first"), Ok(first));
+        assert_eq!(coordinator.release("first", first), Ok(()));
+        let second = 2;
+        assert_eq!(coordinator.acquire("second"), Ok(second));
         assert!(second > first);
         assert_eq!(
             coordinator.validate("first", first),
@@ -91,7 +116,8 @@ mod tests {
     #[test]
     fn rejects_contending_and_invalid_owner_requests() {
         let coordinator = DataStoreCoordinator::new();
-        let generation = coordinator.acquire("owner").expect("owner");
+        let generation = 1;
+        assert_eq!(coordinator.acquire("owner"), Ok(generation));
         assert_eq!(
             coordinator.acquire("contender"),
             Err(DataStoreCoordinatorError::OwnerLocked)
@@ -100,5 +126,51 @@ mod tests {
             coordinator.release("contender", generation),
             Err(DataStoreCoordinatorError::OwnerLocked)
         );
+    }
+
+    #[test]
+    fn reports_unavailable_when_the_state_lock_is_poisoned() {
+        let coordinator = DataStoreCoordinator::new();
+        poison(&coordinator);
+
+        assert_eq!(
+            coordinator.acquire("owner"),
+            Err(DataStoreCoordinatorError::CoordinatorUnavailable)
+        );
+        assert_eq!(
+            coordinator.validate("owner", 1),
+            Err(DataStoreCoordinatorError::CoordinatorUnavailable)
+        );
+        assert_eq!(
+            coordinator.release("owner", 1),
+            Err(DataStoreCoordinatorError::CoordinatorUnavailable)
+        );
+    }
+
+    #[test]
+    fn reports_unavailable_when_generations_are_exhausted() {
+        let coordinator = DataStoreCoordinator::new();
+        let Ok(mut state) = coordinator.state.lock() else {
+            return;
+        };
+        state.generation = u64::MAX;
+        drop(state);
+
+        assert_eq!(
+            coordinator.acquire("owner"),
+            Err(DataStoreCoordinatorError::CoordinatorUnavailable)
+        );
+    }
+
+    fn poison(coordinator: &DataStoreCoordinator) {
+        let state = Arc::clone(&coordinator.state);
+        let result = std::thread::spawn(move || {
+            let Ok(_guard) = state.lock() else {
+                return;
+            };
+            std::panic::resume_unwind(Box::new(()));
+        })
+        .join();
+        assert!(result.is_err());
     }
 }
