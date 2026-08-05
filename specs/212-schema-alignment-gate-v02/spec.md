@@ -3,7 +3,7 @@
 **Feature Branch**: `212-schema-alignment-gate-v02`
 **Spec ID**: 028
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #212
 
 > **Governance note**: Amends spec 004-spec-alignment-gate. Must land last in the v0.2.0 sequence — after all other specs (010–017) are approved and merged.

@@ -3,7 +3,7 @@
 **Feature Branch**: `206-execution-trace-tiered`
 **Spec ID**: 012
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #206
 
 > **Governance note**: Extends spec `006-runtime-request-execution` (execution path) and is governed by `001-foundation-v0-1` for the MCP surface. PlacementDecision from spec 010 is part of the public trace tier. No raw inputs or outputs are stored in any tier.

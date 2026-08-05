@@ -2,7 +2,7 @@
 
 **Feature Branch**: `013-browser-runtime-subscription`  
 **Created**: 2026-03-31  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Dedicated governing slice for the browser-facing runtime subscription surface that streams runtime lifecycle, state, trace, and terminal result messages to UI consumers.
 
 ## Purpose

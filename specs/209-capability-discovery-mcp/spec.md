@@ -3,7 +3,7 @@
 **Feature Branch**: `209-capability-discovery-mcp`
 **Spec ID**: 015
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #209
 
 > **Governance note**: Governed by spec 001-foundation-v0-1 (MCP surface). Depends on #206 (tiered trace), #207 (event broker + catalog), #208 (service_type fields). traverse-mcp transitions from stub to functional implementation.

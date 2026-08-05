@@ -2,7 +2,7 @@
 
 **Feature Branch**: `038-wasi-host-insulation`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Stable host-function boundary for WASM modules compiled for Traverse, insulating module authors from WASI churn and establishing an independently versioned Traverse Host ABI. Governs `crates/traverse-runtime/` and `Cargo.toml`. Unblocks GitHub issue #330.
 
 ## Purpose

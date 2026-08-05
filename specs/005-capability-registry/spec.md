@@ -2,7 +2,7 @@
 
 **Feature Branch**: `005-capability-registry`  
 **Created**: 2026-03-27  
-**Status**: Draft  
+**Status**: Approved
 **Input**: Existing Traverse foundation specification, capability contract and event contract slices, spec-alignment governance, and the registry design decisions agreed during the planning session.
 
 ## Purpose

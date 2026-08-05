@@ -2,7 +2,7 @@
 
 **Feature Branch**: `040-contractual-enforcement-gate`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Three-layer contractual validation enforced at authoring/CI-time, registration-time, and execution-time across all governed artifact directories. Introduces the draft quarantine convention, a unified violation taxonomy, and aggregate (non-fail-fast) violation reporting. Governs `scripts/ci/`, `crates/traverse-runtime/`, `crates/traverse-contracts/`, and `specs/governance/`. Unblocks GitHub issue #332.
 
 ## Purpose

@@ -3,7 +3,7 @@
 **Feature Branch**: `205-wasm-executor-adapter`
 **Spec ID**: 025
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #205
 
 > **Governance note**: Extends spec 006-runtime-request-execution. The `local` placement defined in spec 006 is now backed by a pluggable `CapabilityExecutor` trait with two implementations: `NativeExecutor` (existing Rust path) and `WasmExecutor` (Wasmtime-backed). This spec does not change the runtime request boundary, state machine, or trace contract — it refactors the execution layer beneath selection. The expedition example domain (#211) is the first real WASM capability and validates the WasmExecutor end-to-end.

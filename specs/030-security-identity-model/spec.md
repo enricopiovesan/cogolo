@@ -2,7 +2,7 @@
 
 **Feature Branch**: `030-security-identity-model`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Identity and signing layer for `traverse-runtime`, `traverse-contracts`, and `traverse-cli`, covering caller identity propagation, artifact signature verification, OIDC-style JWT handling, and safe identity derivation.
 
 ## Purpose

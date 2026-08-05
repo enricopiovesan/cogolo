@@ -3,7 +3,7 @@
 **Feature Branch**: `207-event-broker`
 **Spec ID**: 026
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #207
 
 > **Governance note**: Governed by spec `003-event-contracts` (event contract format — defines the contract schema that every published event must conform to). Extends spec `006-runtime-request-execution` (execution path that produces events). Depends on issue #208 for the `subscribable` service_type on capabilities. The EventBroker and EventCatalog live in `traverse-runtime`; the MCP surface is exposed via `traverse-mcp`. ECCA principle — events as products — mandates that ownership metadata (owner, version, lifecycle_status) is non-negotiable on every published event. No raw event data is stored in the catalog; only schema reference + governance metadata.

@@ -3,7 +3,7 @@
 **Feature Branch**: `211-expedition-wasm-port`
 **Spec ID**: 027
 **Created**: 2026-04-08
-**Status**: Draft
+**Status**: Approved
 **Input**: GitHub issue #211
 
 > **Governance note**: Extends spec 008-expedition-example-domain and spec 009-expedition-example-artifacts. Validates the WasmExecutor from spec 011 (#205) and PlacementRouter from spec 016 (#210) end-to-end. Depends on #205 and #210 landing first.

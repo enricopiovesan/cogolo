@@ -2,7 +2,7 @@
 
 **Feature Branch**: `029-integrated-observability`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Observability layer for `traverse-runtime` and `traverse-mcp`, covering OpenTelemetry signal export, W3C Trace Context propagation, attribute naming conventions, and deterministic test-mode identifiers.
 
 ## Purpose

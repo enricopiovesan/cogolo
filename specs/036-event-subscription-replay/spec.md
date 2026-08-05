@@ -2,7 +2,7 @@
 
 **Feature Branch**: `036-event-subscription-replay`
 **Created**: 2026-04-19
-**Status**: Draft
+**Status**: Approved
 **Input**: Event delivery model for Traverse covering at-least-once subscription, cursor-based replay, bounded buffer retention, backpressure handling, and browser adapter compatibility. Unblocks GitHub issues #308 and #312.
 
 ## Purpose
