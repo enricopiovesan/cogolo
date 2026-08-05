@@ -23,7 +23,7 @@
   "binary": {
     "path": "./artifacts/capture-expedition-objective-agent.wasm",
     "format": "wasm",
-    "expected_digest": "fnv1a64:09eeb5ad5d360713",
+    "expected_digest": "fnv1a64:52e9effddd2825b7",
     "abi_version": "1.0.0"
   },
   "constraints": {

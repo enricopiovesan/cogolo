@@ -6,7 +6,7 @@
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/assemble-expedition-plan/contract.json",
   "wasm_binary_path": "../../../../capabilities/assemble-expedition-plan-agent/artifacts/assemble-expedition-plan-agent.wasm",
-  "wasm_digest": "sha256:5f7b1ae551aec06df2b433568365cd6c53da955e5eb9ca5fbc4da2ff98f1aea4",
+  "wasm_digest": "sha256:49e2cbb18591304120751835f49d713aba145f9e4770605bdbcec14568cdfdda",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",

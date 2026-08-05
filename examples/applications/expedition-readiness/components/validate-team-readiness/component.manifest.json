@@ -6,7 +6,7 @@
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
   "wasm_binary_path": "../../../../capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
-  "wasm_digest": "sha256:78abaed37e32465bb4eb9d8878c561ecf1827f71fa98234484457f92c3b98ae4",
+  "wasm_digest": "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",

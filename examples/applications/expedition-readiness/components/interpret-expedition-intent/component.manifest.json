@@ -6,7 +6,7 @@
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/interpret-expedition-intent/contract.json",
   "wasm_binary_path": "../../../../capabilities/expedition-intent-agent/artifacts/interpret-expedition-intent-agent.wasm",
-  "wasm_digest": "sha256:9f21a4372d90d8d373e6526c60c959f29e19a9df0f0e6258bda87830bfdd0b65",
+  "wasm_digest": "sha256:51c5326c78ffd1beb35575f87af4dfb41ae8c8f6188cbd95d46c7cff565bd058",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",

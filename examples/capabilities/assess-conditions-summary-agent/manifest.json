@@ -23,7 +23,7 @@
   "binary": {
     "path": "./artifacts/assess-conditions-summary-agent.wasm",
     "format": "wasm",
-    "expected_digest": "fnv1a64:7c5c764fd045809e",
+    "expected_digest": "fnv1a64:ad9971c38b0a2751",
     "abi_version": "1.0.0"
   },
   "constraints": {

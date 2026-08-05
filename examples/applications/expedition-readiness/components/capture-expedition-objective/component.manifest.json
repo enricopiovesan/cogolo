@@ -6,7 +6,7 @@
   "capability_version": "1.0.0",
   "contract_path": "../../../../../contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
   "wasm_binary_path": "../../../../capabilities/capture-expedition-objective-agent/artifacts/capture-expedition-objective-agent.wasm",
-  "wasm_digest": "sha256:dca80dca13fa3c052b650cf08a7607677cc79796617b39719cfe216f25c3ef66",
+  "wasm_digest": "sha256:dbf76f359e74b99570f4aacb950c42051fc33965f6ab9f7c2cd7ca68182da581",
   "runtime_constraints": {
     "host_api_access": "none",
     "network_access": "forbidden",

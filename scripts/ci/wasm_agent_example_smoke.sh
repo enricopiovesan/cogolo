@@ -15,7 +15,7 @@ printf '%s\n' "$inspect_output"
 
 grep -q "package_id: expedition.planning.interpret-expedition-intent" <<<"$inspect_output"
 grep -q "capability_id: expedition.planning.interpret-expedition-intent" <<<"$inspect_output"
-grep -q "binary_digest: fnv1a64:db3081d946c03b14" <<<"$inspect_output"
+grep -q "binary_digest: fnv1a64:d52075dd83488908" <<<"$inspect_output"
 
 execute_output="$(cargo run -q -p traverse-cli-rs -- capability-package execute "$agent_manifest" "$agent_request")"
 printf '%s\n' "$execute_output"
