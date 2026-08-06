@@ -15,11 +15,11 @@ mod maintenance;
 mod remote;
 pub use coordinator::{DataStoreCoordinator, DataStoreCoordinatorError};
 pub use hosted_sync::{
-    AblyEdgeError, AblyHistoryBatch, AblyHostedSyncTransport, AblyRealtimeEdge,
-    EncryptedSyncOperation, HostedSyncConnectionState, HostedSyncCredential,
+    run_hosted_sync_conformance, AblyEdgeError, AblyHistoryBatch, AblyHostedSyncTransport,
+    AblyRealtimeEdge, EncryptedSyncOperation, HostedSyncConnectionState, HostedSyncCredential,
     HostedSyncDegradedReason, HostedSyncError, HostedSyncErrorCode, HostedSyncLineageEvidence,
     HostedSyncObservation, HostedSyncPublishReceipt, HostedSyncReplayResult, HostedSyncTransport,
-    InMemoryAblyEdge, InMemoryHostedSyncTransport, SyncScopeId, run_hosted_sync_conformance,
+    InMemoryAblyEdge, InMemoryHostedSyncTransport, SyncScopeId,
 };
 pub use maintenance::{
     BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
@@ -37,7 +37,7 @@ use aes_gcm::aead::{Aead, KeyInit, Payload};
 #[cfg(feature = "datastore-encryption")]
 use aes_gcm::{Aes256Gcm, Nonce};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet};
 use std::fs::{self, File, OpenOptions, TryLockError};
@@ -1400,13 +1400,11 @@ mod tests {
             remote.read("tie").expect("read should succeed"),
             Some(record("tie", "writer-z", 4, json!("winner")))
         );
-        assert!(
-            report
-                .decisions
-                .iter()
-                .any(|decision| decision.resolution_rule
-                    == ConflictResolutionRule::WriterIdentityTieBreak)
-        );
+        assert!(report
+            .decisions
+            .iter()
+            .any(|decision| decision.resolution_rule
+                == ConflictResolutionRule::WriterIdentityTieBreak));
     }
 
     #[test]
@@ -1485,12 +1483,10 @@ mod tests {
 
         let mut phantom_local = PhantomKeyStore;
         let mut phantom_remote = PhantomKeyStore;
-        assert!(
-            sync_adapters(&mut phantom_local, &mut phantom_remote)
-                .expect("phantom sync should succeed")
-                .decisions
-                .is_empty()
-        );
+        assert!(sync_adapters(&mut phantom_local, &mut phantom_remote)
+            .expect("phantom sync should succeed")
+            .decisions
+            .is_empty());
         phantom_local
             .write(record("phantom", "writer-a", 1, json!("value")))
             .expect("phantom write should succeed");

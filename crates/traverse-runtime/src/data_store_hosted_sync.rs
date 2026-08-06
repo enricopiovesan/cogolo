@@ -7,7 +7,7 @@
 
 use crate::events::{LifecycleStatus, TraverseEvent};
 use serde::{Deserialize, Serialize};
-use serde_json::{Value, json};
+use serde_json::{json, Value};
 use sha2::{Digest, Sha256};
 use std::collections::{BTreeMap, BTreeSet, VecDeque};
 
@@ -347,7 +347,9 @@ pub trait AblyRealtimeEdge {
 pub enum AblyEdgeError {
     Unauthorized,
     Unavailable,
-    CursorExpired { oldest_available_cursor: Option<String> },
+    CursorExpired {
+        oldest_available_cursor: Option<String>,
+    },
 }
 
 /// Ordered history batch returned by an Ably edge.
@@ -431,7 +433,10 @@ impl<E: AblyRealtimeEdge> AblyHostedSyncTransport<E> {
     }
 
     fn observe_state(&mut self, kind: &str, state: &HostedSyncConnectionState) {
-        let hashed_scope = self.session.as_ref().map(|session| session.credential.scope.hashed());
+        let hashed_scope = self
+            .session
+            .as_ref()
+            .map(|session| session.credential.scope.hashed());
         self.observations.push(HostedSyncObservation {
             governing_spec: HOSTED_TRANSPORT_SPEC.to_string(),
             kind: kind.to_string(),
@@ -460,7 +465,10 @@ impl<E: AblyRealtimeEdge> AblyHostedSyncTransport<E> {
                 json!({}),
             ));
         }
-        if !self.accepted_key_versions.contains(&operation.key_version_id) {
+        if !self
+            .accepted_key_versions
+            .contains(&operation.key_version_id)
+        {
             return Err(hosted_error(
                 HostedSyncErrorCode::KeyMismatch,
                 "key-version is outside the accepted active/previous window",
@@ -957,7 +965,13 @@ impl SharedRelay {
             let state = HostedSyncConnectionState::Degraded {
                 reason: HostedSyncDegradedReason::CredentialExpired,
             };
-            self.observe("connect_rejected_expired", None, None, Some(state), "rejected");
+            self.observe(
+                "connect_rejected_expired",
+                None,
+                None,
+                Some(state),
+                "rejected",
+            );
             return Err(hosted_error(
                 HostedSyncErrorCode::CredentialExpired,
                 "scoped hosted-relay credential already expired",
@@ -1306,7 +1320,10 @@ impl SharedRelay {
                 json!({}),
             ));
         }
-        if !self.accepted_key_versions.contains(&operation.key_version_id) {
+        if !self
+            .accepted_key_versions
+            .contains(&operation.key_version_id)
+        {
             return Err(hosted_error(
                 HostedSyncErrorCode::KeyMismatch,
                 "key-version is outside the accepted active/previous window",
@@ -1337,7 +1354,10 @@ impl SharedRelay {
         connection_state: Option<HostedSyncConnectionState>,
         outcome: &str,
     ) {
-        let hashed_scope = self.session.as_ref().map(|credential| credential.scope.hashed());
+        let hashed_scope = self
+            .session
+            .as_ref()
+            .map(|credential| credential.scope.hashed());
         self.observations.push(HostedSyncObservation {
             governing_spec: HOSTED_TRANSPORT_SPEC.to_string(),
             kind: kind.to_string(),
@@ -1379,7 +1399,9 @@ fn wrap_ecca_event(operation: &EncryptedSyncOperation) -> TraverseEvent {
     }
 }
 
-fn operation_from_ecca_event(event: &TraverseEvent) -> Result<EncryptedSyncOperation, HostedSyncError> {
+fn operation_from_ecca_event(
+    event: &TraverseEvent,
+) -> Result<EncryptedSyncOperation, HostedSyncError> {
     let ciphertext_hex = event
         .data
         .get("ciphertext")
@@ -1617,8 +1639,7 @@ fn conformance_outage_and_replay(
     transport.advance_clock(1_000 + MIN_REPLAY_WINDOW_MS + 1);
     if matches!(
         transport.connection_state(),
-        HostedSyncConnectionState::Disconnected
-            | HostedSyncConnectionState::Degraded { .. }
+        HostedSyncConnectionState::Disconnected | HostedSyncConnectionState::Degraded { .. }
     ) {
         transport
             .connect(HostedSyncCredential {
@@ -1659,9 +1680,7 @@ fn conformance_evidence(transport: &dyn HostedSyncTransport) -> Result<(), Strin
 /// # Errors
 ///
 /// Returns a descriptive failure when an assertion does not hold.
-pub fn run_hosted_sync_conformance(
-    transport: &mut dyn HostedSyncTransport,
-) -> Result<(), String> {
+pub fn run_hosted_sync_conformance(transport: &mut dyn HostedSyncTransport) -> Result<(), String> {
     let scope = SyncScopeId::new("tenant-a/user-1/device-group-x");
     transport.advance_clock(1_000);
     transport
