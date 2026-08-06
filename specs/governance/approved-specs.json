@@ -1244,6 +1244,59 @@
         "docs/adr/0029-s3-compatible-remote-datastore.md",
         "specs/535-s3-compatible-remote-datastore/"
       ]
+    },
+    {
+      "id": "096-runtime-event-sse-transport",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/964-runtime-event-sse-transport/spec.md",
+      "governs": [
+        "crates/traverse-cli/src/http_api.rs",
+        "crates/traverse-runtime/src/events/",
+        "specs/964-runtime-event-sse-transport/"
+      ]
+    },
+    {
+      "id": "097-websocket-grpc-event-transport",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/966-websocket-grpc-event-transport/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "crates/traverse-runtime/src/events/",
+        "docs/adr/0034-websocket-grpc-event-transport.md",
+        "specs/966-websocket-grpc-event-transport/"
+      ]
+    },
+    {
+      "id": "098-capability-event-host-abi",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/969-capability-event-host-abi/spec.md",
+      "governs": [
+        "crates/traverse-native-bridge/",
+        "crates/traverse-runtime/src/executor/",
+        "crates/traverse-runtime/src/router/",
+        "crates/traverse-contracts/",
+        "docs/adr/0035-capability-event-host-abi.md",
+        "specs/969-capability-event-host-abi/"
+      ]
+    },
+    {
+      "id": "099-workflow-event-broker-unification",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/971-workflow-event-broker-unification/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/workflows.rs",
+        "crates/traverse-runtime/src/events/",
+        "docs/adr/0036-workflow-event-broker-unification.md",
+        "specs/971-workflow-event-broker-unification/"
+      ]
     }
   ]
 }
