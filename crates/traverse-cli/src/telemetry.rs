@@ -279,7 +279,7 @@ fn record_execute_event(
 /// sink (typically [`wire_usage_telemetry_sink`]'s result) so this stays
 /// independently testable without touching the real environment or config
 /// file.
-pub fn execute_with_telemetry<E: LocalExecutor>(
+pub fn execute_with_telemetry<E: LocalExecutor + Send + Sync + 'static>(
     runtime: &Runtime<E>,
     request: RuntimeRequest,
     sink: &dyn UsageTelemetrySink,
