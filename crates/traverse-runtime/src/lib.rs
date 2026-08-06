@@ -14,7 +14,13 @@ pub mod security;
 pub mod trace;
 
 use chrono::Utc;
-use events::{NoopRuntimeEventSink, RuntimeEventSink, TraverseEvent};
+use events::{
+    EventBroker, EventCatalog, EventError, InProcessBroker, NoopRuntimeEventSink, RuntimeEventSink,
+    Subscription, SubscriptionPoll, TraverseEvent,
+};
+use executor::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
+use placement::{PlacementConstraintEvaluator, RuntimeSnapshot};
+use router::{CapabilityExecutorRegistry, PlacementRouter, RouterError, RouterRequest};
 use security::{
     ArtifactVerificationFailure, ArtifactVerificationRecord, RuntimeIdentity,
     RuntimeSecurityConfig, RuntimeWarning, derive_identity_from_jwt, verify_artifact,
@@ -25,9 +31,10 @@ use serde_json::{Map, Value, json};
 use std::fmt;
 use std::fs;
 use std::path::Path;
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
+use trace::TraceStore;
 use traverse_contracts::{
-    ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess, ViolationRecord,
+    EventReference, ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess, ViolationRecord,
 };
 use traverse_registry::{
     CapabilityRegistration, CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope,
@@ -57,15 +64,48 @@ const EXECUTION_PREFIX: &str = "exec_";
 const TRACE_PREFIX: &str = "trace_";
 const RUNTIME_EXECUTION_EVENT_TYPE: &str = "dev.traverse.runtime.execution.completed";
 
-#[derive(Debug, Clone)]
 pub struct Runtime<E> {
     registry: CapabilityRegistry,
     workflow_registry: WorkflowRegistry,
     applications: Vec<WorkspaceApplicationRegistration>,
-    executor: E,
+    executor: Arc<E>,
     observability: RuntimeObservabilityConfig,
     security: RuntimeSecurityConfig,
     event_sink: Arc<dyn RuntimeEventSink>,
+    trace_store: Arc<Mutex<TraceStore>>,
+    event_broker: Arc<dyn EventBroker>,
+}
+
+impl<E: Clone> Clone for Runtime<E> {
+    fn clone(&self) -> Self {
+        Self {
+            registry: self.registry.clone(),
+            workflow_registry: self.workflow_registry.clone(),
+            applications: self.applications.clone(),
+            executor: Arc::clone(&self.executor),
+            observability: self.observability.clone(),
+            security: self.security.clone(),
+            event_sink: Arc::clone(&self.event_sink),
+            trace_store: Arc::clone(&self.trace_store),
+            event_broker: Arc::clone(&self.event_broker),
+        }
+    }
+}
+
+impl<E: fmt::Debug> fmt::Debug for Runtime<E> {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        f.debug_struct("Runtime")
+            .field("registry", &self.registry)
+            .field("workflow_registry", &self.workflow_registry)
+            .field("applications", &self.applications)
+            .field("executor", &self.executor)
+            .field("observability", &self.observability)
+            .field("security", &self.security)
+            .field("event_sink", &self.event_sink)
+            .field("trace_store", &self.trace_store)
+            .field("event_broker", &"Arc<dyn EventBroker>")
+            .finish()
+    }
 }
 
 impl<E> Runtime<E> {
@@ -75,10 +115,12 @@ impl<E> Runtime<E> {
             registry,
             workflow_registry: WorkflowRegistry::new(),
             applications: Vec::new(),
-            executor,
+            executor: Arc::new(executor),
             observability: RuntimeObservabilityConfig::default(),
             security: RuntimeSecurityConfig::default(),
             event_sink: Arc::new(NoopRuntimeEventSink),
+            trace_store: Arc::new(Mutex::new(TraceStore::new())),
+            event_broker: default_event_broker(),
         }
     }
 
@@ -139,6 +181,32 @@ impl<E> Runtime<E> {
     pub fn with_event_sink(mut self, event_sink: Arc<dyn RuntimeEventSink>) -> Self {
         self.event_sink = event_sink;
         self
+    }
+
+    /// Injects the [`EventBroker`] used by [`PlacementRouter`] Step 5.
+    #[must_use]
+    pub fn with_event_broker(mut self, event_broker: Arc<dyn EventBroker>) -> Self {
+        self.event_broker = event_broker;
+        self
+    }
+
+    /// Injects the [`TraceStore`] written by [`PlacementRouter`] Step 4.
+    #[must_use]
+    pub fn with_trace_store(mut self, trace_store: Arc<Mutex<TraceStore>>) -> Self {
+        self.trace_store = trace_store;
+        self
+    }
+
+    /// Returns the runtime-owned event broker used for capability event publishing.
+    #[must_use]
+    pub fn event_broker(&self) -> Arc<dyn EventBroker> {
+        Arc::clone(&self.event_broker)
+    }
+
+    /// Returns the runtime-owned placement-router trace store.
+    #[must_use]
+    pub fn trace_store(&self) -> Arc<Mutex<TraceStore>> {
+        Arc::clone(&self.trace_store)
     }
 
     #[must_use]
@@ -1112,7 +1180,7 @@ fn browser_subscription_error(
 
 impl<E> Runtime<E>
 where
-    E: LocalExecutor,
+    E: LocalExecutor + Send + Sync + 'static,
 {
     /// Executes one runtime request against the current registry state.
     #[must_use]
@@ -1511,60 +1579,287 @@ where
             return self.execute_workflow_capability(context, selected, started_execution);
         }
 
-        let execution_output = match self
-            .executor
-            .execute(selected, &context.attempt.request.input)
-        {
-            Ok(output) => output,
-            Err(failure) => {
-                let error = runtime_error(
-                    RuntimeErrorCode::ExecutionFailed,
-                    &failure.message,
-                    json!({"code": "execution_failed"}),
-                );
-                return execution_failure_outcome(
+        let artifact_type = artifact_type_for(selected);
+        let executor_capability = executor_capability_for(selected, artifact_type.clone());
+        let mut registry: CapabilityExecutorRegistry = CapabilityExecutorRegistry::new();
+        registry.insert(
+            artifact_type.clone(),
+            Box::new(BoundLocalExecutor {
+                executor: Arc::clone(&self.executor),
+                selected: selected.clone(),
+            }),
+        );
+
+        let router = PlacementRouter::new(
+            PlacementConstraintEvaluator,
+            registry,
+            Arc::clone(&self.trace_store),
+            Arc::clone(&self.event_broker),
+        );
+
+        let target_hint = execution_target_from_placement(
+            started_execution
+                .placement
+                .selected_target
+                .unwrap_or(started_execution.placement.requested_target),
+        );
+
+        let router_request = RouterRequest {
+            capability_id: selected.record.id.clone(),
+            artifact_type,
+            contract: selected.contract.clone(),
+            target_hint: Some(target_hint),
+            runtime_snapshot: idle_runtime_snapshot(),
+            input: context.attempt.request.input.clone(),
+            executor_capability,
+            emitted_events: Vec::new(),
+            trace_id_override: Some(context.attempt.trace_id.clone()),
+        };
+
+        let router_result = router.execute(router_request);
+        match router_result {
+            Ok(response) => {
+                if let Err(error) = validate_payload_against_contract(
+                    &response.output,
+                    &selected.contract.outputs.schema,
+                    RuntimeErrorCode::OutputValidationFailed,
+                    "executor output does not satisfy the selected capability output contract",
+                ) {
+                    return execution_failure_outcome(
+                        context,
+                        ExecutionFailureState {
+                            artifact_ref: selected.record.artifact_ref.clone(),
+                            started_at: started_execution.started_at,
+                            placement: started_execution.placement,
+                            failure_reason: ExecutionFailureReason::ContractOutputInvalid,
+                        },
+                        error,
+                        Vec::new(),
+                        None,
+                    );
+                }
+
+                let emitted_events = event_references_from_output(&response.output);
+                successful_execution_outcome(
+                    context,
+                    selected,
+                    started_execution,
+                    response.output,
+                    emitted_events,
+                    None,
+                )
+            }
+            Err(error) => {
+                let (runtime_error, failure_reason, emitted_events) = map_router_error(&error);
+                execution_failure_outcome(
                     context,
                     ExecutionFailureState {
                         artifact_ref: selected.record.artifact_ref.clone(),
                         started_at: started_execution.started_at,
                         placement: started_execution.placement,
-                        failure_reason: ExecutionFailureReason::ExecutionFailed,
+                        failure_reason,
                     },
-                    error,
-                    Vec::new(),
+                    runtime_error,
+                    emitted_events,
                     None,
-                );
+                )
             }
-        };
-
-        if let Err(error) = validate_payload_against_contract(
-            &execution_output,
-            &selected.contract.outputs.schema,
-            RuntimeErrorCode::OutputValidationFailed,
-            "executor output does not satisfy the selected capability output contract",
-        ) {
-            return execution_failure_outcome(
-                context,
-                ExecutionFailureState {
-                    artifact_ref: selected.record.artifact_ref.clone(),
-                    started_at: started_execution.started_at,
-                    placement: started_execution.placement,
-                    failure_reason: ExecutionFailureReason::ContractOutputInvalid,
-                },
-                error,
-                Vec::new(),
-                None,
-            );
         }
+    }
+}
 
-        successful_execution_outcome(
-            context,
-            selected,
-            started_execution,
-            execution_output,
+/// Bridges the host [`LocalExecutor`] into a [`CapabilityExecutor`] for one selected capability.
+struct BoundLocalExecutor<E> {
+    executor: Arc<E>,
+    selected: ResolvedCapability,
+}
+
+impl<E> CapabilityExecutor for BoundLocalExecutor<E>
+where
+    E: LocalExecutor + Send + Sync,
+{
+    fn execute(
+        &self,
+        _capability: &ExecutorCapability,
+        input: &Value,
+    ) -> Result<Value, ExecutorError> {
+        self.executor
+            .execute(&self.selected, input)
+            .map_err(|failure| ExecutorError::ExecutionFailed(failure.message))
+    }
+}
+
+/// Best-effort broker used only when the default in-process broker cannot be constructed.
+#[derive(Debug, Default)]
+struct DiscardEventBroker;
+
+impl EventBroker for DiscardEventBroker {
+    fn publish(&self, _event: TraverseEvent) -> Result<(), EventError> {
+        Ok(())
+    }
+
+    fn subscribe(
+        &self,
+        event_type: &str,
+        _from_cursor: &str,
+    ) -> Result<Subscription, EventError> {
+        Err(EventError::UnregisteredEventType(event_type.to_string()))
+    }
+
+    fn subscribe_for_subject(
+        &self,
+        event_type: &str,
+        _from_cursor: &str,
+        _subject_id: Option<&str>,
+    ) -> Result<Subscription, EventError> {
+        Err(EventError::UnregisteredEventType(event_type.to_string()))
+    }
+
+    fn poll(
+        &self,
+        subscription_id: &str,
+        _max_events: usize,
+    ) -> Result<SubscriptionPoll, EventError> {
+        Err(EventError::SubscriptionNotFound(subscription_id.to_string()))
+    }
+
+    fn cancel(&self, subscription_id: &str) -> Result<(), EventError> {
+        Err(EventError::SubscriptionNotFound(subscription_id.to_string()))
+    }
+}
+
+fn default_event_broker() -> Arc<dyn EventBroker> {
+    match InProcessBroker::new(Arc::new(EventCatalog::new())) {
+        Ok(broker) => Arc::new(broker),
+        Err(_) => Arc::new(DiscardEventBroker),
+    }
+}
+
+fn idle_runtime_snapshot() -> RuntimeSnapshot {
+    RuntimeSnapshot {
+        target_loads: [
+            (ExecutionTarget::Local, 0.0),
+            (ExecutionTarget::Browser, 0.0),
+            (ExecutionTarget::Edge, 0.0),
+            (ExecutionTarget::Cloud, 0.0),
+            (ExecutionTarget::Worker, 0.0),
+            (ExecutionTarget::Device, 0.0),
+        ]
+        .into_iter()
+        .collect(),
+    }
+}
+
+fn artifact_type_for(selected: &ResolvedCapability) -> ArtifactType {
+    if selected.artifact.binary.is_some() {
+        ArtifactType::Wasm
+    } else {
+        ArtifactType::Native
+    }
+}
+
+fn executor_capability_for(
+    selected: &ResolvedCapability,
+    artifact_type: ArtifactType,
+) -> ExecutorCapability {
+    let binary = selected.artifact.binary.as_ref();
+    ExecutorCapability {
+        capability_id: selected.contract.id.clone(),
+        artifact_type,
+        wasm_binary_path: binary.map(|binary| binary.location.clone()),
+        wasm_checksum: selected
+            .artifact
+            .digests
+            .binary_digest
+            .as_deref()
+            .and_then(|digest| digest.strip_prefix("sha256:"))
+            .map(str::to_string),
+        host_abi_version: None,
+    }
+}
+
+fn execution_target_from_placement(target: PlacementTarget) -> ExecutionTarget {
+    match target {
+        PlacementTarget::Local => ExecutionTarget::Local,
+        PlacementTarget::Browser => ExecutionTarget::Browser,
+        PlacementTarget::Edge => ExecutionTarget::Edge,
+        PlacementTarget::Cloud => ExecutionTarget::Cloud,
+        PlacementTarget::Worker => ExecutionTarget::Worker,
+        PlacementTarget::Device => ExecutionTarget::Device,
+    }
+}
+
+fn event_references_from_output(output: &Value) -> Vec<EventReference> {
+    let Some(Value::Array(events)) = output.get("emitted_events") else {
+        return Vec::new();
+    };
+    events
+        .iter()
+        .filter_map(|event| {
+            let Value::Object(object) = event else {
+                return None;
+            };
+            Some(EventReference {
+                event_id: object.get("event_id")?.as_str()?.to_string(),
+                version: object.get("version")?.as_str()?.to_string(),
+            })
+        })
+        .collect()
+}
+
+fn map_router_error(
+    error: &RouterError,
+) -> (
+    RuntimeError,
+    ExecutionFailureReason,
+    Vec<EventReference>,
+) {
+    match error {
+        RouterError::PlacementFailed(placement_error) => (
+            runtime_error(
+                RuntimeErrorCode::PlacementUnsupported,
+                "placement constraints rejected the capability execution request",
+                json!({"placement_error": format!("{placement_error:?}")}),
+            ),
+            ExecutionFailureReason::PlacementUnsupported,
             Vec::new(),
-            None,
-        )
+        ),
+        RouterError::ExecutorNotFound(artifact_type) => (
+            runtime_error(
+                RuntimeErrorCode::CapabilityNotRunnable,
+                "no executor is registered for the capability artifact type",
+                json!({"artifact_type": artifact_type}),
+            ),
+            ExecutionFailureReason::ArtifactNotRunnable,
+            Vec::new(),
+        ),
+        RouterError::ExecutionFailed(message) => (
+            runtime_error(
+                RuntimeErrorCode::ExecutionFailed,
+                message,
+                json!({"code": "execution_failed"}),
+            ),
+            ExecutionFailureReason::ExecutionFailed,
+            Vec::new(),
+        ),
+        RouterError::ContractViolation(violations) => (
+            runtime_error(
+                RuntimeErrorCode::ContractViolation,
+                "capability execution violated its governed contract",
+                json!({"violations": violations}),
+            ),
+            ExecutionFailureReason::ExecutionFailed,
+            Vec::new(),
+        ),
+        RouterError::TraceLockPoisoned => (
+            runtime_error(
+                RuntimeErrorCode::ExecutionFailed,
+                "trace store lock is poisoned",
+                json!({"code": "trace_lock_poisoned"}),
+            ),
+            ExecutionFailureReason::ExecutionFailed,
+            Vec::new(),
+        ),
     }
 }
 
@@ -2340,14 +2635,6 @@ fn evaluate_candidate(candidate: ResolvedCapability) -> CandidateEvaluation {
         return CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing);
     }
 
-    let Some(binary) = candidate.artifact.binary.as_ref() else {
-        return CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing);
-    };
-
-    if binary.location.trim().is_empty() {
-        return CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing);
-    }
-
     let execution = &candidate.contract.execution;
     if !execution
         .preferred_targets
@@ -2361,7 +2648,13 @@ fn evaluate_candidate(candidate: ResolvedCapability) -> CandidateEvaluation {
         );
     }
 
-    CandidateEvaluation::Eligible(candidate)
+    match candidate.artifact.binary.as_ref() {
+        Some(binary) if binary.location.trim().is_empty() => {
+            CandidateEvaluation::Rejected(candidate, RejectedCandidateReason::ArtifactMissing)
+        }
+        // Native/host-handled capabilities execute without a registered binary blob.
+        None | Some(_) => CandidateEvaluation::Eligible(candidate),
+    }
 }
 
 fn validate_payload_against_contract(
@@ -3166,15 +3459,151 @@ mod tests {
     }
 
     #[test]
-    fn missing_binary_metadata_is_rejected_as_artifact_missing() {
+    fn missing_binary_metadata_is_eligible_for_native_host_execution() {
         let capability = resolved_capability(None, Lifecycle::Active);
 
         let evaluation = evaluate_candidate(capability);
 
-        assert!(matches!(
-            evaluation,
-            CandidateEvaluation::Rejected(_, RejectedCandidateReason::ArtifactMissing)
-        ));
+        assert!(matches!(evaluation, CandidateEvaluation::Eligible(_)));
+    }
+
+    #[test]
+    fn live_wiring_helpers_support_native_and_wasm_artifact_types() {
+        use super::executor::ArtifactType;
+        use super::placement::PlacementError;
+        use super::router::RouterError;
+        use super::{ExecutionFailureReason, RuntimeErrorCode};
+
+        let native = resolved_capability(None, Lifecycle::Active);
+        assert_eq!(super::artifact_type_for(&native), ArtifactType::Native);
+        assert_eq!(
+            super::executor_capability_for(&native, ArtifactType::Native)
+                .artifact_type,
+            ArtifactType::Native
+        );
+
+        let wasm = resolved_capability(
+            Some(traverse_registry::BinaryReference {
+                format: traverse_registry::BinaryFormat::Wasm,
+                location: "artifact.wasm".to_string(),
+                signature: None,
+            }),
+            Lifecycle::Active,
+        );
+        assert_eq!(super::artifact_type_for(&wasm), ArtifactType::Wasm);
+
+        let (code, reason, _) =
+            super::map_router_error(&RouterError::ExecutorNotFound("Native".to_string()));
+        assert_eq!(code.code, RuntimeErrorCode::CapabilityNotRunnable);
+        assert_eq!(reason, ExecutionFailureReason::ArtifactNotRunnable);
+
+        let (code, reason, _) = super::map_router_error(&RouterError::TraceLockPoisoned);
+        assert_eq!(code.code, RuntimeErrorCode::ExecutionFailed);
+        assert_eq!(reason, ExecutionFailureReason::ExecutionFailed);
+
+        let (code, reason, _) =
+            super::map_router_error(&RouterError::PlacementFailed(PlacementError::NoEligibleTarget));
+        assert_eq!(code.code, RuntimeErrorCode::PlacementUnsupported);
+        assert_eq!(reason, ExecutionFailureReason::PlacementUnsupported);
+    }
+
+    #[test]
+    fn bound_local_executor_publishes_native_artifact_events_through_placement_router() {
+        use super::executor::ArtifactType;
+        use super::events::{
+            EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
+        };
+        use super::placement::PlacementConstraintEvaluator;
+        use super::router::{CapabilityExecutorRegistry, PlacementRouter, RouterRequest};
+        use super::trace::TraceStore;
+        use super::{LocalExecutionFailure, LocalExecutor};
+        use serde_json::Value;
+
+        struct NativeEmitExecutor;
+        impl LocalExecutor for NativeEmitExecutor {
+            fn execute(
+                &self,
+                _capability: &ResolvedCapability,
+                _input: &Value,
+            ) -> Result<Value, LocalExecutionFailure> {
+                Ok(json!({
+                    "draft_id": "native-1",
+                    "emitted_events": [{
+                        "event_id": "dev.traverse.native.live-emitted",
+                        "version": "1.0.0"
+                    }]
+                }))
+            }
+        }
+
+        let event_type = "dev.traverse.native.live-emitted";
+        let catalog = Arc::new(EventCatalog::new());
+        catalog
+            .register(EventCatalogEntry {
+                event_type: event_type.to_string(),
+                owner: "native.live".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .expect("catalog entry should register");
+        let broker = Arc::new(InProcessBroker::new(catalog).expect("broker should construct"));
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe should succeed");
+        let trace_store = Arc::new(Mutex::new(TraceStore::new()));
+
+        let mut selected = resolved_capability(None, Lifecycle::Active);
+        selected.contract.service_type = ServiceType::Subscribable;
+        selected.contract.event_trigger = Some("dev.traverse.native.trigger".to_string());
+        selected.contract.emits = vec![traverse_contracts::EventReference {
+            event_id: event_type.to_string(),
+            version: "1.0.0".to_string(),
+        }];
+        selected.contract.permitted_targets = vec![ExecutionTarget::Local, ExecutionTarget::Cloud];
+
+        let mut registry = CapabilityExecutorRegistry::new();
+        registry.insert(
+            ArtifactType::Native,
+            Box::new(super::BoundLocalExecutor {
+                executor: Arc::new(NativeEmitExecutor),
+                selected: selected.clone(),
+            }),
+        );
+        let router = PlacementRouter::new(
+            PlacementConstraintEvaluator,
+            registry,
+            Arc::clone(&trace_store),
+            broker.clone(),
+        );
+
+        let response = router
+            .execute(RouterRequest {
+                capability_id: selected.record.id.clone(),
+                artifact_type: ArtifactType::Native,
+                contract: selected.contract.clone(),
+                target_hint: Some(ExecutionTarget::Local),
+                runtime_snapshot: super::idle_runtime_snapshot(),
+                input: json!({}),
+                executor_capability: super::executor_capability_for(&selected, ArtifactType::Native),
+                emitted_events: Vec::new(),
+                trace_id_override: Some("trace_native_live".to_string()),
+            })
+            .expect("native placement router execution should succeed");
+
+        assert_eq!(response.trace_id, "trace_native_live");
+        let poll = broker
+            .poll(&subscription.subscription_id, 10)
+            .expect("poll should succeed");
+        assert_eq!(poll.events.len(), 1);
+        assert_eq!(poll.events[0].event.event_type, event_type);
+        assert!(
+            trace_store
+                .lock()
+                .expect("trace lock")
+                .get("trace_native_live")
+                .is_some()
+        );
     }
 
     #[test]

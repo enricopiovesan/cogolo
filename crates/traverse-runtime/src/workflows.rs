@@ -230,7 +230,7 @@ struct EventDrivenEvaluationOutcome {
 
 impl<E> Runtime<E>
 where
-    E: LocalExecutor,
+    E: LocalExecutor + Send + Sync + 'static,
 {
     #[must_use]
     #[allow(clippy::needless_pass_by_value)]

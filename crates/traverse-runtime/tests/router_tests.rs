@@ -193,6 +193,7 @@ fn native_capability_executes_and_writes_trace() -> Result<(), String> {
         input: json!({ "key": "value" }),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: Vec::new(),
+        trace_id_override: None,
     };
 
     let response = router.execute(request).map_err(|e| e.to_string())?;
@@ -244,6 +245,7 @@ fn placement_failure_returns_error_and_no_trace() -> Result<(), String> {
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: Vec::new(),
+        trace_id_override: None,
     };
 
     let err = must_err(router.execute(request), "expected placement error")?;
@@ -290,6 +292,7 @@ fn missing_executor_returns_not_found_error() -> Result<(), String> {
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: Vec::new(),
+        trace_id_override: None,
     };
 
     let err = must_err(router.execute(request), "expected executor-not-found error")?;
@@ -305,6 +308,61 @@ fn missing_executor_returns_not_found_error() -> Result<(), String> {
 // ---------------------------------------------------------------------------
 // Test: Subscribable capability publishes emitted events
 // ---------------------------------------------------------------------------
+
+#[test]
+fn subscribable_capability_publishes_events_from_output_json() -> Result<(), String> {
+    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
+    let event_type = "dev.traverse.router.test.output-emitted";
+    let broker = broker_with_event(event_type)?;
+    let sub = broker
+        .subscribe(event_type, "0")
+        .map_err(|e| e.to_string())?;
+    let broker_arc: Arc<dyn EventBroker> = broker;
+
+    let router = make_router_with_native(
+        json!({
+            "done": true,
+            "emitted_events": [
+                {
+                    "event_id": event_type,
+                    "version": "1.0.0",
+                    "payload": {"ok": true}
+                }
+            ]
+        }),
+        Arc::clone(&trace_store),
+        Arc::clone(&broker_arc),
+    );
+
+    let mut contract = base_contract(ServiceType::Subscribable);
+    contract.event_trigger = Some("dev.traverse.router.test.triggered".to_string());
+    contract.emits = vec![EventReference {
+        event_id: event_type.to_string(),
+        version: "1.0.0".to_string(),
+    }];
+
+    let request = RouterRequest {
+        capability_id: "router.tests.subject".to_string(),
+        artifact_type: ArtifactType::Native,
+        contract,
+        target_hint: Some(ExecutionTarget::Local),
+        runtime_snapshot: idle_snapshot(),
+        input: json!({}),
+        executor_capability: native_executor_capability("router.tests.subject"),
+        emitted_events: Vec::new(),
+        trace_id_override: None,
+    };
+
+    router.execute(request).map_err(|e| e.to_string())?;
+
+    let poll = broker_arc
+        .poll(&sub.subscription_id, 10)
+        .map_err(|e| e.to_string())?;
+    assert_eq!(poll.events.len(), 1, "one event must be delivered from output JSON");
+    assert_eq!(poll.events[0].event.event_type, event_type);
+
+    Ok(())
+}
 
 #[test]
 fn subscribable_capability_publishes_events() -> Result<(), String> {
@@ -341,6 +399,7 @@ fn subscribable_capability_publishes_events() -> Result<(), String> {
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: vec![sample_event(event_type)],
+        trace_id_override: None,
     };
 
     router.execute(request).map_err(|e| e.to_string())?;
@@ -380,6 +439,7 @@ fn undeclared_event_emission_fails_execution_and_is_recorded() -> Result<(), Str
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: vec![sample_event(event_type)],
+        trace_id_override: None,
     };
 
     let err = must_err(router.execute(request), "expected contract violation")?;
@@ -434,6 +494,7 @@ fn stateless_capability_does_not_publish_events() -> Result<(), String> {
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: vec![sample_event(event_type)], // provided but must not be published
+        trace_id_override: None,
     };
 
     router.execute(request).map_err(|e| e.to_string())?;
@@ -509,6 +570,7 @@ fn executor_error_returns_execution_failed() -> Result<(), String> {
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
         emitted_events: Vec::new(),
+        trace_id_override: None,
     };
 
     let err = must_err(router.execute(request), "expected execution error")?;
