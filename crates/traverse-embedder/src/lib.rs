@@ -412,6 +412,14 @@ impl EmbeddedDataStoreError {
             DataStoreErrorCode::ClassificationChangeNotAllowed => {
                 "classification_change_not_allowed"
             }
+            DataStoreErrorCode::RemoteConflict => "remote_conflict",
+            DataStoreErrorCode::RemoteUnavailable => "remote_unavailable",
+            DataStoreErrorCode::RemoteTimeout => "remote_timeout",
+            DataStoreErrorCode::RemoteOutcomeUnknown => "remote_outcome_unknown",
+            DataStoreErrorCode::RemoteUnauthorized => "remote_unauthorized",
+            DataStoreErrorCode::RemoteScopeDenied => "remote_scope_denied",
+            DataStoreErrorCode::RemoteIntegrityFailed => "remote_integrity_failed",
+            DataStoreErrorCode::RemoteBackendFailed => "remote_backend_failed",
         };
         Self { code, operation }
     }
@@ -1901,6 +1909,26 @@ mod tests {
             (
                 DataStoreErrorCode::ClassificationChangeNotAllowed,
                 "classification_change_not_allowed",
+            ),
+            (DataStoreErrorCode::RemoteConflict, "remote_conflict"),
+            (DataStoreErrorCode::RemoteUnavailable, "remote_unavailable"),
+            (DataStoreErrorCode::RemoteTimeout, "remote_timeout"),
+            (
+                DataStoreErrorCode::RemoteOutcomeUnknown,
+                "remote_outcome_unknown",
+            ),
+            (
+                DataStoreErrorCode::RemoteUnauthorized,
+                "remote_unauthorized",
+            ),
+            (DataStoreErrorCode::RemoteScopeDenied, "remote_scope_denied"),
+            (
+                DataStoreErrorCode::RemoteIntegrityFailed,
+                "remote_integrity_failed",
+            ),
+            (
+                DataStoreErrorCode::RemoteBackendFailed,
+                "remote_backend_failed",
             ),
         ];
         for (code, expected) in codes {

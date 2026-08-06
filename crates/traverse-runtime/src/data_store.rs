@@ -9,10 +9,16 @@
 mod coordinator;
 #[path = "data_store_maintenance.rs"]
 mod maintenance;
+#[path = "data_store_remote.rs"]
+mod remote;
 pub use coordinator::{DataStoreCoordinator, DataStoreCoordinatorError};
 pub use maintenance::{
     BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
     MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
+};
+pub use remote::{
+    RemoteBackendFailure, RemoteDataStoreBackend, RemoteKeyValueDataStore, RemoteObject,
+    RemoteOperationEvidence, RemoteVersionToken, RemoteWriteOutcome,
 };
 
 #[cfg(feature = "datastore-encryption")]
@@ -95,6 +101,14 @@ pub enum DataStoreErrorCode {
     KeyProviderFailure,
     CryptoFailure,
     ClassificationChangeNotAllowed,
+    RemoteConflict,
+    RemoteUnavailable,
+    RemoteTimeout,
+    RemoteOutcomeUnknown,
+    RemoteUnauthorized,
+    RemoteScopeDenied,
+    RemoteIntegrityFailed,
+    RemoteBackendFailed,
 }
 
 /// Classification recorded with each locally durable record.
