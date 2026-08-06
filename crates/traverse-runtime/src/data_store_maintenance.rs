@@ -2100,12 +2100,25 @@ mod tests {
         );
         drop(maintenance);
 
-        let reader =
+        let mut reader =
             LocalFileDataStore::with_classification(&root, LocalDataClassification::Public)
                 .expect("v2 reader");
         assert_eq!(
             reader.read("k00").expect("read").expect("record").key,
             "k00"
+        );
+        reader
+            .write(StateRecord {
+                key: "k00".to_string(),
+                value: json!({ "n": 99 }),
+                lamport_clock: 99,
+                writer_id: "host".to_string(),
+            })
+            .expect("v2-preserving write");
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(root.join("k00.json")).expect("v2 rewrite"))
+                .expect("v2 json")["format"],
+            LOCAL_DATA_STORE_V2_FORMAT
         );
         drop(reader);
 
@@ -2161,6 +2174,43 @@ mod tests {
             fs::read(root.join("k00.json")).expect("source preserved"),
             before
         );
+    }
+
+    #[test]
+    fn migration_error_mapping_is_stable_and_secret_free() {
+        let maintenance = MaintenanceError {
+            code: MaintenanceErrorCode::MaintenanceIoFailed,
+            message: "internal path must not escape".to_string(),
+            details: json!({ "path": "/secret" }),
+        };
+        let io = std::io::Error::other("internal path must not escape");
+        let data_store = DataStoreError {
+            code: DataStoreErrorCode::IoFailure,
+            message: "internal path must not escape".to_string(),
+            details: json!({ "path": "/secret" }),
+        };
+        let mapped = [
+            map_migration_source_error(maintenance.clone()),
+            map_migration_backup_error(maintenance.clone()),
+            map_migration_write_io(io),
+            map_migration_write_data_store(data_store),
+            map_migration_verification_error(maintenance.clone()),
+            map_migration_commit_io(std::io::Error::other("internal")),
+            map_migration_commit_error(maintenance),
+        ];
+        let expected = [
+            MigrationErrorCode::SourceInvalid,
+            MigrationErrorCode::BackupFailed,
+            MigrationErrorCode::WriteFailed,
+            MigrationErrorCode::WriteFailed,
+            MigrationErrorCode::VerificationFailed,
+            MigrationErrorCode::CommitFailed,
+            MigrationErrorCode::CommitFailed,
+        ];
+        for (error, code) in mapped.into_iter().zip(expected) {
+            assert_eq!(error.code, code);
+            assert!(!error.details.to_string().contains("secret"));
+        }
     }
 
     fn write_zip(parent: &Path, members: &[(&str, &[u8])]) -> PathBuf {

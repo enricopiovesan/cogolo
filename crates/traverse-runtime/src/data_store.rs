@@ -611,9 +611,6 @@ impl DataStore for LocalFileDataStore {
             Some(LOCAL_DATA_STORE_V2_FORMAT) => decode_v2_envelope(value)?,
             _ => return Err(integrity_error("unknown_format_version")),
         };
-        if envelope.format != LOCAL_DATA_STORE_FORMAT {
-            return Err(integrity_error("unknown_format_version"));
-        }
         match envelope.classification {
             LocalDataClassification::Public => {
                 let record = envelope
@@ -2266,6 +2263,43 @@ mod tests {
             thread::sleep(Duration::from_millis(10));
         }
         false
+    }
+
+    #[test]
+    fn v2_envelope_rejects_tampering_unknown_fields_and_invalid_inner_format() {
+        let private = LocalDataStoreEnvelope {
+            format: LOCAL_DATA_STORE_FORMAT.to_string(),
+            classification: LocalDataClassification::Private,
+            digest: "sha256:opaque".to_string(),
+            record: None,
+            record_key: Some("record".to_string()),
+            key_id: Some("host-key".to_string()),
+            nonce: Some("000000000000000000000000".to_string()),
+            ciphertext: Some("00000000000000000000000000000000".to_string()),
+            retained_at: None,
+        };
+        let wrapped = v2_envelope(private).expect("wrap private payload");
+        assert_eq!(wrapped.encryption_disclosure, "host_managed_opaque");
+
+        let mut tampered = serde_json::to_value(&wrapped).expect("json");
+        tampered["payload_integrity"] = Value::String("sha256:bad".to_string());
+        assert!(decode_v2_envelope(tampered).is_err());
+
+        let mut payload_tampered = serde_json::to_value(&wrapped).expect("json");
+        payload_tampered["payload_integrity"] = Value::String("sha256:bad".to_string());
+        payload_tampered["integrity"]["content_digest"] = Value::String("sha256:bad".to_string());
+        assert!(decode_v2_envelope(payload_tampered).is_err());
+
+        let mut unknown = serde_json::to_value(&wrapped).expect("json");
+        unknown["format_version"] = json!(99);
+        assert!(decode_v2_envelope(unknown).is_err());
+
+        let mut invalid_inner = wrapped;
+        invalid_inner.payload.format = "unknown/9".to_string();
+        let bytes = serde_json::to_vec(&invalid_inner.payload).expect("payload");
+        invalid_inner.payload_integrity = digest_bytes(&bytes);
+        invalid_inner.integrity.content_digest = invalid_inner.payload_integrity.clone();
+        assert!(decode_v2_envelope(serde_json::to_value(invalid_inner).expect("json")).is_err());
     }
 
     fn stateful_contract(state_schema: Option<Value>) -> CapabilityContract {
