@@ -1302,3 +1302,438 @@ values are absent, and #929's execute-path wiring (#934) already shipped
 against the same port. Whenever the user creates the PostHog project and
 hands over its endpoint/key, the remaining work is a one-line hardcode into
 `telemetry.rs` plus a PR — no further design decisions.
+
+## Decision 44: Wire `PlacementRouter` Into the Live Execution Path Is Not a New Decision — It's an Unimplemented Approved Requirement
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing spec**: `210-runtime-placement-router` (already approved; FR-006, Assumptions)
+- **Related issues**: `#963`
+- **Origin**: `/brainstorm` session closing the eventing-architecture gap analysis (UMA white paper comparison)
+
+### Context
+
+A full read of the UMA white paper's eventing model (capability↔runtime,
+runtime↔runtime, runtime↔UI) against the current codebase found that
+`PlacementRouter::execute` — which evaluates placement, selects an executor,
+writes trace entries, and (Step 5) publishes a `Subscribable` capability's
+declared `emitted_events` to `EventBroker` — is fully built and tested
+(`router/mod.rs`, `router_tests.rs`, `expedition_wasm_tests.rs`,
+`thread_pool_integration.rs`) but never constructed or called from the live
+`Runtime::execute` path in `traverse-runtime/src/lib.rs`. That path instead
+only emits one hardcoded system lifecycle event
+(`RUNTIME_EXECUTION_EVENT_TYPE`) per run via `emit_execution_lifecycle_event`
+— no capability-declared business event ever reaches `EventBroker` in
+production today.
+
+Before treating this as an open brainstorm question, `210-runtime-placement-router`
+was checked directly: **FR-006** already states *"PlacementRouter is the
+single public entry point for all capability execution in traverse-runtime,"*
+and its Assumptions section already states *"PlacementRouter replaces any
+ad-hoc execution wiring currently in traverse-runtime."*
+
+### Decision
+
+This is not a design decision to brainstorm — it is a gap between an already
+Approved, immutable spec and the current implementation. It goes straight to
+a ticket ("wire `PlacementRouter` into `Runtime::execute`, retire the
+ad-hoc lifecycle-only emission path") with no new spec, ADR, or brainstorm
+question required.
+
+### Alternatives Considered
+
+None — the governing spec already forecloses alternatives (single entry
+point, replaces ad-hoc wiring).
+
+### Outcome
+
+Filed as the first, prerequisite ticket in the eventing sequence. Every
+other decision in this session assumes this lands first, since it's what
+makes `EventBroker` carry real capability events instead of only lifecycle
+telemetry.
+
+## Decision 45: Governance Vehicle for the Runtime-Event-to-Transport Gap Is New, Narrow Specs — Not a `534` Addendum
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: extends `207-event-broker`, `534-ecca-event-products`
+- **Related issues**: `#964`, `#965`
+- **Origin**: `/brainstorm` session, question 1
+
+### Context
+
+`534-ecca-event-products` (approved 2026-07-29, the newest eventing spec)
+explicitly scopes in "runtime behavior" and "host adapters" as still-open
+work — which is exactly where "how does a domain event reach a UI
+transport" belongs. But `.specify/memory/constitution.md` and
+`approved-specs.json` (`"immutable": true` on every entry) both state specs
+are treated as immutable once approved for implementation, so `534` cannot
+be edited in place. The real choice was between one new combined spec
+covering the whole bridge, or several narrow specs matching this repo's
+existing convention (every other spec here — `003`, `013`, `018`, `207`,
+`534`, etc. — is single-purpose).
+
+### Decision
+
+Close the gap with separate, narrow specs per concern rather than one
+combined spec: one spec for "production SSE reads from `EventBroker`"
+(extends `207` + `534`), and downstream north-star specs (below) for
+transport and capability ABI, each extending their own governing chain.
+
+### Alternatives Considered
+
+- Edit `534` in place — rejected, specs are immutable once approved.
+- One combined spec covering SSE migration + `browser_adapter.rs` fate +
+  transport — rejected, couples a "must do" (governed plumbing) to a
+  "policy call" (dev-tool disposition) and has no precedent in this repo's
+  spec granularity.
+
+### Outcome
+
+Unlocks the SSE-migration spec as its own ticket, independent of the
+`browser_adapter.rs` and transport decisions below.
+
+## Decision 46: Keep `browser_adapter.rs` As-Is for Now; Track Its Eventual Merge as a North-Star Item
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: `013-browser-runtime-subscription`, `019-local-browser-adapter-transport` (unchanged)
+- **Related issues**: `#973`
+- **Origin**: `/brainstorm` session, question 2
+
+### Context
+
+`browser_adapter.rs` (`traverse-cli browser-adapter serve`) is a standalone,
+single-connection, local-dev-only server implementing spec `013`'s governed
+browser-subscription message contract, replaying one hardcoded canonical
+outcome. It is not the production HTTP API server and is not backed by
+`EventBroker`. Three options existed: retire it, merge it into the
+production HTTP API (making spec `013`'s ordered message contract real in
+production), or leave it unchanged.
+
+### Decision
+
+Leave it unchanged for now — it doesn't block the SSE-on-`EventBroker`
+migration. The user explicitly flagged that this should not be forgotten:
+merging it into the production server (so spec `013`'s ordered
+`subscription_established → state → trace → terminal_result →
+stream_completed` contract becomes real, `EventBroker`-backed production
+behavior) is tracked as a north-star ticket, gated on the WebSocket
+transport (Decision 47) shipping first.
+
+### Alternatives Considered
+
+- Retire it entirely — rejected for now: loses a low-friction local-testing
+  workflow with no replacement ready yet.
+- Merge into production HTTP API now — rejected for now: the production
+  endpoint doesn't yet implement spec `013`'s ordered message contract;
+  doing this before the transport decision (Decision 47) would mean
+  redoing it once WebSocket lands anyway.
+
+### Outcome
+
+No ticket for `browser_adapter.rs` in the near-term batch. One north-star
+ticket filed: "revisit merging `browser_adapter.rs` into the production
+HTTP API," explicitly blocked on the WebSocket transport ticket.
+
+## Decision 47: North-Star Runtime Event Transport Is WebSocket + gRPC, Decided Now, Replacing SSE
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: new ADR + spec (to be authored), extends `013-browser-runtime-subscription`, `207-event-broker`, `534-ecca-event-products`
+- **Related issues**: `#966`, `#967`, `#968`
+- **Origin**: `/brainstorm` session, questions 3–6
+
+### Context
+
+`534-ecca-event-products` explicitly scopes out "selecting a broker vendor
+or transport topology" — meaning no existing spec picks a wire protocol for
+runtime→UI (or cross-boundary runtime→runtime) event delivery. A repo-wide
+search found zero WebSocket or gRPC dependencies (no `tonic`/`prost`,
+no websocket library) anywhere in the workspace; only SSE exists, and only
+on the ungoverned `AppStateEventRecord` channel. The UMA white paper
+(§4.4.2) treats WebSocket and gRPC as the common event-management interface,
+with SSE framed only as a comparison option, not the target state.
+
+Four sub-questions were resolved in sequence:
+
+1. **Decide now vs. defer**: decide now, rather than leaving it an open
+   "TBD" — UMA is unambiguous here and Traverse already has real capability
+   contracts declaring publishers/subscribers with nowhere governed for
+   those events to reach a live client.
+2. **Relationship to the near-term SSE work**: WebSocket replaces SSE
+   outright once it ships (not "SSE stays as a fallback") — one transport,
+   one code path, matching the "no back-compat tax while pre-production"
+   principle established in Decision 48.
+3. **Sequencing**: still migrate the existing SSE endpoint onto
+   `EventBroker` first (Decision 45's spec), then replace it with WebSocket
+   later — the SSE step is small, bounded, and already scoped; it proves
+   "`EventBroker` actually reaches a transport" before taking on WebSocket's
+   larger lift (server framework, connection lifecycle, auth-over-socket).
+4. **gRPC scope**: decide gRPC now too, alongside WebSocket, rather than
+   deferring it — per UMA's own guidance (§4.3 Platform Considerations),
+   WebSocket and gRPC are peers a client picks between per platform/workload
+   (`Starscream`/`OkHttp` for WebSocket, `grpc-swift`/`grpc-java` for gRPC on
+   mobile), not a primary/secondary pair, so scoping only one now would
+   under-specify the interface UMA actually describes.
+
+### Decision
+
+Author an ADR + spec (Decision 50) committing to WebSocket and gRPC as the
+governed runtime-event transport pair, both reading from the same
+`EventBroker`/`TraverseEvent` source, replacing the SSE endpoint outright
+once shipped. Implementation is staged: SSE-on-`EventBroker` ships first
+(Decision 45), WebSocket and gRPC ship after, each retiring their
+predecessor rather than running in parallel indefinitely.
+
+### Alternatives Considered
+
+- Defer the transport choice entirely — rejected, UMA and the existing
+  capability contracts already assume this exists.
+- WebSocket only, gRPC deferred until a native/mobile client exists —
+  rejected: the user chose to decide both together rather than
+  speculatively defer gRPC.
+- Keep SSE as a permanent fallback alongside WebSocket — rejected in favor
+  of a clean replacement, consistent with the pre-production fix-fast
+  principle (Decision 48).
+
+### Outcome
+
+Two north-star tickets: author the transport ADR+spec, then implement
+WebSocket (retiring SSE) and gRPC. Both are downstream of the near-term
+SSE-on-`EventBroker` ticket (Decision 45), not blocking it.
+
+## Decision 48: No Backward-Compatibility Tax While Traverse Has No Production Users — General Principle
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: none (cross-cutting principle, applies to governance choices generally, not one spec)
+- **Related issues**: none yet
+- **Origin**: `/brainstorm` session, stated by the user when resolving the capability-ABI compatibility question (Decision 49)
+
+### Context
+
+Deciding whether the north-star capability-side event ABI should be
+additive (alongside the existing "declare events in output JSON"
+convention) or a breaking replacement of it raised a broader question: how
+much should any current Traverse design decision weigh compatibility with
+existing capabilities, contracts, or runtime behavior, given there are no
+production users or production capabilities yet.
+
+### Decision
+
+**General rule for now**: prefer fixing the architecture correctly over
+preserving compatibility with pre-production code, contracts, or
+conventions. This is not scoped to the capability ABI alone — it applies to
+future governance decisions in this repo until stated otherwise (e.g. once
+real external users or production capabilities exist, this default should
+be revisited).
+
+### Alternatives Considered
+
+- Default to additive/backward-compatible changes as a standing rule —
+  rejected by the user: there is no installed base to protect yet, and
+  compatibility shims add permanent surface area for a constraint that
+  doesn't currently exist.
+
+### Outcome
+
+Directly determined Decision 49 (breaking ABI replacement) and Decision 47
+(WebSocket replaces SSE outright rather than SSE staying a fallback).
+Should be cited by name in future brainstorms/ADRs where a
+compatibility-vs-correctness fork comes up, until the user says otherwise.
+
+## Decision 49: Capability-Side WASM Host ABI Is a Breaking Replacement of the Output-JSON Event Convention
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: new ADR + spec (to be authored), extends `002-capability-contracts`, `003-event-contracts`, `207-event-broker`
+- **Related issues**: `#969`, `#970`
+- **Origin**: `/brainstorm` session, question 6
+
+### Context
+
+No WASM host-function ABI exists today for a capability to imperatively
+publish or subscribe to events (confirmed: zero hits across
+`traverse-native-bridge`, `executor/wasm.rs`, `executor/native.rs`).
+Capabilities instead declare an `emitted_events` array inside their own JSON
+output, which `PlacementRouter` Step 3.5 validates *after* execution
+completes against the contract's `emits` list, rejecting undeclared
+emissions as a `ContractViolation`. This is the piece furthest from UMA's
+model, where a microservice calls the runtime's abstraction layer directly
+(e.g. `this.eventDispatcher.dispatch(...)`, §5.1.2.2).
+
+### Decision
+
+The north-star ABI is a **breaking replacement**, not an additive option:
+capabilities will be required to call a new host function to emit events
+imperatively; the output-JSON declaration convention is deprecated and
+removed rather than kept as a second supported path. This follows directly
+from Decision 48 (no back-compat tax pre-production) — with no production
+capabilities depending on the current convention, there's no cost to
+replacing it outright, and a single canonical path avoids permanently
+maintaining two ways to do the same thing plus the post-hoc violation-check
+complexity (the host function can reject an undeclared event synchronously
+at call time instead of after the fact).
+
+### Alternatives Considered
+
+- Additive/optional host function alongside the existing convention —
+  rejected per Decision 48; would create permanent dual-path complexity for
+  a compatibility constraint that doesn't exist yet.
+
+### Outcome
+
+Two north-star tickets: author the capability-ABI ADR+spec, then implement
+the host function (native-bridge + WASM executor + contract validation
+changes) and migrate existing capability fixtures/tests off the
+output-JSON convention.
+
+## Decision 50: Unify Workflow Event-Driven Edges With `EventBroker`, Superseding `018`'s No-External-Broker Scope Cut
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: new ADR + spec (to be authored), extends `018-event-driven-composition`, `207-event-broker`
+- **Related issues**: `#971`, `#972`
+- **Origin**: `/brainstorm` session, question 7
+
+### Context
+
+Spec `018-event-driven-composition` deliberately scoped workflow
+event-driven edges to avoid "external brokers, event-created executions,
+direct-capability waiting semantics" — a considered design choice, not a
+placeholder. In the current implementation
+(`workflows.rs::evaluate_event_driven_edges`), a waiting workflow edge can
+only advance from an event extracted from the *same* workflow execution's
+own node output — no cross-workflow, cross-process, or durable delivery,
+and no connection to `EventBroker` at all. This is a third, separate
+event mechanism alongside the broker and the (soon-to-be-replaced) ABI
+convention.
+
+### Decision
+
+Unify workflow-edge advancement with the real `EventBroker`, so a waiting
+edge can advance from any governed event — including ones from other
+workflows, other capabilities, or external publishers — not just events
+declared in the same execution's own output. This reverses `018`'s explicit
+scope cut, justified by Decision 48 (no back-compat tax pre-production) and
+by this being the one place in the runtime where UMA's cross-system
+event-driven composition model was structurally impossible under the
+current design.
+
+### Alternatives Considered
+
+- Keep `018`'s synchronous, single-execution-scoped model as deliberately
+  separate — rejected: while it was a legitimate scope cut at the time
+  (avoids delivery/ordering/durability concerns), it's the one remaining
+  place event-driven composition can't cross a workflow or process
+  boundary, which is core to UMA's model and to what capability authors
+  will expect once the ABI (Decision 49) exists.
+
+### Outcome
+
+Two north-star tickets: author the workflow-edge-unification ADR+spec,
+then implement cross-workflow/cross-process event-driven edge advancement
+via `EventBroker`.
+
+## Decision 51: ADR + Spec Pairing for All Three North-Star Decisions
+
+- **Date**: 2026-08-05
+- **Status**: Accepted
+- **Governing specs**: n/a (meta-decision about how Decisions 47, 49, and 50 get formalized)
+- **Related issues**: none yet
+- **Origin**: `/brainstorm` session, question 8
+
+### Context
+
+This repo pairs an ADR with a spec for major technology/pattern pivots
+(ADR-0001 + `001-foundation-v0-1`; ADR-0024 + `530-remote-key-value-datastore`;
+ADR-0029 + `535-s3-compatible-remote-datastore`; ADR-0033 +
+`539-datastore-multiprocess-coordination`). The question was whether all
+three north-star decisions (transport, capability ABI, workflow-edge
+unification) warrant that pairing, or only the two that introduce genuinely
+new technology/patterns (transport, ABI), with workflow-edge unification
+covered by a spec alone since it applies an already-ADR'd pattern
+(`EventBroker`, governed by `207`/`534`) somewhere it wasn't used yet.
+
+### Decision
+
+All three get an ADR + spec pair: transport (Decision 47), capability ABI
+(Decision 49), and workflow-edge unification (Decision 50).
+
+### Alternatives Considered
+
+- ADR+spec for transport and ABI only, spec-alone for workflow-edge
+  unification — this was the recommended option (workflow-edge unification
+  arguably just extends an existing pattern rather than introducing a new
+  one), but the user chose full ADR+spec coverage for all three instead.
+
+### Outcome
+
+Six specs total to author across the near-term and north-star batches (one
+near-term SSE spec, three north-star ADR+spec pairs), each producing its
+own "author the spec" ticket ahead of its "implement" ticket.
+
+## Decision 52: Amend Specs 096–099 to v1.1.0 to Close Happy/Unhappy-Path Gaps Found Before Implementation
+
+- **Date**: 2026-08-06
+- **Status**: Accepted
+- **Governing specs**: `096-runtime-event-sse-transport`, `097-websocket-grpc-event-transport`, `098-capability-event-host-abi`, `099-workflow-event-broker-unification` (all amended v1.0.0 -> v1.1.0)
+- **Related issues**: `#963`–`#973`
+- **Origin**: Pre-implementation audit requested by the user ("make sure we have all the tickets... specs and ADRs defined and approved... identify happy and unhappy paths") before any of the eventing-sequence tickets began implementation.
+
+### Context
+
+A systematic pass through the four specs merged in PR #974, checking each
+against a happy/unhappy-path checklist (success, auth failure, malformed
+input, dependency-unavailable, concurrency/replay edge cases), found seven
+requirement gaps that were genuinely undefined behavior — not just missing
+illustrative Acceptance Scenarios for already-stated requirements. Left
+unresolved, each implementer would have had to invent the behavior ad hoc:
+
+- `096`: no defined response for a malformed/expired `Last-Event-ID`
+  (despite `EventBroker` already having typed `InvalidCursor`/`CursorExpired`
+  errors for exactly this), and no defined response for an internal
+  `EventBroker` failure during poll.
+- `097`: FR-008 only covered failures *before* a stream starts, leaving
+  mid-stream broker failure undefined; no reconnect/resume story for a
+  dropped WebSocket connection; no bound on malformed/oversized incoming
+  client messages.
+- `098`: no requirement for memory-bounds validation at the WASM guest/host
+  boundary for the new host function, despite the guest supplying the
+  payload pointer/length the host reads.
+- `099`: FR-007 only covered "event type not registered" — `EventBroker`
+  being unreachable at subscription-registration time was a distinct,
+  undefined failure mode.
+
+Per `.specify/memory/constitution.md` and `approved-specs.json`
+(`"immutable": true`), none of these four specs could be edited in place;
+closing the gaps required a formal, versioned amendment, following the
+precedent already established in `traverse-framework/registry`'s own
+`016-ecca-event-product-adoption` spec (v1.0.0 -> v2.0.0 -> v2.1.0, each
+amendment explicitly owner-approved and logged).
+
+### Decision
+
+Amend all four specs to v1.1.0, adding one new FR (two for `097`, none
+removed or changed) per gap, each proposing a resolution grounded in a
+pattern already established elsewhere in this codebase rather than a novel
+design (typed `EventError` variants -> structured HTTP status codes;
+`browser_adapter.rs`'s existing bounded-input constants; `traverse-swift-host`'s
+existing WASM-boundary bounds-checking discipline). No existing FR text
+changed in any of the four specs — this is purely additive.
+
+### Alternatives Considered
+
+- Defer explicitly and let each ticket's implementer propose the exact
+  behavior during implementation, reviewed in PR rather than pre-specified —
+  this was offered as the deferral option but not chosen; the user chose to
+  close the gaps now, before implementation starts.
+
+### Outcome
+
+`specs/governance/approved-specs.json` updated to `"version": "1.1.0"` for
+all four spec ids. Each spec file carries an `## Amendment` note (matching
+the registry repo's own amendment-note convention) documenting what changed
+and why. Tracked for codification in a follow-up PR alongside the DoD
+strengthening pass on issues `#963`–`#973`.
