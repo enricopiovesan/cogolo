@@ -1247,7 +1247,7 @@
     },
     {
       "id": "096-runtime-event-sse-transport",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "approved",
       "immutable": true,
       "path": "specs/964-runtime-event-sse-transport/spec.md",
@@ -1259,7 +1259,7 @@
     },
     {
       "id": "097-websocket-grpc-event-transport",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "approved",
       "immutable": true,
       "path": "specs/966-websocket-grpc-event-transport/spec.md",
@@ -1272,7 +1272,7 @@
     },
     {
       "id": "098-capability-event-host-abi",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "approved",
       "immutable": true,
       "path": "specs/969-capability-event-host-abi/spec.md",
@@ -1287,7 +1287,7 @@
     },
     {
       "id": "099-workflow-event-broker-unification",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "status": "approved",
       "immutable": true,
       "path": "specs/971-workflow-event-broker-unification/spec.md",

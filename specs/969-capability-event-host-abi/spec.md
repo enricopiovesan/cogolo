@@ -2,8 +2,17 @@
 
 **Status**: Approved
 **Canonical governing ID**: `098-capability-event-host-abi`
+**Version**: 1.1.0
 **Extends**: `002-capability-contracts`, `003-event-contracts`, `207-event-broker`
 **Input**: Issue #969; ADR-0035; `/brainstorm` session recorded as Decisions 48–49 in `docs/decision-log.md`.
+
+**Amendment (2026-08-06, v1.0.0 -> v1.1.0)**: A pre-implementation happy/unhappy-path
+audit found no requirement governing memory-bounds safety at the WASM guest/host
+boundary for the new host function — a real gap, since the guest supplies the
+payload pointer/length the host reads. FR-008 below closes it, matching this
+codebase's existing bounded-limits discipline elsewhere at the WASM boundary
+(`traverse-swift-host`). No existing FR text changed. Approved by the repo owner the
+same day this gap was raised.
 
 ## Purpose
 
@@ -58,6 +67,12 @@ implementation or fixture migration (tracked separately as issue #970).
   documented in the same location as the existing native-bridge ABI
   whitelist, so the full set of host-callable functions for a given ABI
   version remains discoverable in one place.
+- **FR-008** (v1.1.0): The host implementation MUST validate the guest-
+  supplied payload's memory bounds (pointer + length within the guest's
+  linear memory) and enforce a maximum payload size before deserializing
+  it. A malformed or oversized payload MUST be rejected by returning an
+  error code to the guest — the host MUST NOT panic, trap, or read past
+  guest memory bounds.
 
 ## Acceptance Scenarios
 
@@ -76,6 +91,10 @@ implementation or fixture migration (tracked separately as issue #970).
    capability fixture or test relies on an `emitted_events` field inside a
    capability's JSON output, and `PlacementRouter`'s post-hoc violation
    check for undeclared emissions no longer exists.
+5. Given a capability calls the host function with an oversized or
+   out-of-bounds payload pointer, when the call is made, then the host
+   returns an error to the guest without panicking, trapping, or reading
+   outside the guest's linear memory.
 
 ## Out of Scope
 

@@ -1673,3 +1673,67 @@ All three get an ADR + spec pair: transport (Decision 47), capability ABI
 Six specs total to author across the near-term and north-star batches (one
 near-term SSE spec, three north-star ADR+spec pairs), each producing its
 own "author the spec" ticket ahead of its "implement" ticket.
+
+## Decision 52: Amend Specs 096–099 to v1.1.0 to Close Happy/Unhappy-Path Gaps Found Before Implementation
+
+- **Date**: 2026-08-06
+- **Status**: Accepted
+- **Governing specs**: `096-runtime-event-sse-transport`, `097-websocket-grpc-event-transport`, `098-capability-event-host-abi`, `099-workflow-event-broker-unification` (all amended v1.0.0 -> v1.1.0)
+- **Related issues**: `#963`–`#973`
+- **Origin**: Pre-implementation audit requested by the user ("make sure we have all the tickets... specs and ADRs defined and approved... identify happy and unhappy paths") before any of the eventing-sequence tickets began implementation.
+
+### Context
+
+A systematic pass through the four specs merged in PR #974, checking each
+against a happy/unhappy-path checklist (success, auth failure, malformed
+input, dependency-unavailable, concurrency/replay edge cases), found seven
+requirement gaps that were genuinely undefined behavior — not just missing
+illustrative Acceptance Scenarios for already-stated requirements. Left
+unresolved, each implementer would have had to invent the behavior ad hoc:
+
+- `096`: no defined response for a malformed/expired `Last-Event-ID`
+  (despite `EventBroker` already having typed `InvalidCursor`/`CursorExpired`
+  errors for exactly this), and no defined response for an internal
+  `EventBroker` failure during poll.
+- `097`: FR-008 only covered failures *before* a stream starts, leaving
+  mid-stream broker failure undefined; no reconnect/resume story for a
+  dropped WebSocket connection; no bound on malformed/oversized incoming
+  client messages.
+- `098`: no requirement for memory-bounds validation at the WASM guest/host
+  boundary for the new host function, despite the guest supplying the
+  payload pointer/length the host reads.
+- `099`: FR-007 only covered "event type not registered" — `EventBroker`
+  being unreachable at subscription-registration time was a distinct,
+  undefined failure mode.
+
+Per `.specify/memory/constitution.md` and `approved-specs.json`
+(`"immutable": true`), none of these four specs could be edited in place;
+closing the gaps required a formal, versioned amendment, following the
+precedent already established in `traverse-framework/registry`'s own
+`016-ecca-event-product-adoption` spec (v1.0.0 -> v2.0.0 -> v2.1.0, each
+amendment explicitly owner-approved and logged).
+
+### Decision
+
+Amend all four specs to v1.1.0, adding one new FR (two for `097`, none
+removed or changed) per gap, each proposing a resolution grounded in a
+pattern already established elsewhere in this codebase rather than a novel
+design (typed `EventError` variants -> structured HTTP status codes;
+`browser_adapter.rs`'s existing bounded-input constants; `traverse-swift-host`'s
+existing WASM-boundary bounds-checking discipline). No existing FR text
+changed in any of the four specs — this is purely additive.
+
+### Alternatives Considered
+
+- Defer explicitly and let each ticket's implementer propose the exact
+  behavior during implementation, reviewed in PR rather than pre-specified —
+  this was offered as the deferral option but not chosen; the user chose to
+  close the gaps now, before implementation starts.
+
+### Outcome
+
+`specs/governance/approved-specs.json` updated to `"version": "1.1.0"` for
+all four spec ids. Each spec file carries an `## Amendment` note (matching
+the registry repo's own amendment-note convention) documenting what changed
+and why. Tracked for codification in a follow-up PR alongside the DoD
+strengthening pass on issues `#963`–`#973`.

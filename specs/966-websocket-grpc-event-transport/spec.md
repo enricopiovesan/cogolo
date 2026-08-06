@@ -2,8 +2,17 @@
 
 **Status**: Approved
 **Canonical governing ID**: `097-websocket-grpc-event-transport`
+**Version**: 1.1.0
 **Extends**: `013-browser-runtime-subscription`, `207-event-broker`, `534-ecca-event-products`
 **Input**: Issue #966; ADR-0034; `/brainstorm` session recorded as Decision 47 in `docs/decision-log.md`.
+
+**Amendment (2026-08-06, v1.0.0 -> v1.1.0)**: A pre-implementation happy/unhappy-path
+audit found three undefined failure modes: FR-008 only covered failures *before* a
+stream starts, leaving mid-stream broker failure undefined; there was no reconnect/
+resume story despite real WebSocket connections dropping routinely; and there was no
+bound on malformed or oversized client-sent messages. FR-009, FR-010, and FR-011 below
+close these. No existing FR text changed. Approved by the repo owner the same day this
+gap was raised.
 
 ## Purpose
 
@@ -62,6 +71,23 @@ issues #967 WebSocket and #968 gRPC).
   machine-readable error before any partial event stream begins, matching
   `013`'s existing `invalid_request`/`not_found` error-message pattern
   rather than a raw protocol-level error.
+- **FR-009** (v1.1.0): If `EventBroker` becomes unavailable *after* a
+  WebSocket or gRPC stream has already started delivering events, the
+  connection MUST be closed with a structured close frame (WebSocket) or
+  trailer/status (gRPC) identifying the failure — never a silent hang or a
+  bare TCP reset the client cannot distinguish from "no new events."
+- **FR-010** (v1.1.0): A WebSocket client reconnecting after a dropped
+  connection MUST be able to resume its subscription by supplying the
+  last-seen `EventCursor`, resolved the same way `096`'s FR-003 resolves
+  `Last-Event-ID` for SSE (including `096`'s FR-009 malformed/expired-cursor
+  behavior, `400`/`410`, applied at the WebSocket handshake instead of an
+  HTTP request).
+- **FR-011** (v1.1.0): The WebSocket server MUST enforce a maximum incoming
+  message size and MUST reject a malformed frame with a structured close
+  code rather than crashing the connection handler or silently ignoring it
+  — consistent with this codebase's existing bounded-input discipline
+  (`MAX_REQUEST_HEADER_BYTES`/`MAX_REQUEST_BODY_BYTES` in
+  `crates/traverse-cli/src/browser_adapter.rs`).
 
 ## Acceptance Scenarios
 
@@ -83,6 +109,15 @@ issues #967 WebSocket and #968 gRPC).
 5. Given WebSocket has shipped, when `crates/traverse-cli/src/http_api.rs`
    is inspected, then the SSE app-events endpoint from `096` no longer
    exists.
+6. Given an open WebSocket stream, when `EventBroker` fails internally mid-
+   stream, then the connection is closed with a structured close frame
+   identifying the failure, not a silent hang.
+7. Given a WebSocket client reconnects with a last-seen `EventCursor` after
+   an unplanned disconnect, when the connection re-establishes, then
+   delivery resumes from that cursor without gaps or duplicates.
+8. Given a client sends an oversized or malformed WebSocket frame, when the
+   server receives it, then the connection is rejected with a structured
+   close code rather than crashing the handler.
 
 ## Out of Scope
 

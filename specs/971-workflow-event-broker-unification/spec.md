@@ -2,8 +2,16 @@
 
 **Status**: Approved
 **Canonical governing ID**: `099-workflow-event-broker-unification`
+**Version**: 1.1.0
 **Extends**: `018-event-driven-composition`, `207-event-broker`
 **Input**: Issue #971; ADR-0036; `/brainstorm` session recorded as Decision 50 in `docs/decision-log.md`.
+
+**Amendment (2026-08-06, v1.0.0 -> v1.1.0)**: A pre-implementation happy/unhappy-path
+audit found FR-007 only covered "event type not registered in the catalog" — it left
+`EventBroker` being unreachable/unavailable at the moment a workflow tries to register
+a waiting-edge subscription undefined, a distinct failure mode from an unregistered
+type. FR-008 below closes it. No existing FR text changed. Approved by the repo owner
+the same day this gap was raised.
 
 ## Purpose
 
@@ -54,6 +62,11 @@ does not include the implementation itself (tracked separately as issue
   example, an unregistered event type in `EventBroker`'s catalog) MUST
   surface a stable, machine-readable error rather than silently never
   waking.
+- **FR-008** (v1.1.0): If `EventBroker` is unreachable or internally failing
+  at the moment a workflow attempts to register a waiting-edge subscription
+  (distinct from FR-007's "event type not registered" case), the workflow
+  execution MUST surface a stable, retryable error rather than silently
+  never waking or crashing the execution.
 
 ## Acceptance Scenarios
 
@@ -71,6 +84,10 @@ does not include the implementation itself (tracked separately as issue
    identifies the `EventBroker` subscription and cursor responsible for the
    advancement, in addition to `018`'s existing event-match/predicate/
    edge-selection evidence.
+5. Given `EventBroker` is unreachable when a workflow attempts to register a
+   waiting-edge subscription, when the attempt is made, then a stable,
+   retryable error is surfaced and the workflow does not crash or hang
+   silently.
 
 ## Out of Scope
 
