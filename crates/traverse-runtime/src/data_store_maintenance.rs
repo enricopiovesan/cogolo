@@ -2297,6 +2297,14 @@ mod tests {
         assert_eq!(error.details["reason"], "missing_verified_backup_digest");
     }
 
+    #[derive(Debug)]
+    struct Boom;
+    impl Serialize for Boom {
+        fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
+            Err(serde::ser::Error::custom("boom"))
+        }
+    }
+
     #[test]
     fn migration_serialize_and_abandon_helpers_are_covered() {
         let parse_error = serde_json::from_str::<Value>("{").expect_err("invalid json");
@@ -2304,13 +2312,6 @@ mod tests {
         assert_eq!(write_failed.code, MigrationErrorCode::WriteFailed);
         assert_eq!(write_failed.details["reason"], "serialize_candidate");
 
-        #[derive(Debug)]
-        struct Boom;
-        impl Serialize for Boom {
-            fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
-                Err(serde::ser::Error::custom("boom"))
-            }
-        }
         let boom = json_to_vec(&Boom).expect_err("custom serialize failure");
         assert_eq!(
             map_envelope_serialize_error(boom).code,
