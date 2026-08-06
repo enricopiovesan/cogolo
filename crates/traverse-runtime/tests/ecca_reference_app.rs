@@ -84,16 +84,28 @@ fn expedition_producer_reaches_state_consumer_and_observer() -> Result<(), Strin
     let observer = broker
         .subscribe_for_consumer(EVENT_TYPE, "0", "expedition.planning.audit-observer", None)
         .map_err(|error| error.to_string())?;
-    broker.publish(TraverseEvent {
-        id: "evt-expedition-objective-001".to_string(), source: descriptor.cloud_events_source,
-        event_type: EVENT_TYPE.to_string(), datacontenttype: "application/json".to_string(),
+    let event = TraverseEvent {
+        id: "evt-expedition-objective-001".to_string(),
+        source: descriptor.cloud_events_source,
+        event_type: EVENT_TYPE.to_string(),
+        datacontenttype: "application/json".to_string(),
         time: "2026-08-06T00:00:00Z".to_string(),
         data: serde_json::json!({"objective_id":"obj-001","destination":"Alpine Peak","target_window":{},"preferences":{},"notes":"sensitive"}),
-        owner: "expedition.planning".to_string(), version: "1.0.0".to_string(), lifecycle_status: LifecycleStatus::Active,
-        deduplication_id: Some("obj-001".to_string()), ordering_scope: Some("obj-001".to_string()),
-        correlation_id: Some("correlation-001".to_string()), causation_id: Some("command-001".to_string()),
-        subject_id: None, actor_id: None,
-    }).map_err(|error| error.to_string())?;
+        owner: "expedition.planning".to_string(),
+        version: "1.0.0".to_string(),
+        lifecycle_status: LifecycleStatus::Active,
+        deduplication_id: Some("obj-001".to_string()),
+        ordering_scope: Some("obj-001".to_string()),
+        correlation_id: Some("correlation-001".to_string()),
+        causation_id: Some("command-001".to_string()),
+        subject_id: None,
+        actor_id: None,
+    };
+    broker
+        .publish(event.clone())
+        .map_err(|error| error.to_string())?;
+    // At-least-once retry is deduplicated by the governed event identity.
+    broker.publish(event).map_err(|error| error.to_string())?;
     assert_eq!(
         broker
             .poll(&state_consumer.subscription_id, 1)
@@ -109,6 +121,33 @@ fn expedition_producer_reaches_state_consumer_and_observer() -> Result<(), Strin
             .events
             .len(),
         1
+    );
+    let lineage = broker.observed_lineage();
+    assert_eq!(lineage.len(), 2);
+    assert!(
+        lineage
+            .iter()
+            .all(|record| record.contract_id == EVENT_TYPE)
+    );
+    assert!(
+        lineage
+            .iter()
+            .any(|record| record.consumer_id == "expedition.planning.interpret-expedition-intent")
+    );
+    assert!(
+        lineage
+            .iter()
+            .any(|record| record.consumer_id == "expedition.planning.audit-observer")
+    );
+    let metrics = broker.metrics();
+    assert_eq!(metrics.publications, 1);
+    assert_eq!(metrics.deliveries, 2);
+    let telemetry = broker.telemetry();
+    assert_eq!(telemetry.len(), 5);
+    assert!(
+        telemetry
+            .iter()
+            .all(|record| !record.contract_id.is_empty())
     );
     Ok(())
 }
