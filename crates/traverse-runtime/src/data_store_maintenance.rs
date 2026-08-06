@@ -471,7 +471,7 @@ impl DataStoreMigration for LocalFileDataStoreMaintenance {
         File::create(candidate_root.join(LOCAL_DATA_STORE_LOCK_FILE))
             .map_err(map_migration_write_io)?;
 
-        let candidate = (|| -> Result<(), MigrationError> {
+        (|| -> Result<(), MigrationError> {
             for key in &keys {
                 let source = self
                     .read_envelope(key)
@@ -482,30 +482,10 @@ impl DataStoreMigration for LocalFileDataStoreMaintenance {
                     .map_err(map_migration_write_io)?;
             }
             verify_v2_store_root(&candidate_root).map_err(map_migration_verification_error)
-        })();
-        if let Err(error) = candidate {
-            let _ = fs::remove_dir_all(&candidate_root);
-            return Err(error);
-        }
+        })()
+        .map_err(|error| abandon_failed_candidate(&candidate_root, error))?;
 
-        let _ = self.lock_file.unlock();
-        if let Err(error) = fs::rename(&self.root, &previous_root) {
-            let _ = self.reacquire_lock();
-            let _ = fs::remove_dir_all(&candidate_root);
-            return Err(map_migration_commit_io(error));
-        }
-        if let Err(error) = fs::rename(&candidate_root, &self.root) {
-            let _ = fs::rename(&previous_root, &self.root);
-            let _ = self.reacquire_lock();
-            return Err(map_migration_commit_io(error));
-        }
-        if let Err(error) = self.reacquire_lock() {
-            let _ = fs::rename(&self.root, &candidate_root);
-            let _ = fs::rename(&previous_root, &self.root);
-            let _ = self.reacquire_lock();
-            return Err(map_migration_commit_error(error));
-        }
-        let _ = fs::remove_dir_all(&previous_root);
+        commit_migrated_store_root(self, &candidate_root, &previous_root)?;
 
         Ok(MigrationReport {
             governing_spec: MIGRATION_SPEC.to_string(),
@@ -533,11 +513,23 @@ fn verify_v2_store_root(root: &Path) -> Result<(), MaintenanceError> {
         let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| malformed_envelope_error())?;
         let envelope = decode_v2_envelope(value).map_err(map_data_store_error)?;
-        parse_envelope_bytes(
-            &serde_json::to_vec(&envelope).map_err(|_| malformed_envelope_error())?,
-        )?;
+        parse_envelope_bytes(&serialize_envelope_for_verify(&envelope)?)?;
     }
     Ok(())
+}
+
+fn serialize_envelope_for_verify(
+    envelope: &LocalDataStoreEnvelope,
+) -> Result<Vec<u8>, MaintenanceError> {
+    json_to_vec(envelope).map_err(map_envelope_serialize_error)
+}
+
+fn map_envelope_serialize_error(_: serde_json::Error) -> MaintenanceError {
+    malformed_envelope_error()
+}
+
+fn json_to_vec<T: Serialize>(value: &T) -> Result<Vec<u8>, serde_json::Error> {
+    serde_json::to_vec(value)
 }
 
 fn verified_backup_digest(digest: Option<String>) -> Result<String, MigrationError> {
@@ -553,13 +545,85 @@ fn verified_backup_digest(digest: Option<String>) -> Result<String, MigrationErr
 fn serialize_v2_candidate(
     envelope: &super::LocalDataStoreV2Envelope,
 ) -> Result<Vec<u8>, MigrationError> {
-    serde_json::to_vec(envelope).map_err(|_| {
-        migration_error(
-            MigrationErrorCode::WriteFailed,
-            "datastore_write_failed",
-            "serialize_candidate",
-        )
-    })
+    json_to_vec(envelope).map_err(map_serialize_candidate_error)
+}
+
+fn map_serialize_candidate_error(_: serde_json::Error) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::WriteFailed,
+        "datastore_write_failed",
+        "serialize_candidate",
+    )
+}
+
+fn abandon_failed_candidate(candidate_root: &Path, error: MigrationError) -> MigrationError {
+    let _ = fs::remove_dir_all(candidate_root);
+    error
+}
+
+fn commit_migrated_store_root(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    candidate_root: &Path,
+    previous_root: &Path,
+) -> Result<(), MigrationError> {
+    let _ = maintenance.lock_file.unlock();
+    move_live_aside_for_migration(maintenance, previous_root, candidate_root)?;
+    install_migrated_candidate(maintenance, candidate_root, previous_root)?;
+    reacquire_migrated_lock(maintenance, candidate_root, previous_root)?;
+    let _ = fs::remove_dir_all(previous_root);
+    Ok(())
+}
+
+fn move_live_aside_for_migration(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    previous_root: &Path,
+    candidate_root: &Path,
+) -> Result<(), MigrationError> {
+    fs::rename(&maintenance.root, previous_root)
+        .map_err(|error| abort_migration_before_aside(maintenance, candidate_root, error))
+}
+
+fn install_migrated_candidate(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    candidate_root: &Path,
+    previous_root: &Path,
+) -> Result<(), MigrationError> {
+    fs::rename(candidate_root, &maintenance.root)
+        .map_err(|error| abort_migration_after_aside(maintenance, previous_root, error))
+}
+
+fn abort_migration_before_aside(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    candidate_root: &Path,
+    error: std::io::Error,
+) -> MigrationError {
+    let _ = maintenance.reacquire_lock();
+    let _ = fs::remove_dir_all(candidate_root);
+    map_migration_commit_io(error)
+}
+
+fn abort_migration_after_aside(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    previous_root: &Path,
+    error: std::io::Error,
+) -> MigrationError {
+    let _ = fs::rename(previous_root, &maintenance.root);
+    let _ = maintenance.reacquire_lock();
+    map_migration_commit_io(error)
+}
+
+fn reacquire_migrated_lock(
+    maintenance: &mut LocalFileDataStoreMaintenance,
+    candidate_root: &Path,
+    previous_root: &Path,
+) -> Result<(), MigrationError> {
+    if let Err(error) = maintenance.reacquire_lock() {
+        let _ = fs::rename(&maintenance.root, candidate_root);
+        let _ = fs::rename(previous_root, &maintenance.root);
+        let _ = maintenance.reacquire_lock();
+        return Err(map_migration_commit_error(error));
+    }
+    Ok(())
 }
 
 fn migration_error(code: MigrationErrorCode, message: &str, reason: &str) -> MigrationError {
@@ -2231,6 +2295,152 @@ mod tests {
         assert_eq!(error.code, MigrationErrorCode::BackupFailed);
         assert_eq!(error.message, "datastore_backup_failed");
         assert_eq!(error.details["reason"], "missing_verified_backup_digest");
+    }
+
+    #[test]
+    fn migration_serialize_and_abandon_helpers_are_covered() {
+        let parse_error = serde_json::from_str::<Value>("{").expect_err("invalid json");
+        let write_failed = map_serialize_candidate_error(parse_error);
+        assert_eq!(write_failed.code, MigrationErrorCode::WriteFailed);
+        assert_eq!(write_failed.details["reason"], "serialize_candidate");
+
+        #[derive(Debug)]
+        struct Boom;
+        impl Serialize for Boom {
+            fn serialize<S: serde::Serializer>(
+                &self,
+                _serializer: S,
+            ) -> Result<S::Ok, S::Error> {
+                Err(serde::ser::Error::custom("boom"))
+            }
+        }
+        let boom = json_to_vec(&Boom).expect_err("custom serialize failure");
+        assert_eq!(
+            map_envelope_serialize_error(boom).code,
+            MaintenanceErrorCode::RestoreVerifyFailed
+        );
+        assert!(json_to_vec(&Boom)
+            .map_err(map_serialize_candidate_error)
+            .is_err());
+
+        let candidate = temp_root("abandon-candidate").join("work");
+        fs::create_dir_all(&candidate).expect("candidate");
+        fs::write(candidate.join("marker.json"), b"{}").expect("marker");
+        let abandoned = abandon_failed_candidate(
+            &candidate,
+            migration_error(
+                MigrationErrorCode::VerificationFailed,
+                "datastore_verification_failed",
+                "candidate_verification_failed",
+            ),
+        );
+        assert_eq!(abandoned.code, MigrationErrorCode::VerificationFailed);
+        assert!(!candidate.exists());
+    }
+
+    #[test]
+    fn migration_commit_rename_failures_preserve_live_store() {
+        let as_of = "2026-08-05T00:00:00Z";
+        let root = temp_root("mig-commit-aside");
+        drop(seed_store(&root, 1, None));
+        let before = fs::read(root.join("k00.json")).expect("source");
+        let parent = root.parent().expect("parent");
+        let suffix = restore_work_suffix(&root, as_of);
+        let candidate_root = parent.join(format!(".traverse-datastore-migration-{suffix}"));
+        let previous_root = parent.join(format!(".traverse-datastore-pre-v2-{suffix}"));
+        let _ = fs::remove_dir_all(&candidate_root);
+        let _ = fs::remove_file(&previous_root);
+        let _ = fs::remove_dir_all(&previous_root);
+        fs::create_dir_all(&candidate_root).expect("candidate");
+        fs::write(candidate_root.join(LOCAL_DATA_STORE_LOCK_FILE), b"").expect("lock");
+        fs::write(&previous_root, b"block aside").expect("occupy previous");
+
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let failed =
+            commit_migrated_store_root(&mut maintenance, &candidate_root, &previous_root)
+                .expect_err("aside must fail");
+        assert_eq!(failed.code, MigrationErrorCode::CommitFailed);
+        assert_eq!(
+            fs::read(root.join("k00.json")).expect("live preserved"),
+            before
+        );
+        assert!(!candidate_root.exists());
+        let _ = fs::remove_file(&previous_root);
+    }
+
+    #[test]
+    fn migration_commit_install_failure_restores_previous_root() {
+        let as_of = "2026-08-05T00:00:00Z";
+        let root = temp_root("mig-commit-install");
+        drop(seed_store(&root, 1, None));
+        let before = fs::read(root.join("k00.json")).expect("source");
+        let parent = root.parent().expect("parent");
+        let suffix = restore_work_suffix(&root, as_of);
+        let candidate_root = parent.join(format!(".traverse-datastore-migration-{suffix}"));
+        let previous_root = parent.join(format!(".traverse-datastore-pre-v2-{suffix}"));
+        let _ = fs::remove_dir_all(&candidate_root);
+        let _ = fs::remove_dir_all(&previous_root);
+        fs::create_dir_all(&candidate_root).expect("candidate");
+        fs::write(candidate_root.join(LOCAL_DATA_STORE_LOCK_FILE), b"").expect("lock");
+
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let _ = maintenance.lock_file.unlock();
+        fs::rename(&root, &previous_root).expect("aside");
+        fs::write(&root, b"block install").expect("occupy root");
+
+        let failed =
+            install_migrated_candidate(&mut maintenance, &candidate_root, &previous_root)
+                .expect_err("install must fail");
+        assert_eq!(failed.code, MigrationErrorCode::CommitFailed);
+        assert_eq!(
+            fs::read(previous_root.join("k00.json")).expect("aside preserved"),
+            before
+        );
+        assert!(candidate_root.exists());
+        let _ = fs::remove_file(&root);
+        let _ = fs::rename(&previous_root, &root);
+        let _ = fs::remove_dir_all(&candidate_root);
+    }
+
+    #[test]
+    fn migration_reacquire_failure_rolls_back_committed_swap() {
+        let as_of = "2026-08-05T00:00:00Z";
+        let root = temp_root("mig-reacquire");
+        drop(seed_store(&root, 1, None));
+        let before = fs::read(root.join("k00.json")).expect("source");
+        let parent = root.parent().expect("parent");
+        let suffix = restore_work_suffix(&root, as_of);
+        let candidate_root = parent.join(format!(".traverse-datastore-migration-{suffix}"));
+        let previous_root = parent.join(format!(".traverse-datastore-pre-v2-{suffix}"));
+        let _ = fs::remove_dir_all(&candidate_root);
+        let _ = fs::remove_dir_all(&previous_root);
+        fs::create_dir_all(&candidate_root).expect("candidate");
+        fs::write(candidate_root.join(LOCAL_DATA_STORE_LOCK_FILE), b"").expect("candidate lock");
+        fs::write(candidate_root.join("k00.json"), br#"{"format":"candidate"}"#).expect("cand");
+
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let _ = maintenance.lock_file.unlock();
+        fs::rename(&root, &previous_root).expect("aside");
+        fs::rename(&candidate_root, &root).expect("install");
+
+        let blocker = OpenOptions::new()
+            .read(true)
+            .write(true)
+            .open(root.join(LOCAL_DATA_STORE_LOCK_FILE))
+            .expect("blocker");
+        blocker.try_lock().expect("hold lock");
+
+        let failed =
+            reacquire_migrated_lock(&mut maintenance, &candidate_root, &previous_root)
+                .expect_err("reacquire must fail while blocked");
+        assert_eq!(failed.code, MigrationErrorCode::CommitFailed);
+        drop(blocker);
+        assert_eq!(
+            fs::read(root.join("k00.json")).expect("rolled back"),
+            before
+        );
+        let _ = fs::remove_dir_all(&candidate_root);
+        let _ = fs::remove_dir_all(&previous_root);
     }
 
     fn write_zip(parent: &Path, members: &[(&str, &[u8])]) -> PathBuf {
