@@ -2,8 +2,20 @@
 
 **Status**: Approved
 **Canonical governing ID**: `096-runtime-event-sse-transport`
+**Version**: 1.1.0
 **Extends**: `207-event-broker`, `534-ecca-event-products`
 **Input**: Issue #964; `/brainstorm` session recorded as Decision 45 in `docs/decision-log.md`.
+
+**Amendment (2026-08-06, v1.0.0 -> v1.1.0)**: A pre-implementation happy/unhappy-path
+audit found this spec left two failure modes undefined — a malformed or expired
+`Last-Event-ID`, and an internal `EventBroker` error during subscribe/poll — even
+though `EventBroker` already carries typed errors for both (`EventError::InvalidCursor`,
+`EventError::CursorExpired`). Leaving these undefined would have left the implementer
+to invent the HTTP response shape ad hoc. FR-009 and FR-010 below close both gaps.
+No existing FR text changed. Approved by the repo owner the same day this gap was
+raised, no separate `/brainstorm` needed since the fix pattern (typed error ->
+structured HTTP response) is already established practice in this codebase, not a new
+architecture decision.
 
 ## Purpose
 
@@ -68,6 +80,19 @@ issue #966).
   stable indefinitely: `097-websocket-grpc-event-transport` (issue #966)
   is expected to retire this SSE endpoint outright once WebSocket ships
   (Decision 47), not run alongside it as a permanent fallback.
+- **FR-009** (v1.1.0): A malformed `Last-Event-ID` (fails `EventBroker`'s cursor
+  parsing, surfaced as `EventError::InvalidCursor`) MUST return `400 Bad
+  Request` with a `problem+json` body identifying the malformed value. An
+  expired cursor (outside the active retention window, surfaced as
+  `EventError::CursorExpired`) MUST return `410 Gone` with the oldest
+  available cursor included in the response body. Neither case MUST silently
+  fall back to a full replay from the start of the retention window.
+- **FR-010** (v1.1.0): An internal `EventBroker` error during subscribe or
+  poll (for example, a poisoned lock or other non-cursor failure) MUST
+  return `503 Service Unavailable` with a `problem+json` body. The
+  connection MUST NOT be silently dropped without a terminal error response
+  — the client must be able to distinguish "no new events" from "the
+  broker failed."
 
 ## Acceptance Scenarios
 
@@ -87,6 +112,15 @@ issue #966).
 5. Given the migration has landed, when `crates/traverse-cli/src/http_api.rs`
    is inspected, then no `AppStateEventRecord` type or references to it
    remain.
+6. Given a client sends a malformed `Last-Event-ID`, when the request is
+   served, then the response is `400` with a `problem+json` body — not a
+   silent restart from the beginning of the stream.
+7. Given a client sends an expired `Last-Event-ID` (older than the active
+   retention window), when the request is served, then the response is
+   `410 Gone` with the oldest available cursor in the body.
+8. Given `EventBroker` fails internally during a poll, when the failure
+   occurs, then the client receives a `503` `problem+json` response rather
+   than a connection that appears to hang.
 
 ## Out of Scope
 
