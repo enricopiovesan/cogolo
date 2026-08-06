@@ -388,18 +388,8 @@ impl<E: AblyRealtimeEdge> AblyHostedSyncTransport<E> {
         self.accepted_key_versions = versions.into_iter().map(Into::into).collect();
     }
 
-    fn require_session(&self) -> Result<&AblySession, HostedSyncError> {
-        self.session.as_ref().ok_or_else(|| {
-            hosted_error(
-                HostedSyncErrorCode::NotConnected,
-                "hosted sync transport is not connected",
-                json!({}),
-            )
-        })
-    }
-
-    fn ensure_live_credential(&mut self) -> Result<(), HostedSyncError> {
-        let Some(session) = &self.session else {
+    fn ensure_live_session(&mut self) -> Result<AblySession, HostedSyncError> {
+        let Some(session) = self.session.clone() else {
             return Err(hosted_error(
                 HostedSyncErrorCode::NotConnected,
                 "hosted sync transport is not connected",
@@ -407,7 +397,6 @@ impl<E: AblyRealtimeEdge> AblyHostedSyncTransport<E> {
             ));
         };
         if session.credential.expires_at_ms <= self.now_ms {
-            self.session = None;
             let state = HostedSyncConnectionState::Degraded {
                 reason: HostedSyncDegradedReason::CredentialExpired,
             };
@@ -429,7 +418,7 @@ impl<E: AblyRealtimeEdge> AblyHostedSyncTransport<E> {
                 json!({}),
             ));
         }
-        Ok(())
+        Ok(session)
     }
 
     fn observe_state(&mut self, kind: &str, state: &HostedSyncConnectionState) {
@@ -586,7 +575,7 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
         &mut self,
         operation: EncryptedSyncOperation,
     ) -> Result<HostedSyncPublishReceipt, HostedSyncError> {
-        self.ensure_live_credential()?;
+        let session = self.ensure_live_session()?;
         self.validate_operation(&operation)?;
         if self.seen_operation_ids.contains(&operation.operation_id) {
             let cursor = format!("cursor:{}", operation.operation_id);
@@ -595,7 +584,7 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
                 kind: "publish_deduplicated".to_string(),
                 operation_id: Some(operation.operation_id.clone()),
                 key_version_id: Some(operation.key_version_id.clone()),
-                hashed_scope: self.session.as_ref().map(|s| s.credential.scope.hashed()),
+                hashed_scope: Some(session.credential.scope.hashed()),
                 connection_state: Some(HostedSyncConnectionState::Connected),
                 outcome: Some("deduplicated".to_string()),
                 latency_ms: Some(0),
@@ -606,14 +595,7 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
             });
         }
         let event = wrap_ecca_event(&operation);
-        let payload = serde_json::to_vec(&event).map_err(|error| {
-            hosted_error(
-                HostedSyncErrorCode::InvalidEnvelope,
-                "failed to serialize ECCA sync envelope",
-                json!({ "cause": error.to_string() }),
-            )
-        })?;
-        let session = self.require_session()?.clone();
+        let payload = encode_ecca_payload(&event);
         let cursor = self
             .edge
             .publish(
@@ -622,7 +604,7 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
                 self.now_ms,
                 &payload,
             )
-            .map_err(map_ably_error)?;
+            .map_err(map_ably_edge_failure)?;
         self.seen_operation_ids
             .insert(operation.operation_id.clone());
         self.lineage.push(HostedSyncLineageEvidence {
@@ -658,8 +640,7 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
         &mut self,
         cursor: Option<&str>,
     ) -> Result<HostedSyncReplayResult, HostedSyncError> {
-        self.ensure_live_credential()?;
-        let session = self.require_session()?.clone();
+        let session = self.ensure_live_session()?;
         match self.edge.history_from(
             &session.provider_channel,
             &session.credential.token,
@@ -711,7 +692,7 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
                     oldest_available_cursor,
                 })
             }
-            Err(error) => Err(map_ably_error(error)),
+            Err(error) => Err(map_ably_edge_failure(error)),
         }
     }
 
@@ -749,7 +730,6 @@ impl<E: AblyRealtimeEdge> HostedSyncTransport for AblyHostedSyncTransport<E> {
                 reason: HostedSyncDegradedReason::CredentialExpired,
             };
             self.observe_state("credential_expired", &state);
-            self.session = None;
         }
     }
 
@@ -1226,7 +1206,6 @@ impl SharedRelay {
                 reason: HostedSyncDegradedReason::CredentialExpired,
             };
             self.observe("credential_expired", None, None, Some(state), "degraded");
-            self.session = None;
         }
     }
 
@@ -1279,7 +1258,6 @@ impl SharedRelay {
             ));
         };
         if session.expires_at_ms <= self.now_ms {
-            self.session = None;
             let state = HostedSyncConnectionState::Degraded {
                 reason: HostedSyncDegradedReason::CredentialExpired,
             };
@@ -1461,7 +1439,13 @@ fn ably_channel_for_scope(scope: &SyncScopeId) -> String {
     format!("ably.sync.{}", hex_digest(scope.as_str().as_bytes()))
 }
 
-fn map_ably_error(error: AblyEdgeError) -> HostedSyncError {
+#[allow(clippy::expect_used)]
+fn encode_ecca_payload(event: &TraverseEvent) -> Vec<u8> {
+    // TraverseEvent for this envelope uses only JSON-safe scalars/objects.
+    serde_json::to_vec(event).expect("ECCA sync envelope is always JSON-serializable")
+}
+
+fn map_ably_edge_failure(error: AblyEdgeError) -> HostedSyncError {
     match error {
         AblyEdgeError::Unauthorized => hosted_error(
             HostedSyncErrorCode::UnauthorizedScope,
@@ -1592,7 +1576,8 @@ fn conformance_publish_and_auth(
         .refresh_credential(HostedSyncCredential {
             token: "token-refresh".to_string(),
             scope: scope.clone(),
-            expires_at_ms: 180_000,
+            // Expires before the replay-window clock advance so reconnect is exercised.
+            expires_at_ms: 50_000,
         })
         .map_err(|error| format!("refresh failed: {:?}", error.code))?;
     Ok(())
@@ -1717,7 +1702,12 @@ fn assert_observation_redacted(observation: &HostedSyncObservation) -> Result<()
 
 #[cfg(test)]
 mod tests {
-    #![allow(clippy::expect_used, clippy::panic)]
+    #![allow(
+        clippy::expect_used,
+        clippy::panic,
+        clippy::unwrap_used,
+        clippy::too_many_lines
+    )]
 
     use super::*;
 
@@ -1780,19 +1770,29 @@ mod tests {
         ably.publish(operation.clone()).expect("ably publish");
         let ably_replay = ably.replay_from(None).expect("ably replay");
 
-        match (memory_replay, ably_replay) {
-            (
-                HostedSyncReplayResult::Delivered {
-                    operations: left, ..
-                },
-                HostedSyncReplayResult::Delivered {
-                    operations: right, ..
-                },
-            ) => {
-                assert_eq!(left, right);
-                assert_eq!(left, vec![operation]);
-            }
-            _ => panic!("both adapters must deliver the portable envelope"),
+        let left = delivered_operations(memory_replay);
+        let right = delivered_operations(ably_replay);
+        assert_eq!(left, right);
+        assert_eq!(left, vec![operation]);
+        assert!(
+            delivered_operations(HostedSyncReplayResult::ResyncRequired {
+                oldest_available_cursor: None,
+            })
+            .is_empty()
+        );
+    }
+
+    fn delivered_operations(result: HostedSyncReplayResult) -> Vec<EncryptedSyncOperation> {
+        match result {
+            HostedSyncReplayResult::Delivered { operations, .. } => operations,
+            HostedSyncReplayResult::ResyncRequired { .. } => Vec::new(),
+        }
+    }
+
+    fn delivered_cursor(result: HostedSyncReplayResult) -> String {
+        match result {
+            HostedSyncReplayResult::Delivered { cursor, .. } => cursor,
+            HostedSyncReplayResult::ResyncRequired { .. } => "0".to_string(),
         }
     }
 
@@ -1885,5 +1885,629 @@ mod tests {
             .expect_err("sync publish fails while degraded");
         assert_eq!(error.code, HostedSyncErrorCode::ProviderUnavailable);
         assert_ne!(error.code, HostedSyncErrorCode::InvalidEnvelope);
+    }
+
+    fn sample_cred(scope: &str, token: &str, expires_at_ms: u64) -> HostedSyncCredential {
+        HostedSyncCredential {
+            token: token.to_string(),
+            scope: SyncScopeId::new(scope),
+            expires_at_ms,
+        }
+    }
+
+    fn sample_op(id: &str) -> EncryptedSyncOperation {
+        EncryptedSyncOperation {
+            operation_id: id.to_string(),
+            synchronization_set_id: "set".to_string(),
+            writer_id: "writer".to_string(),
+            lamport_clock: 1,
+            correlation_id: None,
+            causation_id: None,
+            key_version_id: "key-active".to_string(),
+            ciphertext: b"cipher".to_vec(),
+        }
+    }
+
+    #[test]
+    fn in_memory_error_and_state_branches() {
+        let mut transport = InMemoryHostedSyncTransport::default();
+        assert_eq!(transport.adapter_kind(), "in_memory");
+        assert_eq!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Disconnected
+        );
+        assert_eq!(
+            transport
+                .refresh_credential(sample_cred("s", "t", 10))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::NotConnected
+        );
+        assert_eq!(
+            transport.publish(sample_op("x")).unwrap_err().code,
+            HostedSyncErrorCode::NotConnected
+        );
+
+        assert_eq!(
+            transport
+                .connect(sample_cred("", "t", 10))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::UnauthorizedScope
+        );
+        transport.advance_clock(20);
+        assert_eq!(
+            transport
+                .connect(sample_cred("s", "t", 10))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::CredentialExpired
+        );
+        transport.advance_clock(0);
+        transport.set_relay_available(false);
+        assert_eq!(
+            transport
+                .connect(sample_cred("s", "t", 100))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::ProviderUnavailable
+        );
+        transport.set_relay_available(true);
+        transport.advance_clock(1);
+        transport
+            .connect(sample_cred("s", "live", 50))
+            .expect("connect");
+        assert_eq!(
+            transport
+                .publish(EncryptedSyncOperation {
+                    ciphertext: Vec::new(),
+                    ..sample_op("bad")
+                })
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::InvalidEnvelope
+        );
+        assert_eq!(
+            transport
+                .refresh_credential(sample_cred("s", "", 80))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::CredentialExpired
+        );
+        transport
+            .connect(sample_cred("s", "live", 50))
+            .expect("reconnect");
+        transport.set_relay_available(false);
+        assert_eq!(
+            transport
+                .refresh_credential(sample_cred("s", "next", 80))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::ProviderUnavailable
+        );
+        transport.set_relay_available(true);
+        transport
+            .connect(sample_cred("s", "live", 50))
+            .expect("reconnect");
+        transport.publish(sample_op("kept")).expect("publish");
+        assert!(matches!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Connected
+        ));
+        // connection_state CredentialExpired while session still present
+        transport.advance_clock(40);
+        // Force state check before ensure clears session: bump clock to expiry boundary
+        // without going through ensure by inspecting after partial advance.
+        let mut transport = InMemoryHostedSyncTransport::new();
+        transport.advance_clock(1);
+        transport
+            .connect(sample_cred("s", "live", 10))
+            .expect("connect");
+        // Advance to exactly expiry without calling ensure-bearing APIs first.
+        // advance_clock clears session when expired; call connection_state via a
+        // peer clock path: temporarily use degraded-by-expiry before clear.
+        transport.advance_clock(10);
+        assert!(matches!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Degraded {
+                reason: HostedSyncDegradedReason::CredentialExpired
+            }
+        ));
+        transport
+            .connect(sample_cred("s", "live", 1_000))
+            .expect("connect");
+        transport.publish(sample_op("replay-me")).expect("publish");
+        let replay = transport.replay_from(None).expect("replay");
+        let operations = delivered_operations(replay.clone());
+        let cursor = delivered_cursor(replay);
+        assert_eq!(operations.len(), 1);
+        assert_eq!(
+            delivered_cursor(HostedSyncReplayResult::ResyncRequired {
+                oldest_available_cursor: None,
+            }),
+            "0"
+        );
+        // Replay from a known retained cursor (empty follow-on batch).
+        let follow_on = transport.replay_from(Some(&cursor)).expect("follow-on");
+        assert!(matches!(
+            follow_on,
+            HostedSyncReplayResult::Delivered { .. }
+        ));
+        // Unknown cursor that was never retained.
+        let expired = transport
+            .replay_from(Some("cursor:unknown"))
+            .expect("typed resync");
+        assert!(matches!(
+            expired,
+            HostedSyncReplayResult::ResyncRequired { .. }
+        ));
+        // Expired credential degrades publish.
+        transport.advance_clock(2_000);
+        assert_eq!(
+            transport.publish(sample_op("late")).unwrap_err().code,
+            HostedSyncErrorCode::CredentialExpired
+        );
+    }
+
+    #[test]
+    fn ably_error_and_edge_branches() {
+        let mut edge = InMemoryAblyEdge::new();
+        let scope = SyncScopeId::new("scope-ably");
+        let channel = ably_channel_for_scope(&scope);
+        edge.authorize(&channel, "good");
+        let mut transport = AblyHostedSyncTransport::new(edge);
+        assert_eq!(transport.adapter_kind(), "ably");
+        assert_eq!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Disconnected
+        );
+        transport.set_accepted_key_versions(["key-active"]);
+        assert_eq!(
+            transport.publish(sample_op("x")).unwrap_err().code,
+            HostedSyncErrorCode::NotConnected
+        );
+        assert_eq!(
+            transport
+                .refresh_credential(sample_cred("scope-ably", "good", 10))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::NotConnected
+        );
+        assert_eq!(
+            transport
+                .connect(sample_cred("", "good", 10))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::UnauthorizedScope
+        );
+        transport.advance_clock(5);
+        assert_eq!(
+            transport
+                .connect(sample_cred("scope-ably", "good", 1))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::CredentialExpired
+        );
+        transport.set_relay_available(false);
+        assert_eq!(
+            transport
+                .connect(sample_cred("scope-ably", "good", 100))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::ProviderUnavailable
+        );
+        transport.set_relay_available(true);
+        transport
+            .connect(sample_cred("scope-ably", "good", 100))
+            .expect("connect");
+        assert_eq!(
+            transport
+                .publish(EncryptedSyncOperation {
+                    key_version_id: "nope".to_string(),
+                    ..sample_op("k")
+                })
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::KeyMismatch
+        );
+        assert_eq!(
+            transport
+                .publish(EncryptedSyncOperation {
+                    operation_id: String::new(),
+                    ..sample_op("k")
+                })
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::InvalidEnvelope
+        );
+        transport.publish(sample_op("one")).expect("publish");
+        transport.publish(sample_op("one")).expect("dedup");
+        assert_eq!(
+            transport
+                .refresh_credential(sample_cred("scope-ably", "", 200))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::CredentialExpired
+        );
+        transport
+            .connect(sample_cred("scope-ably", "good", 100))
+            .expect("reconnect");
+        transport.set_relay_available(false);
+        assert_eq!(
+            transport
+                .refresh_credential(sample_cred("scope-ably", "good", 200))
+                .unwrap_err()
+                .code,
+            HostedSyncErrorCode::ProviderUnavailable
+        );
+        transport.set_relay_available(true);
+        transport
+            .connect(sample_cred("scope-ably", "good", 100))
+            .expect("reconnect");
+        // Unauthorized publish via wrong token after swapping edge tokens.
+        transport.edge.tokens.clear();
+        assert_eq!(
+            transport.publish(sample_op("denied")).unwrap_err().code,
+            HostedSyncErrorCode::UnauthorizedScope
+        );
+        transport.edge.authorize(&channel, "good");
+        transport.set_relay_available(false);
+        assert!(matches!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Degraded {
+                reason: HostedSyncDegradedReason::RelayUnavailable
+            }
+        ));
+        transport.set_relay_available(true);
+        // Edge unavailable while adapter still thinks the relay flag is up.
+        transport.edge.set_available(false);
+        assert_eq!(
+            transport.publish(sample_op("edge-down")).unwrap_err().code,
+            HostedSyncErrorCode::ProviderUnavailable
+        );
+        transport.edge.set_available(true);
+        // Fresh adapter whose only retained payload is corrupt JSON.
+        let mut edge = InMemoryAblyEdge::new();
+        edge.authorize(&channel, "good");
+        edge.publish(&channel, "good", 1, b"not-json")
+            .expect("edge publish");
+        let mut transport = AblyHostedSyncTransport::new(edge);
+        transport.advance_clock(1);
+        transport
+            .connect(sample_cred("scope-ably", "good", 100))
+            .expect("connect");
+        let err = transport.replay_from(None).expect_err("bad ecca");
+        assert_eq!(err.code, HostedSyncErrorCode::InvalidEnvelope);
+
+        // Replay failure mapped from edge Unauthorized / unavailable.
+        let mut edge = InMemoryAblyEdge::new();
+        edge.authorize(&channel, "good");
+        let mut transport = AblyHostedSyncTransport::new(edge);
+        transport.advance_clock(1);
+        transport
+            .connect(sample_cred("scope-ably", "good", 100))
+            .expect("connect");
+        let cursor = transport
+            .publish(sample_op("kept"))
+            .expect("publish")
+            .cursor;
+        assert_eq!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Connected
+        );
+        let follow_on = transport.replay_from(Some(&cursor)).expect("follow-on");
+        assert!(matches!(
+            follow_on,
+            HostedSyncReplayResult::Delivered { .. }
+        ));
+        transport.edge.tokens.clear();
+        assert_eq!(
+            transport.replay_from(None).unwrap_err().code,
+            HostedSyncErrorCode::UnauthorizedScope
+        );
+        transport.edge.authorize(&channel, "good");
+        transport.advance_clock(200);
+        assert!(matches!(
+            transport.connection_state(),
+            HostedSyncConnectionState::Degraded {
+                reason: HostedSyncDegradedReason::CredentialExpired
+            }
+        ));
+        assert_eq!(
+            transport.publish(sample_op("late")).unwrap_err().code,
+            HostedSyncErrorCode::CredentialExpired
+        );
+
+        // Empty channel history.
+        let mut edge = InMemoryAblyEdge::new();
+        edge.authorize("empty", "t");
+        assert!(
+            edge.history_from("empty", "t", None, 0, MIN_REPLAY_WINDOW_MS)
+                .expect("empty history")
+                .payloads
+                .is_empty()
+        );
+        assert_eq!(
+            edge.history_from("empty", "bad", None, 0, MIN_REPLAY_WINDOW_MS)
+                .unwrap_err(),
+            AblyEdgeError::Unauthorized
+        );
+        edge.set_available(false);
+        assert_eq!(
+            edge.publish("empty", "t", 0, b"x").unwrap_err(),
+            AblyEdgeError::Unavailable
+        );
+        assert_eq!(
+            edge.history_from("empty", "t", None, 0, MIN_REPLAY_WINDOW_MS)
+                .unwrap_err(),
+            AblyEdgeError::Unavailable
+        );
+        edge.set_available(true);
+        edge.authorize("empty", "t");
+        let cursor = edge.publish("empty", "t", 0, b"{}").expect("pub");
+        edge.publish("empty", "t", 10, b"{}").expect("pub2");
+        // Unknown non-empty cursor expires.
+        assert!(matches!(
+            edge.history_from("empty", "t", Some("missing"), 10, 5)
+                .unwrap_err(),
+            AblyEdgeError::CursorExpired { .. }
+        ));
+        let _ = cursor;
+    }
+
+    #[test]
+    fn helper_and_conformance_failure_branches() {
+        assert_eq!(
+            map_ably_edge_failure(AblyEdgeError::Unauthorized).code,
+            HostedSyncErrorCode::UnauthorizedScope
+        );
+        assert_eq!(
+            map_ably_edge_failure(AblyEdgeError::Unavailable).code,
+            HostedSyncErrorCode::ProviderUnavailable
+        );
+        assert_eq!(
+            map_ably_edge_failure(AblyEdgeError::CursorExpired {
+                oldest_available_cursor: Some("c".to_string()),
+            })
+            .code,
+            HostedSyncErrorCode::ResyncRequired
+        );
+        assert!(hex_decode("abc").is_none());
+        assert!(hex_decode("zz").is_none());
+        assert_eq!(hex_decode("Ab"), Some(vec![0xab]));
+        assert!(
+            expect_error_code(
+                &Ok::<(), HostedSyncError>(()),
+                HostedSyncErrorCode::InvalidEnvelope,
+                "boom"
+            )
+            .is_err()
+        );
+        let leaked = HostedSyncObservation {
+            governing_spec: HOSTED_TRANSPORT_SPEC.to_string(),
+            kind: "x".to_string(),
+            operation_id: None,
+            key_version_id: None,
+            hashed_scope: None,
+            connection_state: None,
+            outcome: Some("token-live".to_string()),
+            latency_ms: None,
+        };
+        assert!(assert_observation_redacted(&leaked).is_err());
+
+        let mut event = wrap_ecca_event(&sample_op("op"));
+        event.data = json!({});
+        assert_eq!(
+            operation_from_ecca_event(&event).unwrap_err().code,
+            HostedSyncErrorCode::InvalidEnvelope
+        );
+        event.data = json!({"ciphertext": "zz"});
+        assert_eq!(
+            operation_from_ecca_event(&event).unwrap_err().code,
+            HostedSyncErrorCode::InvalidEnvelope
+        );
+        event.data = json!({"ciphertext": "aa"});
+        assert_eq!(
+            operation_from_ecca_event(&event).unwrap_err().code,
+            HostedSyncErrorCode::InvalidEnvelope
+        );
+        event.data = json!({
+            "ciphertext": "aa",
+            "operation_id": "op",
+            "synchronization_set_id": "s",
+            "writer_id": "w",
+            "key_version_id": "k",
+        });
+        assert_eq!(
+            operation_from_ecca_event(&event).unwrap_err().code,
+            HostedSyncErrorCode::InvalidEnvelope
+        );
+
+        for mode in [
+            SabotageMode::BadPublishReceipt,
+            SabotageMode::BadDedup,
+            SabotageMode::NotDegradedOnOutage,
+            SabotageMode::ResyncOnReplay,
+            SabotageMode::WrongReplayEnvelope,
+            SabotageMode::DeliverOnExpiredCursor,
+            SabotageMode::EmptyLineage,
+            SabotageMode::BadLineage,
+            SabotageMode::WrongStaleKeyCode,
+            SabotageMode::WrongForeignScopeCode,
+            SabotageMode::WrongOutageCode,
+        ] {
+            let mut sabotage = SabotageTransport::new(mode);
+            assert_eq!(sabotage.adapter_kind(), "sabotage");
+            assert!(
+                run_hosted_sync_conformance(&mut sabotage).is_err(),
+                "mode {mode:?} should fail conformance"
+            );
+        }
+    }
+
+    #[derive(Clone, Copy, Debug)]
+    enum SabotageMode {
+        BadPublishReceipt,
+        BadDedup,
+        NotDegradedOnOutage,
+        ResyncOnReplay,
+        WrongReplayEnvelope,
+        DeliverOnExpiredCursor,
+        EmptyLineage,
+        BadLineage,
+        WrongStaleKeyCode,
+        WrongForeignScopeCode,
+        WrongOutageCode,
+    }
+
+    struct SabotageTransport {
+        mode: SabotageMode,
+        publish_calls: u8,
+        lineage: Vec<HostedSyncLineageEvidence>,
+        available: bool,
+    }
+
+    impl SabotageTransport {
+        fn new(mode: SabotageMode) -> Self {
+            let lineage = match mode {
+                SabotageMode::EmptyLineage => Vec::new(),
+                SabotageMode::BadLineage => vec![HostedSyncLineageEvidence {
+                    governing_spec: "wrong".to_string(),
+                    protocol_spec: SYNC_PROTOCOL_SPEC.to_string(),
+                    operation_id: "op-1".to_string(),
+                    synchronization_set_id: "sync-set-1".to_string(),
+                    writer_id: "writer-a".to_string(),
+                    lamport_clock: 3,
+                    correlation_id: None,
+                    causation_id: None,
+                    key_version_id: "key-active".to_string(),
+                    event_id: "evt".to_string(),
+                    observed: true,
+                }],
+                _ => vec![HostedSyncLineageEvidence {
+                    governing_spec: HOSTED_TRANSPORT_SPEC.to_string(),
+                    protocol_spec: SYNC_PROTOCOL_SPEC.to_string(),
+                    operation_id: "op-1".to_string(),
+                    synchronization_set_id: "sync-set-1".to_string(),
+                    writer_id: "writer-a".to_string(),
+                    lamport_clock: 3,
+                    correlation_id: None,
+                    causation_id: None,
+                    key_version_id: "key-active".to_string(),
+                    event_id: "evt".to_string(),
+                    observed: true,
+                }],
+            };
+            Self {
+                mode,
+                publish_calls: 0,
+                lineage,
+                available: true,
+            }
+        }
+    }
+
+    impl HostedSyncTransport for SabotageTransport {
+        fn connect(&mut self, _credential: HostedSyncCredential) -> Result<(), HostedSyncError> {
+            Ok(())
+        }
+        fn refresh_credential(
+            &mut self,
+            credential: HostedSyncCredential,
+        ) -> Result<(), HostedSyncError> {
+            if credential.scope.as_str().contains("tenant-b") {
+                let code = if matches!(self.mode, SabotageMode::WrongForeignScopeCode) {
+                    HostedSyncErrorCode::UnauthorizedScope
+                } else {
+                    HostedSyncErrorCode::CredentialMismatch
+                };
+                return Err(hosted_error(code, "foreign", json!({})));
+            }
+            Ok(())
+        }
+        fn publish(
+            &mut self,
+            operation: EncryptedSyncOperation,
+        ) -> Result<HostedSyncPublishReceipt, HostedSyncError> {
+            if !self.available {
+                let code = if matches!(self.mode, SabotageMode::WrongOutageCode) {
+                    HostedSyncErrorCode::InvalidEnvelope
+                } else {
+                    HostedSyncErrorCode::ProviderUnavailable
+                };
+                return Err(hosted_error(code, "outage", json!({})));
+            }
+            if operation.key_version_id == "key-retired" {
+                let code = if matches!(self.mode, SabotageMode::WrongStaleKeyCode) {
+                    HostedSyncErrorCode::InvalidEnvelope
+                } else {
+                    HostedSyncErrorCode::KeyMismatch
+                };
+                return Err(hosted_error(code, "stale", json!({})));
+            }
+            self.publish_calls = self.publish_calls.saturating_add(1);
+            let operation_id = match self.mode {
+                SabotageMode::BadPublishReceipt => "wrong".to_string(),
+                SabotageMode::BadDedup if self.publish_calls > 1 => "changed".to_string(),
+                _ => operation.operation_id,
+            };
+            Ok(HostedSyncPublishReceipt {
+                operation_id,
+                cursor: "c1".to_string(),
+            })
+        }
+        fn replay_from(
+            &mut self,
+            cursor: Option<&str>,
+        ) -> Result<HostedSyncReplayResult, HostedSyncError> {
+            if cursor.is_some() {
+                return match self.mode {
+                    SabotageMode::DeliverOnExpiredCursor => Ok(HostedSyncReplayResult::Delivered {
+                        operations: vec![sample_operation()],
+                        cursor: "c2".to_string(),
+                    }),
+                    _ => Ok(HostedSyncReplayResult::ResyncRequired {
+                        oldest_available_cursor: None,
+                    }),
+                };
+            }
+            match self.mode {
+                SabotageMode::ResyncOnReplay => Ok(HostedSyncReplayResult::ResyncRequired {
+                    oldest_available_cursor: None,
+                }),
+                SabotageMode::WrongReplayEnvelope => Ok(HostedSyncReplayResult::Delivered {
+                    operations: vec![sample_op("other")],
+                    cursor: "c1".to_string(),
+                }),
+                _ => Ok(HostedSyncReplayResult::Delivered {
+                    operations: vec![sample_operation()],
+                    cursor: "c1".to_string(),
+                }),
+            }
+        }
+        fn connection_state(&self) -> HostedSyncConnectionState {
+            if !self.available {
+                if matches!(self.mode, SabotageMode::NotDegradedOnOutage) {
+                    return HostedSyncConnectionState::Connected;
+                }
+                return HostedSyncConnectionState::Degraded {
+                    reason: HostedSyncDegradedReason::RelayUnavailable,
+                };
+            }
+            HostedSyncConnectionState::Connected
+        }
+        fn advance_clock(&mut self, _now_ms: u64) {}
+        fn set_relay_available(&mut self, available: bool) {
+            self.available = available;
+        }
+        fn observations(&self) -> &[HostedSyncObservation] {
+            &[]
+        }
+        fn lineage(&self) -> &[HostedSyncLineageEvidence] {
+            &self.lineage
+        }
+        fn adapter_kind(&self) -> &'static str {
+            "sabotage"
+        }
     }
 }
