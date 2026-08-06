@@ -189,11 +189,13 @@ impl PlacementRouter {
 
         // --- Step 3.5: Execution-time contractual enforcement gate ---
         let mut violations = Vec::new();
-        if request.contract.service_type == ServiceType::Subscribable && !emitted_events.is_empty() {
+        if request.contract.service_type == ServiceType::Subscribable && !emitted_events.is_empty()
+        {
             for event in &emitted_events {
-                let declared = request.contract.emits.iter().any(|decl| {
-                    decl.event_id == event.event_type && decl.version == event.version
-                });
+                let declared =
+                    request.contract.emits.iter().any(|decl| {
+                        decl.event_id == event.event_type && decl.version == event.version
+                    });
                 if !declared {
                     violations.push(ViolationRecord::new(
                         "undeclared_event_emission",
@@ -279,10 +281,7 @@ fn extract_emitted_events_from_output(output: &Value, capability_id: &str) -> Ve
             };
             let event_type = object.get("event_id")?.as_str()?;
             let version = object.get("version")?.as_str()?;
-            let data = object
-                .get("payload")
-                .cloned()
-                .unwrap_or_else(|| json!({}));
+            let data = object.get("payload").cloned().unwrap_or_else(|| json!({}));
             Some(TraverseEvent {
                 id: Uuid::new_v4().to_string(),
                 source: format!("traverse-runtime/{capability_id}"),

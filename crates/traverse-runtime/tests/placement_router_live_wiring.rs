@@ -35,10 +35,7 @@ struct RecordingEventSink {
 }
 
 impl RuntimeEventSink for RecordingEventSink {
-    fn emit(
-        &self,
-        event: TraverseEvent,
-    ) -> Result<(), traverse_runtime::events::EventError> {
+    fn emit(&self, event: TraverseEvent) -> Result<(), traverse_runtime::events::EventError> {
         self.events
             .lock()
             .map_err(|_| {
@@ -528,9 +525,11 @@ fn live_runtime_lifecycle_event_still_fires_on_success_and_failure() {
 
     let lifecycle = sink.events.lock().expect("sink lock");
     assert_eq!(lifecycle.len(), 2);
-    assert!(lifecycle.iter().all(|event| {
-        event.event_type == "dev.traverse.runtime.execution.completed"
-    }));
+    assert!(
+        lifecycle
+            .iter()
+            .all(|event| { event.event_type == "dev.traverse.runtime.execution.completed" })
+    );
     assert!(
         !success
             .state_events

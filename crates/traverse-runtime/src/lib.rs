@@ -1698,11 +1698,7 @@ impl EventBroker for DiscardEventBroker {
         Ok(())
     }
 
-    fn subscribe(
-        &self,
-        event_type: &str,
-        _from_cursor: &str,
-    ) -> Result<Subscription, EventError> {
+    fn subscribe(&self, event_type: &str, _from_cursor: &str) -> Result<Subscription, EventError> {
         Err(EventError::UnregisteredEventType(event_type.to_string()))
     }
 
@@ -1720,11 +1716,15 @@ impl EventBroker for DiscardEventBroker {
         subscription_id: &str,
         _max_events: usize,
     ) -> Result<SubscriptionPoll, EventError> {
-        Err(EventError::SubscriptionNotFound(subscription_id.to_string()))
+        Err(EventError::SubscriptionNotFound(
+            subscription_id.to_string(),
+        ))
     }
 
     fn cancel(&self, subscription_id: &str) -> Result<(), EventError> {
-        Err(EventError::SubscriptionNotFound(subscription_id.to_string()))
+        Err(EventError::SubscriptionNotFound(
+            subscription_id.to_string(),
+        ))
     }
 }
 
@@ -1809,11 +1809,7 @@ fn event_references_from_output(output: &Value) -> Vec<EventReference> {
 
 fn map_router_error(
     error: &RouterError,
-) -> (
-    RuntimeError,
-    ExecutionFailureReason,
-    Vec<EventReference>,
-) {
+) -> (RuntimeError, ExecutionFailureReason, Vec<EventReference>) {
     match error {
         RouterError::PlacementFailed(placement_error) => (
             runtime_error(
@@ -3477,8 +3473,7 @@ mod tests {
         let native = resolved_capability(None, Lifecycle::Active);
         assert_eq!(super::artifact_type_for(&native), ArtifactType::Native);
         assert_eq!(
-            super::executor_capability_for(&native, ArtifactType::Native)
-                .artifact_type,
+            super::executor_capability_for(&native, ArtifactType::Native).artifact_type,
             ArtifactType::Native
         );
 
@@ -3501,18 +3496,19 @@ mod tests {
         assert_eq!(code.code, RuntimeErrorCode::ExecutionFailed);
         assert_eq!(reason, ExecutionFailureReason::ExecutionFailed);
 
-        let (code, reason, _) =
-            super::map_router_error(&RouterError::PlacementFailed(PlacementError::NoEligibleTarget));
+        let (code, reason, _) = super::map_router_error(&RouterError::PlacementFailed(
+            PlacementError::NoEligibleTarget,
+        ));
         assert_eq!(code.code, RuntimeErrorCode::PlacementUnsupported);
         assert_eq!(reason, ExecutionFailureReason::PlacementUnsupported);
     }
 
     #[test]
     fn bound_local_executor_publishes_native_artifact_events_through_placement_router() {
-        use super::executor::ArtifactType;
         use super::events::{
             EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
         };
+        use super::executor::ArtifactType;
         use super::placement::PlacementConstraintEvaluator;
         use super::router::{CapabilityExecutorRegistry, PlacementRouter, RouterRequest};
         use super::trace::TraceStore;
@@ -3585,7 +3581,10 @@ mod tests {
                 target_hint: Some(ExecutionTarget::Local),
                 runtime_snapshot: super::idle_runtime_snapshot(),
                 input: json!({}),
-                executor_capability: super::executor_capability_for(&selected, ArtifactType::Native),
+                executor_capability: super::executor_capability_for(
+                    &selected,
+                    ArtifactType::Native,
+                ),
                 emitted_events: Vec::new(),
                 trace_id_override: Some("trace_native_live".to_string()),
             })

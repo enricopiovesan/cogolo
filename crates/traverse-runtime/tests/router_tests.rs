@@ -358,7 +358,11 @@ fn subscribable_capability_publishes_events_from_output_json() -> Result<(), Str
     let poll = broker_arc
         .poll(&sub.subscription_id, 10)
         .map_err(|e| e.to_string())?;
-    assert_eq!(poll.events.len(), 1, "one event must be delivered from output JSON");
+    assert_eq!(
+        poll.events.len(),
+        1,
+        "one event must be delivered from output JSON"
+    );
     assert_eq!(poll.events[0].event.event_type, event_type);
 
     Ok(())
