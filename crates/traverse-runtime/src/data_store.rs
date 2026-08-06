@@ -11,8 +11,9 @@ mod coordinator;
 mod maintenance;
 pub use coordinator::{DataStoreCoordinator, DataStoreCoordinatorError};
 pub use maintenance::{
-    BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
-    MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
+    BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, DataStoreMigration,
+    LocalFileDataStoreMaintenance, MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence,
+    MigrationError, MigrationErrorCode, MigrationReport, RetentionPolicy,
 };
 
 #[cfg(feature = "datastore-encryption")]
@@ -36,6 +37,9 @@ use zeroize::Zeroizing;
 /// than the earlier generic `DataStore` surface that supplied its merge helper.
 const DATA_STORE_SPEC: &str = "089-datastore-synchronization";
 const LOCAL_DATA_STORE_FORMAT: &str = "local-datastore/1";
+const LOCAL_DATA_STORE_V2_FORMAT: &str = "local-datastore/2";
+const LOCAL_DATA_STORE_V2_FORMAT_VERSION: u32 = 2;
+const LOCAL_DATA_STORE_V2_SCHEMA_VERSION: u32 = 1;
 const LOCAL_DATA_STORE_LOCK_FILE: &str = ".traverse-datastore.lock";
 const HEXADECIMAL_DIGITS: &[u8; 16] = b"0123456789abcdef";
 
@@ -124,6 +128,74 @@ struct LocalDataStoreEnvelope {
     /// Absent on legacy envelopes; age prune treats missing stamps as retained.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     retained_at: Option<String>,
+}
+
+/// Version-two wrapper keeps the durable payload self-identifying and
+/// independently integrity-protected. The payload remains opaque to callers.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LocalDataStoreV2Envelope {
+    format: String,
+    format_version: u32,
+    schema_version: u32,
+    payload_integrity: String,
+    integrity: LocalDataStoreIntegrity,
+    encryption_disclosure: String,
+    payload: LocalDataStoreEnvelope,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+struct LocalDataStoreIntegrity {
+    algorithm: String,
+    content_digest: String,
+}
+
+fn v2_envelope(
+    payload: LocalDataStoreEnvelope,
+) -> Result<LocalDataStoreV2Envelope, DataStoreError> {
+    let payload_bytes = serde_json::to_vec(&payload)
+        .map_err(|error| serialization_error("serialize v2 data store payload", &error))?;
+    let payload_integrity = digest_bytes(&payload_bytes);
+    Ok(LocalDataStoreV2Envelope {
+        format: LOCAL_DATA_STORE_V2_FORMAT.to_string(),
+        format_version: LOCAL_DATA_STORE_V2_FORMAT_VERSION,
+        schema_version: LOCAL_DATA_STORE_V2_SCHEMA_VERSION,
+        integrity: LocalDataStoreIntegrity {
+            algorithm: "sha256".to_string(),
+            content_digest: payload_integrity.clone(),
+        },
+        payload_integrity,
+        encryption_disclosure: match payload.classification {
+            LocalDataClassification::Public => "not_enabled".to_string(),
+            LocalDataClassification::Private => "host_managed_opaque".to_string(),
+        },
+        payload,
+    })
+}
+
+fn decode_v2_envelope(value: Value) -> Result<LocalDataStoreEnvelope, DataStoreError> {
+    let envelope: LocalDataStoreV2Envelope =
+        serde_json::from_value(value).map_err(|_| integrity_error("malformed_envelope"))?;
+    if envelope.format != LOCAL_DATA_STORE_V2_FORMAT
+        || envelope.format_version != LOCAL_DATA_STORE_V2_FORMAT_VERSION
+        || envelope.schema_version != LOCAL_DATA_STORE_V2_SCHEMA_VERSION
+        || envelope.integrity.algorithm != "sha256"
+        || envelope.integrity.content_digest != envelope.payload_integrity
+        || !matches!(
+            envelope.encryption_disclosure.as_str(),
+            "not_enabled" | "host_managed_opaque"
+        )
+    {
+        return Err(integrity_error("unknown_format_version"));
+    }
+    let payload_bytes = serde_json::to_vec(&envelope.payload)
+        .map_err(|error| serialization_error("serialize v2 payload for verification", &error))?;
+    if digest_bytes(&payload_bytes) != envelope.payload_integrity {
+        return Err(integrity_error("digest_mismatch"));
+    }
+    if envelope.payload.format != LOCAL_DATA_STORE_FORMAT {
+        return Err(integrity_error("unknown_format_version"));
+    }
+    Ok(envelope.payload)
 }
 
 /// Stable, secret-free key-provider failure codes.
@@ -532,8 +604,13 @@ impl DataStore for LocalFileDataStore {
         if value.get("format").is_none() {
             return Err(integrity_error("legacy_unverified"));
         }
-        let envelope: LocalDataStoreEnvelope =
-            serde_json::from_value(value).map_err(|_| integrity_error("malformed_envelope"))?;
+        let envelope: LocalDataStoreEnvelope = match value.get("format").and_then(Value::as_str) {
+            Some(LOCAL_DATA_STORE_FORMAT) => {
+                serde_json::from_value(value).map_err(|_| integrity_error("malformed_envelope"))?
+            }
+            Some(LOCAL_DATA_STORE_V2_FORMAT) => decode_v2_envelope(value)?,
+            _ => return Err(integrity_error("unknown_format_version")),
+        };
         if envelope.format != LOCAL_DATA_STORE_FORMAT {
             return Err(integrity_error("unknown_format_version"));
         }
@@ -561,7 +638,7 @@ impl DataStore for LocalFileDataStore {
 
     fn write(&mut self, record: StateRecord) -> Result<(), DataStoreError> {
         let path = self.path_for_key(&record.key)?;
-        self.ensure_classification_unchanged(&path)?;
+        let write_v2 = self.ensure_classification_unchanged(&path)?;
         let record_key = record.key.clone();
         let envelope = match self.classification {
             LocalDataClassification::Public => LocalDataStoreEnvelope {
@@ -577,8 +654,12 @@ impl DataStore for LocalFileDataStore {
             },
             LocalDataClassification::Private => self.encrypt_private_record(record)?,
         };
-        let text = serde_json::to_vec(&envelope)
-            .map_err(|error| serialization_error("serialize state record envelope", &error))?;
+        let text = if write_v2 {
+            serde_json::to_vec(&v2_envelope(envelope)?)
+        } else {
+            serde_json::to_vec(&envelope)
+        }
+        .map_err(|error| serialization_error("serialize state record envelope", &error))?;
         let temporary_path = self.temporary_path_for_key(&record_key);
         let write_result = (|| {
             let mut temporary_file = File::create(&temporary_path)
@@ -750,13 +831,20 @@ impl LocalFileDataStore {
         })
     }
 
-    fn ensure_classification_unchanged(&self, path: &PathBuf) -> Result<(), DataStoreError> {
+    fn ensure_classification_unchanged(&self, path: &PathBuf) -> Result<bool, DataStoreError> {
         if !path.exists() {
-            return Ok(());
+            return Ok(false);
         }
         let bytes = fs::read(path).map_err(|error| io_error("read existing envelope", &error))?;
-        let envelope: LocalDataStoreEnvelope =
+        let value: Value =
             serde_json::from_slice(&bytes).map_err(|_| integrity_error("malformed_envelope"))?;
+        let write_v2 =
+            value.get("format").and_then(Value::as_str) == Some(LOCAL_DATA_STORE_V2_FORMAT);
+        let envelope = if write_v2 {
+            decode_v2_envelope(value)?
+        } else {
+            serde_json::from_value(value).map_err(|_| integrity_error("malformed_envelope"))?
+        };
         if envelope.format != LOCAL_DATA_STORE_FORMAT {
             return Err(integrity_error("unknown_format_version"));
         }
@@ -767,8 +855,12 @@ impl LocalFileDataStore {
                 json!({ "reason": "delete_before_reclassifying" }),
             ));
         }
-        Ok(())
+        Ok(write_v2)
     }
+}
+
+fn digest_bytes(bytes: &[u8]) -> String {
+    format!("sha256:{}", hex_encode(&Sha256::digest(bytes)))
 }
 
 fn digest_for_record(record: &StateRecord) -> Result<String, DataStoreError> {

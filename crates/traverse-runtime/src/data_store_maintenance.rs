@@ -3,9 +3,10 @@
 //! Governed by spec `083-datastore-retention-backup` / ADR-0021.
 
 use super::{
-    DataStoreError, LOCAL_DATA_STORE_FORMAT, LOCAL_DATA_STORE_LOCK_FILE, LocalDataClassification,
-    LocalDataStoreEnvelope, digest_for_private_envelope, digest_for_record, hex_decode, lock_error,
-    validate_key,
+    DataStoreError, LOCAL_DATA_STORE_FORMAT, LOCAL_DATA_STORE_LOCK_FILE,
+    LOCAL_DATA_STORE_V2_FORMAT, LocalDataClassification, LocalDataStoreEnvelope,
+    decode_v2_envelope, digest_for_private_envelope, digest_for_record, hex_decode, lock_error,
+    v2_envelope, validate_key,
 };
 use chrono::{DateTime, Duration, Utc};
 use serde::{Deserialize, Serialize};
@@ -20,6 +21,7 @@ use zip::read::ZipArchive;
 use zip::write::SimpleFileOptions;
 
 const MAINTENANCE_SPEC: &str = "083-datastore-retention-backup";
+const MIGRATION_SPEC: &str = "092-datastore-v2-migration-ownership";
 const BACKUP_MANIFEST_VERSION: &str = "1";
 const BACKUP_MANIFEST_MEMBER: &str = "manifest.json";
 const BACKUP_RECORDS_PREFIX: &str = "records/";
@@ -49,6 +51,54 @@ pub struct MaintenanceError {
     pub code: MaintenanceErrorCode,
     pub message: String,
     pub details: Value,
+}
+
+/// Stable, secret-free failure codes for an explicit host-owned v1-to-v2 migration.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum MigrationErrorCode {
+    TransitionUnsupported,
+    SourceInvalid,
+    BackupFailed,
+    WriteFailed,
+    VerificationFailed,
+    CommitFailed,
+    RestoreFailed,
+    OwnerLocked,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationError {
+    pub code: MigrationErrorCode,
+    pub message: String,
+    pub details: Value,
+}
+
+/// Safe evidence returned to the owning host; it never contains paths, keys, or values.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MigrationReport {
+    pub governing_spec: String,
+    pub source_format: String,
+    pub target_format: String,
+    pub record_count: u64,
+    pub backup_content_digest: String,
+    pub outcome: String,
+}
+
+/// Host-explicit format-migration port. Generic runtime and CLI paths never call it.
+pub trait DataStoreMigration {
+    /// Migrates a verified v1 root to v2 only after a host-directed backup and
+    /// complete candidate verification have succeeded.
+    ///
+    /// # Errors
+    ///
+    /// Returns a stable, secret-free [`MigrationError`] when the source,
+    /// backup, candidate, ownership lock, or atomic commit cannot be verified.
+    fn migrate_v1_to_v2(
+        &mut self,
+        backup_destination: &Path,
+        as_of: &str,
+    ) -> Result<MigrationReport, MigrationError>;
 }
 
 /// Secret-free maintenance evidence (FR-009).
@@ -386,6 +436,182 @@ impl DataStoreMaintenance for LocalFileDataStoreMaintenance {
             failure_reason: None,
         })
     }
+}
+
+impl DataStoreMigration for LocalFileDataStoreMaintenance {
+    fn migrate_v1_to_v2(
+        &mut self,
+        backup_destination: &Path,
+        as_of: &str,
+    ) -> Result<MigrationReport, MigrationError> {
+        parse_as_of(as_of).map_err(map_migration_source_error)?;
+        let keys = self
+            .list_record_keys()
+            .map_err(map_migration_source_error)?;
+
+        // Validate every committed source envelope before any backup artifact or
+        // candidate representation is written.
+        for key in &keys {
+            self.read_envelope(key)
+                .map_err(map_migration_source_error)?;
+        }
+
+        let backup = self
+            .backup(backup_destination, as_of)
+            .map_err(map_migration_backup_error)?;
+        let backup_digest = backup
+            .archive_content_digest
+            .ok_or_else(|| MigrationError {
+                code: MigrationErrorCode::BackupFailed,
+                message: "datastore_backup_failed".to_string(),
+                details: json!({ "reason": "missing_verified_backup_digest" }),
+            })?;
+
+        let parent = restore_parent(&self.root).map_err(map_migration_commit_error)?;
+        let suffix = restore_work_suffix(&self.root, as_of);
+        let candidate_root = parent.join(format!(".traverse-datastore-migration-{suffix}"));
+        let previous_root = parent.join(format!(".traverse-datastore-pre-v2-{suffix}"));
+        let _ = fs::remove_dir_all(&candidate_root);
+        let _ = fs::remove_dir_all(&previous_root);
+        fs::create_dir_all(&candidate_root).map_err(map_migration_write_io)?;
+        File::create(candidate_root.join(LOCAL_DATA_STORE_LOCK_FILE))
+            .map_err(map_migration_write_io)?;
+
+        let candidate = (|| -> Result<(), MigrationError> {
+            for key in &keys {
+                let source = self
+                    .read_envelope(key)
+                    .map_err(map_migration_source_error)?;
+                let v2 = v2_envelope(source).map_err(map_migration_write_data_store)?;
+                let bytes = serde_json::to_vec(&v2).map_err(|_| MigrationError {
+                    code: MigrationErrorCode::WriteFailed,
+                    message: "datastore_write_failed".to_string(),
+                    details: json!({ "reason": "serialize_candidate" }),
+                })?;
+                fs::write(candidate_root.join(format!("{key}.json")), bytes)
+                    .map_err(map_migration_write_io)?;
+            }
+            verify_v2_store_root(&candidate_root).map_err(map_migration_verification_error)
+        })();
+        if let Err(error) = candidate {
+            let _ = fs::remove_dir_all(&candidate_root);
+            return Err(error);
+        }
+
+        let _ = self.lock_file.unlock();
+        if let Err(error) = fs::rename(&self.root, &previous_root) {
+            let _ = self.reacquire_lock();
+            let _ = fs::remove_dir_all(&candidate_root);
+            return Err(map_migration_commit_io(error));
+        }
+        if let Err(error) = fs::rename(&candidate_root, &self.root) {
+            let _ = fs::rename(&previous_root, &self.root);
+            let _ = self.reacquire_lock();
+            return Err(map_migration_commit_io(error));
+        }
+        if let Err(error) = self.reacquire_lock() {
+            let _ = fs::rename(&self.root, &candidate_root);
+            let _ = fs::rename(&previous_root, &self.root);
+            let _ = self.reacquire_lock();
+            return Err(map_migration_commit_error(error));
+        }
+        let _ = fs::remove_dir_all(&previous_root);
+
+        Ok(MigrationReport {
+            governing_spec: MIGRATION_SPEC.to_string(),
+            source_format: LOCAL_DATA_STORE_FORMAT.to_string(),
+            target_format: LOCAL_DATA_STORE_V2_FORMAT.to_string(),
+            record_count: keys.len() as u64,
+            backup_content_digest: backup_digest,
+            outcome: "datastore_migration_committed".to_string(),
+        })
+    }
+}
+
+fn verify_v2_store_root(root: &Path) -> Result<(), MaintenanceError> {
+    for entry in
+        fs::read_dir(root).map_err(|error| maintenance_io("list migration candidate", &error))?
+    {
+        let entry =
+            entry.map_err(|error| maintenance_io("read migration candidate entry", &error))?;
+        let path = entry.path();
+        if path.extension().and_then(|extension| extension.to_str()) != Some("json") {
+            continue;
+        }
+        let bytes =
+            fs::read(path).map_err(|error| maintenance_io("read migration candidate", &error))?;
+        let value: Value =
+            serde_json::from_slice(&bytes).map_err(|_| malformed_envelope_error())?;
+        let envelope = decode_v2_envelope(value).map_err(map_data_store_error)?;
+        parse_envelope_bytes(
+            &serde_json::to_vec(&envelope).map_err(|_| malformed_envelope_error())?,
+        )?;
+    }
+    Ok(())
+}
+
+fn migration_error(code: MigrationErrorCode, message: &str, reason: &str) -> MigrationError {
+    MigrationError {
+        code,
+        message: message.to_string(),
+        details: json!({ "reason": reason }),
+    }
+}
+
+fn map_migration_source_error(_: MaintenanceError) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::SourceInvalid,
+        "datastore_source_invalid",
+        "source_validation_failed",
+    )
+}
+
+fn map_migration_backup_error(_: MaintenanceError) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::BackupFailed,
+        "datastore_backup_failed",
+        "backup_verification_failed",
+    )
+}
+
+fn map_migration_write_io(_: std::io::Error) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::WriteFailed,
+        "datastore_write_failed",
+        "candidate_write_failed",
+    )
+}
+
+fn map_migration_write_data_store(_: DataStoreError) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::WriteFailed,
+        "datastore_write_failed",
+        "candidate_serialization_failed",
+    )
+}
+
+fn map_migration_verification_error(_: MaintenanceError) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::VerificationFailed,
+        "datastore_verification_failed",
+        "candidate_verification_failed",
+    )
+}
+
+fn map_migration_commit_io(_: std::io::Error) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::CommitFailed,
+        "datastore_commit_failed",
+        "atomic_commit_failed",
+    )
+}
+
+fn map_migration_commit_error(_: MaintenanceError) -> MigrationError {
+    migration_error(
+        MigrationErrorCode::CommitFailed,
+        "datastore_commit_failed",
+        "atomic_commit_failed",
+    )
 }
 
 fn select_prune_victims(
@@ -1847,6 +2073,94 @@ mod tests {
         let missing = materialize_archive_to_root(&missing_member, &root).expect_err("missing");
         assert_eq!(missing.code, MaintenanceErrorCode::BackupVerifyFailed);
         assert_eq!(missing.details["reason"], "missing_member");
+    }
+
+    #[test]
+    fn explicit_v1_to_v2_migration_is_verified_and_restore_remains_explicit() {
+        let root = temp_root("v2-migration-success");
+        drop(seed_store(&root, 2, None));
+        let archive = root
+            .parent()
+            .expect("parent")
+            .join(format!("migration-{}.zip", Uuid::new_v4()));
+
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let report = maintenance
+            .migrate_v1_to_v2(&archive, "2026-08-05T00:00:00Z")
+            .expect("migration");
+        assert_eq!(report.governing_spec, MIGRATION_SPEC);
+        assert_eq!(report.source_format, LOCAL_DATA_STORE_FORMAT);
+        assert_eq!(report.target_format, LOCAL_DATA_STORE_V2_FORMAT);
+        assert_eq!(report.record_count, 2);
+        assert!(report.backup_content_digest.starts_with("sha256:"));
+        assert_eq!(
+            serde_json::from_slice::<Value>(&fs::read(root.join("k00.json")).expect("v2 file"))
+                .expect("v2 json")["format"],
+            LOCAL_DATA_STORE_V2_FORMAT
+        );
+        drop(maintenance);
+
+        let reader =
+            LocalFileDataStore::with_classification(&root, LocalDataClassification::Public)
+                .expect("v2 reader");
+        assert_eq!(
+            reader.read("k00").expect("read").expect("record").key,
+            "k00"
+        );
+        drop(reader);
+
+        let mut restore = LocalFileDataStoreMaintenance::open(&root).expect("restore maintenance");
+        restore
+            .restore(&archive, "2026-08-05T00:01:00Z")
+            .expect("explicit restore");
+        drop(restore);
+        let restored =
+            serde_json::from_slice::<Value>(&fs::read(root.join("k00.json")).expect("v1 file"))
+                .expect("v1 json");
+        assert_eq!(restored["format"], LOCAL_DATA_STORE_FORMAT);
+    }
+
+    #[test]
+    fn migration_rejects_unknown_source_without_backup_or_rewrite() {
+        let root = temp_root("v2-migration-unknown");
+        fs::write(root.join("k00.json"), br#"{"format":"unknown/9"}"#).expect("source");
+        let original = fs::read(root.join("k00.json")).expect("original");
+        let archive = root
+            .parent()
+            .expect("parent")
+            .join(format!("migration-unknown-{}.zip", Uuid::new_v4()));
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let error = maintenance
+            .migrate_v1_to_v2(&archive, "2026-08-05T00:00:00Z")
+            .expect_err("unknown source must fail closed");
+        assert_eq!(error.code, MigrationErrorCode::SourceInvalid);
+        assert_eq!(error.message, "datastore_source_invalid");
+        assert_eq!(
+            fs::read(root.join("k00.json")).expect("source preserved"),
+            original
+        );
+        assert!(!archive.exists());
+    }
+
+    #[test]
+    fn corrupt_restore_backup_preserves_the_committed_store() {
+        let root = temp_root("v2-migration-corrupt-backup");
+        drop(seed_store(&root, 1, None));
+        let before = fs::read(root.join("k00.json")).expect("source");
+        let corrupt = root
+            .parent()
+            .expect("parent")
+            .join(format!("migration-corrupt-{}.zip", Uuid::new_v4()));
+        fs::write(&corrupt, b"not a verified backup").expect("corrupt archive");
+        let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
+        let error = maintenance
+            .restore(&corrupt, "2026-08-05T00:00:00Z")
+            .expect_err("corrupt archive");
+        assert_eq!(error.code, MaintenanceErrorCode::BackupVerifyFailed);
+        assert_eq!(
+            fs::read(root.join("k00.json")).expect("source preserved"),
+            before
+        );
     }
 
     fn write_zip(parent: &Path, members: &[(&str, &[u8])]) -> PathBuf {
