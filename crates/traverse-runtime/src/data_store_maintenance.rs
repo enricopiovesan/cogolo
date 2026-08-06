@@ -2307,10 +2307,7 @@ mod tests {
         #[derive(Debug)]
         struct Boom;
         impl Serialize for Boom {
-            fn serialize<S: serde::Serializer>(
-                &self,
-                _serializer: S,
-            ) -> Result<S::Ok, S::Error> {
+            fn serialize<S: serde::Serializer>(&self, _serializer: S) -> Result<S::Ok, S::Error> {
                 Err(serde::ser::Error::custom("boom"))
             }
         }
@@ -2319,9 +2316,11 @@ mod tests {
             map_envelope_serialize_error(boom).code,
             MaintenanceErrorCode::RestoreVerifyFailed
         );
-        assert!(json_to_vec(&Boom)
-            .map_err(map_serialize_candidate_error)
-            .is_err());
+        assert!(
+            json_to_vec(&Boom)
+                .map_err(map_serialize_candidate_error)
+                .is_err()
+        );
 
         let candidate = temp_root("abandon-candidate").join("work");
         fs::create_dir_all(&candidate).expect("candidate");
@@ -2356,9 +2355,8 @@ mod tests {
         fs::write(&previous_root, b"block aside").expect("occupy previous");
 
         let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
-        let failed =
-            commit_migrated_store_root(&mut maintenance, &candidate_root, &previous_root)
-                .expect_err("aside must fail");
+        let failed = commit_migrated_store_root(&mut maintenance, &candidate_root, &previous_root)
+            .expect_err("aside must fail");
         assert_eq!(failed.code, MigrationErrorCode::CommitFailed);
         assert_eq!(
             fs::read(root.join("k00.json")).expect("live preserved"),
@@ -2388,9 +2386,8 @@ mod tests {
         fs::rename(&root, &previous_root).expect("aside");
         fs::write(&root, b"block install").expect("occupy root");
 
-        let failed =
-            install_migrated_candidate(&mut maintenance, &candidate_root, &previous_root)
-                .expect_err("install must fail");
+        let failed = install_migrated_candidate(&mut maintenance, &candidate_root, &previous_root)
+            .expect_err("install must fail");
         assert_eq!(failed.code, MigrationErrorCode::CommitFailed);
         assert_eq!(
             fs::read(previous_root.join("k00.json")).expect("aside preserved"),
@@ -2416,7 +2413,11 @@ mod tests {
         let _ = fs::remove_dir_all(&previous_root);
         fs::create_dir_all(&candidate_root).expect("candidate");
         fs::write(candidate_root.join(LOCAL_DATA_STORE_LOCK_FILE), b"").expect("candidate lock");
-        fs::write(candidate_root.join("k00.json"), br#"{"format":"candidate"}"#).expect("cand");
+        fs::write(
+            candidate_root.join("k00.json"),
+            br#"{"format":"candidate"}"#,
+        )
+        .expect("cand");
 
         let mut maintenance = LocalFileDataStoreMaintenance::open(&root).expect("maintenance");
         let _ = maintenance.lock_file.unlock();
@@ -2430,9 +2431,8 @@ mod tests {
             .expect("blocker");
         blocker.try_lock().expect("hold lock");
 
-        let failed =
-            reacquire_migrated_lock(&mut maintenance, &candidate_root, &previous_root)
-                .expect_err("reacquire must fail while blocked");
+        let failed = reacquire_migrated_lock(&mut maintenance, &candidate_root, &previous_root)
+            .expect_err("reacquire must fail while blocked");
         assert_eq!(failed.code, MigrationErrorCode::CommitFailed);
         drop(blocker);
         assert_eq!(
