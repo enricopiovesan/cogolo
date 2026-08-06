@@ -305,7 +305,7 @@ impl<E> Runtime<E> {
     }
 }
 
-pub trait LocalExecutor {
+pub trait LocalExecutor: Send + Sync {
     /// Executes one locally selected capability.
     ///
     /// # Errors
@@ -1180,7 +1180,7 @@ fn browser_subscription_error(
 
 impl<E> Runtime<E>
 where
-    E: LocalExecutor + Send + Sync + 'static,
+    E: LocalExecutor,
 {
     /// Executes one runtime request against the current registry state.
     #[must_use]
@@ -1581,18 +1581,14 @@ where
 
         let artifact_type = artifact_type_for(selected);
         let executor_capability = executor_capability_for(selected, artifact_type.clone());
-        let mut registry: CapabilityExecutorRegistry = CapabilityExecutorRegistry::new();
-        registry.insert(
-            artifact_type.clone(),
-            Box::new(BoundLocalExecutor {
-                executor: Arc::clone(&self.executor),
-                selected: selected.clone(),
-            }),
-        );
+        let bridge = BoundLocalExecutor {
+            executor: Arc::clone(&self.executor),
+            selected: selected.clone(),
+        };
 
         let router = PlacementRouter::new(
             PlacementConstraintEvaluator,
-            registry,
+            CapabilityExecutorRegistry::new(),
             Arc::clone(&self.trace_store),
             Arc::clone(&self.event_broker),
         );
@@ -1616,7 +1612,7 @@ where
             trace_id_override: Some(context.attempt.trace_id.clone()),
         };
 
-        let router_result = router.execute(router_request);
+        let router_result = router.execute_with_executor(router_request, &bridge);
         match router_result {
             Ok(response) => {
                 if let Err(error) = validate_payload_against_contract(
@@ -1676,7 +1672,7 @@ struct BoundLocalExecutor<E> {
 
 impl<E> CapabilityExecutor for BoundLocalExecutor<E>
 where
-    E: LocalExecutor + Send + Sync,
+    E: LocalExecutor,
 {
     fn execute(
         &self,

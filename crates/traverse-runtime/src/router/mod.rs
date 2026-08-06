@@ -151,6 +151,26 @@ impl PlacementRouter {
     ///
     /// Returns [`RouterError`] when any step cannot complete.
     pub fn execute(&self, request: RouterRequest) -> Result<RouterResponse, RouterError> {
+        let executor = self
+            .executor_registry
+            .get(&request.artifact_type)
+            .ok_or_else(|| RouterError::ExecutorNotFound(format!("{:?}", request.artifact_type)))?;
+        self.execute_with_executor(request, executor.as_ref())
+    }
+
+    /// Execute a capability with an explicitly provided executor.
+    ///
+    /// Used by the live `Runtime::execute` path to bridge a host
+    /// `LocalExecutor` without requiring a `'static` registry entry.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`RouterError`] when any step cannot complete.
+    pub fn execute_with_executor(
+        &self,
+        request: RouterRequest,
+        executor: &dyn CapabilityExecutor,
+    ) -> Result<RouterResponse, RouterError> {
         // --- Step 1: Placement evaluation ---
         let placement_req = PlacementRequest {
             capability_id: request.capability_id.clone(),
@@ -164,12 +184,6 @@ impl PlacementRouter {
             .map_err(RouterError::PlacementFailed)?;
 
         let placement_target_str = format!("{:?}", decision.target);
-
-        // --- Step 2: Executor selection ---
-        let executor = self
-            .executor_registry
-            .get(&request.artifact_type)
-            .ok_or_else(|| RouterError::ExecutorNotFound(format!("{:?}", request.artifact_type)))?;
 
         // --- Step 3: Execute capability ---
         let start = Instant::now();
