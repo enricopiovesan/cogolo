@@ -459,13 +459,7 @@ impl DataStoreMigration for LocalFileDataStoreMaintenance {
         let backup = self
             .backup(backup_destination, as_of)
             .map_err(map_migration_backup_error)?;
-        let backup_digest = backup
-            .archive_content_digest
-            .ok_or_else(|| MigrationError {
-                code: MigrationErrorCode::BackupFailed,
-                message: "datastore_backup_failed".to_string(),
-                details: json!({ "reason": "missing_verified_backup_digest" }),
-            })?;
+        let backup_digest = verified_backup_digest(backup.archive_content_digest)?;
 
         let parent = restore_parent(&self.root).map_err(map_migration_commit_error)?;
         let suffix = restore_work_suffix(&self.root, as_of);
@@ -483,11 +477,7 @@ impl DataStoreMigration for LocalFileDataStoreMaintenance {
                     .read_envelope(key)
                     .map_err(map_migration_source_error)?;
                 let v2 = v2_envelope(source).map_err(map_migration_write_data_store)?;
-                let bytes = serde_json::to_vec(&v2).map_err(|_| MigrationError {
-                    code: MigrationErrorCode::WriteFailed,
-                    message: "datastore_write_failed".to_string(),
-                    details: json!({ "reason": "serialize_candidate" }),
-                })?;
+                let bytes = serialize_v2_candidate(&v2)?;
                 fs::write(candidate_root.join(format!("{key}.json")), bytes)
                     .map_err(map_migration_write_io)?;
             }
@@ -548,6 +538,28 @@ fn verify_v2_store_root(root: &Path) -> Result<(), MaintenanceError> {
         )?;
     }
     Ok(())
+}
+
+fn verified_backup_digest(digest: Option<String>) -> Result<String, MigrationError> {
+    digest.ok_or_else(|| {
+        migration_error(
+            MigrationErrorCode::BackupFailed,
+            "datastore_backup_failed",
+            "missing_verified_backup_digest",
+        )
+    })
+}
+
+fn serialize_v2_candidate(
+    envelope: &super::LocalDataStoreV2Envelope,
+) -> Result<Vec<u8>, MigrationError> {
+    serde_json::to_vec(envelope).map_err(|_| {
+        migration_error(
+            MigrationErrorCode::WriteFailed,
+            "datastore_write_failed",
+            "serialize_candidate",
+        )
+    })
 }
 
 fn migration_error(code: MigrationErrorCode, message: &str, reason: &str) -> MigrationError {
@@ -2211,6 +2223,14 @@ mod tests {
             assert_eq!(error.code, code);
             assert!(!error.details.to_string().contains("secret"));
         }
+    }
+
+    #[test]
+    fn migration_requires_verified_backup_digest() {
+        let error = verified_backup_digest(None).expect_err("digest is required");
+        assert_eq!(error.code, MigrationErrorCode::BackupFailed);
+        assert_eq!(error.message, "datastore_backup_failed");
+        assert_eq!(error.details["reason"], "missing_verified_backup_digest");
     }
 
     fn write_zip(parent: &Path, members: &[(&str, &[u8])]) -> PathBuf {
