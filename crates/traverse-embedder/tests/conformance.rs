@@ -9,6 +9,7 @@ use common::{
     RENDER_CAPABILITY_ID, collect_events, snapshot,
 };
 use serde_json::{Value, json};
+use std::collections::BTreeMap;
 use std::sync::Arc;
 use traverse_embedder::{
     BundleEmbedder, CompatibleLifecycleStatus, EMBEDDED_TRACE_API_VERSION, EmbeddedTraceApi,
@@ -17,7 +18,8 @@ use traverse_embedder::{
 };
 use traverse_runtime::data_store::{
     DataStore, DataStoreError, DataStoreErrorCode, InMemoryKeyProvider, KeyProvider,
-    LocalDataClassification, LocalFileDataStore, StateRecord,
+    LocalDataClassification, LocalFileDataStore, RemoteBackendFailure, RemoteDataStoreBackend,
+    RemoteKeyValueDataStore, RemoteObject, RemoteVersionToken, RemoteWriteOutcome, StateRecord,
 };
 
 struct FailingDataStore {
@@ -49,6 +51,65 @@ impl DataStore for FailingDataStore {
 
     fn list_keys(&self) -> Result<Vec<String>, DataStoreError> {
         Err(self.error())
+    }
+}
+
+/// A minimal S3-compatible-shaped host backend: version tokens increment
+/// per key, conditional writes compare the caller's expected token, and one
+/// scripted operation can be forced to an ambiguous (`Unknown`) outcome to
+/// exercise the selected-provider contract failure case end to end.
+#[derive(Default)]
+struct FakeRemoteBackend {
+    objects: BTreeMap<String, (Vec<u8>, u64)>,
+    next_version: u64,
+    force_unknown: bool,
+}
+
+impl RemoteDataStoreBackend for FakeRemoteBackend {
+    fn get(&self, key: &str) -> Result<Option<RemoteObject>, RemoteBackendFailure> {
+        Ok(self.objects.get(key).map(|(bytes, version)| RemoteObject {
+            bytes: bytes.clone(),
+            version: RemoteVersionToken(format!("v{version}")),
+        }))
+    }
+
+    fn put_conditional(
+        &mut self,
+        key: &str,
+        bytes: Vec<u8>,
+        expected_version: Option<RemoteVersionToken>,
+    ) -> RemoteWriteOutcome {
+        if self.force_unknown {
+            self.force_unknown = false;
+            return RemoteWriteOutcome::Unknown { retry_count: 1 };
+        }
+        let current = self
+            .objects
+            .get(key)
+            .map(|(_, version)| RemoteVersionToken(format!("v{version}")));
+        if expected_version != current {
+            return RemoteWriteOutcome::Conflict;
+        }
+        self.next_version += 1;
+        self.objects
+            .insert(key.to_string(), (bytes, self.next_version));
+        RemoteWriteOutcome::Acknowledged { retry_count: 0 }
+    }
+
+    fn delete_conditional(
+        &mut self,
+        key: &str,
+        expected_version: Option<RemoteVersionToken>,
+    ) -> RemoteWriteOutcome {
+        let current = self
+            .objects
+            .get(key)
+            .map(|(_, version)| RemoteVersionToken(format!("v{version}")));
+        if expected_version != current {
+            return RemoteWriteOutcome::Conflict;
+        }
+        self.objects.remove(key);
+        RemoteWriteOutcome::Acknowledged { retry_count: 0 }
     }
 }
 
@@ -465,5 +526,77 @@ fn host_datastore_write_and_delete_errors_are_safe() {
             .expect_err("host delete failure should be safe")
             .operation,
         "delete"
+    );
+}
+
+#[test]
+fn host_injected_remote_datastore_round_trips_through_the_embedder_boundary() {
+    let fixture = BundleFixture::new("remote-datastore-round-trip");
+    let mut embedder = development_embedder(&fixture, "linux");
+    embedder.inject_data_store(HostDataStore::new(
+        RemoteKeyValueDataStore::new(
+            FakeRemoteBackend::default(),
+            LocalDataClassification::Public,
+        ),
+        LocalDataClassification::Public,
+    ));
+    let record = StateRecord {
+        key: "remote-note".to_string(),
+        value: json!({ "title": "remote fixture" }),
+        lamport_clock: 1,
+        writer_id: "host-writer".to_string(),
+    };
+
+    embedder
+        .data_store_write(record.clone())
+        .expect("host-injected remote adapter write should succeed");
+    let read = embedder
+        .data_store_read("remote-note")
+        .expect("host-injected remote adapter read should succeed");
+    assert_eq!(read, Some(record));
+
+    embedder
+        .data_store_delete("remote-note")
+        .expect("host-injected remote adapter delete should succeed");
+    assert_eq!(
+        embedder
+            .data_store_read("remote-note")
+            .expect("read after delete should succeed"),
+        None
+    );
+}
+
+#[test]
+fn host_injected_remote_datastore_ambiguous_write_is_never_reported_as_success() {
+    let fixture = BundleFixture::new("remote-datastore-ambiguous-write");
+    let mut embedder = development_embedder(&fixture, "linux");
+    let backend = FakeRemoteBackend {
+        force_unknown: true,
+        ..Default::default()
+    };
+    embedder.inject_data_store(HostDataStore::new(
+        RemoteKeyValueDataStore::new(backend, LocalDataClassification::Public),
+        LocalDataClassification::Public,
+    ));
+    let record = StateRecord {
+        key: "remote-secret".to_string(),
+        value: json!({ "value": "must-not-leak" }),
+        lamport_clock: 1,
+        writer_id: "host-writer".to_string(),
+    };
+
+    let error = embedder
+        .data_store_write(record)
+        .expect_err("an ambiguous provider outcome must never be reported as success");
+    assert_eq!(error.code, "remote_outcome_unknown");
+    let debug = format!("{error:?}");
+    assert!(!debug.contains("remote-secret"));
+    assert!(!debug.contains("must-not-leak"));
+    assert_eq!(
+        embedder
+            .data_store_read("remote-secret")
+            .expect("read after ambiguous write should succeed"),
+        None,
+        "the ambiguous write must not have silently landed"
     );
 }
