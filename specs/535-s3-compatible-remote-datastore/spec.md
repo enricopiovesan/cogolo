@@ -1,6 +1,7 @@
 # Feature Specification: S3-Compatible Remote DataStore Adapter
 
-**Status**: Draft — requires maintainer approval before #886 implementation.
+**Status**: Approved
+**Canonical governing ID**: `095-s3-compatible-remote-datastore`
 **Extends**: `530-remote-key-value-datastore`, `518-durable-local-datastore`,
 `519-embedder-owned-datastore-integration`
 **Input**: Issue #892.

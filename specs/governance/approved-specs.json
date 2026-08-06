@@ -1232,6 +1232,18 @@
         "docs/adr/0024-remote-key-value-datastore-contract.md",
         "specs/530-remote-key-value-datastore/"
       ]
+    },
+    {
+      "id": "095-s3-compatible-remote-datastore",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/535-s3-compatible-remote-datastore/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "docs/adr/0029-s3-compatible-remote-datastore.md",
+        "specs/535-s3-compatible-remote-datastore/"
+      ]
     }
   ]
 }

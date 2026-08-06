@@ -1,7 +1,7 @@
 # ADR-0029: Constrain the Remote DataStore Adapter to an S3-Compatible Profile
 
-**Status:** Proposed  
-**Governing draft:** `535-s3-compatible-remote-datastore`  
+**Status:** Accepted  
+**Governing spec:** `095-s3-compatible-remote-datastore`  
 **Extends:** ADR-0024
 
 ## Decision
