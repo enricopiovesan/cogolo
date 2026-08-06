@@ -7,12 +7,27 @@
 
 #[path = "data_store_coordinator.rs"]
 mod coordinator;
+#[path = "data_store_hosted_sync.rs"]
+mod hosted_sync;
 #[path = "data_store_maintenance.rs"]
 mod maintenance;
+#[path = "data_store_remote.rs"]
+mod remote;
 pub use coordinator::{DataStoreCoordinator, DataStoreCoordinatorError};
+pub use hosted_sync::{
+    AblyEdgeError, AblyHistoryBatch, AblyHostedSyncTransport, AblyRealtimeEdge,
+    EncryptedSyncOperation, HostedSyncConnectionState, HostedSyncCredential,
+    HostedSyncDegradedReason, HostedSyncError, HostedSyncErrorCode, HostedSyncLineageEvidence,
+    HostedSyncObservation, HostedSyncPublishReceipt, HostedSyncReplayResult, HostedSyncTransport,
+    InMemoryAblyEdge, InMemoryHostedSyncTransport, SyncScopeId, run_hosted_sync_conformance,
+};
 pub use maintenance::{
     BackupManifest, BackupRecordIndexEntry, DataStoreMaintenance, LocalFileDataStoreMaintenance,
     MaintenanceError, MaintenanceErrorCode, MaintenanceEvidence, RetentionPolicy,
+};
+pub use remote::{
+    RemoteBackendFailure, RemoteDataStoreBackend, RemoteKeyValueDataStore, RemoteObject,
+    RemoteOperationEvidence, RemoteVersionToken, RemoteWriteOutcome,
 };
 
 #[cfg(feature = "datastore-encryption")]
@@ -95,6 +110,14 @@ pub enum DataStoreErrorCode {
     KeyProviderFailure,
     CryptoFailure,
     ClassificationChangeNotAllowed,
+    RemoteConflict,
+    RemoteUnavailable,
+    RemoteTimeout,
+    RemoteOutcomeUnknown,
+    RemoteUnauthorized,
+    RemoteScopeDenied,
+    RemoteIntegrityFailed,
+    RemoteBackendFailed,
 }
 
 /// Classification recorded with each locally durable record.
