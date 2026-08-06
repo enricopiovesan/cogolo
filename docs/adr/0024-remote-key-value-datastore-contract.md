@@ -1,7 +1,7 @@
 # ADR-0024: Keep Remote DataStore Provider-Neutral and Host-Owned
 
-- Status: Proposed
-- Governing draft: `530-remote-key-value-datastore`
+- Status: Accepted
+- Governing spec: `094-remote-key-value-datastore`
 - Extends: ADR-0018 and ADR-0019
 
 ## Decision

@@ -2,7 +2,8 @@
 
 **Feature Branch**: `codex/issue-874-remote-datastore-contract`
 **Created**: 2026-07-29
-**Status**: Draft — requires maintainer approval before any adapter implementation.
+**Status**: Approved
+**Canonical governing ID**: `094-remote-key-value-datastore`
 **Input**: Issue #874; extends Specs 518 and 519.
 
 ## Purpose

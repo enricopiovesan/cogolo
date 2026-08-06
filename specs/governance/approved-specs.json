@@ -1220,6 +1220,18 @@
         "docs/adr/0033-datastore-multiprocess-coordination.md",
         "specs/539-datastore-multiprocess-coordination/"
       ]
+    },
+    {
+      "id": "094-remote-key-value-datastore",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/530-remote-key-value-datastore/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "docs/adr/0024-remote-key-value-datastore-contract.md",
+        "specs/530-remote-key-value-datastore/"
+      ]
     }
   ]
 }
