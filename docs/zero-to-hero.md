@@ -7,7 +7,7 @@ Golden path (executive decision): **local CLI + browser host**.
 You will prove two things:
 
 1. The local CLI can build and execute one governed hello-world capability.
-2. A browser app can consume Traverse through the live local browser adapter path and receive governed runtime updates.
+2. A browser app can consume Traverse through the live browser subscription path and receive governed runtime updates.
 
 This guide is intentionally narrow. If you want more context, start with:
 
@@ -48,7 +48,7 @@ bash scripts/ci/react_demo_live_adapter_smoke.sh
 
 What success looks like:
 
-- the live browser adapter starts and reports a listening address
+- the production server starts and reports a listening address
 - the React demo starts
 - the smoke test sees a completed request and a trace artifact
 

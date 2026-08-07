@@ -61,7 +61,7 @@ If any step fails while you are following this sequence, jump to [docs/troublesh
 
 These docs are not part of the linear onboarding sequence but are essential references when authoring new capabilities, contracts, or agents:
 
-- [docs/architecture-execution-models.md](architecture-execution-models.md) — WASM, MCP, and browser adapter: when to use each
+- [docs/architecture-execution-models.md](architecture-execution-models.md) — WASM, MCP, and browser subscription: when to use each
 - [docs/unified-architectural-blueprint.md](unified-architectural-blueprint.md) — cross-spec interfaces (skeleton)
 - [docs/capability-contract-authoring-guide.md](capability-contract-authoring-guide.md) — full field reference, authoring steps, constraint and lifecycle tables
 - [docs/event-contract-authoring-guide.md](event-contract-authoring-guide.md) — how to author an event contract from scratch

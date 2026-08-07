@@ -86,8 +86,9 @@ issues #967 WebSocket and #968 gRPC).
   message size and MUST reject a malformed frame with a structured close
   code rather than crashing the connection handler or silently ignoring it
   — consistent with this codebase's existing bounded-input discipline
-  (`MAX_REQUEST_HEADER_BYTES`/`MAX_REQUEST_BODY_BYTES` in
-  `crates/traverse-cli/src/browser_adapter.rs`).
+  (`MAX_REQUEST_HEADER_BYTES` in `crates/traverse-cli/src/http_api.rs` and
+  `MAX_WS_INBOUND_MESSAGE_BYTES` in
+  `crates/traverse-cli/src/app_events_websocket.rs`).
 
 ## Acceptance Scenarios
 
@@ -124,7 +125,8 @@ issues #967 WebSocket and #968 gRPC).
 - Re-deciding whether SSE should remain a fallback (settled by ADR-0034).
 - `EventBroker`'s internal delivery/durability semantics (governed by
   `207`).
-- `browser_adapter.rs`'s disposition (tracked separately as issue #973,
-  blocked on this spec's implementation landing).
+- `browser_adapter.rs`'s disposition — resolved separately by issue #973
+  (Decision 53): retired now that this spec's `browser_subscription` mode
+  serves spec `013`'s contract in production.
 - Client SDK implementations for any specific platform (iOS, Android, web
   framework) — this spec governs the server-side interface only.

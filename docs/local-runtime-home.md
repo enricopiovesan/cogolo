@@ -42,7 +42,7 @@ Runtime-owned adapter configuration overlays for local development.
 
 Examples:
 
-- browser adapter local settings
+- browser subscription local settings
 - MCP adapter local settings
 - device or sidecar-style local integration overlays
 

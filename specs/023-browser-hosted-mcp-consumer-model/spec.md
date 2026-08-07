@@ -123,7 +123,6 @@ This specification is governed by:
 - `010-runtime-state-machine`
 - `013-browser-runtime-subscription`
 - `019-downstream-consumer-contract`
-- `019-local-browser-adapter-transport`
 - `022-mcp-wasm-server`
 - constitution version `1.2.0`
 

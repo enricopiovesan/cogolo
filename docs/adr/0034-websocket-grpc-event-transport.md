@@ -39,9 +39,11 @@ pairs with) rather than reusing the existing HTTP request/response and SSE
 patterns. The SSE endpoint built under `096-runtime-event-sse-transport`
 is explicitly transitional: its removal is in scope for whichever ticket
 implements WebSocket (issue #967), not a separate cleanup task.
-`browser_adapter.rs`'s eventual disposition (issue #973) is blocked on this
-transport existing, since its governed message contract (`013`) doesn't yet
-have a production transport to run on.
+`browser_adapter.rs`'s eventual disposition (issue #973) was blocked on this
+transport existing, since its governed message contract (`013`) didn't yet
+have a production transport to run on. **Resolved (Decision 53, issue
+#973)**: once this transport's `browser_subscription` mode served `013`'s
+contract in production, `browser_adapter.rs` was retired rather than merged.
 
 ## Alternatives Considered
 

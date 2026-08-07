@@ -206,6 +206,36 @@ pub(crate) struct ExecutionStatusRecord {
     updated_at: String,
 }
 
+/// Resolves the trace + execution status backing a `browser_subscription`
+/// request per spec 013-browser-runtime-subscription FR-001: the caller
+/// supplies exactly one of `request_id`/`execution_id`. `execution_id`
+/// matches `ws.traces` by key; `request_id` matches by the trace's own
+/// `request.request_id`. Returns `None` if neither selector is supplied or
+/// no trace matches.
+pub(crate) fn resolve_browser_subscription_target<E>(
+    ws: &WorkspaceState<E>,
+    request_id: Option<&str>,
+    execution_id: Option<&str>,
+) -> Option<(String, RuntimeTrace, bool)> {
+    let (execution_id, trace) = match (request_id, execution_id) {
+        (_, Some(execution_id)) => ws
+            .traces
+            .get(execution_id)
+            .map(|trace| (execution_id.to_string(), trace.clone()))?,
+        (Some(request_id), None) => ws
+            .traces
+            .iter()
+            .find(|(_, trace)| trace.request.request_id == request_id)
+            .map(|(execution_id, trace)| (execution_id.clone(), trace.clone()))?,
+        (None, None) => return None,
+    };
+    let succeeded = ws
+        .executions
+        .get(&execution_id)
+        .is_some_and(|record| record.status.as_str() == "succeeded");
+    Some((execution_id, trace, succeeded))
+}
+
 fn new_workspace_state<E: LocalExecutor + Clone>(
     registry: CapabilityRegistry,
     executor: E,
@@ -7008,7 +7038,7 @@ pub(crate) fn error_envelope(code: &str, message: &str) -> Value {
 }
 
 // ---------------------------------------------------------------------------
-// Raw HTTP helpers (same pattern as browser_adapter.rs)
+// Raw HTTP helpers
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -11380,6 +11410,136 @@ mod tests {
         assert_eq!(response_status(&out), 404);
         let resp = parse_response_body(&out);
         assert_eq!(resp["traverse_code"], "not_found");
+    }
+
+    // ------------------------------------------------------------------
+    // resolve_browser_subscription_target — spec 013 FR-001 selector parity
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn resolve_browser_subscription_target_finds_by_execution_id() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    None,
+                    Some("exec_test-req-001"),
+                ))
+            })
+            .expect("workspace lookup must succeed");
+
+        let (execution_id, trace, succeeded) =
+            resolved.expect("execution_id selector must resolve the seeded trace");
+        assert_eq!(execution_id, "exec_test-req-001");
+        assert_eq!(trace.request.request_id, "test-req-001");
+        assert!(succeeded);
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_finds_by_request_id() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    Some("test-req-001"),
+                    None,
+                ))
+            })
+            .expect("workspace lookup must succeed");
+
+        let (execution_id, trace, succeeded) =
+            resolved.expect("request_id selector must resolve the seeded trace");
+        assert_eq!(execution_id, "exec_test-req-001");
+        assert_eq!(trace.request.request_id, "test-req-001");
+        assert!(succeeded);
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_reports_not_succeeded_for_non_succeeded_status() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        state
+            .with_workspace_mut("ws-test", |ws| {
+                ws.executions
+                    .get_mut("exec_test-req-001")
+                    .expect("execution must exist")
+                    .status = "failed".to_string();
+                Ok(())
+            })
+            .expect("status override must succeed");
+
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    None,
+                    Some("exec_test-req-001"),
+                ))
+            })
+            .expect("workspace lookup must succeed");
+
+        let (_, _, succeeded) = resolved.expect("execution_id selector must resolve");
+        assert!(!succeeded);
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_returns_none_for_unknown_execution_id() {
+        let state = empty_state();
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    None,
+                    Some("missing"),
+                ))
+            })
+            .expect("workspace lookup must succeed");
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_returns_none_for_unknown_request_id() {
+        let state = empty_state();
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    Some("missing"),
+                    None,
+                ))
+            })
+            .expect("workspace lookup must succeed");
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_returns_none_when_neither_selector_supplied() {
+        let state = empty_state();
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(ws, None, None))
+            })
+            .expect("workspace lookup must succeed");
+        assert!(resolved.is_none());
     }
 
     // ------------------------------------------------------------------

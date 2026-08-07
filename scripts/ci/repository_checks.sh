@@ -84,7 +84,6 @@ required_files=(
   "docs/ai-review-process.md"
   "docs/adr/README.md"
   "docs/adr/0001-rust-wasm-foundation.md"
-  "scripts/ci/browser_adapter_smoke.sh"
   "scripts/ci/mcp_stdio_server_execution_report_smoke.sh"
   "scripts/ci/youaskm3_compatibility_conformance.sh"
   "scripts/ci/downstream_app_mvp_conformance.sh"
@@ -200,7 +199,6 @@ grep -q "bash scripts/ci/expedition_artifact_smoke.sh" docs/expedition-example-s
 grep -q "bash scripts/ci/expedition_execution_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_trace_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/expedition_golden_path.sh" docs/expedition-example-smoke.md
-grep -q "bash scripts/ci/browser_adapter_smoke.sh" docs/expedition-example-smoke.md
 grep -q "bash scripts/ci/event_driven_workflow_smoke.sh" docs/expedition-example-smoke.md
 grep -q "traverse-framework/registry" docs/release-process.md
 grep -q "TRAVERSE_REPO_ROOT" docs/expedition-example-smoke.md
@@ -354,7 +352,7 @@ grep -q "consumer bundle" docs/app-consumable-consumer-bundle.md
 grep -q "docs/app-consumable-package-release-pointer.md" docs/app-consumable-consumer-bundle.md
 grep -q "youaskm3 integration validation" README.md
 grep -q "## Prerequisites" quickstart.md
-grep -q "browser-adapter serve --bind 127.0.0.1:4174" quickstart.md
+grep -q "traverse-cli-rs -- serve --bind 127.0.0.1:8787" quickstart.md
 grep -q "git checkout v0.3.0" docs/v0.3.0-public-surface-compatibility.md
 grep -q "docs/youaskm3-canonical-app-http-path.md" docs/v0.3.0-public-surface-compatibility.md
 grep -q "docs/youaskm3-canonical-mcp-client-path.md" docs/v0.3.0-public-surface-compatibility.md

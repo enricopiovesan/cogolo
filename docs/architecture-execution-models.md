@@ -52,9 +52,9 @@ LLM tool call → MCP stdio server → traverse-mcp → traverse-runtime → Was
 
 ---
 
-### 3. Browser Adapter (Live Streaming to a Frontend)
+### 3. Browser Subscription (Live Streaming to a Frontend)
 
-**What**: The browser adapter (`traverse-cli browser-adapter serve`) starts a local HTTP server that streams runtime state events and execution traces to a browser client over SSE (Server-Sent Events) or WebSocket. It enables a React or web frontend to display live Traverse execution state.
+**What**: The production server (`traverse-cli serve`) exposes a `browser_subscription` WebSocket mode that streams runtime state events and execution traces to a browser client. It enables a React or web frontend to display live Traverse execution state. This used to be a separate `traverse-cli browser-adapter serve` process; that binary was retired (Decision 53, issue #973) once the production WebSocket transport grew the same ordered message contract natively.
 
 **When to use**:
 - You are building a UI that shows live capability execution status
@@ -63,12 +63,12 @@ LLM tool call → MCP stdio server → traverse-mcp → traverse-runtime → Was
 
 **How it works**:
 ```
-Browser client → HTTP/SSE → browser-adapter server → traverse-runtime subscription → state events
+Browser client → WebSocket upgrade → traverse-cli serve → traverse-runtime subscription → state events
 ```
 
 **Entry point**: [`docs/browser-adapter.md`](browser-adapter.md)
 
-**Important**: The browser adapter delivers events only to actively connected clients. There is no replay for late-connecting clients in v0.1. See [#312](https://github.com/traverse-framework/traverse/issues/312).
+**Important**: `app_events` mode delivers events only to actively connected clients; there is no replay for late-connecting clients in v0.1 (see [#312](https://github.com/traverse-framework/traverse/issues/312)). `browser_subscription` mode replays a specific execution's already-recorded trace, so connection timing relative to that execution's completion does not affect delivery.
 
 ---
 
@@ -120,6 +120,6 @@ All three surfaces drive the same runtime. A CLI invocation, an MCP tool call, a
 
 - [`docs/wasm-agent-authoring-guide.md`](wasm-agent-authoring-guide.md) — write a WASM capability
 - [`docs/mcp-stdio-server.md`](mcp-stdio-server.md) — MCP server setup
-- [`docs/browser-adapter.md`](browser-adapter.md) — browser adapter and streaming
+- [`docs/browser-adapter.md`](browser-adapter.md) — browser subscription and streaming
 - [`docs/workflow-composition-guide.md`](workflow-composition-guide.md) — chain capabilities
 - [`quickstart.md`](../quickstart.md) — first browser-consumption flow

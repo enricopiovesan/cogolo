@@ -4,7 +4,7 @@ This document defines the first real downstream `youaskm3` integration path agai
 
 It stays on governed public Traverse surfaces only:
 
-- the live local browser adapter
+- the live browser subscription path (production `traverse-cli serve` WebSocket)
 - the checked-in React browser demo
 - the downstream MCP consumption validation path
 - the first app-consumable quickstart
@@ -50,7 +50,7 @@ Use one deterministic repo-local validation flow to prove that `youaskm3` can co
 
 ## Prerequisites
 
-- A local Traverse checkout with the approved browser adapter, quickstart, and MCP validation docs available.
+- A local Traverse checkout with the approved browser subscription, quickstart, and MCP validation docs available.
 - Rust and Node.js installed locally.
 - Optional: a sibling `youaskm3` checkout if you want to run the downstream app alongside Traverse while following the documented flow.
 
@@ -122,7 +122,7 @@ The validation path should prove:
 
 The path is expected to fail deterministically when:
 
-- the live browser adapter is unavailable
+- the live browser subscription path is unavailable
 - the MCP consumption surface is unavailable
 - the documented quickstart or validation docs are missing
 - the downstream consumer path cannot be followed through the public surfaces
