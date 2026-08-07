@@ -239,7 +239,9 @@ pub(crate) fn collect_app_runtime_events(
         let from_cursor = per_type_from_cursor(app_event_log, event_type, from_global);
         let subscription = broker
             .subscribe_for_subject(event_type, &from_cursor.to_string(), Some(&subject))
-            .map_err(|err| map_broker_error(err, last_event_id.unwrap_or(&from_cursor.to_string())))?;
+            .map_err(|err| {
+                map_broker_error(err, last_event_id.unwrap_or(&from_cursor.to_string()))
+            })?;
         subscription_ids.push(subscription.subscription_id.clone());
         let poll = broker
             .poll(&subscription.subscription_id, 1024)
@@ -265,10 +267,7 @@ pub(crate) fn collect_app_runtime_events(
     Ok(merged)
 }
 
-fn validate_last_event_id(
-    broker: &dyn EventBroker,
-    raw: &str,
-) -> Result<u64, AppEventsHttpError> {
+fn validate_last_event_id(broker: &dyn EventBroker, raw: &str) -> Result<u64, AppEventsHttpError> {
     match broker.subscribe(EVENT_STATE_CHANGED, raw) {
         Ok(subscription) => {
             let _ = broker.cancel(&subscription.subscription_id);

@@ -1,3 +1,7 @@
+use crate::app_runtime_events::{
+    AppEventLogEntry, AppEventsHttpError, AppSessionEvent, collect_app_runtime_events,
+    publish_app_runtime_event, runtime_with_app_event_broker, short_signal_name,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -18,10 +22,6 @@ use traverse_registry::{
     ImplementationKind, LookupScope, RegistryProvenance, RegistryScope, SourceKind,
     SourceReference, WorkflowDefinition, WorkflowRegistration, WorkflowRegistry,
     WorkspaceAppStateErrorCode, load_application_bundle_manifest,
-};
-use crate::app_runtime_events::{
-    AppEventLogEntry, AppEventsHttpError, AppSessionEvent, collect_app_runtime_events,
-    publish_app_runtime_event, runtime_with_app_event_broker, short_signal_name,
 };
 use traverse_runtime::security::RuntimeSecurityConfig;
 use traverse_runtime::{
@@ -784,9 +784,9 @@ where
             )?;
             workspaces.insert(workspace_id.to_string(), constructed);
         }
-        let entry = workspaces.get_mut(workspace_id).ok_or_else(|| {
-            format!("workspace '{workspace_id}' missing after initialization")
-        })?;
+        let entry = workspaces
+            .get_mut(workspace_id)
+            .ok_or_else(|| format!("workspace '{workspace_id}' missing after initialization"))?;
 
         if !entry.loaded_from_disk {
             entry.persisted = load_persisted_registry(&self.registry_root, workspace_id)?;
@@ -2922,9 +2922,9 @@ fn apply_registration<E: LocalExecutor + Clone>(
         )?;
         workspaces.insert(workspace_id.to_string(), constructed);
     }
-    let ws = workspaces.get_mut(workspace_id).ok_or_else(|| {
-        format!("workspace '{workspace_id}' missing after initialization")
-    })?;
+    let ws = workspaces
+        .get_mut(workspace_id)
+        .ok_or_else(|| format!("workspace '{workspace_id}' missing after initialization"))?;
 
     ensure_workspace_loaded(state, workspace_id, ws)?;
 
@@ -2976,9 +2976,9 @@ fn apply_event_registration<E: LocalExecutor + Clone>(
         )?;
         workspaces.insert(workspace_id.to_string(), constructed);
     }
-    let ws = workspaces.get_mut(workspace_id).ok_or_else(|| {
-        format!("workspace '{workspace_id}' missing after initialization")
-    })?;
+    let ws = workspaces
+        .get_mut(workspace_id)
+        .ok_or_else(|| format!("workspace '{workspace_id}' missing after initialization"))?;
 
     ensure_workspace_loaded(state, workspace_id, ws)?;
 
@@ -9315,7 +9315,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
 
         assert!(api.state.allow_unauthenticated);
         assert_eq!(api.state.allowed_origins, ["http://127.0.0.1:3000"]);
@@ -9351,7 +9352,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .list_workflows(SYSTEM_WORKSPACE_ID, true)
@@ -9381,7 +9383,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .list_workflows("ws-authorized", true)
@@ -9411,7 +9414,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .get_workflow("ws-authorized", "missing-workflow", None, true)
@@ -9440,7 +9444,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .register_workflow(b"not-json".to_vec(), true)
@@ -9469,7 +9474,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
         let mut body: Value = serde_json::from_slice(&valid_workflow_registration_body(
             "test.api.unowned-workflow",
             "1.0.0",
@@ -9505,7 +9511,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        }).expect("in-process API must construct");
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .list_workflows("", true)
@@ -10239,10 +10246,8 @@ mod tests {
             "/v1/workspaces/ws-test/apps/traverse-starter/events",
             Vec::new(),
         );
-        req.headers.insert(
-            "last-event-id".to_string(),
-            "not-a-cursor".to_string(),
-        );
+        req.headers
+            .insert("last-event-id".to_string(), "not-a-cursor".to_string());
         let mut out = Vec::new();
         handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
             .expect("events endpoint must write a response");
