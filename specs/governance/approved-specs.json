@@ -1297,6 +1297,19 @@
         "docs/adr/0036-workflow-event-broker-unification.md",
         "specs/971-workflow-event-broker-unification/"
       ]
+    },
+    {
+      "id": "100-capability-package-authoring",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/100-capability-package-authoring/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "scripts/scaffold/",
+        "specs/100-capability-package-authoring/",
+        "docs/decision-log.md"
+      ]
     }
   ]
 }
