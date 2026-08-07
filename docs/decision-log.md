@@ -1834,3 +1834,61 @@ update doc references, verify `serve_browser_subscription`'s selector
 coverage against spec 013 (request_id XOR execution_id) before/while
 removing the fallback tool, open a PR declaring `097-websocket-grpc-event-transport`
 as the governing spec, and close `#973` on merge.
+
+## Decision 54: Canonical Capability Create Path Is `capability new` (Option A)
+
+- **Date**: 2026-08-07
+- **Status**: Accepted
+- **Governing spec**: `100-capability-package-authoring` (new; approval via #989)
+- **Related issues**: `#988` (umbrella), `#989` (spec), `#990` (implement), `#991` (docs); adjacent Ready bugs `#986`, `#987`
+- **Origin**: E2E capability-authoring probe + `/brainstorm` create-path question
+
+### Context
+
+A developer/LLM persona walkthrough (registry → CLI create → skill path →
+inspect/execute) found that Traverse already has a working production package
+model (`kind: capability_package` + Host ABI / no-std guest profile), but the
+advertised or discoverable create paths do not emit it:
+
+- `traverse-cli component new` (governed by `044` FR-015) creates an empty
+  `lib.rs`, empty I/O schemas, draft-oriented contract fields, and a
+  non-`capability_package` manifest shape.
+- `scripts/scaffold/new-capability.sh` emits stale contract fields and a
+  draft/WASI-oriented layout.
+- Working knowledge of the ABI-clean guest profile lived primarily in the
+  `traverse-app-builder` skill, not in the CLI scaffold.
+
+Adjacent CLI bugs (`capability inspect` advertised but unwired; 
+`capability-package execute` hardcoding version and allowlisting demo output)
+are implementation gaps under already-approved `017` / `516` and do not need
+this decision.
+
+### Decision
+
+**Option A**: Add `traverse-cli capability new <capability-id>` as the
+canonical create command. It MUST scaffold a skill-correct
+`capability_package` (manifest, authorable contract I/O, no-std-oriented
+guest stub, artifacts + sample request, next-step messaging that does not
+claim executability early). `component new` and the bash scaffold MUST
+redirect or fail toward that command rather than remaining silent success
+paths for the pre-Spec-100 empty layout.
+
+No new ADR: this is CLI/scaffold authority, not a new runtime or Host ABI
+boundary. Guest constraints remain governed by `091` / `090`.
+
+### Alternatives Considered
+
+- **Option B** — Fix only `component new` in place to emit `capability_package`:
+  smaller command surface, but keeps “component” naming while the product
+  language and package kind are “capability.”
+- **Option C** — Keep both commands forever with different jobs: preserves
+  `044` wording literally, but leaves two overlapping scaffolds that LLMs
+  and humans keep confusing.
+
+### Outcome
+
+- Spec `100-capability-package-authoring` authored for owner approval (#989).
+- Implementation (#990) and docs/skill alignment (#991) blocked on approval.
+- `#986` / `#987` remain independently Ready under existing specs.
+- Decision 48 (no pre-production backward-compatibility tax) applies: do not
+  maintain a long dual-scaffold era.
