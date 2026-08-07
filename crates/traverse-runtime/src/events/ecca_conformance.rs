@@ -102,11 +102,7 @@ impl CatalogDriftReconciler {
     }
 
     /// Projects sanitized broker lineage into the registry observed-lineage store.
-    pub fn reconcile_broker_lineage(
-        &mut self,
-        lineage: &[EventLineageRecord],
-        observed_at: &str,
-    ) {
+    pub fn reconcile_broker_lineage(&mut self, lineage: &[EventLineageRecord], observed_at: &str) {
         for record in lineage {
             self.observe_publication(
                 &record.contract_id,
@@ -233,10 +229,10 @@ pub fn evaluate_migration_exit(
                     "{}@{} failed revalidation ({})",
                     descriptor.contract.id,
                     descriptor.contract.version,
-                    failure
-                        .errors
-                        .first()
-                        .map_or_else(|| "unknown".to_string(), |error| format!("{:?}", error.code))
+                    failure.errors.first().map_or_else(
+                        || "unknown".to_string(),
+                        |error| format!("{:?}", error.code)
+                    )
                 ),
             });
         }
@@ -414,7 +410,8 @@ pub fn run_descriptor_fixture_conformance(
                     failure
                         .errors
                         .first()
-                        .map_or(EventProductErrorCode::MissingSupportRoute, |error| error.code)
+                        .map_or(EventProductErrorCode::MissingSupportRoute, |error| error
+                            .code)
                 ),
             }),
             ("reject", Ok(())) => failures.push(FixtureConformanceFailure {
@@ -510,11 +507,7 @@ mod tests {
         )
         .expect("contract json");
         contract.id = event_id.to_string();
-        contract.name = event_id
-            .rsplit('.')
-            .next()
-            .unwrap_or(event_id)
-            .to_string();
+        contract.name = event_id.rsplit('.').next().unwrap_or(event_id).to_string();
         contract.publishers[0].capability_id = publisher.to_string();
         if let Some(subscriber) = subscriber {
             contract.subscribers = vec![traverse_contracts::CapabilityReference {
@@ -679,15 +672,8 @@ mod tests {
             },
         ];
 
-        let first = evaluate_migration_exit(
-            &registry,
-            &reconciler,
-            &[],
-            &[],
-            &telemetry,
-            None,
-            "run-1",
-        );
+        let first =
+            evaluate_migration_exit(&registry, &reconciler, &[], &[], &telemetry, None, "run-1");
         assert!(first.evidence.clean, "findings: {:?}", first.findings);
         assert!(!first.permitted);
 

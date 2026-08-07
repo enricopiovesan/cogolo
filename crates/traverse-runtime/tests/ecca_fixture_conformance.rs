@@ -10,10 +10,16 @@ fn portable_registry_descriptor_fixtures_conform() -> Result<(), String> {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ecca-event-products");
     let report = run_descriptor_fixture_conformance(&fixtures_dir)?;
     if !report.failures.is_empty() {
-        return Err(format!("fixture conformance failures: {:?}", report.failures));
+        return Err(format!(
+            "fixture conformance failures: {:?}",
+            report.failures
+        ));
     }
     if report.passed != 17 {
-        return Err(format!("expected 17 fixtures to pass, got {}", report.passed));
+        return Err(format!(
+            "expected 17 fixtures to pass, got {}",
+            report.passed
+        ));
     }
     Ok(())
 }
