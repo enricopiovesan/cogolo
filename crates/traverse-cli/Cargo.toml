@@ -25,6 +25,16 @@ zeroize = "1.8"
 traverse-contracts = { workspace = true }
 traverse-registry = { workspace = true }
 traverse-runtime = { workspace = true }
+tonic = { version = "0.14.6", default-features = false, features = ["transport", "tls-ring", "codegen", "router"] }
+prost = "0.14.4"
+tokio = { version = "1.53.1", default-features = false, features = ["rt-multi-thread", "macros", "net", "time", "sync"] }
+tokio-stream = "0.1.19"
+tonic-prost = "0.14.6"
 
 [lints]
 workspace = true
+
+[build-dependencies]
+prost-build = "0.14.4"
+protoc-bin-vendored = "3.2.0"
+tonic-prost-build = "0.14.6"

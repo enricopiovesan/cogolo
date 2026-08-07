@@ -1,8 +1,11 @@
+#![allow(clippy::default_trait_access, clippy::doc_markdown)]
+
 mod app_events_websocket;
 mod app_runtime_events;
 mod browser_adapter;
 mod capability_packages;
 mod federation_operator;
+mod grpc_event_transport;
 mod http_api;
 mod supply_chain;
 mod telemetry;
@@ -158,6 +161,9 @@ enum Command {
         allow_unauthenticated: bool,
         allowed_origins: Vec<String>,
         render_mobile_qr: bool,
+        grpc_bind_address: Option<String>,
+        grpc_tls_cert_path: Option<PathBuf>,
+        grpc_tls_key_path: Option<PathBuf>,
     },
     TelemetryEnable,
     TelemetryDisable,
@@ -207,6 +213,9 @@ fn main() -> ExitCode {
             allow_unauthenticated,
             allowed_origins,
             render_mobile_qr,
+            grpc_bind_address,
+            grpc_tls_cert_path,
+            grpc_tls_key_path,
         }) => {
             if let Err(error) = run_serve(
                 bind_address,
@@ -214,6 +223,9 @@ fn main() -> ExitCode {
                 allow_unauthenticated,
                 allowed_origins,
                 render_mobile_qr,
+                grpc_bind_address,
+                grpc_tls_cert_path,
+                grpc_tls_key_path,
             ) {
                 eprintln!("{error}");
                 ExitCode::FAILURE
@@ -1328,7 +1340,7 @@ fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
 }
 
 fn help_serve() -> String {
-    "traverse-cli serve [--bind <address>] [--port <port>] [--auth <mode>] [--allow-unauthenticated] [--qr]
+    "traverse-cli serve [--bind <address>] [--port <port>] [--auth <mode>] [--allow-unauthenticated] [--qr] [--grpc-bind <address> --grpc-tls-cert <path> --grpc-tls-key <path>]
 
   Purpose:
     Start a development and CI HTTP/JSON API on 127.0.0.1:8787 by default.
@@ -1356,6 +1368,10 @@ fn help_serve() -> String {
                                production.
     --qr                       Print an ASCII QR code for the traverse://connect
                                mobile provisioning URL.
+    --grpc-bind <address>      Start the TLS gRPC EventService on this address.
+                               Requires --grpc-tls-cert and --grpc-tls-key.
+    --grpc-tls-cert <path>     PEM certificate chain for the gRPC listener.
+    --grpc-tls-key <path>      PEM private key for the gRPC listener.
     --help                     Print this help text.
 
   Example:
@@ -1371,6 +1387,9 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
     let bind_flag_pos = args.iter().position(|a| a == "--bind");
     let port_flag_pos = args.iter().position(|a| a == "--port");
     let auth_flag_pos = args.iter().position(|a| a == "--auth");
+    let grpc_bind_address = parse_string_flag(args, "--grpc-bind");
+    let grpc_tls_cert_path = parse_string_flag(args, "--grpc-tls-cert").map(PathBuf::from);
+    let grpc_tls_key_path = parse_string_flag(args, "--grpc-tls-key").map(PathBuf::from);
     let mut allowed_origins = Vec::new();
 
     if bind_flag_pos.is_some() && port_flag_pos.is_some() {
@@ -1429,15 +1448,22 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
         allow_unauthenticated,
         allowed_origins,
         render_mobile_qr,
+        grpc_bind_address,
+        grpc_tls_cert_path,
+        grpc_tls_key_path,
     })
 }
 
+#[allow(clippy::too_many_arguments)]
 fn run_serve(
     bind_address: String,
     auth_mode: Option<String>,
     allow_unauthenticated: bool,
     allowed_origins: Vec<String>,
     render_mobile_qr: bool,
+    grpc_bind_address: Option<String>,
+    grpc_tls_cert_path: Option<PathBuf>,
+    grpc_tls_key_path: Option<PathBuf>,
 ) -> Result<(), String> {
     let registered =
         load_registered_bundle(&canonical_expedition_bundle_path()).map_err(|e| e.to_string())?;
@@ -1462,6 +1488,9 @@ fn run_serve(
         write_timeout: None,
         request_deadline: None,
         max_concurrent_connections: None,
+        grpc_bind_address,
+        grpc_tls_cert_path,
+        grpc_tls_key_path,
     };
 
     http_api::serve_http_api(config).map_err(|e| e.to_string())
@@ -4109,6 +4138,9 @@ fn build_in_process_api() -> Result<http_api::InProcessApi<ExpeditionExampleExec
         write_timeout: None,
         request_deadline: None,
         max_concurrent_connections: None,
+        grpc_bind_address: None,
+        grpc_tls_cert_path: None,
+        grpc_tls_key_path: None,
     })
     .map_err(CliError::IoError)
 }
@@ -6857,6 +6889,7 @@ mod tests {
                 allow_unauthenticated,
                 allowed_origins,
                 render_mobile_qr,
+                ..
             } => {
                 assert_eq!(bind_address, "127.0.0.1:8787");
                 assert_eq!(auth_mode, None);
@@ -8768,6 +8801,9 @@ mod tests {
             allow_unauthenticated: false,
             allowed_origins: Vec::new(),
             render_mobile_qr: false,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         };
         assert!(matches!(run_command(serve), Err(CliError::UsageError(_))));
         let adapter = Command::BrowserAdapterServe {

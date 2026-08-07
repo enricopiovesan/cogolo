@@ -2,8 +2,11 @@ use crate::app_events_websocket::{
     handle_app_events_websocket, is_websocket_upgrade, write_sse_retired_response,
 };
 use crate::app_runtime_events::{
-    AppEventLogEntry, AppSessionEvent, publish_app_runtime_event, runtime_with_app_event_broker,
+    APP_EVENT_TYPES, AppEventLogEntry, AppSessionEvent, collect_app_runtime_events,
+    publish_app_runtime_event, runtime_with_app_event_broker,
 };
+#[cfg(test)]
+use crate::app_runtime_events::{AppEventsHttpError, short_signal_name};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -32,6 +35,8 @@ use traverse_runtime::{
     RuntimeTrace, parse_runtime_request,
 };
 use zeroize::Zeroizing;
+
+use traverse_runtime::events::{EventBroker, Subscription, TraverseEvent};
 
 /// Map an HTTP auth mode to the runtime security posture: the dev auth modes
 /// run local unsigned example artifacts (development), while the network-facing
@@ -120,6 +125,10 @@ pub struct ApiServerConfig<E> {
     /// Maximum number of connections serviced concurrently by the bounded
     /// worker pool. Defaults to [`DEFAULT_MAX_CONCURRENT_CONNECTIONS`].
     pub max_concurrent_connections: Option<usize>,
+    /// Optional TLS-only gRPC event listener. Both TLS paths are required when set.
+    pub grpc_bind_address: Option<String>,
+    pub grpc_tls_cert_path: Option<PathBuf>,
+    pub grpc_tls_key_path: Option<PathBuf>,
 }
 
 pub(crate) struct ApiState<E> {
@@ -132,6 +141,48 @@ pub(crate) struct ApiState<E> {
     idempotency_records: Mutex<HashMap<String, IdempotencyRecord>>,
     idempotency_retention_seconds: u64,
     jwt_verification_key: Option<ed25519_dalek::VerifyingKey>,
+}
+
+/// A validated `EventBroker` subscription used by the TLS gRPC transport.
+pub(crate) struct GrpcEventSource {
+    broker: Arc<dyn EventBroker>,
+    subscriptions: Vec<Subscription>,
+    initial_events: Vec<(String, TraverseEvent)>,
+}
+
+impl GrpcEventSource {
+    pub(crate) fn take_initial_events(&mut self) -> Vec<(String, TraverseEvent)> {
+        std::mem::take(&mut self.initial_events)
+    }
+
+    pub(crate) fn poll(&self) -> Result<Vec<(String, TraverseEvent)>, String> {
+        let mut events = Vec::new();
+        for subscription in &self.subscriptions {
+            let poll = self
+                .broker
+                .poll(&subscription.subscription_id, 1024)
+                .map_err(|error| error.to_string())?;
+            events.extend(
+                poll.events
+                    .into_iter()
+                    .map(|event| (event.cursor, event.event)),
+            );
+        }
+        events.sort_by(|left, right| {
+            left.0
+                .cmp(&right.0)
+                .then_with(|| left.1.id.cmp(&right.1.id))
+        });
+        Ok(events)
+    }
+}
+
+impl Drop for GrpcEventSource {
+    fn drop(&mut self) {
+        for subscription in &self.subscriptions {
+            let _ = self.broker.cancel(&subscription.subscription_id);
+        }
+    }
 }
 
 pub(crate) struct WorkspaceState<E> {
@@ -314,11 +365,11 @@ enum RegistrationScope {
 }
 
 #[derive(Debug, Clone)]
-struct ApiError {
-    status: u16,
+pub(crate) struct ApiError {
+    pub(crate) status: u16,
     reason: &'static str,
-    code: &'static str,
-    message: String,
+    pub(crate) code: &'static str,
+    pub(crate) message: String,
 }
 
 enum WorkspaceOperation {
@@ -345,6 +396,25 @@ pub fn serve_http_api<E>(config: ApiServerConfig<E>) -> Result<(), ServeError>
 where
     E: LocalExecutor + Clone + Send + Sync + 'static,
 {
+    let grpc_config = match (
+        config.grpc_bind_address.as_ref(),
+        config.grpc_tls_cert_path.as_ref(),
+        config.grpc_tls_key_path.as_ref(),
+    ) {
+        (None, None, None) => None,
+        (Some(bind_address), Some(cert_path), Some(key_path)) => {
+            Some(crate::grpc_event_transport::GrpcServerConfig {
+                bind_address: bind_address.clone(),
+                tls_cert_path: cert_path.clone(),
+                tls_key_path: key_path.clone(),
+            })
+        }
+        _ => {
+            return Err(ServeError::BindFailed(
+                "gRPC requires --grpc-bind, --grpc-tls-cert, and --grpc-tls-key".to_string(),
+            ));
+        }
+    };
     let listener = TcpListener::bind(&config.bind_address)
         .map_err(|e| ServeError::BindFailed(format!("{}: {e}", config.bind_address)))?;
 
@@ -445,6 +515,10 @@ where
         ),
         jwt_verification_key,
     });
+    if let Some(grpc_config) = grpc_config {
+        crate::grpc_event_transport::spawn_event_server(Arc::clone(&state), &grpc_config)
+            .map_err(ServeError::BindFailed)?;
+    }
 
     run_connection_pool(&listener, &state, connection_limits, worker_count)
 }
@@ -1690,6 +1764,102 @@ fn scopes_optional_for_request(
     identity: &DerivedIdentity,
 ) -> bool {
     loopback || identity.subject_id == "local"
+}
+
+/// Validates a gRPC event request before its stream is established, then binds
+/// it to the same workspace-scoped `EventBroker` used by the HTTP API.
+pub(crate) fn open_grpc_event_source<E: LocalExecutor + Clone>(
+    state: &ApiState<E>,
+    headers: &HashMap<String, String>,
+    loopback: bool,
+    workspace_id: &str,
+    app_id: &str,
+    requested_event_types: &[String],
+    cursor: Option<&str>,
+) -> Result<GrpcEventSource, ApiError> {
+    if workspace_id.trim().is_empty() || app_id.trim().is_empty() {
+        return Err(ApiError {
+            status: 400,
+            reason: "Bad Request",
+            code: "invalid_subscription",
+            message: "workspace_id and app_id are required".to_string(),
+        });
+    }
+
+    let identity = subject_from_state(headers, state, loopback)?;
+    let _ = ensure_workspace_authorized(
+        &state.registry_root,
+        workspace_id,
+        &identity,
+        SCOPE_RUNTIME_EVENTS_READ,
+        scopes_optional_for_request(state.allow_unauthenticated, loopback, &identity),
+    )?;
+
+    let event_types = if requested_event_types.is_empty() {
+        APP_EVENT_TYPES
+            .iter()
+            .map(|event_type| (*event_type).to_string())
+            .collect::<Vec<_>>()
+    } else {
+        requested_event_types.to_vec()
+    };
+    if event_types
+        .iter()
+        .any(|event_type| !APP_EVENT_TYPES.contains(&event_type.as_str()))
+    {
+        return Err(ApiError {
+            status: 400,
+            reason: "Bad Request",
+            code: "invalid_subscription",
+            message: "event_types must name supported app runtime events".to_string(),
+        });
+    }
+
+    state
+        .with_workspace_mut(workspace_id, |workspace| {
+            let initial_events = collect_app_runtime_events(
+                workspace.runtime.event_broker().as_ref(),
+                &workspace.app_event_log,
+                workspace_id,
+                app_id,
+                cursor,
+            )
+            .map_err(|error| error.message())?
+            .into_iter()
+            .filter(|(_, event)| {
+                event_types
+                    .iter()
+                    .any(|event_type| event_type == &event.event_type)
+            })
+            .collect();
+
+            let current_cursor = workspace.app_event_seq;
+            let subject = crate::app_runtime_events::app_subject_id(workspace_id, app_id);
+            let broker = workspace.runtime.event_broker();
+            let mut subscriptions = Vec::with_capacity(event_types.len());
+            for event_type in &event_types {
+                let from_cursor = crate::app_runtime_events::per_type_from_cursor(
+                    &workspace.app_event_log,
+                    event_type,
+                    current_cursor,
+                );
+                let subscription = broker
+                    .subscribe_for_subject(event_type, &from_cursor.to_string(), Some(&subject))
+                    .map_err(|error| format!("event_broker_unavailable: {error}"))?;
+                subscriptions.push(subscription);
+            }
+            Ok(GrpcEventSource {
+                broker,
+                subscriptions,
+                initial_events,
+            })
+        })
+        .map_err(|message| ApiError {
+            status: 503,
+            reason: "Service Unavailable",
+            code: "event_broker_unavailable",
+            message,
+        })
 }
 
 fn parse_registration_scope(value: Option<&Value>) -> Result<RegistrationScope, String> {
@@ -9253,6 +9423,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
 
@@ -9290,6 +9463,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
 
@@ -9321,6 +9497,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
 
@@ -9352,6 +9531,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
 
@@ -9382,6 +9564,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
 
@@ -9412,6 +9597,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
         let mut body: Value = serde_json::from_slice(&valid_workflow_registration_body(
@@ -9449,6 +9637,9 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
+            grpc_bind_address: None,
+            grpc_tls_cert_path: None,
+            grpc_tls_key_path: None,
         })
         .expect("in-process API must construct");
 
