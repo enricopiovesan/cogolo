@@ -56,57 +56,7 @@ impl LocalExecutor for EmittingNativeExecutor {
         _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
     ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({
-            "draft_id": "draft-live-001",
-            "emitted_events": [
-                {
-                    "event_id": "dev.traverse.live.draft-created",
-                    "version": "1.0.0",
-                    "payload": {"draft_id": "draft-live-001"}
-                }
-            ]
-        }))
-    }
-}
-
-struct EmittingWasmExecutor;
-
-impl LocalExecutor for EmittingWasmExecutor {
-    fn execute(
-        &self,
-        _capability: &traverse_registry::ResolvedCapability,
-        _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({
-            "draft_id": "draft-wasm-001",
-            "emitted_events": [
-                {
-                    "event_id": "dev.traverse.live.wasm-draft-created",
-                    "version": "1.0.0",
-                    "payload": {"draft_id": "draft-wasm-001"}
-                }
-            ]
-        }))
-    }
-}
-
-struct UndeclaredEventExecutor;
-
-impl LocalExecutor for UndeclaredEventExecutor {
-    fn execute(
-        &self,
-        _capability: &traverse_registry::ResolvedCapability,
-        _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({
-            "draft_id": "draft-bad-001",
-            "emitted_events": [
-                {
-                    "event_id": "dev.traverse.live.undeclared",
-                    "version": "1.0.0"
-                }
-            ]
-        }))
+        Ok(json!({ "draft_id": "draft-live-001" }))
     }
 }
 
@@ -154,15 +104,6 @@ fn native_registration(event_id: &str) -> CapabilityRegistration {
     base_registration(
         "live.wiring",
         "native-subject",
-        event_id,
-        ServiceType::Subscribable,
-    )
-}
-
-fn wasm_registration(event_id: &str) -> CapabilityRegistration {
-    base_registration(
-        "live.wiring",
-        "wasm-subject",
         event_id,
         ServiceType::Subscribable,
     )
@@ -343,7 +284,16 @@ fn exact_request(capability_id: &str) -> RuntimeRequest {
 }
 
 #[test]
-fn live_native_subscribable_events_reach_event_broker_and_trace_store() {
+fn live_native_execution_completes_and_writes_trace_without_publishing_events() {
+    // `Runtime::execute`'s live path bridges the host-provided `LocalExecutor`
+    // through `BoundLocalExecutor` into `PlacementRouter`. Spec
+    // 098-capability-event-host-abi's `traverse_host::emit_event` is a
+    // WASM-only mechanism (FR-001) that a native `LocalExecutor` closure has
+    // no way to call, and the output-JSON `emitted_events` convention it
+    // used to rely on is removed (FR-004) — so a native capability can no
+    // longer emit events at all through this path. This test documents that
+    // intentional gap: execution and trace recording still succeed, but no
+    // event reaches `EventBroker` or the trace's `emitted_events`.
     let event_type = "dev.traverse.live.draft-created";
     let broker = broker_with_event(event_type);
     let subscription = broker
@@ -363,19 +313,12 @@ fn live_native_subscribable_events_reach_event_broker_and_trace_store() {
 
     let outcome = runtime.execute(exact_request("live.wiring.native-subject"));
     assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
-    assert_eq!(
-        outcome.trace.emitted_events,
-        vec![EventReference {
-            event_id: event_type.to_string(),
-            version: "1.0.0".to_string(),
-        }]
-    );
+    assert!(outcome.trace.emitted_events.is_empty());
 
     let poll = broker
         .poll(&subscription.subscription_id, 10)
         .expect("poll should succeed");
-    assert_eq!(poll.events.len(), 1);
-    assert_eq!(poll.events[0].event.event_type, event_type);
+    assert!(poll.events.is_empty());
 
     let store = trace_store.lock().expect("trace store lock");
     let entries = store.list_public(Some("live.wiring.native-subject"));
@@ -389,31 +332,6 @@ fn live_native_subscribable_events_reach_event_broker_and_trace_store() {
         lifecycle[0].event_type,
         "dev.traverse.runtime.execution.completed"
     );
-}
-
-#[test]
-fn live_wasm_subscribable_events_reach_event_broker() {
-    let event_type = "dev.traverse.live.wasm-draft-created";
-    let broker = broker_with_event(event_type);
-    let subscription = broker
-        .subscribe(event_type, "0")
-        .expect("subscribe should succeed");
-
-    let runtime = Runtime::new(
-        registry_with(wasm_registration(event_type)),
-        EmittingWasmExecutor,
-    )
-    .with_security_config(RuntimeSecurityConfig::development())
-    .with_event_broker(broker.clone());
-
-    let outcome = runtime.execute(exact_request("live.wiring.wasm-subject"));
-    assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
-
-    let poll = broker
-        .poll(&subscription.subscription_id, 10)
-        .expect("poll should succeed");
-    assert_eq!(poll.events.len(), 1);
-    assert_eq!(poll.events[0].event.event_type, event_type);
 }
 
 #[test]
@@ -462,41 +380,6 @@ fn live_executor_failure_surfaces_through_runtime() {
     assert_eq!(
         outcome.trace.execution.failure_reason,
         Some(ExecutionFailureReason::ExecutionFailed)
-    );
-}
-
-#[test]
-fn live_undeclared_event_emission_fails_and_records_trace_violation() {
-    let event_type = "dev.traverse.live.undeclared";
-    let broker = broker_with_event(event_type);
-    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
-    let mut registration = native_registration("dev.traverse.live.declared-only");
-    registration.contract.emits = vec![EventReference {
-        event_id: "dev.traverse.live.declared-only".to_string(),
-        version: "1.0.0".to_string(),
-    }];
-
-    let runtime = Runtime::new(registry_with(registration), UndeclaredEventExecutor)
-        .with_security_config(RuntimeSecurityConfig::development())
-        .with_event_broker(broker)
-        .with_trace_store(Arc::clone(&trace_store));
-
-    let outcome = runtime.execute(exact_request("live.wiring.native-subject"));
-    assert_eq!(outcome.result.status, RuntimeResultStatus::Error);
-    assert_eq!(
-        outcome.result.error.as_ref().map(|error| error.code),
-        Some(RuntimeErrorCode::ContractViolation)
-    );
-
-    let store = trace_store.lock().expect("trace store lock");
-    let entries = store.list_public(Some("live.wiring.native-subject"));
-    assert_eq!(entries.len(), 1);
-    assert_eq!(entries[0].outcome, TraceOutcome::Failure);
-    assert!(
-        entries[0]
-            .violations
-            .iter()
-            .any(|violation| violation.violation_code == "undeclared_event_emission")
     );
 }
 

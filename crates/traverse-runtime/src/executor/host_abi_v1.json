@@ -42,6 +42,11 @@
       "module": "traverse_host",
       "name": "execution_id",
       "category": "execution_metadata"
+    },
+    {
+      "module": "traverse_host",
+      "name": "emit_event",
+      "category": "event_publish"
     }
   ]
 }

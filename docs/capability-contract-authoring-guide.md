@@ -286,7 +286,7 @@ The following is the smallest valid `contract.json` you can author. Every field 
 
 ### `emits` and `consumes` — connecting to event contracts
 
-The `emits` array declares which events this capability may publish via `broker.publish()` at runtime. The runtime validates that the emitted event type is declared here; publishing an undeclared event type causes an `EventError::PolicyViolation`.
+The `emits` array declares which events this capability may publish at runtime via the `traverse_host::emit_event` WASM host function (spec `098-capability-event-host-abi`). The host validates the emitted `event_id`/`version` against this list synchronously, at call time — an undeclared emission is rejected immediately, before execution completes, not discovered afterward. Only capabilities whose `service_type` is `Subscribable` may call the host function at all; any other `service_type` is rejected regardless of payload.
 
 ```json
 "emits": ["examples.hello-world.greeted"],

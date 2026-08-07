@@ -16,7 +16,7 @@ pub enum LifecycleStatus {
 }
 
 /// A CloudEvents-formatted event with Traverse governance metadata.
-#[derive(Debug, Clone, Serialize, Deserialize)]
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct TraverseEvent {
     /// UUID for this event instance.
     pub id: String,

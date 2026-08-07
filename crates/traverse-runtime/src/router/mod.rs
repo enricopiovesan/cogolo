@@ -16,12 +16,11 @@ use std::{
 };
 
 use chrono::Utc;
-use serde_json::{Value, json};
+use serde_json::Value;
 use traverse_contracts::{CapabilityContract, ServiceType, ViolationRecord};
-use uuid::Uuid;
 
 use crate::{
-    events::types::{EventBroker, LifecycleStatus, TraverseEvent},
+    events::types::{EventBroker, TraverseEvent},
     executor::{ArtifactType, CapabilityExecutor, ExecutorCapability},
     placement::{
         PlacementConstraintEvaluator, PlacementDecision, PlacementError, PlacementRequest,
@@ -55,11 +54,6 @@ pub struct RouterRequest {
     pub input: Value,
     /// Resolved capability descriptor passed to the executor.
     pub executor_capability: ExecutorCapability,
-    /// Events emitted by the capability (only published when `service_type == Subscribable`).
-    ///
-    /// When empty, [`PlacementRouter::execute`] extracts events from the capability
-    /// output's `emitted_events` array (the pre-host-ABI convention).
-    pub emitted_events: Vec<TraverseEvent>,
     /// When set, used as the public/private [`TraceStore`] id instead of minting a new UUID.
     pub trace_id_override: Option<String>,
 }
@@ -100,6 +94,10 @@ impl std::error::Error for RouterError {}
 pub struct RouterResponse {
     /// The JSON output produced by the executor.
     pub output: Value,
+    /// Events the executor emitted and validated during this call (spec
+    /// 098-capability-event-host-abi), already published to `EventBroker`
+    /// by Step 5 for `Subscribable` capabilities.
+    pub emitted_events: Vec<TraverseEvent>,
     /// The public trace entry written to the store.
     pub trace_id: String,
     /// The placement decision that was made.
@@ -186,47 +184,22 @@ impl PlacementRouter {
         let placement_target_str = format!("{:?}", decision.target);
 
         // --- Step 3: Execute capability ---
+        // Events emitted via `traverse_host::emit_event` (spec
+        // 098-capability-event-host-abi) are already validated
+        // synchronously, at call time, against `request.contract.emits` and
+        // `service_type` by the host function itself (FR-002/FR-003) — no
+        // post-hoc enforcement gate is needed here.
         let start = Instant::now();
         let exec_result = executor.execute(&request.executor_capability, &request.input);
         let duration_ms = u64::try_from(start.elapsed().as_millis()).unwrap_or(u64::MAX);
 
-        let (output, outcome) = match exec_result {
-            Ok(v) => (v, TraceOutcome::Success),
+        let (output, emitted_events, outcome) = match exec_result {
+            Ok(exec_output) => (
+                exec_output.value,
+                exec_output.emitted_events,
+                TraceOutcome::Success,
+            ),
             Err(e) => return Err(RouterError::ExecutionFailed(format!("{e}"))),
-        };
-
-        let emitted_events = if request.emitted_events.is_empty() {
-            extract_emitted_events_from_output(&output, &request.capability_id)
-        } else {
-            request.emitted_events
-        };
-
-        // --- Step 3.5: Execution-time contractual enforcement gate ---
-        let mut violations = Vec::new();
-        if request.contract.service_type == ServiceType::Subscribable && !emitted_events.is_empty()
-        {
-            for event in &emitted_events {
-                let declared =
-                    request.contract.emits.iter().any(|decl| {
-                        decl.event_id == event.event_type && decl.version == event.version
-                    });
-                if !declared {
-                    violations.push(ViolationRecord::new(
-                        "undeclared_event_emission",
-                        &request.capability_id,
-                        format!(
-                            "capability emitted undeclared event {}@{}",
-                            event.event_type, event.version
-                        ),
-                    ));
-                }
-            }
-        }
-
-        let outcome = if violations.is_empty() {
-            outcome
-        } else {
-            TraceOutcome::Failure
         };
 
         // --- Step 4: Write trace ---
@@ -235,7 +208,7 @@ impl PlacementRouter {
             None => new_trace_id_and_time(),
         };
 
-        let mut public_entry = PublicTraceEntry::new(
+        let public_entry = PublicTraceEntry::new(
             trace_id.clone(),
             request.capability_id.clone(),
             placement_target_str,
@@ -243,7 +216,6 @@ impl PlacementRouter {
             duration_ms,
             time,
         );
-        public_entry.violations.clone_from(&violations);
 
         let input_str = serde_json::to_string(&request.input).unwrap_or_default();
         let output_str = serde_json::to_string(&output).unwrap_or_default();
@@ -258,86 +230,22 @@ impl PlacementRouter {
             store.insert(public_entry, Some(private_entry));
         }
 
-        if !violations.is_empty() {
-            return Err(RouterError::ContractViolation(violations));
-        }
-
         // --- Step 5: Publish events for Subscribable capabilities ---
-        if request.contract.service_type == ServiceType::Subscribable {
-            for event in emitted_events {
+        let published_events = if request.contract.service_type == ServiceType::Subscribable {
+            for event in &emitted_events {
                 // Best-effort: publish errors are logged but do not fail the response.
-                let _ = self.event_broker.publish(event);
+                let _ = self.event_broker.publish(event.clone());
             }
-        }
+            emitted_events
+        } else {
+            Vec::new()
+        };
 
         Ok(RouterResponse {
             output,
+            emitted_events: published_events,
             trace_id,
             placement_decision: decision,
         })
-    }
-}
-
-/// Materialize [`TraverseEvent`]s from the capability output-JSON convention.
-///
-/// Each element of `output.emitted_events` is expected to carry `event_id`,
-/// `version`, and an optional `payload`. Missing/malformed entries are skipped.
-fn extract_emitted_events_from_output(output: &Value, capability_id: &str) -> Vec<TraverseEvent> {
-    let Some(Value::Array(events)) = output.get("emitted_events") else {
-        return Vec::new();
-    };
-
-    events
-        .iter()
-        .filter_map(|event| {
-            let Value::Object(object) = event else {
-                return None;
-            };
-            let event_type = object.get("event_id")?.as_str()?;
-            let version = object.get("version")?.as_str()?;
-            let data = object.get("payload").cloned().unwrap_or_else(|| json!({}));
-            Some(TraverseEvent {
-                id: Uuid::new_v4().to_string(),
-                source: format!("traverse-runtime/{capability_id}"),
-                event_type: event_type.to_string(),
-                datacontenttype: "application/json".to_string(),
-                time: Utc::now().to_rfc3339(),
-                data,
-                owner: capability_id.to_string(),
-                version: version.to_string(),
-                lifecycle_status: LifecycleStatus::Active,
-                deduplication_id: Some(format!("{capability_id}:{event_type}:{version}")),
-                ordering_scope: Some(capability_id.to_string()),
-                correlation_id: None,
-                causation_id: None,
-                subject_id: None,
-                actor_id: None,
-            })
-        })
-        .collect()
-}
-
-#[cfg(test)]
-mod tests {
-    #![allow(clippy::expect_used)]
-
-    use super::extract_emitted_events_from_output;
-    use serde_json::json;
-
-    #[test]
-    fn extract_emitted_events_skips_non_object_entries() {
-        let events = extract_emitted_events_from_output(
-            &json!({
-                "emitted_events": [
-                    "skip",
-                    {"event_id": "dev.traverse.ok", "version": "1.0.0", "payload": {"n": 1}},
-                    {"event_id": "missing-version"}
-                ]
-            }),
-            "cap.test",
-        );
-        assert_eq!(events.len(), 1);
-        assert_eq!(events[0].event_type, "dev.traverse.ok");
-        assert_eq!(events[0].version, "1.0.0");
     }
 }

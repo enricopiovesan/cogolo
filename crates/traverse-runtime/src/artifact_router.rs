@@ -76,10 +76,20 @@ impl LocalExecutor for ArtifactRouter {
                         .and_then(|digest| digest.strip_prefix("sha256:"))
                         .map(str::to_string),
                     host_abi_version: None,
+                    emits: capability.contract.emits.clone(),
+                    service_type: capability.contract.service_type.clone(),
                 };
+                // Events emitted via `traverse_host::emit_event` during this
+                // call are intentionally discarded here: `ArtifactRouter`
+                // bridges directly into `LocalExecutor`, bypassing
+                // `PlacementRouter` Step 5's `EventBroker` publish (a
+                // pre-existing gap for workflow-internal node execution,
+                // unrelated to this ABI — see spec 098's Capability
+                // Boundary).
                 return self
                     .wasm
                     .execute(&executor_capability, input)
+                    .map(|output| output.value)
                     .map_err(|error| map_executor_error(&error));
             }
             #[cfg(not(feature = "wasmtime-executor"))]

@@ -18,7 +18,9 @@ use events::{
     EventBroker, EventCatalog, EventError, InProcessBroker, NoopRuntimeEventSink, RuntimeEventSink,
     Subscription, SubscriptionPoll, TraverseEvent,
 };
-use executor::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
+use executor::{
+    ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput,
+};
 use placement::{PlacementConstraintEvaluator, RuntimeSnapshot};
 use router::{CapabilityExecutorRegistry, PlacementRouter, RouterError, RouterRequest};
 use security::{
@@ -1608,7 +1610,6 @@ where
             runtime_snapshot: idle_runtime_snapshot(),
             input: context.attempt.request.input.clone(),
             executor_capability,
-            emitted_events: Vec::new(),
             trace_id_override: Some(context.attempt.trace_id.clone()),
         };
 
@@ -1635,7 +1636,13 @@ where
                     );
                 }
 
-                let emitted_events = event_references_from_output(&response.output);
+                // `BoundLocalExecutor` always returns an empty
+                // `emitted_events` (the WASM-only `traverse_host::emit_event`
+                // ABI has no equivalent for a host-provided `LocalExecutor`
+                // closure), so `response.emitted_events` is structurally
+                // always empty here regardless of what the caller's executor
+                // does internally.
+                let emitted_events: Vec<EventReference> = Vec::new();
                 successful_execution_outcome(
                     context,
                     selected,
@@ -1678,9 +1685,13 @@ where
         &self,
         _capability: &ExecutorCapability,
         input: &Value,
-    ) -> Result<Value, ExecutorError> {
+    ) -> Result<ExecutorOutput, ExecutorError> {
         self.executor
             .execute(&self.selected, input)
+            .map(|value| ExecutorOutput {
+                value,
+                emitted_events: Vec::new(),
+            })
             .map_err(|failure| ExecutorError::ExecutionFailed(failure.message))
     }
 }
@@ -1775,6 +1786,8 @@ fn executor_capability_for(
             .and_then(|digest| digest.strip_prefix("sha256:"))
             .map(str::to_string),
         host_abi_version: None,
+        emits: selected.contract.emits.clone(),
+        service_type: selected.contract.service_type.clone(),
     }
 }
 
@@ -1787,24 +1800,6 @@ fn execution_target_from_placement(target: PlacementTarget) -> ExecutionTarget {
         PlacementTarget::Worker => ExecutionTarget::Worker,
         PlacementTarget::Device => ExecutionTarget::Device,
     }
-}
-
-fn event_references_from_output(output: &Value) -> Vec<EventReference> {
-    let Some(Value::Array(events)) = output.get("emitted_events") else {
-        return Vec::new();
-    };
-    events
-        .iter()
-        .filter_map(|event| {
-            let Value::Object(object) = event else {
-                return None;
-            };
-            Some(EventReference {
-                event_id: object.get("event_id")?.as_str()?.to_string(),
-                version: object.get("version")?.as_str()?.to_string(),
-            })
-        })
-        .collect()
 }
 
 fn map_router_error(
@@ -3501,6 +3496,26 @@ mod tests {
         ));
         assert_eq!(code.code, RuntimeErrorCode::PlacementUnsupported);
         assert_eq!(reason, ExecutionFailureReason::PlacementUnsupported);
+
+        let (code, reason, _) =
+            super::map_router_error(&RouterError::ExecutionFailed("boom".to_string()));
+        assert_eq!(code.code, RuntimeErrorCode::ExecutionFailed);
+        assert_eq!(reason, ExecutionFailureReason::ExecutionFailed);
+
+        // `RouterError::ContractViolation` is no longer produced by
+        // `PlacementRouter` (spec 098-capability-event-host-abi FR-005
+        // removed the post-hoc check that used to raise it) but the variant
+        // remains part of `RouterError`'s public surface, so `map_router_error`
+        // must still map it correctly.
+        let (code, reason, _) = super::map_router_error(&RouterError::ContractViolation(vec![
+            traverse_contracts::ViolationRecord::new(
+                "undeclared_event_emission",
+                "test.cap",
+                "test message",
+            ),
+        ]));
+        assert_eq!(code.code, RuntimeErrorCode::ContractViolation);
+        assert_eq!(reason, ExecutionFailureReason::ExecutionFailed);
     }
 
     #[test]
@@ -3530,16 +3545,6 @@ mod tests {
         for (placement, expected) in mapped {
             assert_eq!(super::execution_target_from_placement(placement), expected);
         }
-
-        let refs = super::event_references_from_output(&json!({
-            "emitted_events": [
-                "skip-me",
-                {"event_id": "dev.traverse.live", "version": "1.0.0"},
-                {"event_id": 1, "version": "1.0.0"}
-            ]
-        }));
-        assert_eq!(refs.len(), 1);
-        assert_eq!(refs[0].event_id, "dev.traverse.live");
 
         let discard = super::event_broker_or_discard(Err(EventError::InvalidRetentionWindow(
             "forced".to_string(),
@@ -3576,7 +3581,15 @@ mod tests {
     }
 
     #[test]
-    fn bound_local_executor_publishes_native_artifact_events_through_placement_router() {
+    fn bound_local_executor_never_publishes_events_through_placement_router() {
+        // `BoundLocalExecutor` bridges a host-provided `LocalExecutor` (a
+        // native Rust closure) into `CapabilityExecutor`. Spec
+        // 098-capability-event-host-abi's `traverse_host::emit_event` is a
+        // WASM-only mechanism (FR-001) — a native closure has no ABI to call
+        // and the output-JSON `emitted_events` convention it used to rely on
+        // is removed (FR-004), so `BoundLocalExecutor::execute` always
+        // returns an empty `emitted_events` list. This test documents that
+        // intentional gap rather than asserting an event reaches the broker.
         use super::events::{
             EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
         };
@@ -3594,13 +3607,7 @@ mod tests {
                 _capability: &ResolvedCapability,
                 _input: &Value,
             ) -> Result<Value, LocalExecutionFailure> {
-                Ok(json!({
-                    "draft_id": "native-1",
-                    "emitted_events": [{
-                        "event_id": "dev.traverse.native.live-emitted",
-                        "version": "1.0.0"
-                    }]
-                }))
+                Ok(json!({ "draft_id": "native-1" }))
             }
         }
 
@@ -3657,7 +3664,6 @@ mod tests {
                     &selected,
                     ArtifactType::Native,
                 ),
-                emitted_events: Vec::new(),
                 trace_id_override: Some("trace_native_live".to_string()),
             })
             .expect("native placement router execution should succeed");
@@ -3666,8 +3672,7 @@ mod tests {
         let poll = broker
             .poll(&subscription.subscription_id, 10)
             .expect("poll should succeed");
-        assert_eq!(poll.events.len(), 1);
-        assert_eq!(poll.events[0].event.event_type, event_type);
+        assert!(poll.events.is_empty());
         assert!(
             trace_store
                 .lock()
