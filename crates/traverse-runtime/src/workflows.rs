@@ -1,3 +1,4 @@
+use crate::events::{EventBroker, EventError};
 use crate::security::{RuntimeWarning, verify_artifact};
 use crate::{
     ExecutionFailureReason, ExecutionFailureState, LocalExecutor, Runtime, RuntimeError,
@@ -17,6 +18,9 @@ const WORKFLOW_REQUEST_KIND: &str = "workflow_execution_request";
 const WORKFLOW_EVIDENCE_KIND: &str = "workflow_traversal_evidence";
 const WORKFLOW_SCHEMA_VERSION: &str = "1.0.0";
 const WORKFLOW_GOVERNING_SPEC: &str = "007-workflow-registry-traversal";
+/// Maximum events drained per `EventBroker::poll` call while gathering
+/// candidate events for waiting event-driven edges (spec 099).
+const EVENT_BROKER_POLL_BATCH: usize = 256;
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkflowExecutionRequest {
@@ -109,6 +113,15 @@ pub struct EventMatchRecord {
     #[serde(default)]
     pub rejection_reason: Option<String>,
     pub recorded_at: String,
+    /// `EventBroker` subscription that sourced this event, `None` when the
+    /// event came from the current node's own emitted output rather than
+    /// `EventBroker` (spec 099 FR-005).
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    /// `EventBroker` cursor the event was delivered at, `None` for a
+    /// same-node emitted event (spec 099 FR-005).
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -136,6 +149,14 @@ pub struct EventWakeDecision {
     pub wake_order: usize,
     pub result: EventWakeDecisionResult,
     pub recorded_at: String,
+    /// `EventBroker` subscription responsible for this wake-up, `None` when
+    /// woken by the current node's own emitted output (spec 099 FR-005).
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    /// `EventBroker` cursor responsible for this wake-up, `None` when woken
+    /// by the current node's own emitted output (spec 099 FR-005).
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -151,6 +172,15 @@ pub struct EventConsumptionRecord {
     pub edge_id: String,
     pub workflow_execution_id: String,
     pub consumed_at: String,
+    /// `EventBroker` subscription that delivered the consumed event, `None`
+    /// when consumed from the current node's own emitted output (spec 099
+    /// FR-005).
+    #[serde(default)]
+    pub subscription_id: Option<String>,
+    /// `EventBroker` cursor the consumed event was delivered at, `None` for
+    /// a same-node emitted event (spec 099 FR-005).
+    #[serde(default)]
+    pub cursor: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -183,6 +213,14 @@ pub enum WorkflowTraversalFailureReason {
     MissingRequiredEvent,
     TerminalNodeNotReached,
     StepExecutionFailed,
+    /// A waiting edge's declared event type is not registered in
+    /// `EventBroker`'s catalog, so a subscription could not be established
+    /// (spec 099 FR-007).
+    EventSubscriptionFailed,
+    /// `EventBroker` was unreachable or internally failing when a waiting
+    /// edge attempted to establish or poll its subscription, distinct from
+    /// an unregistered event type (spec 099 FR-008).
+    EventBrokerUnavailable,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -212,6 +250,15 @@ struct EmittedEventRecord {
     record_id: String,
     event: EventReference,
     payload: Option<Value>,
+    /// `EventBroker` subscription/cursor this event was polled from, `None`
+    /// for an event extracted from the current node's own output.
+    source: Option<BrokerEventSource>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BrokerEventSource {
+    subscription_id: String,
+    cursor: String,
 }
 
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -629,26 +676,106 @@ where
             if !waiting_edges.is_empty() {
                 event_evidence.waiting_edges.extend(waiting_edges.clone());
             }
-            let evaluation = evaluate_event_driven_edges(
+            // Pass 1: match against the current node's own emitted output,
+            // exactly as before spec 099 (cheapest path, and the only one
+            // that doesn't need a broker at all).
+            let local_evaluation = evaluate_event_driven_edges(
                 &waiting_edges,
                 &node_emitted,
                 &mut consumed_event_edges,
-                &format!("{}:step:{step_index}", request.request_id),
+                &format!("{}:step:{step_index}:local", request.request_id),
             );
             event_evidence
                 .match_records
-                .extend(evaluation.evidence.match_records.iter().cloned());
+                .extend(local_evaluation.evidence.match_records.iter().cloned());
             event_evidence
                 .wake_decisions
-                .extend(evaluation.evidence.wake_decisions.iter().cloned());
+                .extend(local_evaluation.evidence.wake_decisions.iter().cloned());
             event_evidence
                 .consumptions
-                .extend(evaluation.evidence.consumptions.iter().cloned());
+                .extend(local_evaluation.evidence.consumptions.iter().cloned());
+            let mut taken_edge_ids = local_evaluation.taken_edge_ids;
+
+            // Pass 2 (spec 099 FR-001/FR-002): for edges the node's own
+            // output didn't satisfy, poll EventBroker for events published
+            // by any other execution, capability, or external publisher.
+            // Edges already resolved locally never touch the broker, so an
+            // unregistered/unreachable broker cannot fail a workflow whose
+            // event-driven edges are still fully satisfiable from the
+            // node's own output.
+            let unresolved_edges: Vec<WaitingWorkflowEdgeContext> = waiting_edges
+                .iter()
+                .filter(|edge| !taken_edge_ids.contains(&edge.edge_id))
+                .cloned()
+                .collect();
+            if !unresolved_edges.is_empty() {
+                let broker = self.event_broker.as_ref();
+                match poll_broker_events_for_waiting_edges(broker, &unresolved_edges) {
+                    Ok((broker_events, broker_warnings)) => {
+                        warnings.extend(broker_warnings);
+                        let broker_evaluation = evaluate_event_driven_edges(
+                            &unresolved_edges,
+                            &broker_events,
+                            &mut consumed_event_edges,
+                            &format!("{}:step:{step_index}:broker", request.request_id),
+                        );
+                        event_evidence
+                            .match_records
+                            .extend(broker_evaluation.evidence.match_records.iter().cloned());
+                        event_evidence
+                            .wake_decisions
+                            .extend(broker_evaluation.evidence.wake_decisions.iter().cloned());
+                        event_evidence
+                            .consumptions
+                            .extend(broker_evaluation.evidence.consumptions.iter().cloned());
+                        taken_edge_ids.extend(broker_evaluation.taken_edge_ids);
+                    }
+                    Err(BrokerQueryFailure::UnregisteredEventType(event_type)) => {
+                        let mut failed = visited;
+                        if let Some(last) = failed.last_mut() {
+                            last.status = WorkflowTraversalStepStatus::Failed;
+                        }
+                        return Err(workflow_failure(
+                            request,
+                            WorkflowTraversalFailureReason::EventSubscriptionFailed,
+                            runtime_error(
+                                RuntimeErrorCode::RequestInvalid,
+                                "waiting edge references an event type not registered in EventBroker's catalog",
+                                json!({"node_id": node.node_id, "event_type": event_type}),
+                            ),
+                            failed,
+                            traversed,
+                            emitted,
+                            event_evidence,
+                            warnings,
+                        ));
+                    }
+                    Err(BrokerQueryFailure::BrokerUnavailable(detail)) => {
+                        let mut failed = visited;
+                        if let Some(last) = failed.last_mut() {
+                            last.status = WorkflowTraversalStepStatus::Failed;
+                        }
+                        return Err(workflow_failure(
+                            request,
+                            WorkflowTraversalFailureReason::EventBrokerUnavailable,
+                            runtime_error(
+                                RuntimeErrorCode::ExecutionFailed,
+                                "EventBroker was unreachable or internally failing while evaluating a waiting event-driven edge",
+                                json!({"node_id": node.node_id, "detail": detail}),
+                            ),
+                            failed,
+                            traversed,
+                            emitted,
+                            event_evidence,
+                            warnings,
+                        ));
+                    }
+                }
+            }
             let matched_event_edges = outgoing
                 .iter()
                 .filter(|edge| {
-                    evaluation
-                        .taken_edge_ids
+                    taken_edge_ids
                         .iter()
                         .any(|edge_id| edge_id == &edge.edge_id)
                 })
@@ -873,6 +1000,7 @@ fn emitted_events(output: &Value) -> Vec<EmittedEventRecord> {
                     version: event.get("version")?.as_str()?.to_string(),
                 },
                 payload: event.get("payload").cloned(),
+                source: None,
             })
         })
         .collect()
@@ -895,6 +1023,95 @@ fn waiting_edge_contexts(
             })
         })
         .collect()
+}
+
+/// A waiting edge's subscription to `EventBroker` could not be established
+/// or polled (spec 099 FR-007/FR-008).
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum BrokerQueryFailure {
+    /// The declared event type is not registered in `EventBroker`'s catalog
+    /// (FR-007).
+    UnregisteredEventType(String),
+    /// `EventBroker` was unreachable or internally failing (FR-008).
+    BrokerUnavailable(String),
+}
+
+/// Subscribes to `EventBroker` for every distinct event type referenced by
+/// `waiting_edges`, drains all currently available events for each, and
+/// cancels the subscription immediately after (spec 099 FR-001/FR-002).
+///
+/// Event types are visited in a fixed, sorted order, and each type's events
+/// are appended in delivery order, so the resulting candidate pool is
+/// deterministic and explainable (FR-003).
+fn poll_broker_events_for_waiting_edges(
+    broker: &dyn EventBroker,
+    waiting_edges: &[WaitingWorkflowEdgeContext],
+) -> Result<(Vec<EmittedEventRecord>, Vec<RuntimeWarning>), BrokerQueryFailure> {
+    let mut event_types: Vec<&str> = waiting_edges
+        .iter()
+        .map(|edge| edge.event_ref.event_id.as_str())
+        .collect();
+    event_types.sort_unstable();
+    event_types.dedup();
+
+    let mut records = Vec::new();
+    let mut warnings = Vec::new();
+
+    for event_type in event_types {
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .map_err(|error| match error {
+                EventError::UnregisteredEventType(event_type) => {
+                    BrokerQueryFailure::UnregisteredEventType(event_type)
+                }
+                other => BrokerQueryFailure::BrokerUnavailable(other.to_string()),
+            })?;
+
+        let mut delivered = Vec::new();
+        let poll_failure = loop {
+            match broker.poll(&subscription.subscription_id, EVENT_BROKER_POLL_BATCH) {
+                Ok(batch) => {
+                    let batch_len = batch.events.len();
+                    delivered.extend(batch.events);
+                    if batch_len < EVENT_BROKER_POLL_BATCH {
+                        break None;
+                    }
+                }
+                Err(error) => break Some(BrokerQueryFailure::BrokerUnavailable(error.to_string())),
+            }
+        };
+
+        if let Err(cancel_error) = broker.cancel(&subscription.subscription_id) {
+            warnings.push(RuntimeWarning {
+                code: "event_broker_subscription_cleanup_failed".to_string(),
+                message: format!(
+                    "failed to cancel workflow event-driven edge subscription {}: {cancel_error}",
+                    subscription.subscription_id
+                ),
+            });
+        }
+
+        if let Some(failure) = poll_failure {
+            return Err(failure);
+        }
+
+        for broker_event in delivered {
+            records.push(EmittedEventRecord {
+                record_id: format!("broker:{event_type}:{}", broker_event.cursor),
+                event: EventReference {
+                    event_id: event_type.to_string(),
+                    version: broker_event.event.version.clone(),
+                },
+                payload: Some(broker_event.event.data.clone()),
+                source: Some(BrokerEventSource {
+                    subscription_id: subscription.subscription_id.clone(),
+                    cursor: broker_event.cursor.clone(),
+                }),
+            });
+        }
+    }
+
+    Ok((records, warnings))
 }
 
 #[allow(clippy::too_many_lines)]
@@ -924,12 +1141,22 @@ fn evaluate_event_driven_edges(
                 predicate_result: None,
                 rejection_reason: Some("required event was not emitted".to_string()),
                 recorded_at: format!("{record_prefix}:no_event:{}", edge.edge_id),
+                subscription_id: None,
+                cursor: None,
             }));
         return outcome;
     }
 
     let mut wake_order = 1;
     for (event_index, emitted_event) in emitted_events.iter().enumerate() {
+        let subscription_id = emitted_event
+            .source
+            .as_ref()
+            .map(|source| source.subscription_id.clone());
+        let cursor = emitted_event
+            .source
+            .as_ref()
+            .map(|source| source.cursor.clone());
         for waiting_edge in &ordered_waiting_edges {
             let match_recorded_at = format!(
                 "{record_prefix}:event:{event_index}:match:{}",
@@ -946,6 +1173,8 @@ fn evaluate_event_driven_edges(
                         "event id/version did not match the waiting edge".to_string(),
                     ),
                     recorded_at: match_recorded_at,
+                    subscription_id: subscription_id.clone(),
+                    cursor: cursor.clone(),
                 });
                 continue;
             }
@@ -965,6 +1194,8 @@ fn evaluate_event_driven_edges(
                             "event predicate did not match the emitted payload".to_string(),
                         ),
                         recorded_at: match_recorded_at,
+                        subscription_id: subscription_id.clone(),
+                        cursor: cursor.clone(),
                     });
                     continue;
                 }
@@ -988,6 +1219,8 @@ fn evaluate_event_driven_edges(
                         "event record was already consumed for this waiting edge".to_string(),
                     ),
                     recorded_at: match_recorded_at,
+                    subscription_id: subscription_id.clone(),
+                    cursor: cursor.clone(),
                 });
                 continue;
             }
@@ -1004,6 +1237,8 @@ fn evaluate_event_driven_edges(
                     .map(|_| EventPredicateResult::Passed),
                 rejection_reason: None,
                 recorded_at: match_recorded_at.clone(),
+                subscription_id: subscription_id.clone(),
+                cursor: cursor.clone(),
             });
             outcome.taken_edge_ids.push(waiting_edge.edge_id.clone());
             let wake_recorded_at = format!(
@@ -1019,6 +1254,8 @@ fn evaluate_event_driven_edges(
                 wake_order,
                 result: EventWakeDecisionResult::Taken,
                 recorded_at: wake_recorded_at.clone(),
+                subscription_id: subscription_id.clone(),
+                cursor: cursor.clone(),
             });
             outcome.evidence.consumptions.push(EventConsumptionRecord {
                 event_id: emitted_event.event.event_id.clone(),
@@ -1026,6 +1263,8 @@ fn evaluate_event_driven_edges(
                 edge_id: waiting_edge.edge_id.clone(),
                 workflow_execution_id: waiting_edge.workflow_execution_id.clone(),
                 consumed_at: wake_recorded_at,
+                subscription_id: subscription_id.clone(),
+                cursor: cursor.clone(),
             });
             wake_order += 1;
         }
@@ -1114,6 +1353,8 @@ fn workflow_failure(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::events;
+    use crate::events::InProcessBroker;
     use crate::security::RuntimeSecurityConfig;
     use crate::{
         CandidateCollectionRecord, LocalExecutionFailure, LocalExecutionFailureCode,
@@ -1121,6 +1362,7 @@ mod tests {
         RuntimeResultStatus, SelectionRecord,
     };
     use serde_json::json;
+    use std::sync::Arc;
     use traverse_contracts::{
         BinaryFormat as ContractBinaryFormat, CapabilityContract, Condition, Entrypoint,
         EntrypointKind, EventReference, EvidenceStatus, EvidenceType, Execution,
@@ -1211,6 +1453,7 @@ mod tests {
                     version: "1.0.0".to_string(),
                 },
                 payload: Some(json!({"severity": "normal"})),
+                source: None,
             }]
         );
 
@@ -1376,9 +1619,18 @@ mod tests {
         );
 
         let workflow_registry = workflow_registry_fixture();
+        // The event type is registered (spec 099: EventBroker's catalog is
+        // consulted before a waiting edge is declared unsatisfiable) but
+        // never published, so this still exercises the genuine
+        // "not-yet-happened" MissingRequiredEvent path rather than
+        // EventSubscriptionFailed's unregistered-type path.
         let runtime = Runtime::new(capability_registry_fixture(), MissingEventWorkflowExecutor)
             .with_workflow_registry(workflow_registry)
-            .with_security_config(RuntimeSecurityConfig::development());
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(event_catalog_broker_fixture(
+                "content.comments.validated",
+                "1.0.0",
+            ));
         let missing_event = runtime.execute_workflow(valid_workflow_request());
         assert_eq!(
             missing_event.evidence.result.failure_reason,
@@ -1404,6 +1656,7 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             payload: Some(json!({"severity": "normal"})),
+            source: None,
         };
         let waiting_edges = vec![
             WaitingWorkflowEdgeContext {
@@ -1481,6 +1734,7 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             payload: Some(json!({"severity": "normal"})),
+            source: None,
         }];
         let outcome =
             evaluate_event_driven_edges(&waiting_edges, &emitted, &mut BTreeSet::new(), "trace");
@@ -1497,6 +1751,8 @@ mod tests {
                     "event predicate did not match the emitted payload".to_string()
                 ),
                 recorded_at: "trace:event:0:match:edge_predicate".to_string(),
+                subscription_id: None,
+                cursor: None,
             }]
         );
     }
@@ -1521,6 +1777,7 @@ mod tests {
                 version: "1.0.0".to_string(),
             },
             payload: None,
+            source: None,
         }];
         let outcome =
             evaluate_event_driven_edges(&waiting_edges, &emitted, &mut BTreeSet::new(), "trace");
@@ -1537,8 +1794,551 @@ mod tests {
                     "event id/version did not match the waiting edge".to_string()
                 ),
                 recorded_at: "trace:event:0:match:edge_identity".to_string(),
+                subscription_id: None,
+                cursor: None,
             }]
         );
+    }
+
+    fn event_catalog_broker_fixture(event_type: &str, version: &str) -> Arc<InProcessBroker> {
+        let catalog = Arc::new(events::EventCatalog::new());
+        catalog
+            .register(events::EventCatalogEntry {
+                event_type: event_type.to_string(),
+                owner: "content.comments".to_string(),
+                version: version.to_string(),
+                lifecycle_status: events::LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        Arc::new(InProcessBroker::new(catalog).unwrap_or_else(|error| unreachable!("{error:?}")))
+    }
+
+    fn sample_traverse_event(event_type: &str, version: &str) -> events::TraverseEvent {
+        events::TraverseEvent {
+            id: "evt-fixture-1".to_string(),
+            source: "traverse-runtime/content.comments.validate-comment".to_string(),
+            event_type: event_type.to_string(),
+            datacontenttype: "application/json".to_string(),
+            time: "2026-08-06T00:00:00Z".to_string(),
+            data: json!({"comment_id": "comment-1"}),
+            owner: "content.comments".to_string(),
+            version: version.to_string(),
+            lifecycle_status: events::LifecycleStatus::Active,
+            deduplication_id: None,
+            ordering_scope: None,
+            correlation_id: None,
+            causation_id: None,
+            subject_id: None,
+            actor_id: None,
+        }
+    }
+
+    /// Spec 099 FR-001/FR-002: a waiting event-driven edge advances from an
+    /// event published to `EventBroker` by another publisher, not just an
+    /// event declared in the same execution's own node output.
+    #[test]
+    fn event_driven_edge_advances_from_broker_published_event() {
+        let broker = event_catalog_broker_fixture("content.comments.validated", "1.0.0");
+        broker
+            .publish(sample_traverse_event("content.comments.validated", "1.0.0"))
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        let runtime = Runtime::new(capability_registry_fixture(), MissingEventWorkflowExecutor)
+            .with_workflow_registry(workflow_registry_fixture())
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(broker);
+
+        let outcome = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            outcome.evidence.result.status,
+            WorkflowTraversalStatus::Completed
+        );
+        assert_eq!(outcome.evidence.result.failure_reason, None);
+
+        let wake = outcome
+            .evidence
+            .event_wake_decisions
+            .iter()
+            .find(|decision| decision.edge_id == "validate_to_persist")
+            .unwrap_or_else(|| unreachable!("expected a wake decision for validate_to_persist"));
+        assert!(wake.subscription_id.is_some());
+        assert!(wake.cursor.is_some());
+
+        let consumption = outcome
+            .evidence
+            .event_consumptions
+            .iter()
+            .find(|record| record.edge_id == "validate_to_persist")
+            .unwrap_or_else(|| unreachable!("expected a consumption record"));
+        assert!(consumption.subscription_id.is_some());
+        assert!(consumption.cursor.is_some());
+    }
+
+    /// Spec 099 FR-005: a match sourced from the current node's own emitted
+    /// output (not `EventBroker`) still carries no subscription/cursor,
+    /// distinguishing same-execution matches from broker-sourced ones.
+    #[test]
+    fn event_driven_edge_same_node_match_has_no_broker_provenance() {
+        let broker = event_catalog_broker_fixture("content.comments.validated", "1.0.0");
+        let runtime = Runtime::new(capability_registry_fixture(), WorkflowExecutor)
+            .with_workflow_registry(workflow_registry_fixture())
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(broker);
+
+        let outcome = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            outcome.evidence.result.status,
+            WorkflowTraversalStatus::Completed
+        );
+        let wake = outcome
+            .evidence
+            .event_wake_decisions
+            .iter()
+            .find(|decision| decision.edge_id == "validate_to_persist")
+            .unwrap_or_else(|| unreachable!("expected a wake decision for validate_to_persist"));
+        assert_eq!(wake.subscription_id, None);
+        assert_eq!(wake.cursor, None);
+    }
+
+    /// Spec 099 FR-007: a waiting edge whose declared event type is not
+    /// registered in `EventBroker`'s catalog surfaces a stable,
+    /// machine-readable error rather than silently never waking.
+    #[test]
+    fn event_driven_edge_fails_with_event_subscription_failed_for_unregistered_type() {
+        let empty_catalog = Arc::new(events::EventCatalog::new());
+        let broker = Arc::new(
+            InProcessBroker::new(empty_catalog).unwrap_or_else(|error| unreachable!("{error:?}")),
+        );
+
+        let runtime = Runtime::new(capability_registry_fixture(), MissingEventWorkflowExecutor)
+            .with_workflow_registry(workflow_registry_fixture())
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(broker);
+
+        let outcome = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            outcome.evidence.result.failure_reason,
+            Some(WorkflowTraversalFailureReason::EventSubscriptionFailed)
+        );
+    }
+
+    struct AlwaysFailingBroker;
+
+    impl EventBroker for AlwaysFailingBroker {
+        fn publish(&self, _event: events::TraverseEvent) -> Result<(), EventError> {
+            Err(EventError::JournalWrite(
+                "simulated broker failure".to_string(),
+            ))
+        }
+
+        fn subscribe(
+            &self,
+            _event_type: &str,
+            _from_cursor: &str,
+        ) -> Result<events::Subscription, EventError> {
+            Err(EventError::JournalRead(
+                "simulated broker failure".to_string(),
+            ))
+        }
+
+        fn subscribe_for_subject(
+            &self,
+            _event_type: &str,
+            _from_cursor: &str,
+            _subject_id: Option<&str>,
+        ) -> Result<events::Subscription, EventError> {
+            Err(EventError::JournalRead(
+                "simulated broker failure".to_string(),
+            ))
+        }
+
+        fn poll(
+            &self,
+            _subscription_id: &str,
+            _max_events: usize,
+        ) -> Result<events::SubscriptionPoll, EventError> {
+            Err(EventError::JournalRead(
+                "simulated broker failure".to_string(),
+            ))
+        }
+
+        fn cancel(&self, _subscription_id: &str) -> Result<(), EventError> {
+            Err(EventError::SubscriptionNotFound("unknown".to_string()))
+        }
+    }
+
+    /// Spec 099 FR-008: `EventBroker` being unreachable or internally
+    /// failing when a waiting edge tries to establish its subscription
+    /// surfaces a stable, retryable error distinct from FR-007's
+    /// unregistered-type case, without crashing the workflow execution.
+    #[test]
+    fn event_driven_edge_fails_with_event_broker_unavailable_when_broker_errors() {
+        let runtime = Runtime::new(capability_registry_fixture(), MissingEventWorkflowExecutor)
+            .with_workflow_registry(workflow_registry_fixture())
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(Arc::new(AlwaysFailingBroker));
+
+        let outcome = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            outcome.evidence.result.failure_reason,
+            Some(WorkflowTraversalFailureReason::EventBrokerUnavailable)
+        );
+    }
+
+    /// Exercises every `AlwaysFailingBroker` operation directly, confirming
+    /// the double fails deterministically the way its name promises (only
+    /// `subscribe` is reachable through the full workflow path above, since
+    /// a failed subscribe short-circuits before poll/cancel/publish).
+    #[test]
+    fn always_failing_broker_fails_every_operation() {
+        let broker = AlwaysFailingBroker;
+        assert!(matches!(
+            broker.publish(sample_traverse_event("content.comments.validated", "1.0.0")),
+            Err(EventError::JournalWrite(_))
+        ));
+        assert!(matches!(
+            broker.subscribe("content.comments.validated", "0"),
+            Err(EventError::JournalRead(_))
+        ));
+        assert!(matches!(
+            broker.subscribe_for_subject("content.comments.validated", "0", None),
+            Err(EventError::JournalRead(_))
+        ));
+        assert!(matches!(
+            broker.poll("sub-1", 1),
+            Err(EventError::JournalRead(_))
+        ));
+        assert!(matches!(
+            broker.cancel("sub-1"),
+            Err(EventError::SubscriptionNotFound(_))
+        ));
+    }
+
+    struct PollFailingBroker(InProcessBroker);
+
+    impl EventBroker for PollFailingBroker {
+        fn publish(&self, event: events::TraverseEvent) -> Result<(), EventError> {
+            self.0.publish(event)
+        }
+
+        fn subscribe(
+            &self,
+            event_type: &str,
+            from_cursor: &str,
+        ) -> Result<events::Subscription, EventError> {
+            self.0.subscribe(event_type, from_cursor)
+        }
+
+        fn subscribe_for_subject(
+            &self,
+            event_type: &str,
+            from_cursor: &str,
+            subject_id: Option<&str>,
+        ) -> Result<events::Subscription, EventError> {
+            self.0
+                .subscribe_for_subject(event_type, from_cursor, subject_id)
+        }
+
+        fn poll(
+            &self,
+            _subscription_id: &str,
+            _max_events: usize,
+        ) -> Result<events::SubscriptionPoll, EventError> {
+            Err(EventError::JournalRead(
+                "simulated poll failure".to_string(),
+            ))
+        }
+
+        fn cancel(&self, subscription_id: &str) -> Result<(), EventError> {
+            self.0.cancel(subscription_id)
+        }
+    }
+
+    /// Spec 099 FR-008: a broker whose subscription establishes fine but
+    /// whose `poll` fails mid-drain is a distinct failure point from
+    /// subscribe failing outright, and must surface the same stable,
+    /// retryable `EventBrokerUnavailable` reason.
+    #[test]
+    fn event_driven_edge_fails_with_event_broker_unavailable_when_poll_errors() {
+        let catalog = Arc::new(events::EventCatalog::new());
+        catalog
+            .register(events::EventCatalogEntry {
+                event_type: "content.comments.validated".to_string(),
+                owner: "content.comments".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: events::LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        let inner = InProcessBroker::new(catalog).unwrap_or_else(|error| unreachable!("{error:?}"));
+        let broker = Arc::new(PollFailingBroker(inner));
+
+        // `publish`/`subscribe_for_subject` delegate straight through to the
+        // wrapped broker; only `poll` is overridden to fail.
+        broker
+            .publish(sample_traverse_event("content.comments.validated", "1.0.0"))
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        broker
+            .subscribe_for_subject("content.comments.validated", "0", None)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        let runtime = Runtime::new(capability_registry_fixture(), MissingEventWorkflowExecutor)
+            .with_workflow_registry(workflow_registry_fixture())
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(broker);
+
+        let outcome = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            outcome.evidence.result.failure_reason,
+            Some(WorkflowTraversalFailureReason::EventBrokerUnavailable)
+        );
+    }
+
+    struct CancelFailingBroker(InProcessBroker);
+
+    impl EventBroker for CancelFailingBroker {
+        fn publish(&self, event: events::TraverseEvent) -> Result<(), EventError> {
+            self.0.publish(event)
+        }
+
+        fn subscribe(
+            &self,
+            event_type: &str,
+            from_cursor: &str,
+        ) -> Result<events::Subscription, EventError> {
+            self.0.subscribe(event_type, from_cursor)
+        }
+
+        fn subscribe_for_subject(
+            &self,
+            event_type: &str,
+            from_cursor: &str,
+            subject_id: Option<&str>,
+        ) -> Result<events::Subscription, EventError> {
+            self.0
+                .subscribe_for_subject(event_type, from_cursor, subject_id)
+        }
+
+        fn poll(
+            &self,
+            subscription_id: &str,
+            max_events: usize,
+        ) -> Result<events::SubscriptionPoll, EventError> {
+            self.0.poll(subscription_id, max_events)
+        }
+
+        fn cancel(&self, _subscription_id: &str) -> Result<(), EventError> {
+            Err(EventError::SubscriptionNotFound(
+                "simulated cancel failure".to_string(),
+            ))
+        }
+    }
+
+    /// A broker subscription that fails to cancel after a successful drain
+    /// does not fail the workflow (cleanup is best-effort); it surfaces a
+    /// non-fatal `RuntimeWarning` instead.
+    #[test]
+    fn event_driven_edge_surfaces_warning_when_subscription_cancel_fails() {
+        let catalog = Arc::new(events::EventCatalog::new());
+        catalog
+            .register(events::EventCatalogEntry {
+                event_type: "content.comments.validated".to_string(),
+                owner: "content.comments".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: events::LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        let inner = InProcessBroker::new(catalog).unwrap_or_else(|error| unreachable!("{error:?}"));
+        inner
+            .publish(sample_traverse_event("content.comments.validated", "1.0.0"))
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        let broker = Arc::new(CancelFailingBroker(inner));
+
+        // `publish`/`subscribe_for_subject` delegate straight through to the
+        // wrapped broker; only `cancel` is overridden to fail.
+        broker
+            .publish(sample_traverse_event("content.comments.validated", "1.0.0"))
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        broker
+            .subscribe_for_subject("content.comments.validated", "0", None)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        let runtime = Runtime::new(capability_registry_fixture(), MissingEventWorkflowExecutor)
+            .with_workflow_registry(workflow_registry_fixture())
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(broker);
+
+        let outcome = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            outcome.evidence.result.status,
+            WorkflowTraversalStatus::Completed
+        );
+        assert!(
+            outcome
+                .result
+                .warnings
+                .iter()
+                .any(|warning| warning.code == "event_broker_subscription_cleanup_failed")
+        );
+    }
+
+    /// Spec 099 FR-004: within one evaluation, a broker-sourced event that
+    /// has already been consumed by a waiting edge does not advance that
+    /// edge a second time even though the broker still has the event
+    /// buffered (simulating post-restart durable replay).
+    #[test]
+    fn poll_broker_events_for_waiting_edges_supports_exact_once_across_repeated_polls() {
+        let broker = event_catalog_broker_fixture("content.comments.validated", "1.0.0");
+        broker
+            .publish(sample_traverse_event("content.comments.validated", "1.0.0"))
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        let waiting_edges = vec![WaitingWorkflowEdgeContext {
+            workflow_execution_id: "wf_exec_replay".to_string(),
+            edge_id: "validate_to_persist".to_string(),
+            from_node_id: "validate_comment".to_string(),
+            to_node_id: "persist_comment".to_string(),
+            event_ref: EventReference {
+                event_id: "content.comments.validated".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            predicate: None,
+        }];
+
+        let mut consumed = BTreeSet::new();
+
+        let (first_batch, first_warnings) =
+            poll_broker_events_for_waiting_edges(broker.as_ref(), &waiting_edges)
+                .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert!(first_warnings.is_empty());
+        let first = evaluate_event_driven_edges(&waiting_edges, &first_batch, &mut consumed, "t1");
+        assert_eq!(
+            first.taken_edge_ids,
+            vec!["validate_to_persist".to_string()]
+        );
+
+        // The broker still has the event buffered (it was never cancelled
+        // mid-retention), simulating a fresh subscription replaying the
+        // same durable history after a restart.
+        let (second_batch, second_warnings) =
+            poll_broker_events_for_waiting_edges(broker.as_ref(), &waiting_edges)
+                .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert!(second_warnings.is_empty());
+        let second =
+            evaluate_event_driven_edges(&waiting_edges, &second_batch, &mut consumed, "t2");
+        assert!(second.taken_edge_ids.is_empty());
+        assert!(
+            second
+                .evidence
+                .match_records
+                .iter()
+                .all(|record| record.match_result == EventMatchResult::AlreadyConsumed)
+        );
+    }
+
+    /// Spec 099: `poll_broker_events_for_waiting_edges` visits distinct
+    /// event types in a fixed sorted order and cancels each subscription
+    /// after draining it, so it does not leak broker subscriptions.
+    #[test]
+    fn poll_broker_events_for_waiting_edges_cancels_subscriptions_after_draining() {
+        let catalog = Arc::new(events::EventCatalog::new());
+        for event_type in [
+            "content.comments.draft-created",
+            "content.comments.validated",
+        ] {
+            catalog
+                .register(events::EventCatalogEntry {
+                    event_type: event_type.to_string(),
+                    owner: "content.comments".to_string(),
+                    version: "1.0.0".to_string(),
+                    lifecycle_status: events::LifecycleStatus::Active,
+                    consumer_count: 0,
+                })
+                .unwrap_or_else(|error| unreachable!("{error:?}"));
+        }
+        let broker =
+            InProcessBroker::new(catalog).unwrap_or_else(|error| unreachable!("{error:?}"));
+        broker
+            .publish(sample_traverse_event("content.comments.validated", "1.0.0"))
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        let waiting_edges = vec![
+            WaitingWorkflowEdgeContext {
+                workflow_execution_id: "wf_exec_multi".to_string(),
+                edge_id: "edge_a".to_string(),
+                from_node_id: "a".to_string(),
+                to_node_id: "b".to_string(),
+                event_ref: EventReference {
+                    event_id: "content.comments.validated".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+                predicate: None,
+            },
+            WaitingWorkflowEdgeContext {
+                workflow_execution_id: "wf_exec_multi".to_string(),
+                edge_id: "edge_b".to_string(),
+                from_node_id: "a".to_string(),
+                to_node_id: "c".to_string(),
+                event_ref: EventReference {
+                    event_id: "content.comments.draft-created".to_string(),
+                    version: "1.0.0".to_string(),
+                },
+                predicate: None,
+            },
+        ];
+
+        let (records, warnings) = poll_broker_events_for_waiting_edges(&broker, &waiting_edges)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert!(warnings.is_empty());
+        assert_eq!(records.len(), 1);
+        let source = records[0]
+            .source
+            .as_ref()
+            .unwrap_or_else(|| unreachable!("expected broker provenance on the record"));
+
+        // The subscription was cancelled after draining, so polling it
+        // again must fail with `SubscriptionNotFound`.
+        assert!(matches!(
+            broker.poll(&source.subscription_id, 1),
+            Err(EventError::SubscriptionNotFound(id)) if id == source.subscription_id
+        ));
+    }
+
+    /// `poll_broker_events_for_waiting_edges` drains a subscription across
+    /// multiple internal `EventBroker::poll` calls when more events are
+    /// buffered than one poll batch can return.
+    #[test]
+    fn poll_broker_events_for_waiting_edges_paginates_beyond_one_batch() {
+        let broker = event_catalog_broker_fixture("content.comments.validated", "1.0.0");
+        let published_count = EVENT_BROKER_POLL_BATCH + 5;
+        for index in 0..published_count {
+            let mut event = sample_traverse_event("content.comments.validated", "1.0.0");
+            event.id = format!("evt-fixture-{index}");
+            event.deduplication_id = Some(event.id.clone());
+            broker
+                .publish(event)
+                .unwrap_or_else(|error| unreachable!("{error:?}"));
+        }
+
+        let waiting_edges = vec![WaitingWorkflowEdgeContext {
+            workflow_execution_id: "wf_exec_paginate".to_string(),
+            edge_id: "validate_to_persist".to_string(),
+            from_node_id: "validate_comment".to_string(),
+            to_node_id: "persist_comment".to_string(),
+            event_ref: EventReference {
+                event_id: "content.comments.validated".to_string(),
+                version: "1.0.0".to_string(),
+            },
+            predicate: None,
+        }];
+
+        let (records, warnings) =
+            poll_broker_events_for_waiting_edges(broker.as_ref(), &waiting_edges)
+                .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert!(warnings.is_empty());
+        assert_eq!(records.len(), published_count);
     }
 
     #[test]
