@@ -24,7 +24,9 @@ pub use wasm::{
     verify_wasm_host_abi_bytes,
 };
 
+use crate::events::types::TraverseEvent;
 use serde_json::Value;
+use traverse_contracts::{EventReference, ServiceType};
 
 /// The artifact type recorded in a capability registration, used to route to the correct executor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
@@ -48,6 +50,25 @@ pub struct ExecutorCapability {
     pub wasm_checksum: Option<String>,
     /// Traverse Host ABI version declared by the module manifest.
     pub host_abi_version: Option<String>,
+    /// Event types this capability's contract declares under `emits`, used to
+    /// validate `traverse_host::emit_event` calls synchronously at call time
+    /// (spec 098-capability-event-host-abi FR-002).
+    pub emits: Vec<EventReference>,
+    /// The capability contract's `service_type`; only `Subscribable` may call
+    /// `traverse_host::emit_event` (spec 098-capability-event-host-abi FR-003).
+    pub service_type: ServiceType,
+}
+
+/// Output of a [`CapabilityExecutor::execute`] call.
+#[derive(Debug, Clone, PartialEq)]
+pub struct ExecutorOutput {
+    /// The capability's JSON output value.
+    pub value: Value,
+    /// Events accepted via `traverse_host::emit_event` during this execution,
+    /// already validated against the capability's contract (spec
+    /// 098-capability-event-host-abi FR-002/FR-003). Always empty for
+    /// non-WASM executors, since the host ABI is WASM-only.
+    pub emitted_events: Vec<TraverseEvent>,
 }
 
 /// Error returned by a [`CapabilityExecutor`].
@@ -142,5 +163,5 @@ pub trait CapabilityExecutor: Send + Sync {
         &self,
         capability: &ExecutorCapability,
         input: &Value,
-    ) -> Result<Value, ExecutorError>;
+    ) -> Result<ExecutorOutput, ExecutorError>;
 }

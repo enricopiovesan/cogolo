@@ -164,55 +164,43 @@ Use one catalog instance per runtime session and share it through `Arc<EventCata
 
 ## Step 3: Emit an event from a capability
 
-Once the catalog is set up, create an `InProcessBroker` and publish from the emitting capability.
+A capability never calls `broker.publish()` directly — publishing is host-owned infrastructure (`PlacementRouter` Step 5). Instead, a `Subscribable` capability calls the `traverse_host::emit_event` WASM host function during its own execution (spec `098-capability-event-host-abi`), passing a pointer/length into its own linear memory holding a JSON payload:
 
 ```rust
-use serde_json::json;
-use traverse_runtime::events::{
-    EventBroker, InProcessBroker, LifecycleStatus, TraverseEvent,
-};
-
-fn emit_objective_captured(
-    broker: &impl EventBroker,
-    objective_id: &str,
-) -> Result<(), traverse_runtime::events::EventError> {
-    let event = TraverseEvent {
-        id: uuid::Uuid::new_v4().to_string(),
-        source: "traverse-runtime/expedition.planning.capture-expedition-objective".to_owned(),
-        event_type: "expedition.planning.expedition-objective-captured".to_owned(),
-        datacontenttype: "application/json".to_owned(),
-        time: chrono::Utc::now().to_rfc3339(),
-        data: json!({
-            "objective_id": objective_id,
-            "destination": "Mont Blanc",
-            "target_window": {
-                "start": "2026-07-01T00:00:00Z",
-                "end": "2026-07-14T00:00:00Z"
-            },
-            "preferences": {
-                "style": "alpine",
-                "risk_tolerance": "moderate",
-                "priority": "summit"
-            },
-            "notes": "acclimatization days required"
-        }),
-        owner: "expedition.planning.capture-expedition-objective".to_owned(),
-        version: "1.0.0".to_owned(),
-        lifecycle_status: LifecycleStatus::Active,
-    };
-
-    broker.publish(event)
-}
+// Guest-side (compiled to wasm32-wasip1)
+let payload = serde_json::json!({
+    "event_id": "expedition.planning.expedition-objective-captured",
+    "version": "1.0.0",
+    "payload": {
+        "objective_id": objective_id,
+        "destination": "Mont Blanc",
+        "target_window": {
+            "start": "2026-07-01T00:00:00Z",
+            "end": "2026-07-14T00:00:00Z"
+        },
+        "preferences": {
+            "style": "alpine",
+            "risk_tolerance": "moderate",
+            "priority": "summit"
+        },
+        "notes": "acclimatization days required"
+    }
+});
+let bytes = serde_json::to_vec(&payload).expect("payload must serialize");
+let status = unsafe { traverse_host::emit_event(bytes.as_ptr() as i32, bytes.len() as i32) };
 ```
 
-What happens inside `InProcessBroker::publish`:
+What the host does inside `traverse_host::emit_event`, synchronously, before returning a status code to the guest:
 
-1. The broker looks up `event_type` in the catalog. If the type is not registered, it returns `EventError::UnregisteredEventType`.
-2. If the catalog entry is `Draft` or `Deprecated`, it returns `EventError::LifecycleViolation`.
-3. If the entry is `Active`, the broker calls every registered subscriber handler synchronously on the caller's thread.
-4. Returns `Ok(())` when all handlers have been called.
+1. Rejects the call if the capability's `service_type` is not `Subscribable` — checked before any guest memory is read (FR-003).
+2. Validates the guest-supplied pointer/length against guest linear memory bounds and a maximum payload size, rejecting an out-of-bounds or oversized claim without ever panicking, trapping, or reading past guest memory (FR-008).
+3. Parses the payload as JSON and rejects it if `event_id`/`version` are missing or the bytes aren't valid JSON.
+4. Rejects the call if `event_id`/`version` is not declared in the capability contract's `emits` list (FR-002).
+5. Otherwise accepts the event, to be published to `EventBroker` by `PlacementRouter` Step 5 once execution completes.
 
-The payload in `data` must conform to the `payload.schema` in the contract. The broker does not re-validate the schema at runtime, but downstream registry and CI tools do.
+`EventBroker::publish` (called internally by Step 5, not by capability code) still enforces catalog lifecycle: an event type that is not registered as `Active` returns `EventError::UnregisteredEventType`/`EventError::LifecycleViolation` and the event is not delivered — this is a best-effort publish, so a broker error here does not fail the capability's own execution.
+
+The payload in `data` must conform to the `payload.schema` in the contract. The host does not re-validate the schema at runtime, but downstream registry and CI tools do.
 
 ---
 
@@ -378,16 +366,17 @@ The `emits` and `consumes` fields in a capability contract are the governance br
 ```
 This declares that this capability _may_ publish the `examples.hello-world.greeted` event. It is a promise to the registry.
 
-**2. Runtime emission** — inside the WASM binary or native executor:
+**2. Runtime emission** — inside the WASM binary, via the `traverse_host::emit_event` host function (spec `098-capability-event-host-abi`), never by calling `broker.publish()` directly:
 ```rust
-let event = TraverseEvent {
-    event_type: "examples.hello-world.greeted".to_string(),
-    payload: serde_json::json!({ "subject": "Alice", "greeting": "Hello, Alice!" }),
-    // ...
-};
-broker.publish(event)?;
+let payload = serde_json::json!({
+    "event_id": "examples.hello-world.greeted",
+    "version": "1.0.0",
+    "payload": { "subject": "Alice", "greeting": "Hello, Alice!" }
+});
+let bytes = serde_json::to_vec(&payload).expect("payload must serialize");
+let status = unsafe { traverse_host::emit_event(bytes.as_ptr() as i32, bytes.len() as i32) };
 ```
-At runtime, `broker.publish()` checks the active event catalog. If `examples.hello-world.greeted` is not registered in the catalog, it returns `EventError::UnknownEventType`. If it _is_ registered but the capability contract does not declare it in `emits`, it returns `EventError::PolicyViolation`.
+The host validates this call synchronously, at call time: the capability's `service_type` must be `Subscribable`, the guest pointer/length must be in bounds and under the payload size cap, the bytes must parse as JSON with `event_id`/`version`, and `event_id`/`version` must appear in the capability contract's `emits` list — an undeclared emission is rejected immediately (a negative status code), not discovered afterward. Only accepted events are later published to `EventBroker` by `PlacementRouter` Step 5, where catalog lifecycle is enforced (an unregistered or non-`Active` type is dropped there, logged, not delivered).
 
 **3. Subscriber registration** — a downstream capability or handler:
 ```rust
@@ -403,9 +392,10 @@ Subscribers are registered before execution begins. The runtime delivers publish
 |-------|------------|
 | Bundle registration | `emits` event IDs must exist in the event catalog |
 | Contract parse | `emits` and `consumes` must be valid event contract ID strings |
-| `broker.publish()` | Event type must be in catalog AND declared in capability's `emits` |
+| `traverse_host::emit_event` | `service_type == Subscribable`, guest-memory bounds, payload size, and declared `emits` — all synchronous, at call time |
+| `EventBroker::publish` (Step 5) | Event type must be registered in the catalog as `Active`; failures are logged, not fatal to the capability |
 | Subscription | No validation — subscribers are registered independently |
 
-### Common mistake: publishing without declaring
+### Common mistake: emitting without declaring
 
-If your capability calls `broker.publish("my.event")` but the contract does not list `"my.event"` in `emits`, the runtime returns `EventError::PolicyViolation`. Always keep `emits` in the contract in sync with `broker.publish()` calls in the implementation.
+If your capability calls `traverse_host::emit_event` for an event type the contract does not list in `emits`, the host rejects the call with a negative status code before the event ever reaches `EventBroker`. Always keep `emits` in the contract in sync with the event types your capability's WASM binary actually emits.

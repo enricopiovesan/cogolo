@@ -16,7 +16,10 @@ use traverse_runtime::{
         EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
         TraverseEvent,
     },
-    executor::{ArtifactType, ExecutorCapability, NativeExecutor},
+    executor::{
+        ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput,
+        NativeExecutor,
+    },
     placement::{PlacementConstraintEvaluator, PlacementError, RuntimeSnapshot},
     router::{CapabilityExecutorRegistry, PlacementRouter, RouterError, RouterRequest},
     trace::TraceStore,
@@ -117,7 +120,54 @@ fn native_executor_capability(capability_id: &str) -> ExecutorCapability {
         wasm_binary_path: None,
         wasm_checksum: None,
         host_abi_version: None,
+        // Inert for these tests: `NativeExecutor` never calls the WASM-only
+        // `traverse_host::emit_event` ABI, so `emits`/`service_type` here
+        // are never consulted for validation (only `WasmExecutor` does).
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     }
+}
+
+/// A [`CapabilityExecutor`] test double that always returns pre-built
+/// `emitted_events`, standing in for events a real `WasmExecutor` would have
+/// validated and returned via `traverse_host::emit_event`
+/// (spec 098-capability-event-host-abi). Used to test `PlacementRouter`
+/// Step 5's own publish-gating logic in isolation from the ABI itself.
+struct EventEmittingExecutor {
+    output: Value,
+    emitted_events: Vec<TraverseEvent>,
+}
+
+impl CapabilityExecutor for EventEmittingExecutor {
+    fn execute(
+        &self,
+        _capability: &ExecutorCapability,
+        _input: &Value,
+    ) -> Result<ExecutorOutput, ExecutorError> {
+        Ok(ExecutorOutput {
+            value: self.output.clone(),
+            emitted_events: self.emitted_events.clone(),
+        })
+    }
+}
+
+/// Build a router with a single executor that returns `output` and
+/// `emitted_events` (already ABI-validated, per spec 098).
+fn make_router_with_emitting_executor(
+    output: Value,
+    emitted_events: Vec<TraverseEvent>,
+    trace_store: Arc<Mutex<TraceStore>>,
+    broker: Arc<dyn EventBroker>,
+) -> PlacementRouter {
+    let mut registry: CapabilityExecutorRegistry = CapabilityExecutorRegistry::new();
+    registry.insert(
+        ArtifactType::Native,
+        Box::new(EventEmittingExecutor {
+            output,
+            emitted_events,
+        }),
+    );
+    PlacementRouter::new(PlacementConstraintEvaluator, registry, trace_store, broker)
 }
 
 /// Build a minimal broker with one active event type.
@@ -192,7 +242,6 @@ fn native_capability_executes_and_writes_trace() -> Result<(), String> {
         runtime_snapshot: idle_snapshot(),
         input: json!({ "key": "value" }),
         executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: Vec::new(),
         trace_id_override: None,
     };
 
@@ -244,7 +293,6 @@ fn placement_failure_returns_error_and_no_trace() -> Result<(), String> {
         },
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: Vec::new(),
         trace_id_override: None,
     };
 
@@ -291,7 +339,6 @@ fn missing_executor_returns_not_found_error() -> Result<(), String> {
         runtime_snapshot: idle_snapshot(),
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: Vec::new(),
         trace_id_override: None,
     };
 
@@ -307,66 +354,16 @@ fn missing_executor_returns_not_found_error() -> Result<(), String> {
 
 // ---------------------------------------------------------------------------
 // Test: Subscribable capability publishes emitted events
+//
+// The output-JSON `emitted_events` convention and PlacementRouter's
+// post-hoc `undeclared_event_emission` check are both removed (spec
+// 098-capability-event-host-abi FR-004/FR-005) — declared-emission
+// validation now happens synchronously, inside `WasmExecutor`'s
+// `traverse_host::emit_event` host function (see `executor::wasm` tests),
+// not here. These tests cover what remains PlacementRouter's own
+// responsibility: Step 5 publishes whatever `emitted_events` the executor
+// returns, gated only on `service_type == Subscribable`.
 // ---------------------------------------------------------------------------
-
-#[test]
-fn subscribable_capability_publishes_events_from_output_json() -> Result<(), String> {
-    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
-    let event_type = "dev.traverse.router.test.output-emitted";
-    let broker = broker_with_event(event_type)?;
-    let sub = broker
-        .subscribe(event_type, "0")
-        .map_err(|e| e.to_string())?;
-    let broker_arc: Arc<dyn EventBroker> = broker;
-
-    let router = make_router_with_native(
-        json!({
-            "done": true,
-            "emitted_events": [
-                {
-                    "event_id": event_type,
-                    "version": "1.0.0",
-                    "payload": {"ok": true}
-                }
-            ]
-        }),
-        Arc::clone(&trace_store),
-        Arc::clone(&broker_arc),
-    );
-
-    let mut contract = base_contract(ServiceType::Subscribable);
-    contract.event_trigger = Some("dev.traverse.router.test.triggered".to_string());
-    contract.emits = vec![EventReference {
-        event_id: event_type.to_string(),
-        version: "1.0.0".to_string(),
-    }];
-
-    let request = RouterRequest {
-        capability_id: "router.tests.subject".to_string(),
-        artifact_type: ArtifactType::Native,
-        contract,
-        target_hint: Some(ExecutionTarget::Local),
-        runtime_snapshot: idle_snapshot(),
-        input: json!({}),
-        executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: Vec::new(),
-        trace_id_override: None,
-    };
-
-    router.execute(request).map_err(|e| e.to_string())?;
-
-    let poll = broker_arc
-        .poll(&sub.subscription_id, 10)
-        .map_err(|e| e.to_string())?;
-    assert_eq!(
-        poll.events.len(),
-        1,
-        "one event must be delivered from output JSON"
-    );
-    assert_eq!(poll.events[0].event.event_type, event_type);
-
-    Ok(())
-}
 
 #[test]
 fn subscribable_capability_publishes_events() -> Result<(), String> {
@@ -380,8 +377,9 @@ fn subscribable_capability_publishes_events() -> Result<(), String> {
 
     let broker_arc: Arc<dyn EventBroker> = broker;
 
-    let router = make_router_with_native(
+    let router = make_router_with_emitting_executor(
         json!({ "done": true }),
+        vec![sample_event(event_type)],
         Arc::clone(&trace_store),
         Arc::clone(&broker_arc),
     );
@@ -402,7 +400,6 @@ fn subscribable_capability_publishes_events() -> Result<(), String> {
         runtime_snapshot: idle_snapshot(),
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: vec![sample_event(event_type)],
         trace_id_override: None,
     };
 
@@ -417,61 +414,9 @@ fn subscribable_capability_publishes_events() -> Result<(), String> {
     Ok(())
 }
 
-#[test]
-fn undeclared_event_emission_fails_execution_and_is_recorded() -> Result<(), String> {
-    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
-    let event_type = "dev.traverse.router.test.undeclared";
-    let broker = broker_with_event(event_type)?;
-    let broker_arc: Arc<dyn EventBroker> = broker;
-
-    let router = make_router_with_native(
-        json!({ "done": true }),
-        Arc::clone(&trace_store),
-        Arc::clone(&broker_arc),
-    );
-
-    let mut contract = base_contract(ServiceType::Subscribable);
-    contract.event_trigger = Some("dev.traverse.router.test.triggered".to_string());
-    contract.emits = Vec::new();
-
-    let request = RouterRequest {
-        capability_id: "router.tests.subject".to_string(),
-        artifact_type: ArtifactType::Native,
-        contract,
-        target_hint: Some(ExecutionTarget::Local),
-        runtime_snapshot: idle_snapshot(),
-        input: json!({}),
-        executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: vec![sample_event(event_type)],
-        trace_id_override: None,
-    };
-
-    let err = must_err(router.execute(request), "expected contract violation")?;
-    assert!(
-        matches!(err, RouterError::ContractViolation(_)),
-        "expected ContractViolation, got {err:?}"
-    );
-
-    let store = trace_store
-        .lock()
-        .map_err(|_| "trace store lock poisoned".to_string())?;
-    let traces = store.list_public(Some("router.tests.subject"));
-    assert!(
-        traces.iter().any(|trace| {
-            trace.outcome == traverse_runtime::trace::TraceOutcome::Failure
-                && trace
-                    .violations
-                    .iter()
-                    .any(|v| v.violation_code == "undeclared_event_emission")
-        }),
-        "expected a failure trace entry with undeclared_event_emission"
-    );
-
-    Ok(())
-}
-
 // ---------------------------------------------------------------------------
-// Test: Stateless capability does NOT publish events even if emitted_events is non-empty
+// Test: Stateless capability does NOT publish events even if the executor
+// returned some
 // ---------------------------------------------------------------------------
 
 #[test]
@@ -486,8 +431,12 @@ fn stateless_capability_does_not_publish_events() -> Result<(), String> {
 
     let broker_arc: Arc<dyn EventBroker> = broker;
 
-    let router =
-        make_router_with_native(json!({}), Arc::clone(&trace_store), Arc::clone(&broker_arc));
+    let router = make_router_with_emitting_executor(
+        json!({}),
+        vec![sample_event(event_type)], // returned by the executor but must not be published
+        Arc::clone(&trace_store),
+        Arc::clone(&broker_arc),
+    );
 
     let request = RouterRequest {
         capability_id: "router.tests.subject".to_string(),
@@ -497,7 +446,6 @@ fn stateless_capability_does_not_publish_events() -> Result<(), String> {
         runtime_snapshot: idle_snapshot(),
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: vec![sample_event(event_type)], // provided but must not be published
         trace_id_override: None,
     };
 
@@ -573,7 +521,6 @@ fn executor_error_returns_execution_failed() -> Result<(), String> {
         runtime_snapshot: idle_snapshot(),
         input: json!({}),
         executor_capability: native_executor_capability("router.tests.subject"),
-        emitted_events: Vec::new(),
         trace_id_override: None,
     };
 

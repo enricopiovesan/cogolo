@@ -122,6 +122,8 @@ fn executor_cap(artifact_type: ArtifactType) -> ExecutorCapability {
         wasm_binary_path: None,
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     }
 }
 
@@ -157,7 +159,6 @@ fn make_request(input: Value) -> RouterRequest {
         runtime_snapshot: idle_snapshot(),
         input,
         executor_capability: executor_cap(ArtifactType::Native),
-        emitted_events: Vec::new(),
         trace_id_override: None,
     }
 }

@@ -2,7 +2,7 @@
 
 use serde_json::Value;
 
-use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
+use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput};
 
 /// Handler type alias for native capability implementations.
 type NativeHandler = Box<dyn Fn(&Value) -> Result<Value, String> + Send + Sync>;
@@ -34,10 +34,15 @@ impl CapabilityExecutor for NativeExecutor {
         &self,
         capability: &ExecutorCapability,
         input: &Value,
-    ) -> Result<Value, ExecutorError> {
+    ) -> Result<ExecutorOutput, ExecutorError> {
         if capability.artifact_type != ArtifactType::Native {
             return Err(ExecutorError::UnsupportedArtifactType);
         }
-        (self.handler)(input).map_err(ExecutorError::ExecutionFailed)
+        (self.handler)(input)
+            .map(|value| ExecutorOutput {
+                value,
+                emitted_events: Vec::new(),
+            })
+            .map_err(ExecutorError::ExecutionFailed)
     }
 }

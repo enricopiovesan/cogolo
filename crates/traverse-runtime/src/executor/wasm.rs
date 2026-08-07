@@ -4,6 +4,7 @@
 //! Input is fed via WASI stdin; output is captured from WASI stdout.
 //! No ambient WASI authority is granted — all capabilities are deny-by-default.
 
+use chrono::Utc;
 use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
@@ -11,12 +12,17 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::fs;
 use std::sync::{LazyLock, Mutex};
-use wasmtime::{Config, Engine, Linker, Module, Store, StoreLimits, StoreLimitsBuilder};
+use uuid::Uuid;
+use wasmtime::{
+    Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder,
+};
 use wasmtime_wasi::WasiCtxBuilder;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
-use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
+use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput};
+use crate::events::types::{LifecycleStatus, TraverseEvent};
+use traverse_contracts::{EventReference, ServiceType};
 
 /// Traverse Host ABI v1 is independently versioned from the runtime crate.
 pub const SUPPORTED_HOST_ABI_VERSION: &str = "1.0.0";
@@ -29,6 +35,26 @@ const DEFAULT_INSTANCE_LIMIT: usize = 1;
 const DEFAULT_TABLE_LIMIT: usize = 8;
 const DEFAULT_LINEAR_MEMORY_LIMIT: usize = 1;
 const DEFAULT_MODULE_CACHE_MAX_ENTRIES: usize = 64;
+
+/// Maximum bytes accepted for one `traverse_host::emit_event` payload
+/// (spec 098-capability-event-host-abi FR-008). Enforced before the guest
+/// memory read, and before deserialization.
+const MAX_EVENT_EMIT_PAYLOAD_BYTES: usize = 64 * 1024;
+
+/// `traverse_host::emit_event` accepted the event; it will be published to
+/// `EventBroker` once execution completes (spec 098 acceptance scenario 1).
+const EMIT_EVENT_OK: i32 = 0;
+/// The guest-supplied pointer/length was out of the guest's linear memory
+/// bounds, or the payload exceeded [`MAX_EVENT_EMIT_PAYLOAD_BYTES`], or the
+/// bytes were not a valid JSON object with `event_id`/`version` string
+/// fields (spec 098 FR-008, acceptance scenario 5).
+const EMIT_EVENT_ERR_INVALID_PAYLOAD: i32 = -1;
+/// The event type/version is not declared in the calling capability's
+/// contract `emits` list (spec 098 FR-002, acceptance scenario 2).
+const EMIT_EVENT_ERR_UNDECLARED_EVENT: i32 = -2;
+/// The calling capability's `service_type` is not `Subscribable` (spec 098
+/// FR-003, acceptance scenario 3).
+const EMIT_EVENT_ERR_NOT_SUBSCRIBABLE: i32 = -3;
 
 static HOST_ABI_V1_WHITELIST_CACHE: LazyLock<Result<HostAbiWhitelist, String>> =
     LazyLock::new(|| {
@@ -273,6 +299,15 @@ impl CompiledModuleCache {
 struct WasmStoreState {
     wasi: WasiP1Ctx,
     limits: StoreLimits,
+    /// Calling capability's id, `emits`, and `service_type` — used by the
+    /// `traverse_host::emit_event` host function to validate emissions
+    /// synchronously, at call time (spec 098-capability-event-host-abi
+    /// FR-002/FR-003).
+    capability_id: String,
+    emits: Vec<EventReference>,
+    service_type: ServiceType,
+    /// Events accepted via `traverse_host::emit_event` during this call.
+    emitted_events: Vec<TraverseEvent>,
 }
 
 impl CapabilityExecutor for WasmExecutor {
@@ -280,7 +315,7 @@ impl CapabilityExecutor for WasmExecutor {
         &self,
         capability: &ExecutorCapability,
         input: &Value,
-    ) -> Result<Value, ExecutorError> {
+    ) -> Result<ExecutorOutput, ExecutorError> {
         if capability.artifact_type != ArtifactType::Wasm {
             return Err(ExecutorError::UnsupportedArtifactType);
         }
@@ -310,7 +345,14 @@ impl CapabilityExecutor for WasmExecutor {
             .as_deref()
             .unwrap_or(SUPPORTED_HOST_ABI_VERSION);
 
-        self.run_wasm(&binary, input, abi_version)
+        self.run_wasm(
+            &binary,
+            input,
+            abi_version,
+            &capability.capability_id,
+            &capability.emits,
+            capability.service_type.clone(),
+        )
     }
 }
 
@@ -318,6 +360,10 @@ impl WasmExecutor {
     /// Execute pre-loaded WASM bytes with the given input.
     ///
     /// Exposed separately so tests can pass raw bytes without needing a file on disk.
+    /// The capability is treated as `Stateless` with no declared `emits` — it
+    /// cannot call `traverse_host::emit_event`. Use
+    /// [`run_bytes_with_capability`](Self::run_bytes_with_capability) to
+    /// exercise the event-emit host function.
     ///
     /// # Errors
     ///
@@ -338,15 +384,52 @@ impl WasmExecutor {
         input: &Value,
         abi_version: &str,
     ) -> Result<Value, ExecutorError> {
-        self.run_wasm(wasm_bytes, input, abi_version)
+        self.run_wasm(
+            wasm_bytes,
+            input,
+            abi_version,
+            "test-capability",
+            &[],
+            ServiceType::Stateless,
+        )
+        .map(|output| output.value)
     }
 
+    /// Execute pre-loaded WASM bytes as a specific capability, exercising
+    /// `traverse_host::emit_event` validation against `emits`/`service_type`
+    /// exactly as [`CapabilityExecutor::execute`] does.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] if ABI validation fails or execution cannot complete.
+    pub fn run_bytes_with_capability(
+        &self,
+        wasm_bytes: &[u8],
+        input: &Value,
+        capability_id: &str,
+        emits: &[EventReference],
+        service_type: ServiceType,
+    ) -> Result<ExecutorOutput, ExecutorError> {
+        self.run_wasm(
+            wasm_bytes,
+            input,
+            SUPPORTED_HOST_ABI_VERSION,
+            capability_id,
+            emits,
+            service_type,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
     fn run_wasm(
         &self,
         wasm_bytes: &[u8],
         input: &Value,
         abi_version: &str,
-    ) -> Result<Value, ExecutorError> {
+        capability_id: &str,
+        emits: &[EventReference],
+        service_type: ServiceType,
+    ) -> Result<ExecutorOutput, ExecutorError> {
         let input_json = serde_json::to_string(input)
             .map_err(|e| ExecutorError::ExecutionFailed(format!("input serialization: {e}")))?;
 
@@ -366,12 +449,19 @@ impl WasmExecutor {
         let mut linker: Linker<WasmStoreState> = Linker::new(&self.engine);
         wasmtime_wasi::p1::add_to_linker_sync(&mut linker, |s| &mut s.wasi)
             .map_err(|e| ExecutorError::RuntimeSetupFailed(e.to_string()))?;
+        linker
+            .func_wrap("traverse_host", "emit_event", handle_emit_event)
+            .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("func_wrap emit_event: {e}")))?;
 
         let mut store = Store::new(
             &self.engine,
             WasmStoreState {
                 wasi: wasi_ctx,
                 limits: self.store_limits(),
+                capability_id: capability_id.to_string(),
+                emits: emits.to_vec(),
+                service_type,
+                emitted_events: Vec::new(),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -394,11 +484,16 @@ impl WasmExecutor {
         // Extract captured stdout — contents() reads the buffer without consuming it
         let raw_output = stdout_ref.contents();
 
-        serde_json::from_slice::<Value>(&raw_output).map_err(|e| {
+        let value = serde_json::from_slice::<Value>(&raw_output).map_err(|e| {
             ExecutorError::OutputDeserializationFailed(format!(
                 "stdout is not valid JSON: {e} — raw: {}",
                 String::from_utf8_lossy(&raw_output)
             ))
+        })?;
+
+        Ok(ExecutorOutput {
+            value,
+            emitted_events: store.into_data().emitted_events,
         })
     }
 
@@ -445,6 +540,95 @@ impl WasmExecutor {
         cache.insert(checksum, cached.clone());
         Ok(cached)
     }
+}
+
+/// Host implementation of `traverse_host::emit_event` (spec
+/// 098-capability-event-host-abi FR-001). The guest passes a pointer/length
+/// into its own linear memory holding a JSON payload shaped
+/// `{"event_id": "...", "version": "...", "payload": {...}}`; this function
+/// validates it synchronously, at call time, and never panics or traps on a
+/// malformed or out-of-bounds guest pointer (FR-008) — every failure path
+/// returns a negative status code to the guest instead.
+fn handle_emit_event(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32) -> i32 {
+    // FR-003: checked before any guest memory is touched — rejected
+    // regardless of payload.
+    if caller.data().service_type != ServiceType::Subscribable {
+        return EMIT_EVENT_ERR_NOT_SUBSCRIBABLE;
+    }
+
+    // FR-008: bounds/size checked before any read or deserialization.
+    if ptr < 0 || len < 0 {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let (ptr, len) = (ptr as usize, len as usize);
+    if len > MAX_EVENT_EMIT_PAYLOAD_BYTES {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    }
+
+    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    };
+
+    let mut buffer = vec![0u8; len];
+    // `Memory::read` bounds-checks `ptr + len` against actual guest memory
+    // size and returns `Err` rather than panicking or reading out of bounds.
+    if memory.read(&caller, ptr, &mut buffer).is_err() {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    }
+
+    let Ok(payload) = serde_json::from_slice::<Value>(&buffer) else {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    };
+    let Some(event_type) = payload
+        .get("event_id")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    };
+    let Some(version) = payload
+        .get("version")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return EMIT_EVENT_ERR_INVALID_PAYLOAD;
+    };
+    let data = payload
+        .get("payload")
+        .cloned()
+        .unwrap_or_else(|| Value::Object(serde_json::Map::new()));
+
+    // FR-002: declared-emission check, synchronous, at call time.
+    let declared = caller
+        .data()
+        .emits
+        .iter()
+        .any(|decl| decl.event_id == event_type && decl.version == version);
+    if !declared {
+        return EMIT_EVENT_ERR_UNDECLARED_EVENT;
+    }
+
+    let capability_id = caller.data().capability_id.clone();
+    let event = TraverseEvent {
+        id: Uuid::new_v4().to_string(),
+        source: format!("traverse-runtime/{capability_id}"),
+        event_type: event_type.clone(),
+        datacontenttype: "application/json".to_string(),
+        time: Utc::now().to_rfc3339(),
+        data,
+        owner: capability_id.clone(),
+        version: version.clone(),
+        lifecycle_status: LifecycleStatus::Active,
+        deduplication_id: Some(format!("{capability_id}:{event_type}:{version}")),
+        ordering_scope: Some(capability_id),
+        correlation_id: None,
+        causation_id: None,
+        subject_id: None,
+        actor_id: None,
+    };
+    caller.data_mut().emitted_events.push(event);
+    EMIT_EVENT_OK
 }
 
 fn classify_wasm_execution_error(error: &wasmtime::Error) -> ExecutorError {
