@@ -8,7 +8,11 @@ mkdir -p "${output_dir}"
 
 summary_path="${output_dir}/supply-chain-summary.json"
 sbom_path="${output_dir}/traverse-sbom.cdx.json"
-provenance_path="${output_dir}/traverse-cli.provenance.json"
+# Matches the manifest sidecar's default resolution in
+# crates/traverse-cli/src/supply_chain.rs::verify_provenance
+# (<artifact>.provenance.json) so the manifest `artifact sign` writes does
+# not need an explicit provenance_path field.
+provenance_path="${output_dir}/traverse-cli.first.provenance.json"
 
 status="passed"
 warnings=()
@@ -108,17 +112,10 @@ if [[ "${hash_one}" != "${hash_two}" ]]; then
   fail "release build is not byte-identical across two runs"
 fi
 
-cat > "${artifact_one}.manifest.json" <<JSON
-{
-  "artifact_path": "${artifact_one}",
-  "checksum_algorithm": "sha256",
-  "checksum_sha256": "${hash_one}",
-  "signing_scheme": "ed25519",
-  "public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
-  "signature_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-  "provenance_path": "${provenance_path}"
-}
-JSON
+sign_report="${output_dir}/artifact-sign-report.json"
+if ! cargo run --manifest-path "${repo_root}/Cargo.toml" -p traverse-cli-rs -- artifact sign "${artifact_one}" > "${sign_report}"; then
+  fail "traverse-cli artifact sign failed for release artifact"
+fi
 
 source_sha="$(git -C "${repo_root}" rev-parse HEAD)"
 cat > "${provenance_path}" <<JSON

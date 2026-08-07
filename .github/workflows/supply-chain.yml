@@ -37,5 +37,6 @@ jobs:
           path: |
             target/supply-chain/traverse-sbom.cdx.json
             target/supply-chain/supply-chain-summary.json
+            target/supply-chain/artifact-sign-report.json
             target/supply-chain/artifact-verify-report.json
-            target/supply-chain/traverse-cli.provenance.json
+            target/supply-chain/traverse-cli.first.provenance.json
