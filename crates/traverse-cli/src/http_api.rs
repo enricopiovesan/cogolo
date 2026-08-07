@@ -10865,6 +10865,151 @@ mod tests {
     }
 
     #[test]
+    fn websocket_browser_subscription_not_found_by_request_id_closes_structured() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","request_id":"missing"}"#
+                    .into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("not_found"),
+                    "close reason: {}",
+                    frame.reason
+                );
+                assert!(
+                    frame.reason.contains("request 'missing'"),
+                    "close reason must name the request selector: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_browser_subscription_rejects_both_selectors() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","request_id":"r","execution_id":"e"}"#
+                    .into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("invalid_request"),
+                    "close reason: {}",
+                    frame.reason
+                );
+                assert!(
+                    frame.reason.contains("mutually exclusive"),
+                    "close reason must explain the XOR requirement: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_browser_subscription_accepts_request_id_selector() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool_with(
+            test_state_with("traverse-starter.process", "1.0.0"),
+            limits,
+            2,
+        );
+
+        let body = make_runtime_request_body("traverse-starter.process");
+        let mut execute = TcpStream::connect(addr).expect("execute client must connect");
+        let execute_req = format!(
+            "POST /v1/workspaces/ws-test/execute HTTP/1.1\r\n\
+             Host: 127.0.0.1\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n",
+            body.len()
+        );
+        execute
+            .write_all(execute_req.as_bytes())
+            .expect("execute headers");
+        execute.write_all(&body).expect("execute body");
+        let execute_response = read_all_with_timeout(&mut execute, Duration::from_secs(5));
+        assert_eq!(response_status(&execute_response), 200);
+
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","request_id":"test-req-001"}"#
+                    .into(),
+            ))
+            .expect("browser subscribe must send");
+
+        let mut saw_established = false;
+        let mut saw_close = false;
+        for _ in 0..32 {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let value: Value =
+                        serde_json::from_str(text.as_str()).expect("browser frame json");
+                    let message = &value["message"];
+                    if let Some(status) = message["Lifecycle"]["status"].as_str()
+                        && status == "subscription_established"
+                    {
+                        saw_established = true;
+                    }
+                }
+                Ok(Message::Close(Some(frame))) => {
+                    assert!(frame.reason.contains("stream_completed"));
+                    saw_close = true;
+                    break;
+                }
+                Ok(Message::Close(None)) => {
+                    saw_close = true;
+                    break;
+                }
+                Ok(Message::Ping(payload)) => {
+                    socket.send(Message::Pong(payload)).expect("pong must send");
+                }
+                Ok(_) => {}
+                Err(err) => panic!("unexpected websocket read error: {err}"),
+            }
+        }
+        assert!(
+            saw_established,
+            "request_id selector must resolve to the seeded trace's lifecycle stream"
+        );
+        assert!(saw_close, "stream must terminate with a close frame");
+    }
+
+    #[test]
     fn websocket_auth_rejection_returns_json_before_upgrade() {
         use crate::app_events_websocket::handle_app_events_websocket;
         use std::io::Read;

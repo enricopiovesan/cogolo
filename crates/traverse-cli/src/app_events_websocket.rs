@@ -388,7 +388,7 @@ fn serve_browser_subscription<E: LocalExecutor + Clone>(
             let _ = socket.close(Some(structured_close(
                 CloseCode::Policy,
                 "invalid_request",
-                "browser_subscription mode requires exactly one of request_id or execution_id, not both",
+                "request_id and execution_id are mutually exclusive",
                 None,
                 None,
             )));
