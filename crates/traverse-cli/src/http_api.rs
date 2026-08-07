@@ -1,3 +1,7 @@
+use crate::app_runtime_events::{
+    AppEventLogEntry, AppEventsHttpError, AppSessionEvent, collect_app_runtime_events,
+    publish_app_runtime_event, runtime_with_app_event_broker, short_signal_name,
+};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -135,7 +139,9 @@ struct WorkspaceState<E> {
     loaded_from_disk: bool,
     executions: HashMap<String, ExecutionStatusRecord>,
     traces: HashMap<String, RuntimeTrace>,
-    app_events: Vec<AppStateEventRecord>,
+    app_session_events: Vec<AppSessionEvent>,
+    app_event_seq: u64,
+    app_event_log: Vec<AppEventLogEntry>,
     app_list_context_fields: HashMap<String, Vec<String>>,
     app_state_machines: HashMap<String, ApplicationStateMachine>,
     runtime_grants: Vec<RuntimeGrantRecord>,
@@ -149,18 +155,32 @@ struct ExecutionStatusRecord {
     updated_at: String,
 }
 
-#[derive(Debug, Clone, Serialize)]
-struct AppStateEventRecord {
-    event_id: String,
-    event_type: String,
-    workspace_id: String,
-    app_id: String,
-    session_id: String,
-    execution_id: String,
-    state: String,
-    previous_state: Option<String>,
-    timestamp: String,
-    data: Value,
+fn new_workspace_state<E: LocalExecutor + Clone>(
+    registry: CapabilityRegistry,
+    executor: E,
+    workflow_registry: WorkflowRegistry,
+    security: RuntimeSecurityConfig,
+    loaded_from_disk: bool,
+) -> Result<WorkspaceState<E>, String> {
+    Ok(WorkspaceState {
+        runtime: runtime_with_app_event_broker(registry, executor, workflow_registry, security)?,
+        event_registry: EventRegistry::new(),
+        persisted: PersistedWorkspaceRegistryV1 {
+            schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
+            registrations: Vec::new(),
+            events: Vec::new(),
+            workflows: Vec::new(),
+        },
+        loaded_from_disk,
+        executions: HashMap::new(),
+        traces: HashMap::new(),
+        app_session_events: Vec::new(),
+        app_event_seq: 0,
+        app_event_log: Vec::new(),
+        app_list_context_fields: HashMap::new(),
+        app_state_machines: HashMap::new(),
+        runtime_grants: Vec::new(),
+    })
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -400,25 +420,14 @@ where
     let mut workspaces = HashMap::new();
     workspaces.insert(
         SYSTEM_WORKSPACE_ID.to_string(),
-        WorkspaceState {
-            runtime: Runtime::new(config.capability_registry, config.executor.clone())
-                .with_workflow_registry(config.workflow_registry)
-                .with_security_config(runtime_security_for_auth_mode(auth_mode)),
-            event_registry: EventRegistry::new(),
-            persisted: PersistedWorkspaceRegistryV1 {
-                schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                registrations: Vec::new(),
-                events: Vec::new(),
-                workflows: Vec::new(),
-            },
-            loaded_from_disk: true,
-            executions: HashMap::new(),
-            traces: HashMap::new(),
-            app_events: Vec::new(),
-            app_list_context_fields: HashMap::new(),
-            app_state_machines: HashMap::new(),
-            runtime_grants: Vec::new(),
-        },
+        new_workspace_state(
+            config.capability_registry,
+            config.executor.clone(),
+            config.workflow_registry,
+            runtime_security_for_auth_mode(auth_mode),
+            true,
+        )
+        .map_err(ServeError::BindFailed)?,
     );
 
     let state = Arc::new(ApiState {
@@ -665,33 +674,20 @@ impl<E> InProcessApi<E>
 where
     E: LocalExecutor + Clone,
 {
-    #[must_use]
-    pub fn new(config: ApiServerConfig<E>) -> Self {
+    pub fn new(config: ApiServerConfig<E>) -> Result<Self, String> {
         let mut workspaces = HashMap::new();
         workspaces.insert(
             SYSTEM_WORKSPACE_ID.to_string(),
-            WorkspaceState {
-                runtime: Runtime::new(config.capability_registry, config.executor.clone())
-                    .with_workflow_registry(config.workflow_registry)
-                    .with_security_config(RuntimeSecurityConfig::development()),
-                event_registry: EventRegistry::new(),
-                persisted: PersistedWorkspaceRegistryV1 {
-                    schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                    registrations: Vec::new(),
-                    events: Vec::new(),
-                    workflows: Vec::new(),
-                },
-                loaded_from_disk: false,
-                executions: HashMap::new(),
-                traces: HashMap::new(),
-                app_events: Vec::new(),
-                app_list_context_fields: HashMap::new(),
-                app_state_machines: HashMap::new(),
-                runtime_grants: Vec::new(),
-            },
+            new_workspace_state(
+                config.capability_registry,
+                config.executor.clone(),
+                config.workflow_registry,
+                RuntimeSecurityConfig::development(),
+                false,
+            )?,
         );
 
-        Self {
+        Ok(Self {
             state: ApiState {
                 auth_mode: "dev-loopback".to_string(),
                 allow_unauthenticated: config.allow_unauthenticated,
@@ -705,7 +701,7 @@ where
                 ),
                 jwt_verification_key: None,
             },
-        }
+        })
     }
 
     pub fn register_workflow(&self, body: Vec<u8>, loopback: bool) -> Result<(u16, Value), String> {
@@ -778,27 +774,19 @@ where
             .workspaces
             .lock()
             .map_err(|_| "workspace registry lock poisoned".to_string())?;
+        if !workspaces.contains_key(workspace_id) {
+            let constructed = new_workspace_state(
+                CapabilityRegistry::new(),
+                self.executor.clone(),
+                WorkflowRegistry::new(),
+                RuntimeSecurityConfig::development(),
+                false,
+            )?;
+            workspaces.insert(workspace_id.to_string(), constructed);
+        }
         let entry = workspaces
-            .entry(workspace_id.to_string())
-            .or_insert_with(|| WorkspaceState {
-                runtime: Runtime::new(CapabilityRegistry::new(), self.executor.clone())
-                    .with_workflow_registry(WorkflowRegistry::new())
-                    .with_security_config(RuntimeSecurityConfig::development()),
-                event_registry: EventRegistry::new(),
-                persisted: PersistedWorkspaceRegistryV1 {
-                    schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                    registrations: Vec::new(),
-                    events: Vec::new(),
-                    workflows: Vec::new(),
-                },
-                loaded_from_disk: false,
-                executions: HashMap::new(),
-                traces: HashMap::new(),
-                app_events: Vec::new(),
-                app_list_context_fields: HashMap::new(),
-                app_state_machines: HashMap::new(),
-                runtime_grants: Vec::new(),
-            });
+            .get_mut(workspace_id)
+            .ok_or_else(|| format!("workspace '{workspace_id}' missing after initialization"))?;
 
         if !entry.loaded_from_disk {
             entry.persisted = load_persisted_registry(&self.registry_root, workspace_id)?;
@@ -2924,27 +2912,19 @@ fn apply_registration<E: LocalExecutor + Clone>(
         .workspaces
         .lock()
         .map_err(|_| "workspace registry lock poisoned".to_string())?;
+    if !workspaces.contains_key(workspace_id) {
+        let constructed = new_workspace_state(
+            CapabilityRegistry::new(),
+            state.executor.clone(),
+            WorkflowRegistry::new(),
+            runtime_security_for_auth_mode(&state.auth_mode),
+            false,
+        )?;
+        workspaces.insert(workspace_id.to_string(), constructed);
+    }
     let ws = workspaces
-        .entry(workspace_id.to_string())
-        .or_insert_with(|| WorkspaceState {
-            runtime: Runtime::new(CapabilityRegistry::new(), state.executor.clone())
-                .with_workflow_registry(WorkflowRegistry::new())
-                .with_security_config(runtime_security_for_auth_mode(&state.auth_mode)),
-            event_registry: EventRegistry::new(),
-            persisted: PersistedWorkspaceRegistryV1 {
-                schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                registrations: Vec::new(),
-                events: Vec::new(),
-                workflows: Vec::new(),
-            },
-            loaded_from_disk: false,
-            executions: HashMap::new(),
-            traces: HashMap::new(),
-            app_events: Vec::new(),
-            app_list_context_fields: HashMap::new(),
-            app_state_machines: HashMap::new(),
-            runtime_grants: Vec::new(),
-        });
+        .get_mut(workspace_id)
+        .ok_or_else(|| format!("workspace '{workspace_id}' missing after initialization"))?;
 
     ensure_workspace_loaded(state, workspace_id, ws)?;
 
@@ -2986,27 +2966,19 @@ fn apply_event_registration<E: LocalExecutor + Clone>(
         .workspaces
         .lock()
         .map_err(|_| "workspace registry lock poisoned".to_string())?;
+    if !workspaces.contains_key(workspace_id) {
+        let constructed = new_workspace_state(
+            CapabilityRegistry::new(),
+            state.executor.clone(),
+            WorkflowRegistry::new(),
+            runtime_security_for_auth_mode(&state.auth_mode),
+            false,
+        )?;
+        workspaces.insert(workspace_id.to_string(), constructed);
+    }
     let ws = workspaces
-        .entry(workspace_id.to_string())
-        .or_insert_with(|| WorkspaceState {
-            runtime: Runtime::new(CapabilityRegistry::new(), state.executor.clone())
-                .with_workflow_registry(WorkflowRegistry::new())
-                .with_security_config(runtime_security_for_auth_mode(&state.auth_mode)),
-            event_registry: EventRegistry::new(),
-            persisted: PersistedWorkspaceRegistryV1 {
-                schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                registrations: Vec::new(),
-                events: Vec::new(),
-                workflows: Vec::new(),
-            },
-            loaded_from_disk: false,
-            executions: HashMap::new(),
-            traces: HashMap::new(),
-            app_events: Vec::new(),
-            app_list_context_fields: HashMap::new(),
-            app_state_machines: HashMap::new(),
-            runtime_grants: Vec::new(),
-        });
+        .get_mut(workspace_id)
+        .ok_or_else(|| format!("workspace '{workspace_id}' missing after initialization"))?;
 
     ensure_workspace_loaded(state, workspace_id, ws)?;
 
@@ -5236,9 +5208,21 @@ fn handle_app_events<W: Write, E: LocalExecutor + Clone>(
     };
 
     let last_event_id = request.headers.get("last-event-id").map(String::as_str);
-    let events = state.with_workspace_mut(workspace_id, |ws| {
-        Ok(replay_app_events(&ws.app_events, app_id, last_event_id))
+    let collected = state.with_workspace_mut(workspace_id, |ws| {
+        Ok::<_, String>(collect_app_runtime_events(
+            ws.runtime.event_broker().as_ref(),
+            &ws.app_event_log,
+            workspace_id,
+            app_id,
+            last_event_id,
+        ))
     })?;
+    let events = match collected {
+        Ok(events) => events,
+        Err(err) => {
+            return write_app_events_http_error(w, &err);
+        }
+    };
     let body = if events.is_empty() {
         serialize_sse_event(
             None,
@@ -5251,11 +5235,13 @@ fn handle_app_events<W: Write, E: LocalExecutor + Clone>(
         )?
     } else {
         let mut body = String::new();
-        for event in events {
+        for (cursor, event) in events {
+            let payload = serde_json::to_value(&event)
+                .map_err(|e| format!("failed to serialize TraverseEvent for SSE: {e}"))?;
             body.push_str(&serialize_sse_event(
-                Some(&event.event_id),
-                &event.event_type,
-                &event.data,
+                Some(&cursor),
+                short_signal_name(&event.event_type),
+                &payload,
             )?);
         }
         body
@@ -5278,6 +5264,21 @@ fn handle_app_events<W: Write, E: LocalExecutor + Clone>(
             },
         ],
     )
+}
+
+fn write_app_events_http_error<W: Write>(
+    w: &mut W,
+    err: &AppEventsHttpError,
+) -> Result<(), String> {
+    let mut body = error_envelope(err.code(), &err.message());
+    if let Value::Object(root) = &mut body
+        && let Value::Object(extensions) = err.problem_extensions()
+    {
+        for (key, value) in extensions {
+            root.insert(key, value);
+        }
+    }
+    write_json(w, err.status(), err.reason(), &body)
 }
 
 fn handle_app_sessions<W: Write, E: LocalExecutor + Clone>(
@@ -5344,7 +5345,7 @@ fn handle_app_sessions<W: Write, E: LocalExecutor + Clone>(
     };
     let response = state.with_workspace_mut(workspace_id, |ws| {
         Ok(app_sessions_response(
-            &ws.app_events,
+            &ws.app_session_events,
             ws.app_list_context_fields
                 .get(app_id)
                 .map_or(&[], Vec::as_slice),
@@ -5487,7 +5488,7 @@ fn dispatch_app_command<E: LocalExecutor + Clone>(
     let (session_id, current_state) = match &request.session_id {
         Some(session_id) => {
             let last_state = ws
-                .app_events
+                .app_session_events
                 .iter()
                 .rev()
                 .find(|event| event.app_id == app_id && &event.session_id == session_id)
@@ -5498,7 +5499,7 @@ fn dispatch_app_command<E: LocalExecutor + Clone>(
             )
         }
         None => (
-            format!("sess-{:08}", ws.app_events.len() + 1),
+            format!("sess-{:08}", ws.app_session_events.len() + 1),
             machine.initial_state.clone(),
         ),
     };
@@ -5508,7 +5509,7 @@ fn dispatch_app_command<E: LocalExecutor + Clone>(
             Ok(accepted_state) => accepted_state,
             Err(rejection) => return Ok(rejection),
         };
-    let command_id = format!("cmd-{:08}", ws.app_events.len() + 1);
+    let command_id = format!("cmd-{:08}", ws.app_event_seq.saturating_add(1));
     let timestamp = generated_registered_at().map_err(|e| e.message)?;
     push_app_state_changed_event(
         ws,
@@ -5519,7 +5520,7 @@ fn dispatch_app_command<E: LocalExecutor + Clone>(
         &accepted_state,
         &current_state,
         &timestamp,
-    );
+    )?;
 
     let execution_id = run_app_command_invoke(
         ws,
@@ -5531,7 +5532,7 @@ fn dispatch_app_command<E: LocalExecutor + Clone>(
         &command_id,
         &request.payload,
         &timestamp,
-    );
+    )?;
 
     let body = json!({
         "api_version": "v1",
@@ -5621,12 +5622,15 @@ fn run_app_command_invoke<E: LocalExecutor + Clone>(
     command_id: &str,
     payload: &Value,
     timestamp: &str,
-) -> Option<String> {
-    let invoke = machine
+) -> Result<Option<String>, String> {
+    let Some(invoke) = machine
         .states
         .iter()
         .find(|state| state.id == accepted_state)
-        .and_then(|state| state.invoke.clone())?;
+        .and_then(|state| state.invoke.clone())
+    else {
+        return Ok(None);
+    };
     let runtime_request = RuntimeRequest {
         kind: "runtime_request".to_string(),
         schema_version: "1.0.0".to_string(),
@@ -5679,12 +5683,12 @@ fn run_app_command_invoke<E: LocalExecutor + Clone>(
         &invoke.capability_id,
         &outcome,
         timestamp,
-    );
-    Some(execution_id)
+    )?;
+    Ok(Some(execution_id))
 }
 
 #[allow(clippy::too_many_arguments)]
-fn push_app_state_changed_event<E>(
+fn push_app_state_changed_event<E: LocalExecutor + Clone>(
     ws: &mut WorkspaceState<E>,
     workspace_id: &str,
     app_id: &str,
@@ -5693,31 +5697,34 @@ fn push_app_state_changed_event<E>(
     state: &str,
     previous_state: &str,
     timestamp: &str,
-) {
-    ws.app_events.push(AppStateEventRecord {
-        event_id: format!("{execution_id}:state_changed:{state}"),
-        event_type: "state_changed".to_string(),
-        workspace_id: workspace_id.to_string(),
-        app_id: app_id.to_string(),
-        session_id: session_id.to_string(),
-        execution_id: execution_id.to_string(),
-        state: state.to_string(),
-        previous_state: Some(previous_state.to_string()),
-        timestamp: timestamp.to_string(),
-        data: json!({
-            "workspace_id": workspace_id,
-            "app_id": app_id,
-            "session_id": session_id,
-            "execution_id": execution_id,
-            "state": state,
-            "previous_state": previous_state,
-            "timestamp": timestamp,
-        }),
+) -> Result<(), String> {
+    let data = json!({
+        "workspace_id": workspace_id,
+        "app_id": app_id,
+        "session_id": session_id,
+        "execution_id": execution_id,
+        "state": state,
+        "previous_state": previous_state,
+        "timestamp": timestamp,
     });
+    publish_app_runtime_event(
+        ws.runtime.event_broker().as_ref(),
+        &mut ws.app_event_seq,
+        &mut ws.app_event_log,
+        &mut ws.app_session_events,
+        workspace_id,
+        app_id,
+        session_id,
+        execution_id,
+        "state_changed",
+        state,
+        timestamp,
+        data,
+    )
 }
 
-#[allow(clippy::too_many_arguments)]
-fn push_app_command_outcome_events<E>(
+#[allow(clippy::too_many_arguments, clippy::too_many_lines)]
+fn push_app_command_outcome_events<E: LocalExecutor + Clone>(
     ws: &mut WorkspaceState<E>,
     workspace_id: &str,
     app_id: &str,
@@ -5727,19 +5734,21 @@ fn push_app_command_outcome_events<E>(
     capability_id: &str,
     outcome: &RuntimeExecutionOutcome,
     timestamp: &str,
-) {
+) -> Result<(), String> {
     let execution_id = outcome.result.execution_id.clone();
-    ws.app_events.push(AppStateEventRecord {
-        event_id: format!("{execution_id}:capability_invoked"),
-        event_type: "capability_invoked".to_string(),
-        workspace_id: workspace_id.to_string(),
-        app_id: app_id.to_string(),
-        session_id: session_id.to_string(),
-        execution_id: execution_id.clone(),
-        state: invoking_state.to_string(),
-        previous_state: None,
-        timestamp: timestamp.to_string(),
-        data: json!({
+    publish_app_runtime_event(
+        ws.runtime.event_broker().as_ref(),
+        &mut ws.app_event_seq,
+        &mut ws.app_event_log,
+        &mut ws.app_session_events,
+        workspace_id,
+        app_id,
+        session_id,
+        &execution_id,
+        "capability_invoked",
+        invoking_state,
+        timestamp,
+        json!({
             "workspace_id": workspace_id,
             "app_id": app_id,
             "session_id": session_id,
@@ -5748,7 +5757,7 @@ fn push_app_command_outcome_events<E>(
             "state": invoking_state,
             "timestamp": timestamp,
         }),
-    });
+    )?;
 
     let succeeded = outcome.result.status != RuntimeResultStatus::Error;
     let lifecycle_event = if succeeded {
@@ -5791,7 +5800,7 @@ fn push_app_command_outcome_events<E>(
             &final_state,
             invoking_state,
             timestamp,
-        );
+        )?;
     }
 
     let result_event_type = if transition_error.is_some() || !succeeded {
@@ -5799,17 +5808,19 @@ fn push_app_command_outcome_events<E>(
     } else {
         "capability_result"
     };
-    ws.app_events.push(AppStateEventRecord {
-        event_id: format!("{execution_id}:{result_event_type}"),
-        event_type: result_event_type.to_string(),
-        workspace_id: workspace_id.to_string(),
-        app_id: app_id.to_string(),
-        session_id: session_id.to_string(),
-        execution_id: execution_id.clone(),
-        state: final_state.clone(),
-        previous_state: Some(invoking_state.to_string()),
-        timestamp: timestamp.to_string(),
-        data: json!({
+    publish_app_runtime_event(
+        ws.runtime.event_broker().as_ref(),
+        &mut ws.app_event_seq,
+        &mut ws.app_event_log,
+        &mut ws.app_session_events,
+        workspace_id,
+        app_id,
+        session_id,
+        &execution_id,
+        result_event_type,
+        &final_state,
+        timestamp,
+        json!({
             "workspace_id": workspace_id,
             "app_id": app_id,
             "session_id": session_id,
@@ -5827,7 +5838,7 @@ fn push_app_command_outcome_events<E>(
                 "message": message,
             }))),
         }),
-    });
+    )
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -5972,7 +5983,7 @@ fn parse_sessions_limit(value: Option<&str>) -> Result<usize, String> {
 }
 
 fn app_sessions_response(
-    events: &[AppStateEventRecord],
+    events: &[AppSessionEvent],
     list_context_fields: &[String],
     app_id: &str,
     state_filter: Option<&str>,
@@ -6015,11 +6026,11 @@ fn app_sessions_response(
 }
 
 fn materialize_app_sessions(
-    events: &[AppStateEventRecord],
+    events: &[AppSessionEvent],
     list_context_fields: &[String],
     app_id: &str,
 ) -> Vec<Value> {
-    let mut grouped: HashMap<String, Vec<&AppStateEventRecord>> = HashMap::new();
+    let mut grouped: HashMap<String, Vec<&AppSessionEvent>> = HashMap::new();
     for event in events {
         if event.app_id == app_id {
             grouped
@@ -6032,17 +6043,13 @@ fn materialize_app_sessions(
     grouped
         .into_iter()
         .filter_map(|(session_id, mut events)| {
-            events.sort_by(|a, b| {
-                a.timestamp
-                    .cmp(&b.timestamp)
-                    .then(a.event_id.cmp(&b.event_id))
-            });
+            events.sort_by(|a, b| a.timestamp.cmp(&b.timestamp));
             let first = events.first()?;
             let last = events.last()?;
             let context = events
                 .iter()
                 .rev()
-                .find_map(|event| event.data.get("output"))
+                .find_map(|event| event.output.as_ref())
                 .map_or_else(
                     || Value::Object(serde_json::Map::new()),
                     |output| project_list_context(output, list_context_fields),
@@ -6078,27 +6085,6 @@ fn get_json_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
         current = current.get(segment)?;
     }
     Some(current)
-}
-
-fn replay_app_events(
-    events: &[AppStateEventRecord],
-    app_id: &str,
-    last_event_id: Option<&str>,
-) -> Vec<AppStateEventRecord> {
-    let mut after_last_event = last_event_id.is_none();
-    events
-        .iter()
-        .filter_map(|event| {
-            if event.app_id != app_id {
-                return None;
-            }
-            if !after_last_event {
-                after_last_event = last_event_id == Some(event.event_id.as_str());
-                return None;
-            }
-            Some(event.clone())
-        })
-        .collect()
 }
 
 fn serialize_sse_event(
@@ -6182,18 +6168,20 @@ fn record_app_execution_events<E: LocalExecutor + Clone>(
         "capability_result"
     };
 
-    let events = vec![
-        AppStateEventRecord {
-            event_id: format!("{execution_id}:state_changed:processing"),
-            event_type: "state_changed".to_string(),
-            workspace_id: workspace_id.to_string(),
-            app_id: app_id.clone(),
-            session_id: session_id.clone(),
-            execution_id: execution_id.clone(),
-            state: "processing".to_string(),
-            previous_state: Some("idle".to_string()),
-            timestamp: timestamp.clone(),
-            data: json!({
+    state.with_workspace_mut(workspace_id, |ws| {
+        publish_app_runtime_event(
+            ws.runtime.event_broker().as_ref(),
+            &mut ws.app_event_seq,
+            &mut ws.app_event_log,
+            &mut ws.app_session_events,
+            workspace_id,
+            &app_id,
+            &session_id,
+            &execution_id,
+            "state_changed",
+            "processing",
+            &timestamp,
+            json!({
                 "workspace_id": workspace_id,
                 "app_id": app_id,
                 "session_id": session_id,
@@ -6202,18 +6190,20 @@ fn record_app_execution_events<E: LocalExecutor + Clone>(
                 "previous_state": "idle",
                 "timestamp": timestamp,
             }),
-        },
-        AppStateEventRecord {
-            event_id: format!("{execution_id}:capability_invoked"),
-            event_type: "capability_invoked".to_string(),
-            workspace_id: workspace_id.to_string(),
-            app_id: app_id.clone(),
-            session_id: session_id.clone(),
-            execution_id: execution_id.clone(),
-            state: "processing".to_string(),
-            previous_state: None,
-            timestamp: timestamp.clone(),
-            data: json!({
+        )?;
+        publish_app_runtime_event(
+            ws.runtime.event_broker().as_ref(),
+            &mut ws.app_event_seq,
+            &mut ws.app_event_log,
+            &mut ws.app_session_events,
+            workspace_id,
+            &app_id,
+            &session_id,
+            &execution_id,
+            "capability_invoked",
+            "processing",
+            &timestamp,
+            json!({
                 "workspace_id": workspace_id,
                 "app_id": app_id,
                 "session_id": session_id,
@@ -6223,18 +6213,20 @@ fn record_app_execution_events<E: LocalExecutor + Clone>(
                 "state": "processing",
                 "timestamp": timestamp,
             }),
-        },
-        AppStateEventRecord {
-            event_id: format!("{execution_id}:{result_event_type}"),
-            event_type: result_event_type.to_string(),
-            workspace_id: workspace_id.to_string(),
-            app_id: app_id.clone(),
-            session_id: session_id.clone(),
-            execution_id: execution_id.clone(),
-            state: final_state.to_string(),
-            previous_state: Some("processing".to_string()),
-            timestamp: timestamp.clone(),
-            data: json!({
+        )?;
+        publish_app_runtime_event(
+            ws.runtime.event_broker().as_ref(),
+            &mut ws.app_event_seq,
+            &mut ws.app_event_log,
+            &mut ws.app_session_events,
+            workspace_id,
+            &app_id,
+            &session_id,
+            &execution_id,
+            result_event_type,
+            final_state,
+            &timestamp,
+            json!({
                 "workspace_id": workspace_id,
                 "app_id": app_id,
                 "session_id": session_id,
@@ -6248,11 +6240,7 @@ fn record_app_execution_events<E: LocalExecutor + Clone>(
                     "message": e.message,
                 })),
             }),
-        },
-    ];
-
-    state.with_workspace_mut(workspace_id, |ws| {
-        ws.app_events.extend(events);
+        )?;
         Ok(())
     })
 }
@@ -7708,25 +7696,14 @@ mod tests {
         persist_local_test_workspace(&registry_root, workspace_id);
         workspaces.insert(
             workspace_id.to_string(),
-            WorkspaceState {
-                runtime: Runtime::new(registry, executor.clone())
-                    .with_workflow_registry(WorkflowRegistry::new())
-                    .with_security_config(RuntimeSecurityConfig::development()),
-                event_registry: EventRegistry::new(),
-                persisted: PersistedWorkspaceRegistryV1 {
-                    schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                    registrations: Vec::new(),
-                    events: Vec::new(),
-                    workflows: Vec::new(),
-                },
-                loaded_from_disk: true,
-                executions: HashMap::new(),
-                traces: HashMap::new(),
-                app_events: Vec::new(),
-                app_list_context_fields: HashMap::new(),
-                app_state_machines: HashMap::new(),
-                runtime_grants: Vec::new(),
-            },
+            new_workspace_state(
+                registry,
+                executor.clone(),
+                WorkflowRegistry::new(),
+                RuntimeSecurityConfig::development(),
+                true,
+            )
+            .expect("test workspace must construct an app event broker"),
         );
 
         ApiState {
@@ -7765,25 +7742,14 @@ mod tests {
         persist_local_test_workspace(&registry_root, workspace_id);
         workspaces.insert(
             workspace_id.to_string(),
-            WorkspaceState {
-                runtime: Runtime::new(registry, executor.clone())
-                    .with_workflow_registry(WorkflowRegistry::new())
-                    .with_security_config(RuntimeSecurityConfig::development()),
-                event_registry: EventRegistry::new(),
-                persisted: PersistedWorkspaceRegistryV1 {
-                    schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                    registrations: Vec::new(),
-                    events: Vec::new(),
-                    workflows: Vec::new(),
-                },
-                loaded_from_disk: true,
-                executions: HashMap::new(),
-                traces: HashMap::new(),
-                app_events: Vec::new(),
-                app_list_context_fields: HashMap::new(),
-                app_state_machines: HashMap::new(),
-                runtime_grants: Vec::new(),
-            },
+            new_workspace_state(
+                registry,
+                executor.clone(),
+                WorkflowRegistry::new(),
+                RuntimeSecurityConfig::development(),
+                true,
+            )
+            .expect("test workspace must construct an app event broker"),
         );
 
         ApiState {
@@ -7809,25 +7775,14 @@ mod tests {
         persist_local_test_workspace(&registry_root, workspace_id);
         workspaces.insert(
             workspace_id.to_string(),
-            WorkspaceState {
-                runtime: Runtime::new(CapabilityRegistry::new(), executor.clone())
-                    .with_workflow_registry(WorkflowRegistry::new())
-                    .with_security_config(RuntimeSecurityConfig::development()),
-                event_registry: EventRegistry::new(),
-                persisted: PersistedWorkspaceRegistryV1 {
-                    schema_version: PERSISTED_REGISTRY_SCHEMA_VERSION.to_string(),
-                    registrations: Vec::new(),
-                    events: Vec::new(),
-                    workflows: Vec::new(),
-                },
-                loaded_from_disk: true,
-                executions: HashMap::new(),
-                traces: HashMap::new(),
-                app_events: Vec::new(),
-                app_list_context_fields: HashMap::new(),
-                app_state_machines: HashMap::new(),
-                runtime_grants: Vec::new(),
-            },
+            new_workspace_state(
+                CapabilityRegistry::new(),
+                executor.clone(),
+                WorkflowRegistry::new(),
+                RuntimeSecurityConfig::development(),
+                true,
+            )
+            .expect("test workspace must construct an app event broker"),
         );
 
         ApiState {
@@ -8013,17 +7968,19 @@ mod tests {
     ) {
         state
             .with_workspace_mut("ws-test", |ws| {
-                ws.app_events.push(AppStateEventRecord {
-                    event_id: format!("{session_id}:{current_state}"),
-                    event_type: "capability_result".to_string(),
-                    workspace_id: "ws-test".to_string(),
-                    app_id: "traverse-starter".to_string(),
-                    session_id: session_id.to_string(),
-                    execution_id: format!("exec_{session_id}"),
-                    state: current_state.to_string(),
-                    previous_state: Some("processing".to_string()),
-                    timestamp: timestamp.to_string(),
-                    data: json!({
+                publish_app_runtime_event(
+                    ws.runtime.event_broker().as_ref(),
+                    &mut ws.app_event_seq,
+                    &mut ws.app_event_log,
+                    &mut ws.app_session_events,
+                    "ws-test",
+                    "traverse-starter",
+                    session_id,
+                    &format!("exec_{session_id}"),
+                    "capability_result",
+                    current_state,
+                    timestamp,
+                    json!({
                         "workspace_id": "ws-test",
                         "app_id": "traverse-starter",
                         "session_id": session_id,
@@ -8033,8 +7990,7 @@ mod tests {
                         "timestamp": timestamp,
                         "output": output,
                     }),
-                });
-                Ok(())
+                )
             })
             .expect("app session event must be seeded");
     }
@@ -9359,7 +9315,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
 
         assert!(api.state.allow_unauthenticated);
         assert_eq!(api.state.allowed_origins, ["http://127.0.0.1:3000"]);
@@ -9395,7 +9352,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .list_workflows(SYSTEM_WORKSPACE_ID, true)
@@ -9425,7 +9383,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .list_workflows("ws-authorized", true)
@@ -9455,7 +9414,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .get_workflow("ws-authorized", "missing-workflow", None, true)
@@ -9484,7 +9444,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .register_workflow(b"not-json".to_vec(), true)
@@ -9513,7 +9474,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
         let mut body: Value = serde_json::from_slice(&valid_workflow_registration_body(
             "test.api.unowned-workflow",
             "1.0.0",
@@ -9549,7 +9511,8 @@ mod tests {
             write_timeout: None,
             request_deadline: None,
             max_concurrent_connections: None,
-        });
+        })
+        .expect("in-process API must construct");
 
         let (status, body) = api
             .list_workflows("", true)
@@ -10262,10 +10225,9 @@ mod tests {
             "/v1/workspaces/ws-test/apps/traverse-starter/events",
             Vec::new(),
         );
-        req.headers.insert(
-            "last-event-id".to_string(),
-            "exec_test-req-001:state_changed:processing".to_string(),
-        );
+        // Cursor "1" is the first published EventBroker cursor (state_changed).
+        req.headers
+            .insert("last-event-id".to_string(), "1".to_string());
         let mut out = Vec::new();
         handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
             .expect("events endpoint must write a response");
@@ -10274,6 +10236,162 @@ mod tests {
         assert!(!body.contains("event: state_changed"));
         assert!(body.contains("event: capability_invoked"));
         assert!(body.contains("event: capability_result"));
+    }
+
+    #[test]
+    fn app_events_endpoint_rejects_malformed_last_event_id() {
+        let state = empty_state();
+        let mut req = make_http_request(
+            "GET",
+            "/v1/workspaces/ws-test/apps/traverse-starter/events",
+            Vec::new(),
+        );
+        req.headers
+            .insert("last-event-id".to_string(), "not-a-cursor".to_string());
+        let mut out = Vec::new();
+        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
+            .expect("events endpoint must write a response");
+
+        assert_eq!(response_status(&out), 400);
+        assert_eq!(response_content_type(&out), "application/problem+json");
+        let body = parse_response_body(&out);
+        assert_eq!(body["traverse_code"], "invalid_last_event_id");
+        assert_eq!(body["last_event_id"], "not-a-cursor");
+    }
+
+    #[test]
+    fn app_events_endpoint_rejects_expired_last_event_id() {
+        let state = empty_state();
+        state
+            .with_workspace_mut("ws-test", |ws| {
+                ws.runtime.event_broker().seed_restart_floor(10);
+                Ok(())
+            })
+            .expect("restart floor must be seeded");
+
+        let mut req = make_http_request(
+            "GET",
+            "/v1/workspaces/ws-test/apps/traverse-starter/events",
+            Vec::new(),
+        );
+        req.headers
+            .insert("last-event-id".to_string(), "5".to_string());
+        let mut out = Vec::new();
+        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
+            .expect("events endpoint must write a response");
+
+        assert_eq!(response_status(&out), 410);
+        assert_eq!(response_content_type(&out), "application/problem+json");
+        let body = parse_response_body(&out);
+        assert_eq!(body["traverse_code"], "last_event_id_expired");
+        assert_eq!(body["oldest_available_cursor"], "10");
+    }
+
+    #[test]
+    fn app_events_endpoint_returns_503_when_broker_subscribe_fails() {
+        use std::sync::Arc;
+        use traverse_runtime::events::{
+            EventBroker, EventError, Subscription, SubscriptionPoll, TraverseEvent,
+        };
+
+        struct UnavailableBroker;
+
+        impl EventBroker for UnavailableBroker {
+            fn publish(&self, _event: TraverseEvent) -> Result<(), EventError> {
+                Ok(())
+            }
+
+            fn subscribe(
+                &self,
+                _event_type: &str,
+                _from_cursor: &str,
+            ) -> Result<Subscription, EventError> {
+                Err(EventError::LifecycleViolation(
+                    "broker lock poisoned".to_string(),
+                ))
+            }
+
+            fn subscribe_for_subject(
+                &self,
+                event_type: &str,
+                from_cursor: &str,
+                _subject_id: Option<&str>,
+            ) -> Result<Subscription, EventError> {
+                self.subscribe(event_type, from_cursor)
+            }
+
+            fn poll(
+                &self,
+                _subscription_id: &str,
+                _max_events: usize,
+            ) -> Result<SubscriptionPoll, EventError> {
+                Err(EventError::LifecycleViolation(
+                    "broker lock poisoned".to_string(),
+                ))
+            }
+
+            fn cancel(&self, _subscription_id: &str) -> Result<(), EventError> {
+                Ok(())
+            }
+        }
+
+        let state = empty_state();
+        let executor = state.executor.clone();
+        state
+            .with_workspace_mut("ws-test", |ws| {
+                ws.runtime = Runtime::new(CapabilityRegistry::new(), executor)
+                    .with_workflow_registry(WorkflowRegistry::new())
+                    .with_security_config(RuntimeSecurityConfig::development())
+                    .with_event_broker(Arc::new(UnavailableBroker));
+                Ok(())
+            })
+            .expect("failing broker must be installed");
+
+        let req = make_http_request(
+            "GET",
+            "/v1/workspaces/ws-test/apps/traverse-starter/events",
+            Vec::new(),
+        );
+        let mut out = Vec::new();
+        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
+            .expect("events endpoint must write a response");
+
+        assert_eq!(response_status(&out), 503);
+        assert_eq!(response_content_type(&out), "application/problem+json");
+        let body = parse_response_body(&out);
+        assert_eq!(body["traverse_code"], "event_broker_unavailable");
+    }
+
+    #[test]
+    fn app_events_endpoint_does_not_leak_cross_workspace_events() {
+        let state = test_state_with("traverse-starter.process", "1.0.0");
+        let body = make_runtime_request_body("traverse-starter.process");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        // Create a second workspace and ensure it does not see ws-test events.
+        state
+            .with_workspace_mut("ws-other", |ws| {
+                let _ = ws;
+                Ok(())
+            })
+            .expect("second workspace must initialize");
+
+        let req = make_http_request(
+            "GET",
+            "/v1/workspaces/ws-other/apps/traverse-starter/events",
+            Vec::new(),
+        );
+        let mut out = Vec::new();
+        handle_app_events(&mut out, &req, &state, true, "ws-other", "traverse-starter")
+            .expect("events endpoint must write a response");
+
+        assert_eq!(response_status(&out), 200);
+        let body = response_body_text(&out);
+        assert!(body.contains("event: heartbeat"));
+        assert!(!body.contains("event: capability_result"));
     }
 
     #[test]

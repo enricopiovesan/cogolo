@@ -1,3 +1,4 @@
+mod app_runtime_events;
 mod browser_adapter;
 mod capability_packages;
 mod federation_operator;
@@ -4089,7 +4090,7 @@ fn workflow_inspect(
 
 fn build_in_process_api() -> Result<http_api::InProcessApi<ExpeditionExampleExecutor>, CliError> {
     let registered = load_registered_bundle(&canonical_expedition_bundle_path())?;
-    Ok(http_api::InProcessApi::new(http_api::ApiServerConfig {
+    http_api::InProcessApi::new(http_api::ApiServerConfig {
         bind_address: "127.0.0.1:0".to_string(),
         requested_auth_mode: None,
         allow_unauthenticated: true,
@@ -4107,7 +4108,8 @@ fn build_in_process_api() -> Result<http_api::InProcessApi<ExpeditionExampleExec
         write_timeout: None,
         request_deadline: None,
         max_concurrent_connections: None,
-    }))
+    })
+    .map_err(CliError::IoError)
 }
 
 fn inspect_trace(trace_path: &Path) -> Result<String, CliError> {
