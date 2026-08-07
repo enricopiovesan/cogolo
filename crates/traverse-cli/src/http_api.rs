@@ -10970,10 +10970,9 @@ mod tests {
         use crate::grpc_event_transport::{GrpcServerConfig, spawn_event_server};
         use std::sync::Arc;
 
-        let cert = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/grpc-tls/cert.pem");
-        let key = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
-            .join("tests/fixtures/grpc-tls/key.pem");
+        let cert =
+            PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/grpc-tls/cert.pem");
+        let key = PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/grpc-tls/key.pem");
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
         let addr = listener.local_addr().expect("local addr");
         drop(listener);
