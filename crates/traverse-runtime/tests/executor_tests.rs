@@ -2,10 +2,11 @@ use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
+use traverse_contracts::{EventReference, ServiceType};
 use traverse_runtime::executor::{
-    ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, NativeExecutor,
-    SUPPORTED_HOST_ABI_VERSION, WasmExecutionLimits, WasmExecutor, WasmModuleCacheConfig,
-    supported_host_abi_versions, verify_wasm_host_abi_bytes,
+    ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput,
+    NativeExecutor, SUPPORTED_HOST_ABI_VERSION, WasmExecutionLimits, WasmExecutor,
+    WasmModuleCacheConfig, supported_host_abi_versions, verify_wasm_host_abi_bytes,
 };
 
 // --- NativeExecutor tests ---
@@ -22,7 +23,13 @@ fn native_executor_runs_handler() {
     let cap = native_capability("greet");
     let result = executor.execute(&cap, &json!({ "name": "traverse" }));
 
-    assert_eq!(result, Ok(json!({ "greeting": "hello, traverse!" })));
+    assert_eq!(
+        result,
+        Ok(ExecutorOutput {
+            value: json!({ "greeting": "hello, traverse!" }),
+            emitted_events: Vec::new(),
+        })
+    );
 }
 
 #[test]
@@ -52,6 +59,8 @@ fn native_executor_rejects_wasm_artifact_type() -> Result<(), String> {
         wasm_binary_path: None,
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
     let err = expect_err(executor.execute(&cap, &json!({})), "expected type error")?;
 
@@ -69,7 +78,7 @@ fn native_executor_passes_input_through() -> Result<(), String> {
         .execute(&cap, &input)
         .map_err(|e| format!("{e:?}"))?;
 
-    assert_eq!(result, input);
+    assert_eq!(result.value, input);
     Ok(())
 }
 
@@ -96,6 +105,8 @@ fn wasm_executor_errors_when_no_path_set() -> Result<(), String> {
         wasm_binary_path: None,
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
     let err = expect_err(
         executor.execute(&cap, &json!({})),
@@ -119,6 +130,8 @@ fn wasm_executor_errors_on_missing_file() -> Result<(), String> {
         wasm_binary_path: Some("/nonexistent/path/module.wasm".to_string()),
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
     let err = expect_err(
         executor.execute(&cap, &json!({})),
@@ -156,6 +169,8 @@ fn wasm_executor_detects_checksum_mismatch() -> Result<(), String> {
             "aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa".to_string(),
         ),
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
 
     let err = expect_err(
@@ -668,13 +683,21 @@ fn wasm_executor_full_execute_path_via_disk() -> Result<(), String> {
         wasm_binary_path: Some(tmp.clone()),
         wasm_checksum: None, // no checksum — exercises the skip-checksum branch
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
 
     let input = json!({ "disk": true });
     let result = executor.execute(&cap, &input).map_err(|e| format!("{e:?}"));
     std::fs::remove_file(&tmp).ok();
 
-    assert_eq!(result, Ok(input));
+    assert_eq!(
+        result,
+        Ok(ExecutorOutput {
+            value: input,
+            emitted_events: Vec::new(),
+        })
+    );
     Ok(())
 }
 
@@ -718,6 +741,8 @@ fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String>
         wasm_binary_path: Some(tmp.clone()),
         wasm_checksum: Some(checksum),
         host_abi_version: Some("1.0.0".to_string()),
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
 
     let result = executor
@@ -725,7 +750,13 @@ fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String>
         .map_err(|e| format!("{e:?}"));
     std::fs::remove_file(&tmp).ok();
 
-    assert_eq!(result, Ok(json!({})));
+    assert_eq!(
+        result,
+        Ok(ExecutorOutput {
+            value: json!({}),
+            emitted_events: Vec::new(),
+        })
+    );
     Ok(())
 }
 
@@ -753,13 +784,15 @@ fn wasm_executor_cached_module_does_not_bypass_checksum_mismatch() -> Result<(),
         wasm_binary_path: Some(tmp.clone()),
         wasm_checksum: Some(checksum),
         host_abi_version: Some("1.0.0".to_string()),
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
 
     let input = json!({ "cache": true });
     let result = executor
         .execute(&cap, &input)
         .map_err(|e| format!("{e:?}"))?;
-    assert_eq!(result, input);
+    assert_eq!(result.value, input);
     assert_eq!(executor.module_cache_stats().entries, 1);
 
     std::fs::write(&tmp, b"not-the-same-wasm").map_err(|e| format!("overwrite: {e}"))?;
@@ -790,6 +823,8 @@ fn wasm_executor_invalid_binary_triggers_runtime_setup_failed() -> Result<(), St
         wasm_binary_path: Some(tmp.clone()),
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     };
 
     let err = expect_err(executor.execute(&cap, &json!({})), "expected error")?;
@@ -798,6 +833,296 @@ fn wasm_executor_invalid_binary_triggers_runtime_setup_failed() -> Result<(), St
     assert!(
         matches!(err, ExecutorError::MalformedWasmArtifact { .. }),
         "expected MalformedWasmArtifact, got {err:?}"
+    );
+    Ok(())
+}
+
+// --- `traverse_host::emit_event` host ABI tests (spec 098-capability-event-host-abi) ---
+
+#[test]
+fn wasm_executor_emit_event_accepted_for_declared_subscribable_capability() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes =
+        wat::parse_str(emit_event_wat(EMIT_TEST_EVENT_PAYLOAD)).map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert_eq!(output.emitted_events.len(), 1);
+    let event = &output.emitted_events[0];
+    assert_eq!(event.event_type, "dev.traverse.test.emitted");
+    assert_eq!(event.version, "1.0.0");
+    assert_eq!(event.data, json!({ "n": 1 }));
+    assert_eq!(event.owner, "test.emit.subject");
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_undeclared_event_type() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes =
+        wat::parse_str(emit_event_wat(EMIT_TEST_EVENT_PAYLOAD)).map_err(|e| format!("{e}"))?;
+
+    // `emits` declares a different event than the one the guest tries to emit.
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.other".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "undeclared event must not be accepted"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_non_subscribable_capability() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes =
+        wat::parse_str(emit_event_wat(EMIT_TEST_EVENT_PAYLOAD)).map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Stateless, // NOT Subscribable
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "non-Subscribable capability must never emit"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_malformed_json_payload() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    // Not valid JSON at all.
+    let wasm_bytes = wat::parse_str(emit_event_wat("not-json")).map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "malformed payload must not be accepted, and execution must not trap"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_oversized_payload() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    // The module declares a 1-page (64 KiB) memory but claims a payload
+    // length one byte larger than the ABI's maximum accepted size — the
+    // host must reject this before ever attempting to read guest memory.
+    let wasm_bytes = wat::parse_str(emit_event_wat_with_len(
+        EMIT_TEST_EVENT_PAYLOAD,
+        64 * 1024 + 1,
+    ))
+    .map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "oversized payload must not be accepted, and execution must not trap"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_out_of_bounds_pointer() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    // One page of memory is 64 KiB; a pointer past that, with a small
+    // length, is out of bounds without exceeding the payload size cap —
+    // this exercises the `Memory::read` bounds check itself (FR-008),
+    // distinct from the size-cap check above.
+    let wasm_bytes =
+        wat::parse_str(emit_event_wat_with_ptr_len(200_000, 10)).map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "out-of-bounds pointer must not be accepted, and execution must not trap or read outside guest memory"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_negative_pointer_or_length() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes =
+        wat::parse_str(emit_event_wat_with_raw_ptr_len(-1, 4)).map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "a negative pointer must not be accepted, and execution must not trap"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_missing_event_id() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes =
+        wat::parse_str(emit_event_wat(r#"{"version":"1.0.0"}"#)).map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "a payload missing event_id must not be accepted"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_rejected_for_missing_version() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes = wat::parse_str(emit_event_wat(
+        r#"{"event_id":"dev.traverse.test.emitted"}"#,
+    ))
+    .map_err(|e| format!("{e}"))?;
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "test.emit.subject",
+            &[EventReference {
+                event_id: "dev.traverse.test.emitted".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert!(
+        output.emitted_events.is_empty(),
+        "a payload missing version must not be accepted"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_emit_event_handles_module_without_memory_export() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    // No `(memory ...)` declaration at all, so `caller.get_export("memory")`
+    // must return `None` — the host function has to reject this gracefully
+    // (FR-008) rather than panicking or trapping.
+    let wat_src = r#"
+        (module
+            (import "traverse_host" "emit_event"
+                (func $emit_event (param i32 i32) (result i32)))
+            (func $_start (export "_start")
+                (drop (call $emit_event (i32.const 0) (i32.const 4)))
+            )
+        )
+    "#;
+    let wasm_bytes = wat::parse_str(wat_src).map_err(|e| format!("{e}"))?;
+
+    let result = executor.run_bytes_with_capability(
+        &wasm_bytes,
+        &json!({}),
+        "test.emit.subject",
+        &[EventReference {
+            event_id: "dev.traverse.test.emitted".to_string(),
+            version: "1.0.0".to_string(),
+        }],
+        ServiceType::Subscribable,
+    );
+
+    // The module never writes stdout (it has no memory to do so), so this
+    // surfaces as a normal, controlled executor error — not a panic/trap —
+    // which is exactly what proves the missing-memory-export path inside
+    // `handle_emit_event` was handled gracefully.
+    assert!(
+        result.is_err(),
+        "expected a controlled error, not a panic or trap: {result:?}"
     );
     Ok(())
 }
@@ -811,6 +1136,8 @@ fn native_capability(id: &str) -> ExecutorCapability {
         wasm_binary_path: None,
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
     }
 }
 
@@ -844,6 +1171,78 @@ fn echo_wat() -> &'static str {
             )
         )
     "#
+}
+
+const EMIT_TEST_EVENT_PAYLOAD: &str =
+    r#"{"event_id":"dev.traverse.test.emitted","version":"1.0.0","payload":{"n":1}}"#;
+
+fn wat_escape(payload: &str) -> String {
+    payload.replace('\\', "\\\\").replace('"', "\\\"")
+}
+
+/// A WASM module that writes `payload` into linear memory at offset 100,
+/// calls `traverse_host::emit_event(100, payload.len())`, then writes `{}`
+/// to stdout (a minimal valid JSON output, unrelated to the emit call).
+fn emit_event_wat(payload: &str) -> String {
+    emit_event_wat_with_len(payload, payload.len())
+}
+
+/// As [`emit_event_wat`], but the guest claims `claimed_len` bytes instead
+/// of `payload.len()` — used to simulate an oversized length claim.
+fn emit_event_wat_with_len(payload: &str, claimed_len: usize) -> String {
+    format!(
+        r#"
+        (module
+            (import "traverse_host" "emit_event"
+                (func $emit_event (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (data (i32.const 100) "{payload}")
+            (data (i32.const 300) "{{}}")
+            (func $_start (export "_start")
+                (drop (call $emit_event (i32.const 100) (i32.const {claimed_len})))
+                (i32.store (i32.const 0) (i32.const 300))
+                (i32.store (i32.const 4) (i32.const 2))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4100)))
+            )
+        )
+        "#,
+        payload = wat_escape(payload),
+    )
+}
+
+/// A WASM module that calls `traverse_host::emit_event(ptr, len)` directly
+/// with caller-supplied coordinates, ignoring what (if anything) is actually
+/// at that memory location — used to exercise the guest-memory bounds check.
+fn emit_event_wat_with_ptr_len(ptr: usize, len: usize) -> String {
+    emit_event_wat_with_raw_ptr_len(
+        i32::try_from(ptr).unwrap_or(i32::MAX),
+        i32::try_from(len).unwrap_or(i32::MAX),
+    )
+}
+
+/// As [`emit_event_wat_with_ptr_len`], but accepts raw `i32` coordinates
+/// directly — used to exercise a negative pointer or length.
+fn emit_event_wat_with_raw_ptr_len(ptr: i32, len: i32) -> String {
+    format!(
+        r#"
+        (module
+            (import "traverse_host" "emit_event"
+                (func $emit_event (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (data (i32.const 300) "{{}}")
+            (func $_start (export "_start")
+                (drop (call $emit_event (i32.const {ptr}) (i32.const {len})))
+                (i32.store (i32.const 0) (i32.const 300))
+                (i32.store (i32.const 4) (i32.const 2))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4100)))
+            )
+        )
+        "#,
+    )
 }
 
 /// Assert that `result` is `Err`, returning the error value or a descriptive `String` failure.

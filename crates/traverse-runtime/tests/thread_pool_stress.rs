@@ -26,6 +26,8 @@ fn native_capability() -> ExecutorCapability {
         wasm_binary_path: None,
         wasm_checksum: None,
         host_abi_version: None,
+        emits: Vec::new(),
+        service_type: traverse_contracts::ServiceType::Stateless,
     }
 }
 
@@ -40,7 +42,9 @@ fn executor(
 }
 
 fn execute(executor: &ThreadPoolExecutor, input: &Value) -> Result<Value, ExecutorError> {
-    executor.execute(&native_capability(), input)
+    executor
+        .execute(&native_capability(), input)
+        .map(|output| output.value)
 }
 
 fn lock_errors(errors: &Mutex<Vec<String>>) -> std::sync::MutexGuard<'_, Vec<String>> {

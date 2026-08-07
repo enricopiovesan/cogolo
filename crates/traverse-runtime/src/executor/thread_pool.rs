@@ -7,7 +7,7 @@ use std::panic::{AssertUnwindSafe, catch_unwind};
 use rayon::{ThreadPool, ThreadPoolBuildError, ThreadPoolBuilder};
 use serde_json::Value;
 
-use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError};
+use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput};
 
 const MIN_CAPACITY: usize = 1;
 const MAX_CAPACITY: usize = 256;
@@ -101,7 +101,7 @@ impl CapabilityExecutor for ThreadPoolExecutor {
         &self,
         capability: &ExecutorCapability,
         input: &Value,
-    ) -> Result<Value, ExecutorError> {
+    ) -> Result<ExecutorOutput, ExecutorError> {
         if capability.artifact_type == ArtifactType::Wasm {
             return Err(ExecutorError::UnsupportedArtifactType);
         }
@@ -143,6 +143,8 @@ mod tests {
             wasm_binary_path: None,
             wasm_checksum: None,
             host_abi_version: None,
+            emits: Vec::new(),
+            service_type: traverse_contracts::ServiceType::Stateless,
         }
     }
 
@@ -179,7 +181,9 @@ mod tests {
     }
 
     fn execute_json(executor: &ThreadPoolExecutor, input: &Value) -> Result<Value, ExecutorError> {
-        executor.execute(&native_capability(), input)
+        executor
+            .execute(&native_capability(), input)
+            .map(|output| output.value)
     }
 
     #[test]
@@ -413,13 +417,16 @@ mod tests {
             &self,
             _capability: &ExecutorCapability,
             input: &Value,
-        ) -> Result<Value, ExecutorError> {
+        ) -> Result<ExecutorOutput, ExecutorError> {
             let remaining = self.remaining_panics.load(Ordering::SeqCst);
             if remaining > 0 {
                 self.remaining_panics.fetch_sub(1, Ordering::SeqCst);
                 std::panic::resume_unwind(Box::new("boom"));
             }
-            Ok(input.clone())
+            Ok(ExecutorOutput {
+                value: input.clone(),
+                emitted_events: Vec::new(),
+            })
         }
     }
 
@@ -449,7 +456,13 @@ mod tests {
                 "capability panicked".to_string()
             ))
         );
-        assert_eq!(recovered, Ok(json!({ "second": true })));
+        assert_eq!(
+            recovered,
+            Ok(ExecutorOutput {
+                value: json!({ "second": true }),
+                emitted_events: Vec::new(),
+            })
+        );
         Ok(())
     }
 
@@ -469,7 +482,13 @@ mod tests {
 
         let recovered = executor.execute(&native_capability(), &json!({ "ok": true }));
 
-        assert_eq!(recovered, Ok(json!({ "ok": true })));
+        assert_eq!(
+            recovered,
+            Ok(ExecutorOutput {
+                value: json!({ "ok": true }),
+                emitted_events: Vec::new(),
+            })
+        );
         Ok(())
     }
 

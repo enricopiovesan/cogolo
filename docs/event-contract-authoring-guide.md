@@ -257,22 +257,19 @@ The capability contract at `contracts/examples/expedition/capabilities/capture-e
     "version": "1.0.0"
   }
 ]
-The `emits` declaration in the capability contract is authoritative. The runtime broker constrains what `broker.publish()` may emit: **if an event type is not registered in the catalog as `Active`, `broker.publish` returns `EventError::LifecycleViolation` and the event is not delivered.**
+The `emits` declaration in the capability contract is authoritative. The host validates a capability's emissions against it synchronously, at call time (spec `098-capability-event-host-abi` FR-002) — an undeclared emission is rejected immediately, not discovered after execution completes.
 ### 2. Runtime emission
-The emitting capability registers the event type in an `EventCatalog` with `LifecycleStatus::Active`, then publishes through the `InProcessBroker`:
+The capability itself never calls `broker.publish()` directly — that is host-owned infrastructure (`PlacementRouter` Step 5). Instead, a `Subscribable` capability calls the `traverse_host::emit_event` WASM host function during its own execution, passing a pointer/length into its own linear memory holding a JSON payload shaped `{"event_id": "...", "version": "...", "payload": {...}}`:
 ```rust
-catalog.register(EventCatalogEntry {
-    event_type: "expedition.planning.expedition-objective-captured".to_owned(),
-    owner: "expedition.planning.capture-expedition-objective".to_owned(),
-    version: "1.0.0".to_owned(),
-    lifecycle_status: LifecycleStatus::Active,
-    consumer_count: 0,
-})?;
-let broker = InProcessBroker::new(catalog);
-broker.publish(TraverseEvent {
-    event_type: "expedition.planning.expedition-objective-captured".to_owned(),
-    // ... other fields matching the contract payload schema
-})?;
+// Guest-side (compiled to wasm32-wasip1): write the payload into linear
+// memory, then call the host import.
+let payload = br#"{"event_id":"expedition.planning.expedition-objective-captured","version":"1.0.0","payload":{"objective_id":"obj-1"}}"#;
+let status = unsafe { traverse_host::emit_event(payload.as_ptr() as i32, payload.len() as i32) };
+// status == 0 on acceptance; a negative code identifies why the host
+// rejected the call (undeclared event type, non-Subscribable service_type,
+// or a malformed/oversized/out-of-bounds payload).
+```
+The host validates the call (declared-emission check, `service_type == Subscribable`, and guest-memory bounds), and only accepted events are later published to `EventBroker`. The event type must still be registered in the `EventCatalog` as `Active` — the host's internal `EventBroker::publish` call at the end of execution returns `EventError::LifecycleViolation` for a type that is not.
 ### 3. Subscriber registration
 A downstream capability subscribes before the event is emitted:
 ```rust
