@@ -400,11 +400,12 @@ fn serve_browser_subscription<E: LocalExecutor + Clone>(
         return Ok(());
     };
 
+    // Spec 013 requires exactly one selector (request_id XOR execution_id).
     let request = traverse_runtime::BrowserRuntimeSubscriptionRequest {
         kind: "browser_runtime_subscription_request".to_string(),
         schema_version: "1.0.0".to_string(),
         governing_spec: "013-browser-runtime-subscription".to_string(),
-        request_id: Some(trace.request.request_id.clone()),
+        request_id: None,
         execution_id: Some(execution_id.to_string()),
     };
     let runtime_outcome = traverse_runtime::RuntimeExecutionOutcome {

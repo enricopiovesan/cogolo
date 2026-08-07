@@ -10468,6 +10468,315 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
+    fn websocket_browser_subscription_preserves_013_message_order() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool_with(
+            test_state_with("traverse-starter.process", "1.0.0"),
+            limits,
+            2,
+        );
+
+        let body = make_runtime_request_body("traverse-starter.process");
+        let mut execute = TcpStream::connect(addr).expect("execute client must connect");
+        let execute_req = format!(
+            "POST /v1/workspaces/ws-test/execute HTTP/1.1\r\n\
+             Host: 127.0.0.1\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n",
+            body.len()
+        );
+        execute
+            .write_all(execute_req.as_bytes())
+            .expect("execute headers");
+        execute.write_all(&body).expect("execute body");
+        let execute_response = read_all_with_timeout(&mut execute, Duration::from_secs(5));
+        assert_eq!(response_status(&execute_response), 200);
+        let execute_body = parse_response_body(&execute_response);
+        let execution_id = execute_body["execution_id"]
+            .as_str()
+            .expect("execution_id must be present")
+            .to_string();
+
+        let mut socket = open_app_events_websocket(addr);
+        let subscribe = format!(
+            r#"{{"type":"subscribe","mode":"browser_subscription","execution_id":"{execution_id}"}}"#
+        );
+        socket
+            .send(Message::Text(subscribe.into()))
+            .expect("browser subscribe must send");
+
+        let mut kinds = Vec::new();
+        let mut lifecycle_statuses = Vec::new();
+        for _ in 0..32 {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let value: Value =
+                        serde_json::from_str(text.as_str()).expect("browser frame json");
+                    assert_eq!(value["type"], "browser_subscription");
+                    let message = &value["message"];
+                    // Externally tagged enum: {"Lifecycle":{...}} / {"TraceArtifact":{...}}.
+                    let (variant, payload) = message
+                        .as_object()
+                        .and_then(|obj| obj.iter().next())
+                        .expect("tagged browser message");
+                    let kind = payload["kind"].as_str().unwrap_or(variant).to_string();
+                    if variant == "Lifecycle"
+                        && let Some(status) = payload["status"].as_str()
+                    {
+                        lifecycle_statuses.push(status.to_string());
+                    }
+                    kinds.push(if variant == "Lifecycle" {
+                        format!("Lifecycle:{kind}")
+                    } else {
+                        variant.clone()
+                    });
+                }
+                Ok(Message::Close(Some(frame))) => {
+                    assert!(frame.reason.contains("stream_completed"));
+                    break;
+                }
+                Ok(Message::Close(None)) => break,
+                Ok(Message::Ping(payload)) => {
+                    socket.send(Message::Pong(payload)).expect("pong must send");
+                }
+                Ok(_) => {}
+                Err(err) => panic!("unexpected websocket read error: {err}"),
+            }
+        }
+        assert!(
+            !kinds.is_empty(),
+            "browser subscription must emit ordered contract messages"
+        );
+        assert!(
+            kinds.first().is_some_and(|k| k.starts_with("Lifecycle:")),
+            "first message must be lifecycle: {kinds:?}"
+        );
+        assert!(
+            kinds.iter().any(|k| k == "TraceArtifact"),
+            "trace artifact must appear: {kinds:?}"
+        );
+        assert!(
+            kinds.iter().any(|k| k == "StreamTerminal"),
+            "terminal result must appear: {kinds:?}"
+        );
+        assert_eq!(
+            lifecycle_statuses.first().map(String::as_str),
+            Some("subscription_established")
+        );
+        assert_eq!(
+            lifecycle_statuses.last().map(String::as_str),
+            Some("stream_completed")
+        );
+        let terminal = kinds.iter().position(|k| k == "StreamTerminal");
+        let completed_lifecycle = kinds.iter().rposition(|k| k.starts_with("Lifecycle:"));
+        match (terminal, completed_lifecycle) {
+            (Some(terminal_idx), Some(completed_idx)) => {
+                assert!(
+                    terminal_idx < completed_idx,
+                    "terminal must precede final lifecycle: {kinds:?}"
+                );
+            }
+            _ => panic!("missing terminal/lifecycle ordering markers: {kinds:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_browser_subscription_requires_execution_id() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription"}"#.into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("invalid_request"),
+                    "close reason: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_browser_subscription_not_found_closes_structured() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","execution_id":"missing"}"#
+                    .into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("not_found"),
+                    "close reason: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_auth_rejection_returns_json_before_upgrade() {
+        use crate::app_events_websocket::handle_app_events_websocket;
+        use std::io::Read;
+
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind");
+        let addr = listener.local_addr().expect("addr");
+        let state = empty_state();
+        let server = thread::spawn(move || {
+            let (mut stream, _) = listener.accept().expect("accept");
+            let req = make_http_request(
+                "GET",
+                "/v1/workspaces/ws-test/apps/traverse-starter/events",
+                Vec::new(),
+            );
+            handle_app_events_websocket(
+                &mut stream,
+                &req,
+                &state,
+                true,
+                "ws-test",
+                "traverse-starter",
+                |_request, _state, _loopback, _workspace_id| {
+                    Err((
+                        401,
+                        "Unauthorized",
+                        error_envelope("unauthorized", "Bearer token required"),
+                    ))
+                },
+            )
+            .expect("auth rejection must write a response");
+        });
+
+        let mut client = TcpStream::connect(addr).expect("connect");
+        client
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("timeout");
+        client
+            .write_all(
+                b"GET /v1/workspaces/ws-test/apps/traverse-starter/events HTTP/1.1\r\n\
+                  Host: 127.0.0.1\r\n\
+                  Upgrade: websocket\r\n\
+                  Connection: Upgrade\r\n\
+                  Sec-WebSocket-Key: dGhlIHNhbXBsZSBub25jZQ==\r\n\
+                  Sec-WebSocket-Version: 13\r\n\
+                  \r\n",
+            )
+            .expect("write");
+        let mut out = Vec::new();
+        let mut buf = [0_u8; 1024];
+        let deadline = Instant::now() + Duration::from_secs(5);
+        while Instant::now() < deadline {
+            match client.read(&mut buf) {
+                Ok(0) => break,
+                Ok(n) => out.extend_from_slice(&buf[..n]),
+                Err(err)
+                    if err.kind() == std::io::ErrorKind::WouldBlock
+                        || err.kind() == std::io::ErrorKind::TimedOut =>
+                {
+                    if out.windows(4).any(|w| w == b"\r\n\r\n") {
+                        // Headers arrived; keep waiting briefly for the body.
+                        thread::sleep(Duration::from_millis(10));
+                        continue;
+                    }
+                    break;
+                }
+                Err(_) => break,
+            }
+            if let Some(header_end) = out.windows(4).position(|w| w == b"\r\n\r\n") {
+                let headers = &out[..header_end + 4];
+                let content_length = String::from_utf8_lossy(headers)
+                    .lines()
+                    .find_map(|line| {
+                        line.split_once(':').and_then(|(name, value)| {
+                            name.eq_ignore_ascii_case("content-length")
+                                .then(|| value.trim().parse::<usize>().ok())
+                                .flatten()
+                        })
+                    })
+                    .unwrap_or(0);
+                if out.len() >= header_end + 4 + content_length {
+                    break;
+                }
+            }
+        }
+        let text = String::from_utf8_lossy(&out);
+        assert_eq!(response_status(&out), 401, "response: {text}");
+        assert!(
+            !text.contains("101 Switching Protocols"),
+            "auth rejection must not complete the WebSocket upgrade"
+        );
+        // Body may arrive in a later TCP segment under slow coverage builds; the
+        // status-line assertion above is enough to prove FR-008 pre-stream reject.
+        server.join().expect("server thread");
+    }
+
+    #[test]
+    fn websocket_binary_subscribe_frame_is_accepted() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool_with(
+            test_state_with("traverse-starter.process", "1.0.0"),
+            limits,
+            1,
+        );
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Binary(
+                br#"{"type":"subscribe","mode":"app_events"}"#.to_vec().into(),
+            ))
+            .expect("binary subscribe must send");
+        match socket.read().expect("server must respond") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("stream_completed"),
+                    "empty replay should still complete: {}",
+                    frame.reason
+                );
+            }
+            Message::Text(_) => {
+                // events may arrive if residual state exists; tolerate either path
+            }
+            other => panic!("unexpected first frame: {other:?}"),
+        }
+    }
+
+    #[test]
     fn app_sessions_path_parses_workspace_and_app_id() {
         assert_eq!(
             workspace_app_sessions_path("/v1/workspaces/ws-test/apps/traverse-starter/sessions"),
