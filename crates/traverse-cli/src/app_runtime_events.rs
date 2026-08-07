@@ -258,7 +258,11 @@ fn validate_last_event_id(broker: &dyn EventBroker, raw: &str) -> Result<u64, Ap
     }
 }
 
-fn per_type_from_cursor(log: &[AppEventLogEntry], event_type: &str, from_global: u64) -> u64 {
+pub(crate) fn per_type_from_cursor(
+    log: &[AppEventLogEntry],
+    event_type: &str,
+    from_global: u64,
+) -> u64 {
     log.iter()
         .filter(|entry| entry.event_type == event_type && entry.cursor <= from_global)
         .map(|entry| entry.cursor)
