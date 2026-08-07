@@ -24,7 +24,7 @@ That includes:
 - producing runtime state, trace, and terminal artifacts
 - exposing transport-agnostic browser-subscription and MCP-facing payload contracts
 
-These responsibilities must remain stable regardless of whether Traverse is embedded directly in a process, wrapped by a browser adapter, surfaced through MCP, or accompanied by local helper processes.
+These responsibilities must remain stable regardless of whether Traverse is embedded directly in a process, consumed through the browser-subscription WebSocket transport, surfaced through MCP, or accompanied by local helper processes.
 
 ## Adapter Responsibilities
 

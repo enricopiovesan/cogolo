@@ -41,6 +41,11 @@ pub(crate) struct SubscribeRequest {
     pub(crate) from_cursor: Option<String>,
     #[serde(default)]
     pub(crate) execution_id: Option<String>,
+    /// `browser_subscription` mode's other selector (spec
+    /// 013-browser-runtime-subscription FR-001): exactly one of
+    /// `request_id`/`execution_id` must be supplied.
+    #[serde(default)]
+    pub(crate) request_id: Option<String>,
 }
 
 fn default_mode() -> String {
@@ -139,6 +144,7 @@ pub(crate) fn handle_app_events_websocket<E: LocalExecutor + Clone>(
             &mut socket,
             state,
             workspace_id,
+            subscribe.request_id.as_deref(),
             subscribe.execution_id.as_deref(),
         ),
         "app_events" => serve_app_events_subscription(
@@ -359,40 +365,70 @@ fn serve_app_events_subscription<E: LocalExecutor + Clone>(
     Ok(())
 }
 
+/// The one selector spec 013-browser-runtime-subscription FR-001 requires a
+/// `browser_subscription` request to carry exactly one of.
+#[derive(Debug, Clone, Copy)]
+enum BrowserSubscriptionSelector<'a> {
+    RequestId(&'a str),
+    ExecutionId(&'a str),
+}
+
 fn serve_browser_subscription<E: LocalExecutor + Clone>(
     socket: &mut WebSocket<&mut TcpStream>,
     state: &ApiState<E>,
     workspace_id: &str,
+    request_id: Option<&str>,
     execution_id: Option<&str>,
 ) -> Result<(), String> {
-    let Some(execution_id) = execution_id else {
-        let _ = socket.close(Some(structured_close(
-            CloseCode::Policy,
-            "invalid_request",
-            "browser_subscription mode requires execution_id",
-            None,
-            None,
-        )));
-        let _ = socket.flush();
-        return Ok(());
+    // Spec 013 FR-001/FR-002 requires exactly one of request_id/execution_id.
+    let selector = match (request_id, execution_id) {
+        (Some(request_id), None) => BrowserSubscriptionSelector::RequestId(request_id),
+        (None, Some(execution_id)) => BrowserSubscriptionSelector::ExecutionId(execution_id),
+        (Some(_), Some(_)) => {
+            let _ = socket.close(Some(structured_close(
+                CloseCode::Policy,
+                "invalid_request",
+                "request_id and execution_id are mutually exclusive",
+                None,
+                None,
+            )));
+            let _ = socket.flush();
+            return Ok(());
+        }
+        (None, None) => {
+            let _ = socket.close(Some(structured_close(
+                CloseCode::Policy,
+                "invalid_request",
+                "browser_subscription mode requires request_id or execution_id",
+                None,
+                None,
+            )));
+            let _ = socket.flush();
+            return Ok(());
+        }
     };
 
     let outcome = state.with_workspace_mut(workspace_id, |ws| {
-        let Some(trace) = ws.traces.get(execution_id).cloned() else {
-            return Ok(None);
-        };
-        let status = ws
-            .executions
-            .get(execution_id)
-            .is_some_and(|record| record.status.as_str() == "succeeded");
-        Ok(Some((trace, status)))
+        Ok(crate::http_api::resolve_browser_subscription_target(
+            ws,
+            request_id,
+            execution_id,
+        ))
     })?;
 
-    let Some((trace, succeeded)) = outcome else {
+    let Some((execution_id, trace, succeeded)) = outcome else {
+        let not_found_target = match selector {
+            BrowserSubscriptionSelector::RequestId(request_id) => {
+                format!("request '{request_id}'")
+            }
+            BrowserSubscriptionSelector::ExecutionId(execution_id) => {
+                format!("execution '{execution_id}'")
+            }
+        };
         let _ = socket.close(Some(structured_close(
             CloseCode::Policy,
             "not_found",
-            &format!("execution '{execution_id}' was not found in workspace '{workspace_id}'"),
+            &format!("{not_found_target} was not found in workspace '{workspace_id}'"),
             None,
             None,
         )));
@@ -400,13 +436,26 @@ fn serve_browser_subscription<E: LocalExecutor + Clone>(
         return Ok(());
     };
 
-    // Spec 013 requires exactly one selector (request_id XOR execution_id).
+    send_browser_subscription_stream(socket, selector, &execution_id, trace, succeeded)
+}
+
+/// Builds the spec 013-browser-runtime-subscription message sequence for a
+/// resolved trace and streams it to the client, closing the socket once done.
+fn send_browser_subscription_stream(
+    socket: &mut WebSocket<&mut TcpStream>,
+    selector: BrowserSubscriptionSelector<'_>,
+    execution_id: &str,
+    trace: traverse_runtime::RuntimeTrace,
+    succeeded: bool,
+) -> Result<(), String> {
     let request = traverse_runtime::BrowserRuntimeSubscriptionRequest {
         kind: "browser_runtime_subscription_request".to_string(),
         schema_version: "1.0.0".to_string(),
         governing_spec: "013-browser-runtime-subscription".to_string(),
-        request_id: None,
-        execution_id: Some(execution_id.to_string()),
+        request_id: matches!(selector, BrowserSubscriptionSelector::RequestId(_))
+            .then(|| trace.request.request_id.clone()),
+        execution_id: matches!(selector, BrowserSubscriptionSelector::ExecutionId(_))
+            .then(|| execution_id.to_string()),
     };
     let runtime_outcome = traverse_runtime::RuntimeExecutionOutcome {
         result: traverse_runtime::RuntimeResult {

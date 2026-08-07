@@ -25,7 +25,6 @@ traverse-cli workflow --help
 traverse-cli expedition --help
 traverse-cli event --help
 traverse-cli trace --help
-traverse-cli browser-adapter --help
 ```
 
 Subcommand-level help (full per-command detail with flags and examples):
@@ -43,7 +42,6 @@ traverse-cli workflow inspect --help
 traverse-cli expedition execute --help
 traverse-cli event inspect --help
 traverse-cli trace inspect --help
-traverse-cli browser-adapter serve --help
 ```
 
 Help output is written to stderr and the process exits with a non-zero code,
@@ -59,7 +57,6 @@ consistent with error output behaviour across the CLI.
 | `app validate --manifest <path> --json` | Validate a downstream app manifest and emit stable setup evidence without writing workspace state. | `cargo run -p traverse-cli-rs -- app validate --manifest examples/applications/expedition-readiness/app.manifest.json --json` | Prints JSON with `status: validated`, app identity, component/workflow ids, verified WASM digests, public surfaces, model readiness, and runtime references. |
 | `app register --manifest <path> --workspace <workspace-id> --json` | Validate a downstream app manifest and atomically persist local workspace registration state. | `cargo run -p traverse-cli-rs -- app register --manifest examples/applications/expedition-readiness/app.manifest.json --workspace local --json` | Prints JSON with `status: registered` or `status: already_registered`, app identity, workspace id, `state_scope: workspace_persisted`, `state_path`, digest evidence, and runtime references. |
 | `component new <component-id>` | Create a governed WASM component package scaffold under `components/<component-id>`. | `cargo run -p traverse-cli-rs -- component new knowledge.retrieve` | Creates a component `manifest.json`, draft capability `contract.json`, Rust package shell, source directory, and artifact directory without creating executable WASM behavior. |
-| `browser-adapter serve [--bind <address>]` | Start the local browser adapter for the governed browser consumer path. | `cargo run -p traverse-cli-rs -- browser-adapter serve --bind 127.0.0.1:4174` | Prints `local browser adapter listening on http://...` and stays running until stopped. |
 | `capability-package inspect <manifest-path>` | Load and summarize a governed WASM capability package manifest. | `cargo run -p traverse-cli-rs -- capability-package inspect examples/capabilities/expedition-intent-agent/manifest.json` | Prints `path`, `package_id`, `package_version`, `capability_id`, binary location, digest, and model/workflow references. |
 | `capability-package execute <manifest-path> <request-path>` | Load a governed WASM capability package and execute it against a runtime request. | `cargo run -p traverse-cli-rs -- capability-package execute examples/capabilities/expedition-intent-agent/manifest.json examples/capabilities/runtime-requests/interpret-expedition-intent.json` | Prints `request_id`, `execution_id`, `package_id`, `capability_id`, `trace_ref`, `status`, and capability-specific result fields. |
 | `event inspect <contract-path>` | Parse and validate an event contract. | `cargo run -p traverse-cli-rs -- event inspect contracts/examples/expedition/events/expedition-objective-captured/contract.json` | Prints `path`, `id`, `version`, lifecycle, classification, publisher/subscriber counts, and publisher/subscriber ids. |
@@ -77,7 +74,6 @@ The following command families are intended to be the public documented surface 
 - `app validate`
 - `app register`
 - `component new`
-- `browser-adapter serve`
 - `capability-package inspect`
 - `capability-package execute`
 - `event inspect`
@@ -178,7 +174,7 @@ Those paths are useful for testing and documentation, but they are not a promise
 
 - Inspect commands print structured summaries to stdout.
 - Execute commands print structured execution summaries to stdout.
-- The browser adapter prints a listening address and then remains active.
+- `serve` prints a listening address and then remains active.
 - Error cases are written to stderr and return a non-zero exit code.
 
 ## Validation
@@ -199,7 +195,6 @@ This reference was checked against the live CLI behavior with:
 - `cargo run -p traverse-cli-rs -- expedition execute --help`
 - `cargo run -p traverse-cli-rs -- event inspect --help`
 - `cargo run -p traverse-cli-rs -- trace inspect --help`
-- `cargo run -p traverse-cli-rs -- browser-adapter serve --help`
 
 It should also remain consistent with:
 

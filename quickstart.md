@@ -1,13 +1,22 @@
 # Traverse v0.1 Quickstart
 
-This quickstart documents the first app-consumable Traverse flow: a browser-hosted app consuming Traverse through the live local browser adapter and the checked-in React demo surface.
+This quickstart documents the first app-consumable Traverse flow: a browser-hosted app consuming Traverse through the production `traverse-cli serve` HTTP/WebSocket API and the checked-in React demo surface.
 
 It is intentionally narrow. Use this path when you want one approved end-to-end consumer flow from setup through terminal outcome.
+
+> **Note:** this quickstart previously ran a standalone `browser-adapter serve`
+> process on its own port. That binary was retired (Decision 53, issue #973)
+> once the production WebSocket transport grew the same
+> `013-browser-runtime-subscription` ordered message contract natively — see
+> [docs/browser-adapter.md](docs/browser-adapter.md). The steps below start
+> the production server directly; the React demo app (a separate repo) needs
+> to point its browser-subscription client at this server's WebSocket
+> endpoint rather than a dedicated adapter port.
 
 ## What This Covers
 
 - the Traverse runtime host
-- the live local browser adapter proxy
+- the production `traverse-cli serve` HTTP/WebSocket API
 - the React browser demo
 - one approved expedition request
 - ordered runtime updates, trace evidence, and terminal output
@@ -17,7 +26,7 @@ It is intentionally narrow. Use this path when you want one approved end-to-end 
 - A working Rust toolchain
 - Node.js 20 or later
 - Two terminals
-- The repository checked out with the approved browser adapter and browser demo implementation already merged
+- The repository checked out with the approved browser demo implementation already merged
 
 Confirm the local environment first:
 
@@ -25,23 +34,29 @@ Confirm the local environment first:
 bash scripts/validate-setup.sh
 ```
 
-## Start The Live Browser Adapter
+## Start The Traverse Server
 
 From the repository root:
 
 ```bash
-cargo run -p traverse-cli-rs -- browser-adapter serve --bind 127.0.0.1:4174
+cargo run -p traverse-cli-rs -- serve --bind 127.0.0.1:8787
 ```
 
-Keep this terminal open. The React demo proxies browser-subscription traffic through this local adapter.
+Keep this terminal open. The React demo proxies browser-subscription traffic through this server's WebSocket endpoint.
 
 ## Start The React Browser Demo
 
 In a second terminal from the repository root:
 
 ```bash
-node https://github.com/traverse-framework/App-References/tree/main/apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 4173
+node https://github.com/traverse-framework/App-References/tree/main/apps/react-demo/server.mjs --adapter http://127.0.0.1:8787 --port 4173
 ```
+
+> The `--adapter` flag's target changed from the retired standalone adapter
+> port (4174) to the production server started above (8787). Confirm the
+> exact flag/port the demo app expects in
+> [App-References](https://github.com/traverse-framework/App-References) —
+> that repo is updated independently of this one.
 
 Open:
 
@@ -73,7 +88,7 @@ The expected final consumer outcome is a completed expedition plan with the gove
 ## Known Limitations
 
 - This is the first supported consumer path, not a production deployment guide.
-- The browser app must proxy through the local browser adapter to use the live path.
+- The browser app must proxy through the production server's WebSocket browser-subscription endpoint to use the live path.
 - The fallback static preview path in `https://github.com/traverse-framework/App-References/tree/main/apps/react-demo/README.md` is useful for offline inspection, but it is not the app-consumable v0.1 path.
 - This quickstart does not redefine Traverse internals; it only documents the governed consumer flow that is already checked in.
 

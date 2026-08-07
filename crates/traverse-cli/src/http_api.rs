@@ -206,6 +206,36 @@ pub(crate) struct ExecutionStatusRecord {
     updated_at: String,
 }
 
+/// Resolves the trace + execution status backing a `browser_subscription`
+/// request per spec 013-browser-runtime-subscription FR-001: the caller
+/// supplies exactly one of `request_id`/`execution_id`. `execution_id`
+/// matches `ws.traces` by key; `request_id` matches by the trace's own
+/// `request.request_id`. Returns `None` if neither selector is supplied or
+/// no trace matches.
+pub(crate) fn resolve_browser_subscription_target<E>(
+    ws: &WorkspaceState<E>,
+    request_id: Option<&str>,
+    execution_id: Option<&str>,
+) -> Option<(String, RuntimeTrace, bool)> {
+    let (execution_id, trace) = match (request_id, execution_id) {
+        (_, Some(execution_id)) => ws
+            .traces
+            .get(execution_id)
+            .map(|trace| (execution_id.to_string(), trace.clone()))?,
+        (Some(request_id), None) => ws
+            .traces
+            .iter()
+            .find(|(_, trace)| trace.request.request_id == request_id)
+            .map(|(execution_id, trace)| (execution_id.clone(), trace.clone()))?,
+        (None, None) => return None,
+    };
+    let succeeded = ws
+        .executions
+        .get(&execution_id)
+        .is_some_and(|record| record.status.as_str() == "succeeded");
+    Some((execution_id, trace, succeeded))
+}
+
 fn new_workspace_state<E: LocalExecutor + Clone>(
     registry: CapabilityRegistry,
     executor: E,
@@ -7008,7 +7038,7 @@ pub(crate) fn error_envelope(code: &str, message: &str) -> Value {
 }
 
 // ---------------------------------------------------------------------------
-// Raw HTTP helpers (same pattern as browser_adapter.rs)
+// Raw HTTP helpers
 // ---------------------------------------------------------------------------
 
 #[derive(Debug)]
@@ -10835,6 +10865,151 @@ mod tests {
     }
 
     #[test]
+    fn websocket_browser_subscription_not_found_by_request_id_closes_structured() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","request_id":"missing"}"#
+                    .into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("not_found"),
+                    "close reason: {}",
+                    frame.reason
+                );
+                assert!(
+                    frame.reason.contains("request 'missing'"),
+                    "close reason must name the request selector: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_browser_subscription_rejects_both_selectors() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","request_id":"r","execution_id":"e"}"#
+                    .into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("invalid_request"),
+                    "close reason: {}",
+                    frame.reason
+                );
+                assert!(
+                    frame.reason.contains("mutually exclusive"),
+                    "close reason must explain the XOR requirement: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_browser_subscription_accepts_request_id_selector() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool_with(
+            test_state_with("traverse-starter.process", "1.0.0"),
+            limits,
+            2,
+        );
+
+        let body = make_runtime_request_body("traverse-starter.process");
+        let mut execute = TcpStream::connect(addr).expect("execute client must connect");
+        let execute_req = format!(
+            "POST /v1/workspaces/ws-test/execute HTTP/1.1\r\n\
+             Host: 127.0.0.1\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n",
+            body.len()
+        );
+        execute
+            .write_all(execute_req.as_bytes())
+            .expect("execute headers");
+        execute.write_all(&body).expect("execute body");
+        let execute_response = read_all_with_timeout(&mut execute, Duration::from_secs(5));
+        assert_eq!(response_status(&execute_response), 200);
+
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"browser_subscription","request_id":"test-req-001"}"#
+                    .into(),
+            ))
+            .expect("browser subscribe must send");
+
+        let mut saw_established = false;
+        let mut saw_close = false;
+        for _ in 0..32 {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let value: Value =
+                        serde_json::from_str(text.as_str()).expect("browser frame json");
+                    let message = &value["message"];
+                    if let Some(status) = message["Lifecycle"]["status"].as_str()
+                        && status == "subscription_established"
+                    {
+                        saw_established = true;
+                    }
+                }
+                Ok(Message::Close(Some(frame))) => {
+                    assert!(frame.reason.contains("stream_completed"));
+                    saw_close = true;
+                    break;
+                }
+                Ok(Message::Close(None)) => {
+                    saw_close = true;
+                    break;
+                }
+                Ok(Message::Ping(payload)) => {
+                    socket.send(Message::Pong(payload)).expect("pong must send");
+                }
+                Ok(_) => {}
+                Err(err) => panic!("unexpected websocket read error: {err}"),
+            }
+        }
+        assert!(
+            saw_established,
+            "request_id selector must resolve to the seeded trace's lifecycle stream"
+        );
+        assert!(saw_close, "stream must terminate with a close frame");
+    }
+
+    #[test]
     fn websocket_auth_rejection_returns_json_before_upgrade() {
         use crate::app_events_websocket::handle_app_events_websocket;
         use std::io::Read;
@@ -11380,6 +11555,136 @@ mod tests {
         assert_eq!(response_status(&out), 404);
         let resp = parse_response_body(&out);
         assert_eq!(resp["traverse_code"], "not_found");
+    }
+
+    // ------------------------------------------------------------------
+    // resolve_browser_subscription_target — spec 013 FR-001 selector parity
+    // ------------------------------------------------------------------
+
+    #[test]
+    fn resolve_browser_subscription_target_finds_by_execution_id() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    None,
+                    Some("exec_test-req-001"),
+                ))
+            })
+            .expect("workspace lookup must succeed");
+
+        let (execution_id, trace, succeeded) =
+            resolved.expect("execution_id selector must resolve the seeded trace");
+        assert_eq!(execution_id, "exec_test-req-001");
+        assert_eq!(trace.request.request_id, "test-req-001");
+        assert!(succeeded);
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_finds_by_request_id() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    Some("test-req-001"),
+                    None,
+                ))
+            })
+            .expect("workspace lookup must succeed");
+
+        let (execution_id, trace, succeeded) =
+            resolved.expect("request_id selector must resolve the seeded trace");
+        assert_eq!(execution_id, "exec_test-req-001");
+        assert_eq!(trace.request.request_id, "test-req-001");
+        assert!(succeeded);
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_reports_not_succeeded_for_non_succeeded_status() {
+        let body = make_runtime_request_body("test.api.do-something");
+        let state = test_state_with("test.api.do-something", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        state
+            .with_workspace_mut("ws-test", |ws| {
+                ws.executions
+                    .get_mut("exec_test-req-001")
+                    .expect("execution must exist")
+                    .status = "failed".to_string();
+                Ok(())
+            })
+            .expect("status override must succeed");
+
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    None,
+                    Some("exec_test-req-001"),
+                ))
+            })
+            .expect("workspace lookup must succeed");
+
+        let (_, _, succeeded) = resolved.expect("execution_id selector must resolve");
+        assert!(!succeeded);
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_returns_none_for_unknown_execution_id() {
+        let state = empty_state();
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    None,
+                    Some("missing"),
+                ))
+            })
+            .expect("workspace lookup must succeed");
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_returns_none_for_unknown_request_id() {
+        let state = empty_state();
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(
+                    ws,
+                    Some("missing"),
+                    None,
+                ))
+            })
+            .expect("workspace lookup must succeed");
+        assert!(resolved.is_none());
+    }
+
+    #[test]
+    fn resolve_browser_subscription_target_returns_none_when_neither_selector_supplied() {
+        let state = empty_state();
+        let resolved = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(resolve_browser_subscription_target(ws, None, None))
+            })
+            .expect("workspace lookup must succeed");
+        assert!(resolved.is_none());
     }
 
     // ------------------------------------------------------------------

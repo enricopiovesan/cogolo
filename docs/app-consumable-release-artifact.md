@@ -56,7 +56,7 @@ The release publication bundle MUST reference evidence for:
 
 - the first app-consumable quickstart
 - the versioned consumer bundle
-- the live browser adapter smoke path
+- the live browser subscription smoke path
 - the app-consumable acceptance path
 - the downstream consumer contract
 - the downstream integration validation path

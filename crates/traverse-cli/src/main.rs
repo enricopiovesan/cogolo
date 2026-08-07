@@ -2,7 +2,6 @@
 
 mod app_events_websocket;
 mod app_runtime_events;
-mod browser_adapter;
 mod capability_packages;
 mod federation_operator;
 mod grpc_event_transport;
@@ -10,7 +9,6 @@ mod http_api;
 mod supply_chain;
 mod telemetry;
 
-use browser_adapter::serve_local_browser_adapter;
 use capability_packages::load_capability_package;
 use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
@@ -101,9 +99,6 @@ enum Command {
     },
     ComponentNew {
         component_id: String,
-    },
-    BrowserAdapterServe {
-        bind_address: String,
     },
     CapabilityPackageInspect {
         manifest_path: PathBuf,
@@ -202,14 +197,6 @@ impl std::fmt::Display for CliError {
 fn main() -> ExitCode {
     let args: Vec<String> = env::args().collect();
     match parse_command(&args) {
-        Ok(Command::BrowserAdapterServe { bind_address }) => {
-            if let Err(error) = serve_local_browser_adapter(&bind_address) {
-                eprintln!("{error}");
-                ExitCode::FAILURE
-            } else {
-                ExitCode::SUCCESS
-            }
-        }
         Ok(Command::Serve {
             bind_address,
             auth_mode,
@@ -313,9 +300,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
             dry_run,
         ),
         Command::ComponentNew { component_id } => component_new(&component_id),
-        Command::BrowserAdapterServe { .. } | Command::Serve { .. } => {
-            Err(CliError::UsageError(usage()))
-        }
+        Command::Serve { .. } => Err(CliError::UsageError(usage())),
         Command::CapabilityPackageInspect { manifest_path } => {
             inspect_capability_package(&manifest_path)
         }
@@ -437,7 +422,6 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
     }
 
     match (family, subcommand) {
-        (Some("browser-adapter"), Some("serve")) => parse_browser_adapter_command(args),
         (Some("serve"), _) => parse_serve_command(args),
         (Some("app"), Some("new")) => parse_app_new_command(args),
         (Some("app"), Some("validate")) => parse_app_validate_command(args),
@@ -500,8 +484,6 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("event"), _) => help_event(),
         (Some("trace"), Some("inspect")) => help_trace_inspect(),
         (Some("trace"), _) => help_trace(),
-        (Some("browser-adapter"), Some("serve")) => help_browser_adapter_serve(),
-        (Some("browser-adapter"), _) => help_browser_adapter(),
         (Some("serve"), _) => help_serve(),
         (Some("telemetry"), Some("enable")) => help_telemetry_enable(),
         (Some("telemetry"), Some("disable")) => help_telemetry_disable(),
@@ -1203,33 +1185,6 @@ fn help_trace() -> String {
         .to_string()
 }
 
-fn help_browser_adapter_serve() -> String {
-    "traverse-cli browser-adapter serve [--bind <address>]
-
-  Purpose:
-    Start the local browser adapter proxy. The adapter bridges browser-side
-    consumers to the local Traverse runtime over a same-origin HTTP endpoint.
-    Stays running until stopped (Ctrl-C).
-
-  Optional flags:
-    --bind <address>   Address and port to listen on (default: 127.0.0.1:0).
-    --help             Print this help text.
-
-  Example:
-    traverse-cli browser-adapter serve --bind 127.0.0.1:4174"
-        .to_string()
-}
-
-fn help_browser_adapter() -> String {
-    "traverse-cli browser-adapter <subcommand> [options]
-
-  Subcommands:
-    serve [--bind <address>]   Start the local browser adapter proxy.
-
-  Run `traverse-cli browser-adapter serve --help` for subcommand-specific help."
-        .to_string()
-}
-
 fn parse_app_new_command(args: &[String]) -> Result<Command, String> {
     let register = args.iter().any(|a| a == "--register");
     let workspace_id = parse_string_flag(args, "--workspace");
@@ -1359,18 +1314,6 @@ fn parse_component_new_command(args: &[String]) -> Result<Command, String> {
     match args {
         [_, _, _, component_id] => Ok(Command::ComponentNew {
             component_id: component_id.clone(),
-        }),
-        _ => Err(usage()),
-    }
-}
-
-fn parse_browser_adapter_command(args: &[String]) -> Result<Command, String> {
-    match args.len() {
-        3 => Ok(Command::BrowserAdapterServe {
-            bind_address: "127.0.0.1:0".to_string(),
-        }),
-        5 if args[3] == "--bind" => Ok(Command::BrowserAdapterServe {
-            bind_address: args[4].clone(),
         }),
         _ => Err(usage()),
     }
@@ -4030,10 +3973,6 @@ fn validate_expedition_request(request_path: &Path) -> Result<String, CliError> 
     ))
 }
 
-fn canonical_expedition_runtime_outcome() -> Result<RuntimeExecutionOutcome, CliError> {
-    execute_expedition_outcome(&canonical_expedition_request_path())
-}
-
 fn inspect_event(contract_path: &Path) -> Result<String, CliError> {
     let contents = read_text_file(contract_path, "event contract")?;
     let parsed = parse_event_contract(&contents).map_err(|failure| {
@@ -4589,7 +4528,7 @@ fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
 }
 
 fn usage() -> String {
-    "usage: traverse-cli app <new|validate|register> [options] | traverse-cli registry sync --workspace <id> --json | traverse-cli component new <component-id> | traverse-cli <bundle|capability-package|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli browser-adapter serve [--bind <address>] | traverse-cli serve [--bind <address>] [--port <N>] [--allow-unauthenticated]".to_string()
+    "usage: traverse-cli app <new|validate|register> [options] | traverse-cli registry sync --workspace <id> --json | traverse-cli component new <component-id> | traverse-cli <bundle|capability-package|event|trace|workflow|expedition|federation> <inspect|register|execute|peers|sync|status> <artifact-path> [request-path] [--trace-out <trace-path>] | traverse-cli serve [--bind <address>] [--port <N>] [--allow-unauthenticated]".to_string()
 }
 
 fn write_trace_artifact(path: &Path, trace: &RuntimeTrace) -> Result<(), CliError> {
@@ -5095,10 +5034,6 @@ fn provenance_source_label(source: &traverse_contracts::ProvenanceSource) -> Str
 
 fn canonical_expedition_bundle_path() -> PathBuf {
     repo_root().join("examples/expedition/registry-bundle/manifest.json")
-}
-
-fn canonical_expedition_request_path() -> PathBuf {
-    repo_root().join("examples/expedition/runtime-requests/plan-expedition.json")
 }
 
 /// Manifest paths for the five atomic expedition-planning capabilities' real
@@ -7317,22 +7252,6 @@ mod tests {
     }
 
     #[test]
-    fn parse_command_returns_browser_adapter_serve_help_on_help_flag() {
-        let args = vec![
-            "traverse-cli".to_string(),
-            "browser-adapter".to_string(),
-            "serve".to_string(),
-            "--help".to_string(),
-        ];
-        let result = parse_command(&args);
-        assert!(result.is_err(), "expected Err for --help");
-        let text = result.err().unwrap_or_default();
-        assert!(text.contains("browser-adapter serve"));
-        assert!(text.contains("--bind"));
-        assert!(text.contains("Example:"));
-    }
-
-    #[test]
     fn serve_help_marks_http_discovery_as_development_and_ci_only() {
         let text = help_serve();
         assert!(text.contains("development and CI HTTP/JSON API"));
@@ -8716,8 +8635,6 @@ mod tests {
             ("event", None),
             ("trace", Some("inspect")),
             ("trace", None),
-            ("browser-adapter", Some("serve")),
-            ("browser-adapter", None),
             ("serve", None),
             ("telemetry", Some("enable")),
             ("telemetry", Some("disable")),
@@ -8864,10 +8781,6 @@ mod tests {
             grpc_tls_key_path: None,
         };
         assert!(matches!(run_command(serve), Err(CliError::UsageError(_))));
-        let adapter = Command::BrowserAdapterServe {
-            bind_address: "127.0.0.1:0".to_string(),
-        };
-        assert!(matches!(run_command(adapter), Err(CliError::UsageError(_))));
     }
 
     // ------------------------------------------------------------------
@@ -8942,31 +8855,6 @@ mod tests {
         assert_eq!(value["workspace"], "ws-test");
         assert_eq!(value["errors"][0]["code"], "sync_failed");
         assert_eq!(value["errors"][0]["severity"], "error");
-    }
-
-    #[test]
-    fn browser_adapter_serve_parses_bind_forms() {
-        let bare = vec![
-            "traverse-cli".to_string(),
-            "browser-adapter".to_string(),
-            "serve".to_string(),
-        ];
-        assert!(matches!(
-            parse_command(&bare),
-            Ok(Command::BrowserAdapterServe { bind_address }) if bind_address == "127.0.0.1:0"
-        ));
-
-        let mut bound = bare.clone();
-        bound.push("--bind".to_string());
-        bound.push("127.0.0.1:9000".to_string());
-        assert!(matches!(
-            parse_command(&bound),
-            Ok(Command::BrowserAdapterServe { bind_address }) if bind_address == "127.0.0.1:9000"
-        ));
-
-        let mut malformed = bare;
-        malformed.push("--unexpected".to_string());
-        assert!(parse_command(&malformed).is_err());
     }
 
     #[test]

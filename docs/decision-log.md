@@ -1737,3 +1737,100 @@ all four spec ids. Each spec file carries an `## Amendment` note (matching
 the registry repo's own amendment-note convention) documenting what changed
 and why. Tracked for codification in a follow-up PR alongside the DoD
 strengthening pass on issues `#963`–`#973`.
+
+## Decision 53: Retire `browser_adapter.rs` Now That Production WebSocket Serves Spec 013's Contract
+
+- **Date**: 2026-08-07
+- **Status**: Accepted
+- **Governing specs**: `013-browser-runtime-subscription` (unchanged); no spec currently registers `crates/traverse-cli/src/browser_adapter.rs` specifically (see Context)
+- **Related issues**: `#973`, `#967`
+- **Origin**: `/traverse-ops 973`, escalated to `/brainstorm` per the ticket's own text ("decide retire vs. merge... both were live options... deferred rather than ruled out")
+
+### Context
+
+Issue `#973` was filed as a north-star placeholder by Decision 46, explicitly
+gated on the WebSocket transport (Decision 47) shipping first, to revisit
+whether `browser_adapter.rs` — a standalone, single-connection, dev-only
+`traverse-cli browser-adapter serve` binary replaying one hardcoded canonical
+outcome — should be retired or merged into the production HTTP API so spec
+`013`'s ordered `subscription_established → state → trace → terminal_result
+→ stream_completed` message contract becomes real, `EventBroker`-backed
+production behavior.
+
+`#967` merged (PR #979) before this brainstorm started. Inspecting its
+implementation (`crates/traverse-cli/src/app_events_websocket.rs`) found
+that its scope already included a `browser_subscription` WebSocket mode
+alongside `app_events`: `serve_browser_subscription()` calls the same
+`traverse_runtime::browser_subscription_messages()` function that generates
+spec `013`'s ordered contract, sourced from a real trace/execution record in
+the workspace, not a hardcoded outcome. The "merge" side of `#973`'s
+retire-vs-merge choice had therefore already been substantially done as a
+side effect of `#967`, without a dedicated ticket or spec authored for it.
+
+Separately, checking `specs/governance/approved-specs.json` found that no
+approved spec entry governs `crates/traverse-cli/src/browser_adapter.rs`
+specifically — `013-browser-runtime-subscription`'s `governs` list only
+covers `crates/cogolo-runtime/` and `crates/traverse-runtime/`, not
+`crates/traverse-cli/`. The `specs/019-local-browser-adapter-transport/`
+folder referenced by `#973`'s own body exists on disk but was never
+registered in the approved-specs registry — it never became an immutable
+governing spec in the enforced sense. Precedent from
+`096-runtime-event-sse-transport` (still `"status": "approved"` in the
+registry even though `#967` retired the SSE code path it governs, per
+`docs/adr/0034-websocket-grpc-event-transport.md`) confirmed this repo does
+not use a "retired" registry status — an approved spec stays as a historical
+record even after its governed code is removed. The unregistered `019` spec
+folder has no such historical-record status to preserve.
+
+### Decision
+
+Retire `browser_adapter.rs` outright: delete the file, its `main.rs` CLI
+wiring (`browser-adapter serve` subcommand, help text), and the unregistered
+`specs/019-local-browser-adapter-transport/` folder. Update the ~9
+doc references found across `docs/` and `specs/` that mention
+`browser-adapter`/`browser_adapter`. No new spec or ADR is required — this
+is pure removal of now-duplicate surface area, declared under an existing
+broad-covering spec (`097-websocket-grpc-event-transport`, whose `governs`
+list already includes `crates/traverse-cli/`) for spec-alignment purposes.
+
+### Alternatives Considered
+
+- Keep it as a lightweight dev tool (no full workspace/app/execution setup
+  needed to exercise spec 013's message shape) — considered, but rejected:
+  production's `browser_subscription` mode already serves the same contract
+  with real data; a second, hardcoded-outcome implementation is now
+  duplicate surface area with no clear purpose, and Decision 48 (no
+  back-compat tax pre-production) favors removing it over maintaining two
+  parallel implementations.
+- Verify request_id-selector parity before retiring (the `browser_subscription`
+  code path inspected only handles the `execution_id` selector explicitly) —
+  raised as a caution during the brainstorm; folded into the retirement PR's
+  own validation rather than blocking the decision itself.
+
+  **Amendment (2026-08-07, during execution)**: verification found this was
+  a real gap, not a hypothetical one — `SubscribeRequest`/`serve_browser_subscription`
+  in `crates/traverse-cli/src/app_events_websocket.rs` have no `request_id`
+  field or code path at all, only `execution_id`, while spec `013` FR-001
+  requires supporting either selector and `browser_adapter.rs` does support
+  `request_id` (tested). Retiring `browser_adapter.rs` as originally decided
+  would have left production non-compliant with FR-001. Re-raised to the user
+  mid-execution rather than silently expanding scope or silently accepting
+  the gap; decided to add `request_id` support to
+  `serve_browser_subscription` first (small, mirrors the existing
+  `execution_id` path), verify against spec 013, and only then retire —
+  folded into the same `#973` PR rather than filed as a separate ticket,
+  since it's a small, tightly-scoped addition directly gating the retirement
+  this ticket already decided on.
+- Leave the unregistered `019-local-browser-adapter-transport` spec folder in
+  place as an unofficial historical record — rejected: it was never approved,
+  so keeping it alongside deleted code it describes is just confusing dead
+  documentation, unlike an actually-approved spec.
+
+### Outcome
+
+`#973` proceeds as a normal `TRAVERSE OPS` execution ticket: claim, branch,
+delete `browser_adapter.rs` + CLI wiring + the unregistered spec folder,
+update doc references, verify `serve_browser_subscription`'s selector
+coverage against spec 013 (request_id XOR execution_id) before/while
+removing the fallback tool, open a PR declaring `097-websocket-grpc-event-transport`
+as the governing spec, and close `#973` on merge.

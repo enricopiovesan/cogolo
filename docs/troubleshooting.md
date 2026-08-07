@@ -14,7 +14,7 @@ Match the failing command or CI job to the relevant section below:
 | `bash scripts/ci/rust_checks.sh` | `cargo fmt --check`, `cargo clippy`, or workspace test failure | [Rust Checks](#rust-checks) |
 | `bash scripts/ci/coverage_gate.sh` | missing `cargo-llvm-cov`, coverage below threshold | [Coverage Gate](#coverage-gate) |
 | `bash scripts/ci/spec_alignment_check.sh ...` or CI `spec-alignment` | PR body/spec mismatch, missing approved spec, invalid base SHA | [Spec Alignment](#spec-alignment) |
-| `bash scripts/ci/react_demo_live_adapter_smoke.sh` | browser adapter flow does not start or complete | [Browser Adapter And Demo Smoke Paths](#browser-adapter-and-demo-smoke-paths) |
+| `bash scripts/ci/react_demo_live_adapter_smoke.sh` | live browser subscription flow does not start or complete | [Browser Subscription And Demo Smoke Paths](#browser-subscription-and-demo-smoke-paths) |
 | `bash scripts/ci/mcp_consumption_validation.sh` or MCP stdio smoke paths | `traverse-mcp` stdio flow fails or documented MCP surface drifts | [MCP Validation And Stdio Server Paths](#mcp-validation-and-stdio-server-paths) |
 | `bash scripts/ci/app_consumable_release_prep.sh` | release docs or bundle references are out of sync | [App-Consumable Release Prep](#app-consumable-release-prep) |
 
@@ -202,33 +202,32 @@ git merge-base origin/main HEAD
 sed -n '1,220p' specs/governance/approved-specs.json
 ```
 
-## Browser Adapter And Demo Smoke Paths
+## Browser Subscription And Demo Smoke Paths
 
 Primary commands:
 
 ```bash
-bash scripts/ci/browser_adapter_smoke.sh
 bash scripts/ci/react_demo_live_adapter_smoke.sh
 ```
 
 Common failure shapes:
 
-- the browser adapter does not start
-- the React demo cannot reach the adapter
+- the production server does not start
+- the React demo cannot reach the server's browser-subscription WebSocket endpoint
 - the live path never reaches terminal completion
 
 What to check first:
 
-1. Confirm the adapter command still works:
+1. Confirm the server command still works:
 
 ```bash
-cargo run -p traverse-cli-rs -- browser-adapter serve --bind 127.0.0.1:4174
+cargo run -p traverse-cli-rs -- serve --bind 127.0.0.1:8787
 ```
 
 2. Confirm the React demo command still works:
 
 ```bash
-node https://github.com/traverse-framework/App-References/tree/main/apps/react-demo/server.mjs --adapter http://127.0.0.1:4174 --port 4173
+node https://github.com/traverse-framework/App-References/tree/main/apps/react-demo/server.mjs --adapter http://127.0.0.1:8787 --port 4173
 ```
 
 3. Re-read:
@@ -330,7 +329,6 @@ If you need to rebuild generated local state, prefer rerunning the documented co
 Examples:
 
 ```bash
-bash scripts/ci/browser_adapter_smoke.sh
 bash scripts/ci/react_demo_live_adapter_smoke.sh
 bash scripts/ci/mcp_stdio_server_smoke.sh
 ```

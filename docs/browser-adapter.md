@@ -1,18 +1,24 @@
-# Traverse Browser Adapter Explainer
+# Traverse Browser Subscription Explainer
 
-The Traverse browser adapter is the local host-facing bridge that exposes governed runtime subscription behavior to a browser app.
+Browser-hosted apps receive governed runtime subscription updates directly
+from the production `traverse-cli serve` HTTP/WebSocket API — there is no
+separate local browser adapter process. This doc used to describe a
+standalone `browser-adapter serve` binary; that binary was retired (Decision
+53, issue #973) once the production WebSocket transport grew the same
+ordered message contract natively.
 
-It is not a second runtime and it does not redefine Traverse semantics. It is an adapter layer over already-governed runtime behavior.
+It is not a second runtime and it does not redefine Traverse semantics. It is
+a subscription mode over already-governed runtime behavior.
 
-## What The Browser Adapter Is For
+## What Browser Subscription Is For
 
-Use the browser adapter when you want:
+Use the `browser_subscription` WebSocket mode when you want:
 
 - a browser-hosted app to start from the approved app-consumable path
-- governed runtime state updates delivered over a concrete local transport
-- a live local bridge between the browser consumer and the Traverse runtime
-
-The current approved path is the local adapter used by the app-consumable quickstart and React demo.
+- governed runtime state updates delivered over the same host you already
+  call for `execute`/`traces`/etc.
+- a live bridge between the browser consumer and the Traverse runtime with no
+  extra process to run alongside `traverse-cli serve`
 
 Relevant docs:
 
@@ -22,9 +28,9 @@ Relevant docs:
 - [https://github.com/traverse-framework/App-References/tree/main/apps/browser-consumer/README.md](https://github.com/traverse-framework/App-References/tree/main/apps/browser-consumer/README.md)
 - [docs/adapter-boundaries.md](adapter-boundaries.md)
 
-## What The Browser Adapter Is Not
+## What Browser Subscription Is Not
 
-The browser adapter is not:
+Browser subscription is not:
 
 - a separate execution model
 - a replacement for the core runtime
@@ -39,33 +45,39 @@ The runtime still owns:
 - trace artifacts
 - subscription payload meaning and ordering
 
-The adapter only owns how those governed surfaces are exposed to a browser-capable host path.
+The WebSocket transport only owns how those governed surfaces are exposed to
+a browser-capable host path.
 
-## Responsibilities
+## How To Connect
 
-In the current supported path, the browser adapter is responsible for:
+1. Open a WebSocket upgrade against `/v1/workspaces/{workspace_id}/apps/{app_id}/events`
+   on a running `traverse-cli serve` instance.
+2. Send a subscribe message naming exactly one of `request_id`/`execution_id`
+   (spec `013-browser-runtime-subscription` FR-001):
 
-- binding a local HTTP-facing subscription surface
-- accepting the approved browser subscription request shape
-- creating the concrete stream for browser consumers
-- relaying the governed ordered runtime messages
-- surfacing setup or stream errors through the documented local adapter path
+   ```json
+   {"type": "subscribe", "mode": "browser_subscription", "request_id": "..."}
+   ```
 
-It should not invent new runtime states, custom message formats, or host-only execution semantics.
+3. Receive the governed ordered message sequence: `subscription_established`
+   → state → trace → `terminal_result` → `stream_completed`, then the server
+   closes the socket.
+
+It should not invent new runtime states, custom message formats, or host-only
+execution semantics.
 
 ## Request Limits
 
-The local HTTP adapter accepts request headers up to 64 KiB and request bodies
-up to 4 MiB. A request declaring a larger body is rejected before the adapter
-allocates body storage, with a machine-readable `413 payload too large`
-response (`request_too_large`).
+The WebSocket server accepts inbound messages up to 64 KiB
+(`MAX_WS_INBOUND_MESSAGE_BYTES`) and rejects an oversized or malformed frame
+with a structured close code rather than crashing the connection handler.
 
 ## When To Use It
 
-Use the browser adapter when:
+Use browser subscription when:
 
 - your app is browser-hosted
-- you want a live local consumer path rather than an offline preview
+- you want a live consumer path rather than an offline preview
 - you need ordered runtime updates, trace visibility, and terminal results in the UI
 
 Examples:
@@ -76,7 +88,7 @@ Examples:
 
 ## Host-Target Comparison
 
-### Browser Adapter
+### Browser Subscription (WebSocket)
 
 Use when:
 
@@ -132,6 +144,6 @@ Primary docs:
 
 ## Practical Rule
 
-If your question is “how does a browser app receive governed live runtime updates?”, the browser adapter is the right document to start with.
+If your question is “how does a browser app receive governed live runtime updates?”, this document is the right place to start.
 
 If your question is “how does Traverse execute or govern the behavior underneath that stream?”, start with the runtime, app-consumable, or adapter-boundary docs instead.

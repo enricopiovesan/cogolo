@@ -19,7 +19,7 @@ For the first app-consumable release, the supported bundle points to:
 
 - the browser-targeted consumer package at [https://github.com/traverse-framework/App-References/tree/main/apps/browser-consumer/README.md](https://github.com/traverse-framework/App-References/tree/main/apps/browser-consumer/README.md)
 - the dedicated MCP stdio server package at [docs/mcp-stdio-server.md](mcp-stdio-server.md)
-- the live browser adapter path described in [quickstart.md](../quickstart.md)
+- the live browser subscription path described in [quickstart.md](../quickstart.md)
 - the downstream integration and validation docs for `youaskm3`
 
 Those surfaces must be consumed as one versioned release set.
