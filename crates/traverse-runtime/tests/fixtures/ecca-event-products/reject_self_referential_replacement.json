@@ -1,0 +1,86 @@
+{
+  "contract": {
+    "kind": "event_contract",
+    "schema_version": "1.0.0",
+    "id": "content.comments.comment-draft-created",
+    "namespace": "content.comments",
+    "name": "comment-draft-created",
+    "version": "1.0.0",
+    "lifecycle": "retired",
+    "owner": {
+      "team": "traverse-core",
+      "contact": "enrico.piovesan10@gmail.com"
+    },
+    "summary": "Published when a comment draft has been created.",
+    "description": "Governed event contract for comment draft creation.",
+    "payload": {
+      "schema": {
+        "properties": {
+          "author_email": {
+            "type": "string"
+          },
+          "draft_id": {
+            "type": "string"
+          }
+        },
+        "required": [
+          "draft_id"
+        ],
+        "type": "object"
+      },
+      "compatibility": "backward-compatible"
+    },
+    "classification": {
+      "domain": "content.comments",
+      "bounded_context": "comments",
+      "event_type": "domain",
+      "tags": [
+        "comments"
+      ]
+    },
+    "publishers": [
+      {
+        "capability_id": "content.comments.create-comment-draft",
+        "version": "1.0.0"
+      }
+    ],
+    "subscribers": [],
+    "policies": [
+      {
+        "id": "default-comment-safety"
+      }
+    ],
+    "tags": [
+      "comments"
+    ],
+    "provenance": {
+      "source": "greenfield",
+      "author": "enricopiovesan",
+      "created_at": "2026-03-30T00:00:00Z"
+    },
+    "evidence": []
+  },
+  "support_route": "https://support.traverse.dev/comments",
+  "exposure": "internal",
+  "field_classifications": [
+    {
+      "field_path": "draft_id",
+      "classification": "none"
+    },
+    {
+      "field_path": "author_email",
+      "classification": "personal"
+    }
+  ],
+  "replacement": {
+    "event_id": "content.comments.comment-draft-created",
+    "version": "1.0.0"
+  },
+  "cloud_events_source": "traverse://capability/content.comments.create-comment-draft",
+  "cloud_events_subject_field": "draft_id",
+  "deduplication_id_field": "draft_id",
+  "ordering_scope_field": null,
+  "correlation_id_field": "envelope.correlation_id",
+  "causation_id_field": null,
+  "retention_policy": "retain 90 days"
+}
