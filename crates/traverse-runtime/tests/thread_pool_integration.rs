@@ -158,6 +158,7 @@ fn make_request(input: Value) -> RouterRequest {
         input,
         executor_capability: executor_cap(ArtifactType::Native),
         emitted_events: Vec::new(),
+        trace_id_override: None,
     }
 }
 

@@ -280,6 +280,7 @@ fn expedition_wasm_execution_writes_trace() -> Result<(), String> {
             host_abi_version: None,
         },
         emitted_events: Vec::new(),
+        trace_id_override: None,
     };
 
     let response = router.execute(request).map_err(|e| format!("{e}"));
@@ -399,6 +400,7 @@ fn run_expedition_via_router(wasm_bytes: &[u8], tmp_path: &str) -> Result<Router
             host_abi_version: None,
         },
         emitted_events: Vec::new(),
+        trace_id_override: None,
     };
 
     // We need to hold the bytes alive for WAT modules loaded via run_bytes,
