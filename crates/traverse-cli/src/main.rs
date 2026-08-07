@@ -350,9 +350,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
             json_output,
         } => discover_capabilities(&manifest_path, json_output),
         Command::Event { contract_path } => inspect_event(&contract_path),
-        Command::EventValidateProduct { descriptor_path } => {
-            validate_event_product(&descriptor_path)
-        }
+        Command::EventValidateProduct { descriptor_path } => validate_event_product(&descriptor_path),
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::WorkflowRegister {
             workflow_path,
