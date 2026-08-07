@@ -1,3 +1,4 @@
+mod app_events_websocket;
 mod app_runtime_events;
 mod browser_adapter;
 mod capability_packages;
