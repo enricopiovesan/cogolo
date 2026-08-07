@@ -827,13 +827,14 @@ mod tests {
             version: "1.0.0".to_string(),
             diagnostics: Vec::new(),
         };
+        let quarantine = EventQuarantineRecord {
+            evidence: evidence.clone(),
+        };
         let report = evaluate_migration_exit(
             &registry,
             &reconciler,
-            &[evidence.clone()],
-            &[EventQuarantineRecord {
-                evidence: evidence.clone(),
-            }],
+            std::slice::from_ref(&evidence),
+            std::slice::from_ref(&quarantine),
             &[],
             None,
             "run-quarantine",
