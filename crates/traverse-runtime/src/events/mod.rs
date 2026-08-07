@@ -5,6 +5,7 @@
 pub mod broker;
 pub mod catalog;
 pub mod durable;
+pub mod ecca_conformance;
 pub mod journal;
 pub mod types;
 pub mod validation;
@@ -16,6 +17,11 @@ pub use broker::{
 pub use catalog::{EventCatalog, EventCatalogEntry};
 pub use durable::{
     DurableBroker, DurableBrokerConfig, JournalSink, JournalWriteAuditRecord, JournalWriteAuditSink,
+};
+pub use ecca_conformance::{
+    CatalogDriftReconciler, FixtureConformanceFailure, FixtureConformanceReport,
+    MigrationExitEvidence, MigrationExitFinding, MigrationExitFindingCode, MigrationExitReport,
+    evaluate_migration_exit, run_descriptor_fixture_conformance, validate_event_product_file,
 };
 pub use journal::{DurableEventJournal, JournalConfig, JournalError};
 pub use types::{
