@@ -1725,7 +1725,11 @@ impl EventBroker for DiscardEventBroker {
 }
 
 fn default_event_broker() -> Arc<dyn EventBroker> {
-    match InProcessBroker::new(Arc::new(EventCatalog::new())) {
+    event_broker_or_discard(InProcessBroker::new(Arc::new(EventCatalog::new())))
+}
+
+fn event_broker_or_discard(result: Result<InProcessBroker, EventError>) -> Arc<dyn EventBroker> {
+    match result {
         Ok(broker) => Arc::new(broker),
         Err(_) => Arc::new(DiscardEventBroker),
     }
@@ -3497,6 +3501,78 @@ mod tests {
         ));
         assert_eq!(code.code, RuntimeErrorCode::PlacementUnsupported);
         assert_eq!(reason, ExecutionFailureReason::PlacementUnsupported);
+    }
+
+    #[test]
+    fn live_wiring_runtime_surfaces_and_fallback_broker_are_covered() {
+        use super::PlacementTarget;
+        use super::events::{EventError, LifecycleStatus, TraverseEvent};
+        use traverse_contracts::ExecutionTarget;
+
+        let runtime = Runtime::new(CapabilityRegistry::new(), NoopExecutor);
+        let _ = runtime.clone();
+        let debug = format!("{runtime:?}");
+        assert!(debug.contains("Runtime"));
+        assert!(Arc::ptr_eq(
+            &runtime.event_broker(),
+            &runtime.event_broker()
+        ));
+        assert!(Arc::ptr_eq(&runtime.trace_store(), &runtime.trace_store()));
+
+        let mapped = [
+            (PlacementTarget::Local, ExecutionTarget::Local),
+            (PlacementTarget::Browser, ExecutionTarget::Browser),
+            (PlacementTarget::Edge, ExecutionTarget::Edge),
+            (PlacementTarget::Cloud, ExecutionTarget::Cloud),
+            (PlacementTarget::Worker, ExecutionTarget::Worker),
+            (PlacementTarget::Device, ExecutionTarget::Device),
+        ];
+        for (placement, expected) in mapped {
+            assert_eq!(super::execution_target_from_placement(placement), expected);
+        }
+
+        let refs = super::event_references_from_output(&json!({
+            "emitted_events": [
+                "skip-me",
+                {"event_id": "dev.traverse.live", "version": "1.0.0"},
+                {"event_id": 1, "version": "1.0.0"}
+            ]
+        }));
+        assert_eq!(refs.len(), 1);
+        assert_eq!(refs[0].event_id, "dev.traverse.live");
+
+        let discard = super::event_broker_or_discard(Err(EventError::InvalidRetentionWindow(
+            "forced".to_string(),
+        )));
+        assert!(
+            discard
+                .publish(TraverseEvent {
+                    id: "evt".to_string(),
+                    source: "test".to_string(),
+                    event_type: "dev.traverse.discard".to_string(),
+                    datacontenttype: "application/json".to_string(),
+                    time: "2026-08-06T00:00:00Z".to_string(),
+                    data: json!({}),
+                    owner: "test".to_string(),
+                    version: "1.0.0".to_string(),
+                    lifecycle_status: LifecycleStatus::Active,
+                    deduplication_id: None,
+                    ordering_scope: None,
+                    correlation_id: None,
+                    causation_id: None,
+                    subject_id: None,
+                    actor_id: None,
+                })
+                .is_ok()
+        );
+        assert!(discard.subscribe("dev.traverse.discard", "0").is_err());
+        assert!(
+            discard
+                .subscribe_for_subject("dev.traverse.discard", "0", None)
+                .is_err()
+        );
+        assert!(discard.poll("missing", 1).is_err());
+        assert!(discard.cancel("missing").is_err());
     }
 
     #[test]
@@ -5431,7 +5507,7 @@ mod tests {
         path
     }
 
-    #[derive(Debug)]
+    #[derive(Debug, Clone)]
     struct NoopExecutor;
 
     impl super::LocalExecutor for NoopExecutor {

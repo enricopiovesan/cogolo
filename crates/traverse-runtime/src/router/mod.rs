@@ -316,3 +316,28 @@ fn extract_emitted_events_from_output(output: &Value, capability_id: &str) -> Ve
         })
         .collect()
 }
+
+#[cfg(test)]
+mod tests {
+    #![allow(clippy::expect_used)]
+
+    use super::extract_emitted_events_from_output;
+    use serde_json::json;
+
+    #[test]
+    fn extract_emitted_events_skips_non_object_entries() {
+        let events = extract_emitted_events_from_output(
+            &json!({
+                "emitted_events": [
+                    "skip",
+                    {"event_id": "dev.traverse.ok", "version": "1.0.0", "payload": {"n": 1}},
+                    {"event_id": "missing-version"}
+                ]
+            }),
+            "cap.test",
+        );
+        assert_eq!(events.len(), 1);
+        assert_eq!(events[0].event_type, "dev.traverse.ok");
+        assert_eq!(events[0].version, "1.0.0");
+    }
+}
