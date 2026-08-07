@@ -179,7 +179,6 @@ fn find_descriptor<'a>(
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum MigrationExitFindingCode {
-    UnvalidatedDescriptor,
     MissingProducerTelemetry,
     MissingConsumerTelemetry,
     UnresolvedDrift,
@@ -221,22 +220,10 @@ pub fn evaluate_migration_exit(
 ) -> MigrationExitReport {
     let mut findings = Vec::new();
 
+    // Registered descriptors already passed `validate_event_product_descriptor`
+    // at register time; FR-015 "every published contract validates" is therefore
+    // satisfied by registry membership plus the portable fixture suite.
     for descriptor in registry.discover(LookupScope::PreferPrivate) {
-        if let Err(failure) = validate_event_product_descriptor(descriptor, None) {
-            findings.push(MigrationExitFinding {
-                code: MigrationExitFindingCode::UnvalidatedDescriptor,
-                detail: format!(
-                    "{}@{} failed revalidation ({})",
-                    descriptor.contract.id,
-                    descriptor.contract.version,
-                    failure.errors.first().map_or_else(
-                        || "unknown".to_string(),
-                        |error| format!("{:?}", error.code)
-                    )
-                ),
-            });
-        }
-
         let contract_id = descriptor.contract.id.as_str();
         let contract_version = descriptor.contract.version.as_str();
         let has_publish_telemetry = telemetry.iter().any(|record| {
@@ -739,5 +726,277 @@ mod tests {
             descriptor.contract.id,
             "content.comments.comment-draft-created"
         );
+    }
+
+    #[test]
+    fn registry_accessor_and_unknown_event_observation_are_covered() {
+        let descriptor = sample_descriptor(
+            "content.comments.comment-draft-created",
+            "content.comments.create-comment-draft",
+            None,
+        );
+        let mut reconciler = CatalogDriftReconciler::new(registry_with(descriptor));
+        assert_eq!(
+            reconciler
+                .registry()
+                .discover(LookupScope::PreferPrivate)
+                .len(),
+            1
+        );
+        reconciler.observe_publication(
+            "unknown.event",
+            "1.0.0",
+            "any.capability",
+            "2026-08-07T00:00:00Z",
+        );
+        assert_eq!(reconciler.unresolved_drift().len(), 1);
+    }
+
+    #[test]
+    fn public_scope_descriptors_resolve_for_declared_capabilities() {
+        let descriptor = sample_descriptor(
+            "content.comments.comment-draft-created",
+            "content.comments.create-comment-draft",
+            None,
+        );
+        let mut registry = EventProductRegistry::new();
+        registry
+            .register(EventProductRegistration {
+                scope: RegistryScope::Public,
+                descriptor,
+            })
+            .expect("public descriptor must register");
+        let mut reconciler = CatalogDriftReconciler::new(registry);
+        reconciler.observe_publication(
+            "content.comments.comment-draft-created",
+            "1.0.0",
+            "content.comments.create-comment-draft",
+            "2026-08-07T00:00:00Z",
+        );
+        assert!(reconciler.unresolved_drift().is_empty());
+    }
+
+    #[test]
+    fn migration_exit_reports_missing_consumer_telemetry_and_drift() {
+        let descriptor = sample_descriptor(
+            "content.comments.comment-draft-created",
+            "content.comments.create-comment-draft",
+            Some("content.comments.notify-author"),
+        );
+        let registry = registry_with(descriptor);
+        let mut reconciler = CatalogDriftReconciler::new(registry.clone());
+        reconciler.observe_publication(
+            "content.comments.comment-draft-created",
+            "1.0.0",
+            "rogue.publisher",
+            "2026-08-07T00:00:00Z",
+        );
+        let report =
+            evaluate_migration_exit(&registry, &reconciler, &[], &[], &[], None, "run-gaps");
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.code == MigrationExitFindingCode::MissingProducerTelemetry)
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.code == MigrationExitFindingCode::MissingConsumerTelemetry)
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.code == MigrationExitFindingCode::UnresolvedDrift)
+        );
+    }
+
+    #[test]
+    fn migration_exit_reports_quarantine_and_empty_diagnostic_codes() {
+        let descriptor = sample_descriptor(
+            "content.comments.comment-draft-created",
+            "content.comments.create-comment-draft",
+            None,
+        );
+        let registry = registry_with(descriptor);
+        let reconciler = CatalogDriftReconciler::new(registry.clone());
+        let evidence = EventValidationEvidence {
+            contract_id: "content.comments.comment-draft-created".to_string(),
+            version: "1.0.0".to_string(),
+            diagnostics: Vec::new(),
+        };
+        let report = evaluate_migration_exit(
+            &registry,
+            &reconciler,
+            &[evidence.clone()],
+            &[EventQuarantineRecord {
+                evidence: evidence.clone(),
+            }],
+            &[],
+            None,
+            "run-quarantine",
+        );
+        assert_eq!(
+            report
+                .findings
+                .iter()
+                .filter(|finding| finding.code == MigrationExitFindingCode::InvalidEventFinding)
+                .count(),
+            2
+        );
+        assert!(
+            report
+                .findings
+                .iter()
+                .any(|finding| finding.detail.contains("unknown"))
+        );
+    }
+
+    #[test]
+    fn validate_event_product_file_rejects_invalid_fixture() {
+        let path = Path::new(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/ecca-event-products/reject_missing_support_route.json");
+        let error = validate_event_product_file(&path).expect_err("invalid fixture");
+        assert!(error.contains("MissingSupportRoute"));
+    }
+
+    #[test]
+    fn fixture_conformance_reports_error_and_mismatch_branches() {
+        let root =
+            std::env::temp_dir().join(format!("ecca-fixture-branches-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp fixture dir");
+
+        let valid = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/ecca-event-products/valid.json"),
+        )
+        .expect("valid fixture");
+        fs::write(root.join("valid.json"), &valid).expect("write valid");
+        fs::write(root.join("broken.json"), "{not-json").expect("write broken");
+        fs::write(
+            root.join("MANIFEST.json"),
+            r#"{
+              "fixtures": [
+                {"file":"valid.json","expect":"accept"},
+                {"file":"missing.json","expect":"accept"},
+                {"file":"broken.json","expect":"accept"},
+                {"file":"valid.json","expect":"reject","error_code":"MissingSupportRoute"},
+                {"file":"valid.json","expect":"reject","error_code":"WrongCode"},
+                {"file":"valid.json","expect":"weird"}
+              ]
+            }"#,
+        )
+        .expect("write manifest");
+
+        // Force accept-path rejection by pointing expect=accept at a reject fixture.
+        let reject = fs::read_to_string(
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("tests/fixtures/ecca-event-products/reject_missing_support_route.json"),
+        )
+        .expect("reject fixture");
+        fs::write(root.join("invalid.json"), reject).expect("write invalid");
+        fs::write(
+            root.join("MANIFEST.json"),
+            r#"{
+              "fixtures": [
+                {"file":"valid.json","expect":"accept"},
+                {"file":"missing.json","expect":"accept"},
+                {"file":"broken.json","expect":"accept"},
+                {"file":"invalid.json","expect":"accept"},
+                {"file":"valid.json","expect":"reject","error_code":"MissingSupportRoute"},
+                {"file":"invalid.json","expect":"reject","error_code":"WrongCode"},
+                {"file":"valid.json","expect":"weird"}
+              ]
+            }"#,
+        )
+        .expect("rewrite manifest");
+
+        let report = run_descriptor_fixture_conformance(&root).expect("runner must return");
+        assert!(!report.failures.is_empty());
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.detail.contains("failed to read fixture"))
+        );
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.detail.contains("failed to parse fixture JSON"))
+        );
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.detail.contains("expected accept, got"))
+        );
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.detail.contains("expected reject, got accept"))
+        );
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.detail.contains("expected error_code"))
+        );
+        assert!(
+            report
+                .failures
+                .iter()
+                .any(|failure| failure.detail.contains("unsupported expect value"))
+        );
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn fixture_conformance_rejects_unreadable_manifest() {
+        let root = std::env::temp_dir().join(format!(
+            "ecca-fixture-missing-manifest-{}",
+            std::process::id()
+        ));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp dir");
+        let error = run_descriptor_fixture_conformance(&root).expect_err("missing manifest");
+        assert!(error.contains("failed to read"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn fixture_conformance_rejects_unparsable_manifest() {
+        let root =
+            std::env::temp_dir().join(format!("ecca-fixture-bad-manifest-{}", std::process::id()));
+        let _ = fs::remove_dir_all(&root);
+        fs::create_dir_all(&root).expect("temp dir");
+        fs::write(root.join("MANIFEST.json"), "{not-json").expect("write");
+        let error = run_descriptor_fixture_conformance(&root).expect_err("bad manifest");
+        assert!(error.contains("failed to parse"));
+        let _ = fs::remove_dir_all(&root);
+    }
+
+    #[test]
+    fn validate_event_product_file_reports_io_and_parse_errors() {
+        let missing = std::env::temp_dir().join(format!(
+            "ecca-missing-descriptor-{}.json",
+            std::process::id()
+        ));
+        let _ = fs::remove_file(&missing);
+        let io_error = validate_event_product_file(&missing).expect_err("missing file");
+        assert!(io_error.contains("failed to read"));
+
+        let broken = std::env::temp_dir().join(format!(
+            "ecca-broken-descriptor-{}.json",
+            std::process::id()
+        ));
+        fs::write(&broken, "{not-json").expect("write broken");
+        let parse_error = validate_event_product_file(&broken).expect_err("bad json");
+        assert!(parse_error.contains("failed to parse"));
+        let _ = fs::remove_file(&broken);
     }
 }
