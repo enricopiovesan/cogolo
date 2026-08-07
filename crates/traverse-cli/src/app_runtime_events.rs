@@ -1,11 +1,10 @@
 //! Production app-runtime events published through [`EventBroker`].
 //!
-//! Governed by `096-runtime-event-sse-transport` (issue #965): the HTTP SSE
-//! endpoint streams full [`TraverseEvent`] envelopes for workspace/app scoped
-//! signals that previously lived only on the ungoverned `AppStateEventRecord`
-//! path.
+//! Shared by the WebSocket app-events transport (`097`, issue #967). Cursor
+//! and broker error mapping still follow `096`'s FR-009 semantics so resume
+//! behavior stays consistent after SSE retirement.
 
-use serde_json::{Value, json};
+use serde_json::Value;
 use std::sync::Arc;
 use traverse_registry::{CapabilityRegistry, WorkflowRegistry};
 use traverse_runtime::events::{
@@ -32,7 +31,7 @@ pub(crate) const APP_EVENT_TYPES: &[&str] = &[
 ];
 
 /// Compact session ledger used by `/sessions` and command dispatch after
-/// `AppStateEventRecord` is removed. Not an SSE source.
+/// `AppStateEventRecord` is removed.
 #[derive(Debug, Clone)]
 pub(crate) struct AppSessionEvent {
     pub(crate) app_id: String,
@@ -42,7 +41,7 @@ pub(crate) struct AppSessionEvent {
     pub(crate) output: Option<Value>,
 }
 
-/// Ordered publish log mapping a shared SSE cursor onto per-type broker cursors.
+/// Ordered publish log mapping a shared event cursor onto per-type broker cursors.
 #[derive(Debug, Clone)]
 pub(crate) struct AppEventLogEntry {
     pub(crate) cursor: u64,
@@ -57,19 +56,12 @@ pub(crate) enum AppEventsHttpError {
 }
 
 impl AppEventsHttpError {
+    #[cfg_attr(not(test), allow(dead_code))]
     pub(crate) fn status(&self) -> u16 {
         match self {
             Self::InvalidCursor { .. } => 400,
             Self::CursorExpired { .. } => 410,
             Self::Unavailable { .. } => 503,
-        }
-    }
-
-    pub(crate) fn reason(&self) -> &'static str {
-        match self {
-            Self::InvalidCursor { .. } => "Bad Request",
-            Self::CursorExpired { .. } => "Gone",
-            Self::Unavailable { .. } => "Service Unavailable",
         }
     }
 
@@ -94,20 +86,6 @@ impl AppEventsHttpError {
             Self::Unavailable { detail } => {
                 format!("event broker unavailable: {detail}")
             }
-        }
-    }
-
-    pub(crate) fn problem_extensions(&self) -> Value {
-        match self {
-            Self::CursorExpired {
-                oldest_available_cursor,
-            } => json!({
-                "oldest_available_cursor": oldest_available_cursor,
-            }),
-            Self::InvalidCursor { value, .. } => json!({
-                "last_event_id": value,
-            }),
-            Self::Unavailable { .. } => json!({}),
         }
     }
 }

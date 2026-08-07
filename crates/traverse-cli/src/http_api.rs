@@ -1,6 +1,8 @@
+use crate::app_events_websocket::{
+    handle_app_events_websocket, is_websocket_upgrade, write_sse_retired_response,
+};
 use crate::app_runtime_events::{
-    AppEventLogEntry, AppEventsHttpError, AppSessionEvent, collect_app_runtime_events,
-    publish_app_runtime_event, runtime_with_app_event_broker, short_signal_name,
+    AppEventLogEntry, AppSessionEvent, publish_app_runtime_event, runtime_with_app_event_broker,
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -120,7 +122,7 @@ pub struct ApiServerConfig<E> {
     pub max_concurrent_connections: Option<usize>,
 }
 
-struct ApiState<E> {
+pub(crate) struct ApiState<E> {
     auth_mode: String,
     allow_unauthenticated: bool,
     allowed_origins: Vec<String>,
@@ -132,25 +134,25 @@ struct ApiState<E> {
     jwt_verification_key: Option<ed25519_dalek::VerifyingKey>,
 }
 
-struct WorkspaceState<E> {
-    runtime: traverse_runtime::Runtime<E>,
+pub(crate) struct WorkspaceState<E> {
+    pub(crate) runtime: traverse_runtime::Runtime<E>,
     event_registry: EventRegistry,
     persisted: PersistedWorkspaceRegistryV1,
     loaded_from_disk: bool,
-    executions: HashMap<String, ExecutionStatusRecord>,
-    traces: HashMap<String, RuntimeTrace>,
+    pub(crate) executions: HashMap<String, ExecutionStatusRecord>,
+    pub(crate) traces: HashMap<String, RuntimeTrace>,
     app_session_events: Vec<AppSessionEvent>,
     app_event_seq: u64,
-    app_event_log: Vec<AppEventLogEntry>,
+    pub(crate) app_event_log: Vec<AppEventLogEntry>,
     app_list_context_fields: HashMap<String, Vec<String>>,
     app_state_machines: HashMap<String, ApplicationStateMachine>,
     runtime_grants: Vec<RuntimeGrantRecord>,
 }
 
 #[derive(Debug, Clone)]
-struct ExecutionStatusRecord {
-    execution_id: String,
-    status: String,
+pub(crate) struct ExecutionStatusRecord {
+    pub(crate) execution_id: String,
+    pub(crate) status: String,
     created_at: String,
     updated_at: String,
 }
@@ -765,7 +767,7 @@ impl<E> ApiState<E>
 where
     E: LocalExecutor + Clone,
 {
-    fn with_workspace_mut<R>(
+    pub(crate) fn with_workspace_mut<R>(
         &self,
         workspace_id: &str,
         f: impl FnOnce(&mut WorkspaceState<E>) -> Result<R, String>,
@@ -3560,6 +3562,23 @@ fn handle_connection<E: LocalExecutor + Clone>(
         return response.write_to(&mut stream, &cors_headers);
     }
 
+    if let Some(WorkspaceOperation::AppEvents(workspace_id, app_id)) =
+        workspace_operation_path(&request.method, &request.path)
+        && is_websocket_upgrade(&request)
+    {
+        return handle_app_events_websocket(
+            &mut stream,
+            &request,
+            state,
+            trusted_dev_caller,
+            &workspace_id,
+            &app_id,
+            |request, state, loopback, workspace_id| {
+                authorize_runtime_events_read(request, state, loopback, workspace_id)
+            },
+        );
+    }
+
     let mut response = BufferedResponse::new();
     match (request.method.as_str(), request.path.as_str()) {
         ("GET", "/healthz") => handle_health(&mut response, &state.auth_mode),
@@ -5175,110 +5194,45 @@ fn handle_app_events<W: Write, E: LocalExecutor + Clone>(
     state: &ApiState<E>,
     loopback: bool,
     workspace_id: &str,
-    app_id: &str,
+    _app_id: &str,
 ) -> Result<(), String> {
-    let identity = match subject_from_state(&request.headers, state, loopback) {
-        Ok(identity) => identity,
-        Err(err) => {
-            return write_json(
-                w,
-                err.status,
-                err.reason,
-                &error_envelope(err.code, &err.message),
-            );
-        }
-    };
+    // SSE retired by 097 / ADR-0034 once WebSocket ships (issue #967).
+    if let Err((status, reason, body)) =
+        authorize_runtime_events_read(request, state, loopback, workspace_id)
+    {
+        return write_json(w, status, reason, &body);
+    }
+    write_sse_retired_response(w)
+}
 
-    let _ = match ensure_workspace_authorized(
+fn authorize_runtime_events_read<E: LocalExecutor + Clone>(
+    request: &HttpRequest,
+    state: &ApiState<E>,
+    loopback: bool,
+    workspace_id: &str,
+) -> Result<(), (u16, &'static str, Value)> {
+    let identity = subject_from_state(&request.headers, state, loopback).map_err(|err| {
+        (
+            err.status,
+            err.reason,
+            error_envelope(err.code, &err.message),
+        )
+    })?;
+    ensure_workspace_authorized(
         &state.registry_root,
         workspace_id,
         &identity,
         SCOPE_RUNTIME_EVENTS_READ,
         scopes_optional_for_request(state.allow_unauthenticated, loopback, &identity),
-    ) {
-        Ok(metadata) => metadata,
-        Err(err) => {
-            return write_json(
-                w,
-                err.status,
-                err.reason,
-                &error_envelope(err.code, &err.message),
-            );
-        }
-    };
-
-    let last_event_id = request.headers.get("last-event-id").map(String::as_str);
-    let collected = state.with_workspace_mut(workspace_id, |ws| {
-        Ok::<_, String>(collect_app_runtime_events(
-            ws.runtime.event_broker().as_ref(),
-            &ws.app_event_log,
-            workspace_id,
-            app_id,
-            last_event_id,
-        ))
-    })?;
-    let events = match collected {
-        Ok(events) => events,
-        Err(err) => {
-            return write_app_events_http_error(w, &err);
-        }
-    };
-    let body = if events.is_empty() {
-        serialize_sse_event(
-            None,
-            "heartbeat",
-            &json!({
-                "workspace_id": workspace_id,
-                "app_id": app_id,
-                "timestamp": generated_registered_at().map_err(|e| e.message)?,
-            }),
-        )?
-    } else {
-        let mut body = String::new();
-        for (cursor, event) in events {
-            let payload = serde_json::to_value(&event)
-                .map_err(|e| format!("failed to serialize TraverseEvent for SSE: {e}"))?;
-            body.push_str(&serialize_sse_event(
-                Some(&cursor),
-                short_signal_name(&event.event_type),
-                &payload,
-            )?);
-        }
-        body
-    };
-
-    write_raw_with_headers(
-        w,
-        200,
-        "OK",
-        "text/event-stream",
-        body.as_bytes(),
-        &[
-            HeaderLine {
-                name: "Cache-Control".to_string(),
-                value: "no-cache".to_string(),
-            },
-            HeaderLine {
-                name: "X-Accel-Buffering".to_string(),
-                value: "no".to_string(),
-            },
-        ],
     )
-}
-
-fn write_app_events_http_error<W: Write>(
-    w: &mut W,
-    err: &AppEventsHttpError,
-) -> Result<(), String> {
-    let mut body = error_envelope(err.code(), &err.message());
-    if let Value::Object(root) = &mut body
-        && let Value::Object(extensions) = err.problem_extensions()
-    {
-        for (key, value) in extensions {
-            root.insert(key, value);
-        }
-    }
-    write_json(w, err.status(), err.reason(), &body)
+    .map(|_| ())
+    .map_err(|err| {
+        (
+            err.status,
+            err.reason,
+            error_envelope(err.code, &err.message),
+        )
+    })
 }
 
 fn handle_app_sessions<W: Write, E: LocalExecutor + Clone>(
@@ -6085,28 +6039,6 @@ fn get_json_path<'a>(value: &'a Value, path: &str) -> Option<&'a Value> {
         current = current.get(segment)?;
     }
     Some(current)
-}
-
-fn serialize_sse_event(
-    event_id: Option<&str>,
-    event_type: &str,
-    data: &Value,
-) -> Result<String, String> {
-    let mut rendered = String::new();
-    if let Some(event_id) = event_id {
-        rendered.push_str("id: ");
-        rendered.push_str(event_id);
-        rendered.push('\n');
-    }
-    rendered.push_str("event: ");
-    rendered.push_str(event_type);
-    rendered.push('\n');
-    let data = serde_json::to_string(data)
-        .map_err(|e| format!("failed to serialize SSE event data: {e}"))?;
-    rendered.push_str("data: ");
-    rendered.push_str(&data);
-    rendered.push_str("\n\n");
-    Ok(rendered)
 }
 
 fn record_execution_status<E: LocalExecutor + Clone>(
@@ -7064,7 +6996,12 @@ fn find_header_end(bytes: &[u8]) -> Option<usize> {
     bytes.windows(4).position(|w| w == b"\r\n\r\n")
 }
 
-fn write_json<W: Write>(w: &mut W, status: u16, reason: &str, body: &Value) -> Result<(), String> {
+pub(crate) fn write_json<W: Write>(
+    w: &mut W,
+    status: u16,
+    reason: &str,
+    body: &Value,
+) -> Result<(), String> {
     let mut body = body.clone();
     let content_type = if status >= 400 && body.get("traverse_code").is_some() {
         if let Value::Object(root) = &mut body {
@@ -7133,10 +7070,10 @@ fn write_raw_with_headers<W: Write>(
 // ---------------------------------------------------------------------------
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::panic)]
 mod tests {
-    #![allow(clippy::expect_used)]
-
     use super::*;
+    use crate::app_runtime_events::{collect_app_runtime_events, short_signal_name};
     use serde_json::Value;
     use std::sync::atomic::{AtomicU64, Ordering};
     use traverse_contracts::{
@@ -8032,6 +7969,7 @@ mod tests {
             .find_map(|line| line.strip_prefix(&prefix).map(ToString::to_string))
     }
 
+    #[allow(dead_code)]
     fn response_body_text(response: &[u8]) -> String {
         let pos = response
             .windows(4)
@@ -9870,6 +9808,26 @@ mod tests {
         assert_eq!(resp["traverse_code"], "invalid_request");
     }
 
+    fn collected_app_events(
+        state: &ApiState<TestExecutor>,
+        workspace_id: &str,
+        app_id: &str,
+        from_cursor: Option<&str>,
+    ) -> Vec<(String, traverse_runtime::events::TraverseEvent)> {
+        state
+            .with_workspace_mut(workspace_id, |ws| {
+                collect_app_runtime_events(
+                    ws.runtime.event_broker().as_ref(),
+                    &ws.app_event_log,
+                    workspace_id,
+                    app_id,
+                    from_cursor,
+                )
+                .map_err(|err| err.message())
+            })
+            .expect("workspace events must collect")
+    }
+
     #[test]
     fn app_command_dispatch_emits_state_changed_and_capability_result_on_sse() {
         let state = test_state_with("traverse-starter.process", "1.0.0");
@@ -9905,35 +9863,21 @@ mod tests {
             "/v1/workspaces/ws-test/apps/traverse-starter/events"
         );
 
-        let events_req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
-        );
-        let mut events_out = Vec::new();
-        handle_app_events(
-            &mut events_out,
-            &events_req,
-            &state,
-            true,
-            "ws-test",
-            "traverse-starter",
-        )
-        .expect("events endpoint must write a response");
-
-        assert_eq!(response_status(&events_out), 200);
-        assert_eq!(response_content_type(&events_out), "text/event-stream");
-        let body = response_body_text(&events_out);
-        assert!(body.contains("event: state_changed"));
-        assert!(body.contains("\"state\":\"processing\""));
-        assert!(body.contains("\"previous_state\":\"idle\""));
-        assert!(body.contains("event: capability_invoked"));
-        assert!(body.contains("\"capability_id\":\"traverse-starter.process\""));
-        assert!(body.contains("event: capability_result"));
-        assert!(body.contains("\"state\":\"results\""));
-        assert!(body.contains("\"previous_state\":\"processing\""));
-        assert!(body.contains("\"result\":\"ok\""));
-        assert!(body.contains(&format!("\"session_id\":\"{session_id}\"")));
+        let events = collected_app_events(&state, "ws-test", "traverse-starter", None);
+        let signals: Vec<_> = events
+            .iter()
+            .map(|(_, event)| short_signal_name(&event.event_type))
+            .collect();
+        assert!(signals.contains(&"state_changed"));
+        assert!(signals.contains(&"capability_invoked"));
+        assert!(signals.contains(&"capability_result"));
+        let payload = serde_json::to_string(&events).expect("events must serialize");
+        assert!(payload.contains("\"state\":\"processing\""));
+        assert!(payload.contains("\"previous_state\":\"idle\""));
+        assert!(payload.contains("\"capability_id\":\"traverse-starter.process\""));
+        assert!(payload.contains("\"state\":\"results\""));
+        assert!(payload.contains("\"result\":\"ok\""));
+        assert!(payload.contains(&format!("\"session_id\":\"{session_id}\"")));
     }
 
     #[test]
@@ -9971,24 +9915,14 @@ mod tests {
             handle_workspace_operation(&mut command_out, &command_req, &state, true)
                 .expect("command dispatch must write a response");
 
-            let events_req = make_http_request(
-                "GET",
-                "/v1/workspaces/ws-test/apps/traverse-starter/events",
-                Vec::new(),
+            let events = collected_app_events(&state, "ws-test", "traverse-starter", None);
+            let payload = serde_json::to_string(&events).expect("events must serialize");
+            assert!(payload.contains(&format!("\"state\":\"{expected_state}\"")));
+            assert!(
+                events
+                    .iter()
+                    .any(|(_, e)| short_signal_name(&e.event_type) == "capability_result")
             );
-            let mut events_out = Vec::new();
-            handle_app_events(
-                &mut events_out,
-                &events_req,
-                &state,
-                true,
-                "ws-test",
-                "traverse-starter",
-            )
-            .expect("events endpoint must write a response");
-            let body = response_body_text(&events_out);
-            assert!(body.contains(&format!("\"state\":\"{expected_state}\"")));
-            assert!(body.contains("event: capability_result"));
         }
     }
 
@@ -10018,26 +9952,16 @@ mod tests {
         handle_workspace_operation(&mut command_out, &command_req, &state, true)
             .expect("command dispatch must write a response");
 
-        let events_req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
+        let events = collected_app_events(&state, "ws-test", "traverse-starter", None);
+        let payload = serde_json::to_string(&events).expect("events must serialize");
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| short_signal_name(&e.event_type) == "error")
         );
-        let mut events_out = Vec::new();
-        handle_app_events(
-            &mut events_out,
-            &events_req,
-            &state,
-            true,
-            "ws-test",
-            "traverse-starter",
-        )
-        .expect("events endpoint must write a response");
-        let body = response_body_text(&events_out);
-        assert!(body.contains("event: error"));
-        assert!(body.contains("\"code\":\"condition_type_error\""));
-        assert!(body.contains("\"state\":\"processing\""));
-        assert!(!body.contains("auto_approved"));
+        assert!(payload.contains("\"code\":\"condition_type_error\""));
+        assert!(payload.contains("\"state\":\"processing\""));
+        assert!(!payload.contains("auto_approved"));
     }
 
     #[test]
@@ -10066,26 +9990,16 @@ mod tests {
         handle_workspace_operation(&mut command_out, &command_req, &state, true)
             .expect("command dispatch must write a response");
 
-        let events_req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
+        let events = collected_app_events(&state, "ws-test", "traverse-starter", None);
+        let payload = serde_json::to_string(&events).expect("events must serialize");
+        assert!(
+            events
+                .iter()
+                .any(|(_, e)| short_signal_name(&e.event_type) == "error")
         );
-        let mut events_out = Vec::new();
-        handle_app_events(
-            &mut events_out,
-            &events_req,
-            &state,
-            true,
-            "ws-test",
-            "traverse-starter",
-        )
-        .expect("events endpoint must write a response");
-        let body = response_body_text(&events_out);
-        assert!(body.contains("event: error"));
-        assert!(body.contains("\"code\":\"no_matching_transition\""));
-        assert!(body.contains("\"state\":\"processing\""));
-        assert!(!body.contains("auto_approved"));
+        assert!(payload.contains("\"code\":\"no_matching_transition\""));
+        assert!(payload.contains("\"state\":\"processing\""));
+        assert!(!payload.contains("auto_approved"));
     }
 
     #[test]
@@ -10160,107 +10074,84 @@ mod tests {
     }
 
     #[test]
-    fn app_events_endpoint_returns_event_stream_heartbeat_when_empty() {
+    fn app_events_http_get_without_upgrade_is_retired() {
         let state = empty_state();
         let req = make_http_request(
             "GET",
             "/v1/workspaces/ws-test/apps/traverse-starter/events",
             Vec::new(),
         );
-
         let mut out = Vec::new();
         handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
             .expect("events endpoint must write a response");
-
-        assert_eq!(response_status(&out), 200);
-        assert_eq!(response_content_type(&out), "text/event-stream");
-        assert_eq!(
-            response_header(&out, "Cache-Control").as_deref(),
-            Some("no-cache")
-        );
-        let body = response_body_text(&out);
-        assert!(body.contains("event: heartbeat"));
-        assert!(body.contains("\"app_id\":\"traverse-starter\""));
-    }
-
-    #[test]
-    fn app_events_endpoint_replays_execution_events() {
-        let body = make_runtime_request_body("traverse-starter.process");
-        let state = test_state_with("traverse-starter.process", "1.0.0");
-        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
-        let mut execute_out = Vec::new();
-        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
-            .expect("execute must write a response");
-
-        let req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
-        );
-        let mut out = Vec::new();
-        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
-            .expect("events endpoint must write a response");
-
-        assert_eq!(response_status(&out), 200);
-        assert_eq!(response_content_type(&out), "text/event-stream");
-        let body = response_body_text(&out);
-        assert!(body.contains("event: state_changed"));
-        assert!(body.contains("event: capability_invoked"));
-        assert!(body.contains("event: capability_result"));
-        assert!(body.contains("\"state\":\"results\""));
-        assert!(body.contains("\"result\":\"ok\""));
-    }
-
-    #[test]
-    fn app_events_endpoint_honors_last_event_id_replay() {
-        let body = make_runtime_request_body("traverse-starter.process");
-        let state = test_state_with("traverse-starter.process", "1.0.0");
-        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
-        let mut execute_out = Vec::new();
-        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
-            .expect("execute must write a response");
-
-        let mut req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
-        );
-        // Cursor "1" is the first published EventBroker cursor (state_changed).
-        req.headers
-            .insert("last-event-id".to_string(), "1".to_string());
-        let mut out = Vec::new();
-        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
-            .expect("events endpoint must write a response");
-
-        let body = response_body_text(&out);
-        assert!(!body.contains("event: state_changed"));
-        assert!(body.contains("event: capability_invoked"));
-        assert!(body.contains("event: capability_result"));
-    }
-
-    #[test]
-    fn app_events_endpoint_rejects_malformed_last_event_id() {
-        let state = empty_state();
-        let mut req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
-        );
-        req.headers
-            .insert("last-event-id".to_string(), "not-a-cursor".to_string());
-        let mut out = Vec::new();
-        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
-            .expect("events endpoint must write a response");
-
-        assert_eq!(response_status(&out), 400);
+        assert_eq!(response_status(&out), 426);
         assert_eq!(response_content_type(&out), "application/problem+json");
         let body = parse_response_body(&out);
-        assert_eq!(body["traverse_code"], "invalid_last_event_id");
-        assert_eq!(body["last_event_id"], "not-a-cursor");
+        assert_eq!(body["traverse_code"], "sse_retired");
     }
 
     #[test]
-    fn app_events_endpoint_rejects_expired_last_event_id() {
+    fn app_events_broker_replays_execution_events_for_websocket_source() {
+        let body = make_runtime_request_body("traverse-starter.process");
+        let state = test_state_with("traverse-starter.process", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let events = collected_app_events(&state, "ws-test", "traverse-starter", None);
+        let signals: Vec<_> = events
+            .iter()
+            .map(|(_, event)| short_signal_name(&event.event_type))
+            .collect();
+        assert!(signals.contains(&"state_changed"));
+        assert!(signals.contains(&"capability_invoked"));
+        assert!(signals.contains(&"capability_result"));
+        let payload = serde_json::to_string(&events).expect("events must serialize");
+        assert!(payload.contains("\"state\":\"results\""));
+        assert!(payload.contains("\"result\":\"ok\""));
+    }
+
+    #[test]
+    fn app_events_broker_honors_cursor_resume() {
+        let body = make_runtime_request_body("traverse-starter.process");
+        let state = test_state_with("traverse-starter.process", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let events = collected_app_events(&state, "ws-test", "traverse-starter", Some("1"));
+        let signals: Vec<_> = events
+            .iter()
+            .map(|(_, event)| short_signal_name(&event.event_type))
+            .collect();
+        assert!(!signals.contains(&"state_changed"));
+        assert!(signals.contains(&"capability_invoked"));
+        assert!(signals.contains(&"capability_result"));
+    }
+
+    #[test]
+    fn app_events_broker_rejects_malformed_cursor() {
+        let state = empty_state();
+        let err = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(collect_app_runtime_events(
+                    ws.runtime.event_broker().as_ref(),
+                    &ws.app_event_log,
+                    "ws-test",
+                    "traverse-starter",
+                    Some("not-a-cursor"),
+                ))
+            })
+            .expect("workspace access must succeed")
+            .expect_err("malformed cursor must fail");
+        assert_eq!(err.code(), "invalid_last_event_id");
+        assert_eq!(err.status(), 400);
+    }
+
+    #[test]
+    fn app_events_broker_rejects_expired_cursor() {
         let state = empty_state();
         state
             .with_workspace_mut("ws-test", |ws| {
@@ -10268,39 +10159,34 @@ mod tests {
                 Ok(())
             })
             .expect("restart floor must be seeded");
-
-        let mut req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
-        );
-        req.headers
-            .insert("last-event-id".to_string(), "5".to_string());
-        let mut out = Vec::new();
-        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
-            .expect("events endpoint must write a response");
-
-        assert_eq!(response_status(&out), 410);
-        assert_eq!(response_content_type(&out), "application/problem+json");
-        let body = parse_response_body(&out);
-        assert_eq!(body["traverse_code"], "last_event_id_expired");
-        assert_eq!(body["oldest_available_cursor"], "10");
+        let err = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(collect_app_runtime_events(
+                    ws.runtime.event_broker().as_ref(),
+                    &ws.app_event_log,
+                    "ws-test",
+                    "traverse-starter",
+                    Some("5"),
+                ))
+            })
+            .expect("workspace access must succeed")
+            .expect_err("expired cursor must fail");
+        assert_eq!(err.code(), "last_event_id_expired");
+        assert_eq!(err.status(), 410);
     }
 
     #[test]
-    fn app_events_endpoint_returns_503_when_broker_subscribe_fails() {
+    fn app_events_broker_returns_unavailable_on_subscribe_failure() {
         use std::sync::Arc;
         use traverse_runtime::events::{
             EventBroker, EventError, Subscription, SubscriptionPoll, TraverseEvent,
         };
 
         struct UnavailableBroker;
-
         impl EventBroker for UnavailableBroker {
             fn publish(&self, _event: TraverseEvent) -> Result<(), EventError> {
                 Ok(())
             }
-
             fn subscribe(
                 &self,
                 _event_type: &str,
@@ -10310,7 +10196,6 @@ mod tests {
                     "broker lock poisoned".to_string(),
                 ))
             }
-
             fn subscribe_for_subject(
                 &self,
                 event_type: &str,
@@ -10319,7 +10204,6 @@ mod tests {
             ) -> Result<Subscription, EventError> {
                 self.subscribe(event_type, from_cursor)
             }
-
             fn poll(
                 &self,
                 _subscription_id: &str,
@@ -10329,7 +10213,6 @@ mod tests {
                     "broker lock poisoned".to_string(),
                 ))
             }
-
             fn cancel(&self, _subscription_id: &str) -> Result<(), EventError> {
                 Ok(())
             }
@@ -10346,52 +10229,242 @@ mod tests {
                 Ok(())
             })
             .expect("failing broker must be installed");
-
-        let req = make_http_request(
-            "GET",
-            "/v1/workspaces/ws-test/apps/traverse-starter/events",
-            Vec::new(),
-        );
-        let mut out = Vec::new();
-        handle_app_events(&mut out, &req, &state, true, "ws-test", "traverse-starter")
-            .expect("events endpoint must write a response");
-
-        assert_eq!(response_status(&out), 503);
-        assert_eq!(response_content_type(&out), "application/problem+json");
-        let body = parse_response_body(&out);
-        assert_eq!(body["traverse_code"], "event_broker_unavailable");
+        let err = state
+            .with_workspace_mut("ws-test", |ws| {
+                Ok(collect_app_runtime_events(
+                    ws.runtime.event_broker().as_ref(),
+                    &ws.app_event_log,
+                    "ws-test",
+                    "traverse-starter",
+                    None,
+                ))
+            })
+            .expect("workspace access must succeed")
+            .expect_err("unavailable broker must fail");
+        assert_eq!(err.code(), "event_broker_unavailable");
+        assert_eq!(err.status(), 503);
     }
 
     #[test]
-    fn app_events_endpoint_does_not_leak_cross_workspace_events() {
+    fn app_events_broker_does_not_leak_cross_workspace_events() {
         let state = test_state_with("traverse-starter.process", "1.0.0");
         let body = make_runtime_request_body("traverse-starter.process");
         let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
         let mut execute_out = Vec::new();
         handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
             .expect("execute must write a response");
-
-        // Create a second workspace and ensure it does not see ws-test events.
         state
-            .with_workspace_mut("ws-other", |ws| {
-                let _ = ws;
-                Ok(())
-            })
+            .with_workspace_mut("ws-other", |_ws| Ok(()))
             .expect("second workspace must initialize");
+        let events = collected_app_events(&state, "ws-other", "traverse-starter", None);
+        assert!(events.is_empty());
+    }
 
-        let req = make_http_request(
+    #[test]
+    fn websocket_upgrade_detection_requires_handshake_headers() {
+        use crate::app_events_websocket::is_websocket_upgrade;
+        let mut req = make_http_request(
             "GET",
-            "/v1/workspaces/ws-other/apps/traverse-starter/events",
+            "/v1/workspaces/ws-test/apps/traverse-starter/events",
             Vec::new(),
         );
-        let mut out = Vec::new();
-        handle_app_events(&mut out, &req, &state, true, "ws-other", "traverse-starter")
-            .expect("events endpoint must write a response");
+        assert!(!is_websocket_upgrade(&req));
+        req.headers
+            .insert("upgrade".to_string(), "websocket".to_string());
+        req.headers
+            .insert("connection".to_string(), "Upgrade".to_string());
+        req.headers.insert(
+            "sec-websocket-key".to_string(),
+            "dGhlIHNhbXBsZSBub25jZQ==".to_string(),
+        );
+        assert!(is_websocket_upgrade(&req));
+    }
 
-        assert_eq!(response_status(&out), 200);
-        let body = response_body_text(&out);
-        assert!(body.contains("event: heartbeat"));
-        assert!(!body.contains("event: capability_result"));
+    fn open_app_events_websocket(addr: std::net::SocketAddr) -> tungstenite::WebSocket<TcpStream> {
+        use std::io::Read;
+        use tungstenite::protocol::{Role, WebSocket};
+
+        let mut stream = TcpStream::connect(addr).expect("websocket client must connect");
+        stream
+            .set_read_timeout(Some(Duration::from_secs(5)))
+            .expect("client read timeout");
+        stream
+            .set_write_timeout(Some(Duration::from_secs(5)))
+            .expect("client write timeout");
+        let key = "dGhlIHNhbXBsZSBub25jZQ==";
+        let request = format!(
+            "GET /v1/workspaces/ws-test/apps/traverse-starter/events HTTP/1.1\r\n\
+             Host: 127.0.0.1\r\n\
+             Upgrade: websocket\r\n\
+             Connection: Upgrade\r\n\
+             Sec-WebSocket-Key: {key}\r\n\
+             Sec-WebSocket-Version: 13\r\n\
+             \r\n"
+        );
+        stream
+            .write_all(request.as_bytes())
+            .expect("upgrade request must write");
+
+        let mut header = Vec::new();
+        let mut buf = [0_u8; 1];
+        while !header.windows(4).any(|w| w == b"\r\n\r\n") {
+            let n = stream.read(&mut buf).expect("handshake response must read");
+            assert!(n > 0, "handshake response closed early");
+            header.extend_from_slice(&buf[..n]);
+            assert!(header.len() < 8 * 1024, "handshake response exceeded bound");
+        }
+        let header_text = String::from_utf8_lossy(&header);
+        assert!(
+            header_text.starts_with("HTTP/1.1 101"),
+            "expected 101 Switching Protocols, got: {header_text}"
+        );
+        WebSocket::from_raw_socket(stream, Role::Client, None)
+    }
+
+    #[test]
+    fn websocket_app_events_delivers_broker_events_over_tcp() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool_with(
+            test_state_with("traverse-starter.process", "1.0.0"),
+            limits,
+            2,
+        );
+
+        let body = make_runtime_request_body("traverse-starter.process");
+        let mut execute = TcpStream::connect(addr).expect("execute client must connect");
+        let execute_req = format!(
+            "POST /v1/workspaces/ws-test/execute HTTP/1.1\r\n\
+             Host: 127.0.0.1\r\n\
+             Content-Type: application/json\r\n\
+             Content-Length: {}\r\n\
+             \r\n",
+            body.len()
+        );
+        execute
+            .write_all(execute_req.as_bytes())
+            .expect("execute headers");
+        execute.write_all(&body).expect("execute body");
+        let execute_response = read_all_with_timeout(&mut execute, Duration::from_secs(5));
+        assert_eq!(response_status(&execute_response), 200);
+
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"app_events"}"#.into(),
+            ))
+            .expect("subscribe must send");
+
+        let mut saw_event = false;
+        let mut saw_completed = false;
+        for _ in 0..32 {
+            match socket.read() {
+                Ok(Message::Text(text)) => {
+                    let value: Value =
+                        serde_json::from_str(text.as_str()).expect("event frame json");
+                    assert_eq!(value["type"], "event");
+                    assert!(value.get("event").is_some());
+                    assert!(value.get("cursor").is_some());
+                    saw_event = true;
+                }
+                Ok(Message::Close(Some(frame))) => {
+                    assert!(frame.reason.contains("stream_completed"));
+                    saw_completed = true;
+                    break;
+                }
+                Ok(Message::Close(None)) => {
+                    saw_completed = true;
+                    break;
+                }
+                Ok(Message::Ping(payload)) => {
+                    socket.send(Message::Pong(payload)).expect("pong must send");
+                }
+                Ok(_) => {}
+                Err(err) => panic!("unexpected websocket read error: {err}"),
+            }
+        }
+        assert!(saw_event, "websocket must deliver at least one event frame");
+        assert!(
+            saw_completed,
+            "websocket must close with stream_completed after replay"
+        );
+    }
+
+    #[test]
+    fn websocket_malformed_subscribe_closes_with_invalid_request() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(r#"{"type":"not-subscribe"}"#.into()))
+            .expect("bad subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("invalid_request"),
+                    "close reason: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close, got {other:?}"),
+        }
+
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"nope"}"#.into(),
+            ))
+            .expect("unsupported mode must send");
+        match socket.read().expect("server must close unsupported mode") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("invalid_request"),
+                    "close reason: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close for mode, got {other:?}"),
+        }
+    }
+
+    #[test]
+    fn websocket_malformed_cursor_closes_before_event_stream() {
+        use tungstenite::Message;
+
+        let limits = ConnectionLimits {
+            read_timeout: Duration::from_secs(5),
+            write_timeout: Duration::from_secs(5),
+            request_deadline: Duration::from_secs(10),
+        };
+        let addr = spawn_test_pool(limits, 1);
+        let mut socket = open_app_events_websocket(addr);
+        socket
+            .send(Message::Text(
+                r#"{"type":"subscribe","mode":"app_events","from_cursor":"not-a-cursor"}"#.into(),
+            ))
+            .expect("subscribe must send");
+        match socket.read().expect("server must close") {
+            Message::Close(Some(frame)) => {
+                assert!(
+                    frame.reason.contains("invalid_last_event_id"),
+                    "close reason: {}",
+                    frame.reason
+                );
+            }
+            other => panic!("expected structured close before events, got {other:?}"),
+        }
     }
 
     #[test]
@@ -11725,9 +11798,21 @@ mod tests {
     // ------------------------------------------------------------------
 
     fn spawn_test_pool(limits: ConnectionLimits, worker_count: usize) -> std::net::SocketAddr {
+        spawn_test_pool_with(
+            test_state_with("test.api.do-something", "1.0.0"),
+            limits,
+            worker_count,
+        )
+    }
+
+    fn spawn_test_pool_with(
+        state: ApiState<TestExecutor>,
+        limits: ConnectionLimits,
+        worker_count: usize,
+    ) -> std::net::SocketAddr {
         let listener = TcpListener::bind("127.0.0.1:0").expect("bind must succeed");
         let addr = listener.local_addr().expect("local addr must resolve");
-        let state = Arc::new(test_state_with("test.api.do-something", "1.0.0"));
+        let state = Arc::new(state);
         thread::spawn(move || {
             let _ = run_connection_pool(&listener, &state, limits, worker_count);
         });
