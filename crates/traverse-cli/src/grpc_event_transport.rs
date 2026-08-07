@@ -31,6 +31,23 @@ pub(crate) struct GrpcServerConfig {
     pub(crate) tls_key_path: std::path::PathBuf,
 }
 
+fn load_tls_identity(
+    tls_cert_path: &std::path::Path,
+    tls_key_path: &std::path::Path,
+) -> Result<(Vec<u8>, Vec<u8>), String> {
+    let certificate = std::fs::read(tls_cert_path)
+        .map_err(|error| format!("failed to read gRPC TLS certificate: {error}"))?;
+    let private_key = std::fs::read(tls_key_path)
+        .map_err(|error| format!("failed to read gRPC TLS private key: {error}"))?;
+    Ok((certificate, private_key))
+}
+
+fn parse_grpc_bind_address(bind_address: &str) -> Result<SocketAddr, String> {
+    bind_address
+        .parse()
+        .map_err(|error| format!("invalid gRPC bind address '{bind_address}': {error}"))
+}
+
 pub(crate) fn spawn_event_server<E>(
     state: Arc<ApiState<E>>,
     config: &GrpcServerConfig,
@@ -38,16 +55,9 @@ pub(crate) fn spawn_event_server<E>(
 where
     E: LocalExecutor + Clone + Send + Sync + 'static,
 {
-    let certificate = std::fs::read(&config.tls_cert_path)
-        .map_err(|error| format!("failed to read gRPC TLS certificate: {error}"))?;
-    let private_key = std::fs::read(&config.tls_key_path)
-        .map_err(|error| format!("failed to read gRPC TLS private key: {error}"))?;
-    let bind_address: SocketAddr = config.bind_address.parse().map_err(|error| {
-        format!(
-            "invalid gRPC bind address '{}': {error}",
-            config.bind_address
-        )
-    })?;
+    let (certificate, private_key) =
+        load_tls_identity(&config.tls_cert_path, &config.tls_key_path)?;
+    let bind_address = parse_grpc_bind_address(&config.bind_address)?;
 
     std::thread::Builder::new()
         .name("traverse-grpc-events".to_string())
@@ -122,14 +132,11 @@ where
             subscription.cursor.as_deref(),
         )
         .map_err(|error| {
-            let code = match error.status {
-                400 => Code::InvalidArgument,
-                401 => Code::Unauthenticated,
-                403 => Code::PermissionDenied,
-                503 => Code::Unavailable,
-                _ => Code::Internal,
-            };
-            structured_status(code, error.code, &error.message)
+            structured_status(
+                grpc_code_for_http_status(error.status),
+                error.code,
+                &error.message,
+            )
         })?;
 
         let (sender, receiver) = tokio::sync::mpsc::channel(64);
@@ -200,6 +207,16 @@ fn to_proto_event(cursor: String, event: traverse_runtime::events::TraverseEvent
     }
 }
 
+fn grpc_code_for_http_status(status: u16) -> Code {
+    match status {
+        400 => Code::InvalidArgument,
+        401 => Code::Unauthenticated,
+        403 => Code::PermissionDenied,
+        503 => Code::Unavailable,
+        _ => Code::Internal,
+    }
+}
+
 fn structured_status(code: Code, traverse_code: &str, message: &str) -> Status {
     let details = serde_json::to_vec(&json!({
         "code": traverse_code,
@@ -210,6 +227,7 @@ fn structured_status(code: Code, traverse_code: &str, message: &str) -> Status {
 }
 
 #[cfg(test)]
+#[allow(clippy::expect_used, clippy::unwrap_used)]
 mod tests {
     use super::*;
     use traverse_runtime::events::LifecycleStatus;
@@ -264,5 +282,74 @@ mod tests {
             status.details(),
             br#"{"code":"event_broker_unavailable","message":"offline"}"#
         );
+    }
+
+    #[test]
+    fn load_tls_identity_requires_readable_files() {
+        let err = load_tls_identity(
+            std::path::Path::new("/no/such/cert.pem"),
+            std::path::Path::new("/no/such/key.pem"),
+        )
+        .expect_err("missing TLS material must fail closed");
+        assert!(err.contains("failed to read gRPC TLS certificate"));
+    }
+
+    #[test]
+    fn load_tls_identity_reads_fixture_pems() {
+        let cert = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/grpc-tls/cert.pem");
+        let key = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/grpc-tls/key.pem");
+        let (certificate, private_key) =
+            load_tls_identity(&cert, &key).expect("fixture PEMs must load");
+        assert!(!certificate.is_empty());
+        assert!(!private_key.is_empty());
+    }
+
+    #[test]
+    fn parse_grpc_bind_address_rejects_invalid_input() {
+        let err = parse_grpc_bind_address("not-an-address").expect_err("must reject");
+        assert!(err.contains("invalid gRPC bind address"));
+        assert!(parse_grpc_bind_address("127.0.0.1:50051").is_ok());
+    }
+
+    #[test]
+    fn load_tls_identity_requires_readable_private_key() {
+        let cert = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/grpc-tls/cert.pem");
+        let err = load_tls_identity(&cert, std::path::Path::new("/no/such/key.pem"))
+            .expect_err("missing key must fail");
+        assert!(err.contains("failed to read gRPC TLS private key"));
+    }
+
+    #[test]
+    fn structured_status_covers_auth_failure_codes() {
+        for (code, traverse_code) in [
+            (Code::Unauthenticated, "unauthorized"),
+            (Code::PermissionDenied, "forbidden"),
+            (Code::InvalidArgument, "invalid_subscription"),
+            (Code::Internal, "internal_error"),
+        ] {
+            let status = structured_status(code, traverse_code, "detail");
+            assert_eq!(status.code(), code);
+            assert!(
+                status
+                    .details()
+                    .windows(traverse_code.len())
+                    .any(|w| w == traverse_code.as_bytes())
+            );
+        }
+    }
+
+    #[test]
+    fn grpc_code_for_http_status_maps_fr008_classes() {
+        assert_eq!(grpc_code_for_http_status(400), Code::InvalidArgument);
+        assert_eq!(grpc_code_for_http_status(401), Code::Unauthenticated);
+        assert_eq!(grpc_code_for_http_status(403), Code::PermissionDenied);
+        assert_eq!(grpc_code_for_http_status(503), Code::Unavailable);
+        assert_eq!(grpc_code_for_http_status(500), Code::Internal);
+        assert_eq!(grpc_code_for_http_status(418), Code::Internal);
+        assert_eq!(grpc_code_for_http_status(0), Code::Internal);
+        assert_eq!(grpc_code_for_http_status(u16::MAX), Code::Internal);
     }
 }

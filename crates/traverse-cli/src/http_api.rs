@@ -5,8 +5,6 @@ use crate::app_runtime_events::{
     APP_EVENT_TYPES, AppEventLogEntry, AppSessionEvent, collect_app_runtime_events,
     publish_app_runtime_event, runtime_with_app_event_broker,
 };
-#[cfg(test)]
-use crate::app_runtime_events::{AppEventsHttpError, short_signal_name};
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use std::collections::{HashMap, HashSet};
@@ -10965,6 +10963,160 @@ mod tests {
             }
             other => panic!("unexpected first frame: {other:?}"),
         }
+    }
+
+    #[test]
+    fn spawn_grpc_event_server_starts_with_fixture_tls() {
+        use crate::grpc_event_transport::{GrpcServerConfig, spawn_event_server};
+        use std::sync::Arc;
+
+        let cert = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/grpc-tls/cert.pem");
+        let key = PathBuf::from(env!("CARGO_MANIFEST_DIR"))
+            .join("tests/fixtures/grpc-tls/key.pem");
+        let listener = TcpListener::bind("127.0.0.1:0").expect("bind ephemeral port");
+        let addr = listener.local_addr().expect("local addr");
+        drop(listener);
+
+        spawn_event_server(
+            Arc::new(empty_state()),
+            &GrpcServerConfig {
+                bind_address: addr.to_string(),
+                tls_cert_path: cert,
+                tls_key_path: key,
+            },
+        )
+        .expect("fixture TLS gRPC server must start");
+        thread::sleep(Duration::from_millis(150));
+    }
+
+    #[test]
+    fn open_grpc_event_source_requires_workspace_and_app() {
+        let state = empty_state();
+        let Err(err) = open_grpc_event_source(
+            &state,
+            &HashMap::new(),
+            true,
+            "",
+            "traverse-starter",
+            &[],
+            None,
+        ) else {
+            panic!("empty workspace must fail");
+        };
+        assert_eq!(err.code, "invalid_subscription");
+        assert_eq!(err.status, 400);
+
+        let Err(app_err) =
+            open_grpc_event_source(&state, &HashMap::new(), true, "ws-test", "   ", &[], None)
+        else {
+            panic!("whitespace app id must fail");
+        };
+        assert_eq!(app_err.code, "invalid_subscription");
+        assert_eq!(app_err.status, 400);
+    }
+
+    #[test]
+    fn open_grpc_event_source_rejects_unknown_event_types() {
+        let state = empty_state();
+        let Err(err) = open_grpc_event_source(
+            &state,
+            &HashMap::new(),
+            true,
+            "ws-test",
+            "traverse-starter",
+            &["dev.traverse.runtime.app.not_real".to_string()],
+            None,
+        ) else {
+            panic!("unknown event type must fail");
+        };
+        assert_eq!(err.code, "invalid_subscription");
+    }
+
+    #[test]
+    fn open_grpc_event_source_replays_and_polls_empty() {
+        let body = make_runtime_request_body("traverse-starter.process");
+        let state = test_state_with("traverse-starter.process", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let Ok(mut source) = open_grpc_event_source(
+            &state,
+            &HashMap::new(),
+            true,
+            "ws-test",
+            "traverse-starter",
+            &[],
+            None,
+        ) else {
+            panic!("source must open");
+        };
+        let initial = source.take_initial_events();
+        assert!(!initial.is_empty());
+        assert!(
+            initial
+                .iter()
+                .any(|(_, event)| event.event_type.contains("state_changed"))
+        );
+        let Ok(polled) = source.poll() else {
+            panic!("poll must succeed");
+        };
+        assert!(polled.is_empty());
+    }
+
+    #[test]
+    fn open_grpc_event_source_filters_requested_event_types() {
+        let body = make_runtime_request_body("traverse-starter.process");
+        let state = test_state_with("traverse-starter.process", "1.0.0");
+        let execute_req = make_http_request("POST", "/v1/workspaces/ws-test/execute", body);
+        let mut execute_out = Vec::new();
+        handle_execute_workspace(&mut execute_out, &execute_req, &state, true, "ws-test")
+            .expect("execute must write a response");
+
+        let Ok(mut source) = open_grpc_event_source(
+            &state,
+            &HashMap::new(),
+            true,
+            "ws-test",
+            "traverse-starter",
+            &[crate::app_runtime_events::EVENT_STATE_CHANGED.to_string()],
+            None,
+        ) else {
+            panic!("source must open");
+        };
+        let initial = source.take_initial_events();
+        assert!(!initial.is_empty());
+        assert!(
+            initial.iter().all(
+                |(_, event)| event.event_type == crate::app_runtime_events::EVENT_STATE_CHANGED
+            )
+        );
+        drop(source);
+    }
+
+    #[test]
+    fn open_grpc_event_source_maps_malformed_cursor() {
+        let state = empty_state();
+        let Err(err) = open_grpc_event_source(
+            &state,
+            &HashMap::new(),
+            true,
+            "ws-test",
+            "traverse-starter",
+            &[],
+            Some("not-a-cursor"),
+        ) else {
+            panic!("malformed cursor must fail");
+        };
+        assert_eq!(err.code, "event_broker_unavailable");
+        assert!(
+            err.message.contains("malformed Last-Event-ID")
+                || err.message.contains("cursor")
+                || err.message.contains("not-a-cursor")
+                || err.status == 503
+        );
     }
 
     #[test]
