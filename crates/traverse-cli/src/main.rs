@@ -349,8 +349,9 @@ fn run_command(command: Command) -> Result<String, CliError> {
             manifest_path,
             json_output,
         } => discover_capabilities(&manifest_path, json_output),
-        Command::Event { contract_path } => inspect_event(&contract_path),
-        Command::EventValidateProduct { descriptor_path } => validate_event_product(&descriptor_path),
+        command @ (Command::Event { .. } | Command::EventValidateProduct { .. }) => {
+            run_event_command(command)
+        }
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::WorkflowRegister {
             workflow_path,
@@ -375,6 +376,16 @@ fn render_telemetry_state(action: &str, config: &telemetry::TelemetryConfig) -> 
     match &config.install_id {
         Some(install_id) => format!("telemetry {action} (install_id: {install_id})"),
         None => format!("telemetry {action}"),
+    }
+}
+
+fn run_event_command(command: Command) -> Result<String, CliError> {
+    match command {
+        Command::Event { contract_path } => inspect_event(&contract_path),
+        Command::EventValidateProduct { descriptor_path } => {
+            validate_event_product(&descriptor_path)
+        }
+        _ => Err(CliError::UsageError(usage())),
     }
 }
 
