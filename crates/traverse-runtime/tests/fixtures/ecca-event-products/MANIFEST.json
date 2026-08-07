@@ -1,0 +1,89 @@
+{
+  "description": "ECCA event-product descriptor conformance fixtures (specs/016-ecca-event-product-adoption v2.0.0). Each fixture is a raw EventProductDescriptor JSON document, portable to any language/consumer -- not Rust-specific. 'expect: reject' fixtures list the exact error_code validate_event_product_descriptor must return. Cross-repo consumers (e.g. traverse-framework/traverse) can conformance-test their own port against this same set.",
+  "governing_spec": "016-ecca-event-product-adoption@2.0.0",
+  "fixtures": [
+    { "file": "valid.json", "expect": "accept" },
+    {
+      "file": "reject_missing_support_route.json",
+      "expect": "reject",
+      "error_code": "MissingSupportRoute"
+    },
+    {
+      "file": "reject_invalid_support_route.json",
+      "expect": "reject",
+      "error_code": "InvalidSupportRoute"
+    },
+    {
+      "file": "reject_missing_field_classification.json",
+      "expect": "reject",
+      "error_code": "MissingFieldClassification"
+    },
+    {
+      "file": "reject_unexpected_field_classification.json",
+      "expect": "reject",
+      "error_code": "UnexpectedFieldClassification"
+    },
+    {
+      "file": "reject_duplicate_field_classification.json",
+      "expect": "reject",
+      "error_code": "DuplicateFieldClassification"
+    },
+    {
+      "file": "reject_missing_replacement.json",
+      "expect": "reject",
+      "error_code": "MissingReplacement"
+    },
+    {
+      "file": "reject_unexpected_replacement.json",
+      "expect": "reject",
+      "error_code": "UnexpectedReplacement"
+    },
+    {
+      "file": "reject_self_referential_replacement.json",
+      "expect": "reject",
+      "error_code": "InvalidReplacement"
+    },
+    {
+      "file": "reject_non_past_tense_name.json",
+      "expect": "reject",
+      "error_code": "NonPastTenseName"
+    },
+    {
+      "file": "reject_missing_cloud_events_source.json",
+      "expect": "reject",
+      "error_code": "MissingCloudEventsSource"
+    },
+    {
+      "file": "reject_invalid_cloud_events_subject_field.json",
+      "expect": "reject",
+      "error_code": "InvalidCloudEventsSubjectField"
+    },
+    {
+      "file": "reject_missing_deduplication_id_field.json",
+      "expect": "reject",
+      "error_code": "MissingDeduplicationIdField"
+    },
+    {
+      "file": "reject_missing_correlation_id_field.json",
+      "expect": "reject",
+      "error_code": "MissingCorrelationIdField"
+    },
+    {
+      "file": "reject_missing_retention_policy.json",
+      "expect": "reject",
+      "error_code": "MissingRetentionPolicy"
+    },
+    {
+      "file": "immutable_conflict_existing.json",
+      "expect": "accept",
+      "note": "the previously-published descriptor for (scope, id, version)"
+    },
+    {
+      "file": "immutable_conflict_candidate.json",
+      "expect": "reject",
+      "error_code": "ImmutableDescriptorConflict",
+      "existing": "immutable_conflict_existing.json",
+      "note": "same (id, version) as immutable_conflict_existing.json but different support_route -- validate against the existing descriptor, not standalone"
+    }
+  ]
+}

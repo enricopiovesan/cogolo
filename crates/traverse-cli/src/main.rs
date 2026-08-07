@@ -135,6 +135,9 @@ enum Command {
     Event {
         contract_path: PathBuf,
     },
+    EventValidateProduct {
+        descriptor_path: PathBuf,
+    },
     TraceInspect {
         trace_path: PathBuf,
     },
@@ -331,7 +334,9 @@ fn run_command(command: Command) -> Result<String, CliError> {
             manifest_path,
             json_output,
         } => discover_capabilities(&manifest_path, json_output),
-        Command::Event { contract_path } => inspect_event(&contract_path),
+        command @ (Command::Event { .. } | Command::EventValidateProduct { .. }) => {
+            run_event_command(command)
+        }
         Command::TraceInspect { trace_path } => inspect_trace(&trace_path),
         Command::WorkflowRegister {
             workflow_path,
@@ -356,6 +361,16 @@ fn render_telemetry_state(action: &str, config: &telemetry::TelemetryConfig) -> 
     match &config.install_id {
         Some(install_id) => format!("telemetry {action} (install_id: {install_id})"),
         None => format!("telemetry {action}"),
+    }
+}
+
+fn run_event_command(command: Command) -> Result<String, CliError> {
+    match command {
+        Command::Event { contract_path } => inspect_event(&contract_path),
+        Command::EventValidateProduct { descriptor_path } => {
+            validate_event_product(&descriptor_path)
+        }
+        _ => Err(CliError::UsageError(usage())),
     }
 }
 
@@ -465,6 +480,7 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("capability"), Some("publish")) => help_capability_publish(),
         (Some("capability"), _) => help_capability(),
         (Some("event"), Some("inspect")) => help_event_inspect(),
+        (Some("event"), Some("validate-product")) => help_event_validate_product(),
         (Some("event"), _) => help_event(),
         (Some("trace"), Some("inspect")) => help_trace_inspect(),
         (Some("trace"), _) => help_trace(),
@@ -1108,13 +1124,34 @@ fn help_event_inspect() -> String {
         .to_string()
 }
 
+fn help_event_validate_product() -> String {
+    "traverse-cli event validate-product <descriptor-path>
+
+  Purpose:
+    Validate an ECCA event-product descriptor JSON document against the
+    registry 0.11.0 descriptor rules (support route, field classifications,
+    CloudEvents mapping, delivery semantics, retention).
+
+  Required arguments:
+    <descriptor-path>   Path to the EventProductDescriptor JSON file.
+
+  Optional flags:
+    --help              Print this help text.
+
+  Example:
+    traverse-cli event validate-product \\
+      crates/traverse-runtime/tests/fixtures/ecca-event-products/valid.json"
+        .to_string()
+}
+
 fn help_event() -> String {
     "traverse-cli event <subcommand> [options]
 
   Subcommands:
-    inspect <contract-path>   Parse and validate an event contract.
+    inspect <contract-path>             Parse and validate an event contract.
+    validate-product <descriptor-path>  Validate an ECCA event-product descriptor.
 
-  Run `traverse-cli event inspect --help` for subcommand-specific help."
+  Run `traverse-cli event <subcommand> --help` for subcommand-specific help."
         .to_string()
 }
 
@@ -1474,6 +1511,9 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
         }),
         ("event", "inspect") => Ok(Command::Event {
             contract_path: PathBuf::from(positional[3]),
+        }),
+        ("event", "validate-product") => Ok(Command::EventValidateProduct {
+            descriptor_path: PathBuf::from(positional[3]),
         }),
         ("trace", "inspect") => Ok(Command::TraceInspect {
             trace_path: PathBuf::from(positional[3]),
@@ -3959,6 +3999,20 @@ fn inspect_event(contract_path: &Path) -> Result<String, CliError> {
     })?;
 
     Ok(render_event_summary(contract_path, &validated.normalized))
+}
+
+fn validate_event_product(descriptor_path: &Path) -> Result<String, CliError> {
+    let descriptor = traverse_runtime::events::validate_event_product_file(descriptor_path)
+        .map_err(CliError::ValidationFailed)?;
+    Ok(format!(
+        "event_product_valid: true\nid: {}\nversion: {}\nexposure: {:?}\nsupport_route: {}\npublishers: {}\nsubscribers: {}",
+        descriptor.contract.id,
+        descriptor.contract.version,
+        descriptor.exposure,
+        descriptor.support_route,
+        descriptor.contract.publishers.len(),
+        descriptor.contract.subscribers.len()
+    ))
 }
 
 fn workflow_register(workflow_path: &Path, workspace_id: &str) -> Result<String, CliError> {
@@ -8577,6 +8631,7 @@ mod tests {
             ("capability", Some("publish")),
             ("capability", None),
             ("event", Some("inspect")),
+            ("event", Some("validate-product")),
             ("event", None),
             ("trace", Some("inspect")),
             ("trace", None),
@@ -8696,6 +8751,9 @@ mod tests {
             },
             Command::Event {
                 contract_path: missing.clone(),
+            },
+            Command::EventValidateProduct {
+                descriptor_path: missing.clone(),
             },
             Command::TraceInspect {
                 trace_path: missing.clone(),
