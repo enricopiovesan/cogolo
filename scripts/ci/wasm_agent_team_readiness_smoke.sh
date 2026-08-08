@@ -19,6 +19,7 @@ execute_output="$(cargo run -p traverse-cli-rs -- capability-package execute "$m
 printf '%s\n' "$execute_output" | grep -q "package_id: expedition.planning.validate-team-readiness"
 printf '%s\n' "$execute_output" | grep -q "capability_id: expedition.planning.validate-team-readiness"
 printf '%s\n' "$execute_output" | grep -q "status: completed"
-printf '%s\n' "$execute_output" | grep -q "readiness_status: ready"
+printf '%s\n' "$execute_output" | grep -q "capability_version: 1.0.0"
+printf '%s\n' "$execute_output" | grep -q '"status": "ready"'
 
 echo "Second WASM AI agent smoke passed."

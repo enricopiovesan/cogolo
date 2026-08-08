@@ -48,8 +48,7 @@ What good output looks like:
 - `package_id: hello.world.say-hello-agent`
 - `capability_id: hello.world.say-hello`
 - `status: completed`
-- `name: Traverse`
-- `greeting: Hello, Traverse!`
+- JSON output includes `"name": "Traverse"` and `"greeting": "Hello, Traverse!"`
 
 ## Validation
 

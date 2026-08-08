@@ -22,4 +22,6 @@ printf '%s\n' "$execute_output"
 
 grep -q "status: completed" <<<"$execute_output"
 grep -q "capability_id: expedition.planning.interpret-expedition-intent" <<<"$execute_output"
-grep -q "route_preferences: conservative-alpine-push, same-day-return" <<<"$execute_output"
+grep -q "capability_version: 1.0.0" <<<"$execute_output"
+grep -q '"conservative-alpine-push"' <<<"$execute_output"
+grep -q '"same-day-return"' <<<"$execute_output"

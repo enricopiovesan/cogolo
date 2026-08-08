@@ -330,7 +330,7 @@ grep -q "traverse-starter.process-component" examples/applications/traverse-star
 grep -q "traverse-starter.process-component" examples/applications/traverse-starter/components/process/component.manifest.json
 grep -q "app validate --manifest \"\$app_manifest\" --json" scripts/ci/traverse_starter_example_smoke.sh
 grep -q "/v1/workspaces/local-default/execute" scripts/ci/traverse_starter_example_smoke.sh
-grep -q "starter_status: complete" scripts/ci/traverse_starter_example_smoke.sh
+grep -q '"status": "complete"' scripts/ci/traverse_starter_example_smoke.sh
 grep -q "bash scripts/ci/runtime_home_smoke.sh" docs/local-runtime-home.md
 grep -q "label: Definition of done" .github/ISSUE_TEMPLATE/task.yml
 grep -q "label: Validation" .github/ISSUE_TEMPLATE/task.yml
