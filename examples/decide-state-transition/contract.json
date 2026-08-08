@@ -4,47 +4,76 @@
   "id": "platform.decide-state-transition",
   "namespace": "platform",
   "name": "decide-state-transition",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "lifecycle": "active",
   "owner": {
     "team": "platform-team",
     "contact": "platform-team@example.com"
   },
-  "summary": "Deterministic evaluation of whether a proposed lifecycle/approval state transition is allowed.",
-  "description": "Deterministic, side-effect-free evaluation of whether a proposed state transition is allowed under a versioned lifecycle and approval policy. Returns allow/deny/requires_approval/requires_additional_info with stable reason codes, remaining approvals, next legal states, and UI hints.",
+  "summary": "TOML-derived lifecycle/approval decisions (expense, order, ticket) for HP/UP matrix v1.2.",
+  "description": "Deterministic evaluation of proposed lifecycle/approval transitions under policy_version toml-derived-1.2.0. Policy authored from decide-state-transition-v1.1.0.toml use cases with explicit defaults in examples/decide-state-transition/docs/lifecycle-and-approval-policy-v1.2.md.",
   "inputs": {
     "schema": {
       "type": "object",
-      "required": ["entity_type", "current_state", "actor"],
+      "required": [
+        "entity_type",
+        "current_state",
+        "actor"
+      ],
       "additionalProperties": false,
       "properties": {
-        "entity_type": { "type": "string", "minLength": 1 },
-        "current_state": { "type": "string", "minLength": 1 },
-        "proposed_state": { "type": "string" },
+        "entity_type": {
+          "type": "string",
+          "minLength": 1
+        },
+        "current_state": {
+          "type": "string",
+          "minLength": 1
+        },
+        "proposed_state": {
+          "type": "string"
+        },
         "actor": {
           "type": "object",
-          "required": ["id", "roles"],
+          "required": [
+            "id",
+            "roles"
+          ],
           "additionalProperties": false,
           "properties": {
-            "id": { "type": "string", "minLength": 1 },
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
             "roles": {
               "type": "array",
-              "items": { "type": "string", "minLength": 1 },
+              "items": {
+                "type": "string",
+                "minLength": 1
+              },
               "uniqueItems": true
             },
             "groups": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "uniqueItems": true
             },
             "attributes": {
               "type": "object",
-              "additionalProperties": { "type": "string" }
+              "additionalProperties": {
+                "type": "string"
+              }
             },
-            "department": { "type": "string" }
+            "department": {
+              "type": "string"
+            }
           }
         },
-        "entity_id": { "type": "string" },
+        "entity_id": {
+          "type": "string"
+        },
         "entity_attributes": {
           "type": "object",
           "additionalProperties": true
@@ -53,12 +82,22 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["role", "approver_id"],
+            "required": [
+              "role",
+              "approver_id"
+            ],
             "additionalProperties": false,
             "properties": {
-              "role": { "type": "string" },
-              "approver_id": { "type": "string" },
-              "collected_at": { "type": "string", "format": "date-time" }
+              "role": {
+                "type": "string"
+              },
+              "approver_id": {
+                "type": "string"
+              },
+              "collected_at": {
+                "type": "string",
+                "format": "date-time"
+              }
             }
           }
         },
@@ -66,27 +105,51 @@
           "type": "object",
           "additionalProperties": false,
           "properties": {
-            "now": { "type": "string", "format": "date-time" },
-            "amount": { "type": "number" },
-            "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+            "now": {
+              "type": "string",
+              "format": "date-time"
+            },
+            "amount": {
+              "type": "number"
+            },
+            "currency": {
+              "type": "string",
+              "minLength": 3,
+              "maxLength": 3
+            },
             "priority": {
               "type": "string",
-              "enum": ["low", "normal", "high", "critical"]
+              "enum": [
+                "low",
+                "normal",
+                "high",
+                "critical"
+              ]
             },
             "flags": {
               "type": "array",
-              "items": { "type": "string" },
+              "items": {
+                "type": "string"
+              },
               "uniqueItems": true
             }
           }
         },
         "mode": {
           "type": "string",
-          "enum": ["decide", "preview", "query"],
+          "enum": [
+            "decide",
+            "preview",
+            "query"
+          ],
           "default": "decide"
         },
-        "correlation_id": { "type": "string" },
-        "tenant_id": { "type": "string" }
+        "correlation_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
       }
     }
   },
@@ -102,7 +165,9 @@
       ],
       "additionalProperties": false,
       "properties": {
-        "allowed": { "type": "boolean" },
+        "allowed": {
+          "type": "boolean"
+        },
         "decision": {
           "type": "string",
           "enum": [
@@ -117,14 +182,25 @@
           "minItems": 1,
           "items": {
             "type": "object",
-            "required": ["code", "message"],
+            "required": [
+              "code",
+              "message"
+            ],
             "additionalProperties": false,
             "properties": {
-              "code": { "type": "string" },
-              "message": { "type": "string" },
+              "code": {
+                "type": "string"
+              },
+              "message": {
+                "type": "string"
+              },
               "severity": {
                 "type": "string",
-                "enum": ["error", "warning", "info"],
+                "enum": [
+                  "error",
+                  "warning",
+                  "info"
+                ],
                 "default": "error"
               }
             }
@@ -134,28 +210,46 @@
           "type": "array",
           "items": {
             "type": "object",
-            "required": ["role", "min_count", "logic"],
+            "required": [
+              "role",
+              "min_count",
+              "logic"
+            ],
             "additionalProperties": false,
             "properties": {
-              "role": { "type": "string" },
-              "min_count": { "type": "integer", "minimum": 1 },
+              "role": {
+                "type": "string"
+              },
+              "min_count": {
+                "type": "integer",
+                "minimum": 1
+              },
               "logic": {
                 "type": "string",
-                "enum": ["all", "any"],
+                "enum": [
+                  "all",
+                  "any"
+                ],
                 "default": "all"
               },
-              "reason": { "type": "string" }
+              "reason": {
+                "type": "string"
+              }
             }
           }
         },
         "next_legal_states": {
           "type": "array",
-          "items": { "type": "string" },
+          "items": {
+            "type": "string"
+          },
           "uniqueItems": true
         },
         "suggested_actions": {
           "type": "array",
-          "items": { "type": "string" }
+          "items": {
+            "type": "string"
+          }
         },
         "ui_hints": {
           "type": "object",
@@ -163,20 +257,38 @@
           "properties": {
             "severity": {
               "type": "string",
-              "enum": ["info", "warning", "error"]
+              "enum": [
+                "info",
+                "warning",
+                "error"
+              ]
             },
-            "disabled_reason": { "type": "string" },
+            "disabled_reason": {
+              "type": "string"
+            },
             "required_fields": {
               "type": "array",
-              "items": { "type": "string" }
+              "items": {
+                "type": "string"
+              }
             },
-            "badge": { "type": "string" }
+            "badge": {
+              "type": "string"
+            }
           }
         },
-        "contract_version": { "type": "string" },
-        "policy_version": { "type": "string" },
-        "correlation_id": { "type": "string" },
-        "tenant_id": { "type": "string" }
+        "contract_version": {
+          "type": "string"
+        },
+        "policy_version": {
+          "type": "string"
+        },
+        "correlation_id": {
+          "type": "string"
+        },
+        "tenant_id": {
+          "type": "string"
+        }
       }
     }
   },
@@ -211,7 +323,10 @@
       "kind": "wasi-command",
       "command": "run"
     },
-    "preferred_targets": ["local", "browser"],
+    "preferred_targets": [
+      "local",
+      "browser"
+    ],
     "constraints": {
       "host_api_access": "none",
       "network_access": "forbidden",
@@ -224,12 +339,15 @@
     "source": "greenfield",
     "author": "platform-team",
     "created_at": "2026-08-05T00:00:00Z",
-    "spec_ref": "001-foundation-v0-1@1.0.0",
+    "spec_ref": "516-agent-artifact-execution@1.0.0",
     "adr_refs": [],
     "exception_refs": []
   },
   "evidence": [],
   "service_type": "stateless",
-  "permitted_targets": ["local", "browser"],
+  "permitted_targets": [
+    "local",
+    "browser"
+  ],
   "artifact_type": "native"
 }

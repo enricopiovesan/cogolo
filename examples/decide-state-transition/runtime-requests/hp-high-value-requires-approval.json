@@ -1,16 +1,21 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "decide-high-001",
+  "request_id": "hp-high-value-requires-approval",
   "intent": {
     "capability_id": "platform.decide-state-transition",
-    "capability_version": "1.1.0"
+    "capability_version": "1.2.0"
   },
   "input": {
     "entity_type": "expense",
     "current_state": "draft",
     "proposed_state": "submitted",
-    "actor": { "id": "u-123", "roles": ["employee"] },
+    "actor": {
+      "id": "u-123",
+      "roles": [
+        "employee"
+      ]
+    },
     "context": {
       "now": "2026-08-05T14:30:00Z",
       "amount": 5000,
@@ -19,7 +24,13 @@
     "mode": "decide",
     "correlation_id": "corr-high"
   },
-  "lookup": { "scope": "public_only", "allow_ambiguity": false },
-  "context": { "requested_target": "local", "caller": "e2e-probe" },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "decide-state-transition-smoke"
+  },
   "governing_spec": "006-runtime-request-execution"
 }

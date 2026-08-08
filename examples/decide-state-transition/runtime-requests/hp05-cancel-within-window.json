@@ -1,28 +1,27 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "hp01-low-value-allow",
+  "request_id": "hp05-cancel-within-window",
   "intent": {
     "capability_id": "platform.decide-state-transition",
     "capability_version": "1.2.0"
   },
   "input": {
-    "entity_type": "expense",
-    "current_state": "draft",
-    "proposed_state": "submitted",
+    "entity_type": "order",
+    "current_state": "placed",
+    "proposed_state": "cancelled",
     "actor": {
-      "id": "u-123",
+      "id": "cust-1",
       "roles": [
-        "employee"
+        "customer"
       ]
     },
     "context": {
       "now": "2026-08-05T14:30:00Z",
-      "amount": 42.5,
-      "currency": "USD"
+      "cancel_deadline": "2026-08-06T14:30:00Z"
     },
     "mode": "decide",
-    "correlation_id": "corr-hp01"
+    "correlation_id": "corr-hp05"
   },
   "lookup": {
     "scope": "prefer_private",

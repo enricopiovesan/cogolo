@@ -1,45 +1,32 @@
-# decide-state-transition E2E example
+# decide-state-transition
 
-Starting artifact: `~/Downloads/decide-state-transition-v1.1.0.toml`
+Governed example for `platform.decide-state-transition@1.2.0`.
 
-Governed local example for the capability authoring path (Spec 100). Probe policy only — not a full lifecycle policy engine.
+Policy: `toml-derived-1.2.0` — authored from the product TOML HP/UP stories with explicit defaults in [`docs/lifecycle-and-approval-policy-v1.2.md`](docs/lifecycle-and-approval-policy-v1.2.md).
 
 ## Run
 
 ```bash
-# rebuild wasm + refresh digest, then inspect/execute fixtures
 bash scripts/ci/decide_state_transition_example_smoke.sh
 ```
 
-Or step by step:
+## Coverage
 
-```bash
-bash examples/decide-state-transition/build-fixture.sh
-cargo run -q -p traverse-cli-rs -- capability inspect \
-  examples/decide-state-transition/contract.json
-cargo run -q -p traverse-cli-rs -- capability-package inspect \
-  examples/decide-state-transition/manifest.json
-cargo run -q -p traverse-cli-rs -- capability-package execute \
-  examples/decide-state-transition/manifest.json \
-  examples/decide-state-transition/runtime-requests/hp01-low-value-allow.json
-```
+| ID | Fixture | Expected |
+|----|---------|----------|
+| HP-01 | `hp01-low-value-allow.json` | `allowed` / `AUTO_APPROVED` |
+| HP-02 | `hp02-manager-needs-finance.json` | `requires_approval` / finance |
+| HP-03 | `hp03-finance-manager-approve.json` | `allowed` / `APPROVED_BY_FINANCE` |
+| HP-04 | `hp04-query-next-states.json` | `QUERY_ONLY` + `next_legal_states` |
+| HP-05 | `hp05-cancel-within-window.json` | `allowed` / `CANCEL_WITHIN_WINDOW` |
+| HP-06 | `hp06-priority-escalate.json` | `allowed` / `PRIORITY_ESCALATION` |
+| UP-01 | `up01-illegal-jump-deny.json` | `denied` / `ILLEGAL_TRANSITION` |
+| UP-02 | `up02-insufficient-role.json` | `denied` / `INSUFFICIENT_ROLE` |
+| UP-03 | `up03-missing-amount.json` | `requires_additional_info` / `MISSING_AMOUNT` |
+| UP-04 | `up04-cancel-window-closed.json` | `denied` / `CANCEL_WINDOW_EXPIRED` |
+| UP-05 | `up05-open-children-block.json` | `denied` / `HAS_OPEN_CHILDREN` |
+| UP-06 | `up06-no-roles.json` | `denied` / `ACTOR_HAS_NO_ROLES` |
+| UP-07 | `up07-unknown-entity.json` | `denied` / `UNKNOWN_ENTITY_TYPE` |
+| UP-08 | `up08-partial-approvals.json` | `requires_approval` / `PARTIAL_APPROVALS` |
 
-## Fixtures
-
-| Request | Expected decision | Code |
-|---------|-------------------|------|
-| `runtime-requests/hp01-low-value-allow.json` | `allowed` | `AUTO_APPROVED` |
-| `runtime-requests/hp-high-value-requires-approval.json` | `requires_approval` | `AMOUNT_EXCEEDS_LIMIT` |
-| `runtime-requests/up-illegal-jump-deny.json` | `denied` | `ILLEGAL_TRANSITION` |
-
-## Cold create path (umbrella DoD)
-
-```bash
-bash scripts/ci/capability_new_e2e_smoke.sh
-```
-
-## Still not product-complete
-
-- Policy version is `probe-1.0.0` (tiny expense subset).
-- Full TOML matrix needs `docs/lifecycle-and-approval-policy-v1.1.md`.
-- Not published to the registry yet.
+Registry: publish `1.2.0` after this package lands (immutable; leave probe `1.1.0` in place).

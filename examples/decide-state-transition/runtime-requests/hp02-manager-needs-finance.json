@@ -1,28 +1,28 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "hp01-low-value-allow",
+  "request_id": "hp02-manager-needs-finance",
   "intent": {
     "capability_id": "platform.decide-state-transition",
     "capability_version": "1.2.0"
   },
   "input": {
     "entity_type": "expense",
-    "current_state": "draft",
-    "proposed_state": "submitted",
+    "current_state": "submitted",
+    "proposed_state": "approved",
     "actor": {
-      "id": "u-123",
+      "id": "u-mgr",
       "roles": [
-        "employee"
+        "manager"
       ]
     },
     "context": {
       "now": "2026-08-05T14:30:00Z",
-      "amount": 42.5,
+      "amount": 5000,
       "currency": "USD"
     },
     "mode": "decide",
-    "correlation_id": "corr-hp01"
+    "correlation_id": "corr-hp02"
   },
   "lookup": {
     "scope": "prefer_private",

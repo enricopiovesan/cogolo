@@ -1,7 +1,7 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "hp01-low-value-allow",
+  "request_id": "hp04-query-next-states",
   "intent": {
     "capability_id": "platform.decide-state-transition",
     "capability_version": "1.2.0"
@@ -9,7 +9,6 @@
   "input": {
     "entity_type": "expense",
     "current_state": "draft",
-    "proposed_state": "submitted",
     "actor": {
       "id": "u-123",
       "roles": [
@@ -17,12 +16,10 @@
       ]
     },
     "context": {
-      "now": "2026-08-05T14:30:00Z",
-      "amount": 42.5,
-      "currency": "USD"
+      "now": "2026-08-05T14:30:00Z"
     },
-    "mode": "decide",
-    "correlation_id": "corr-hp01"
+    "mode": "query",
+    "correlation_id": "corr-hp04"
   },
   "lookup": {
     "scope": "prefer_private",
