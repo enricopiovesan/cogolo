@@ -1,0 +1,71 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-02",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "principal": {
+      "id": "user-42",
+      "roles": [
+        "admin"
+      ],
+      "attributes": {
+        "tenant_id": "t-100"
+      }
+    },
+    "action": "read",
+    "resource": {
+      "type": "document",
+      "id": "doc-77",
+      "attributes": {
+        "tenant_id": "t-200"
+      }
+    },
+    "context": {},
+    "policy": {
+      "version": "1.0",
+      "mode": "hybrid",
+      "default_effect": "deny",
+      "rules": [
+        {
+          "id": "tenant-isolation",
+          "effect": "deny",
+          "priority": 200,
+          "condition": {
+            "op": "neq",
+            "left": "principal.attributes.tenant_id",
+            "right": "resource.attributes.tenant_id"
+          }
+        },
+        {
+          "id": "admin-read",
+          "effect": "allow",
+          "priority": 100,
+          "principal": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "action": [
+            "read"
+          ],
+          "resource": {
+            "type": "document"
+          }
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

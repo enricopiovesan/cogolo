@@ -1,0 +1,73 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-05",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "principal": {
+      "id": "user-42",
+      "roles": [
+        "finance"
+      ]
+    },
+    "action": "transfer",
+    "resource": {
+      "type": "payment",
+      "id": "pay-55",
+      "attributes": {
+        "amount": 50000
+      }
+    },
+    "context": {
+      "amount": 50000
+    },
+    "policy": {
+      "version": "1.0",
+      "mode": "hybrid",
+      "default_effect": "deny",
+      "rules": [
+        {
+          "id": "high-value-transfer",
+          "effect": "allow",
+          "priority": 100,
+          "principal": {
+            "roles": [
+              "finance"
+            ]
+          },
+          "action": [
+            "transfer"
+          ],
+          "resource": {
+            "type": "payment"
+          },
+          "obligations": [
+            {
+              "type": "require_mfa",
+              "severity": "required"
+            },
+            {
+              "type": "audit_log",
+              "severity": "required",
+              "metadata": {
+                "category": "high_value"
+              }
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

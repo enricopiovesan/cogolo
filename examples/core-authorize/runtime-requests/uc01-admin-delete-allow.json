@@ -1,0 +1,65 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-01",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "principal": {
+      "id": "user-42",
+      "roles": [
+        "admin"
+      ],
+      "attributes": {
+        "tenant_id": "t-100"
+      },
+      "groups": []
+    },
+    "action": "delete",
+    "resource": {
+      "type": "document",
+      "id": "doc-99",
+      "attributes": {
+        "tenant_id": "t-100"
+      },
+      "owner_id": "user-7"
+    },
+    "context": {
+      "request_time": "2026-08-07T22:00:00Z"
+    },
+    "policy": {
+      "version": "1.0",
+      "mode": "hybrid",
+      "default_effect": "deny",
+      "rules": [
+        {
+          "id": "admin-delete",
+          "effect": "allow",
+          "priority": 100,
+          "principal": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "action": [
+            "delete"
+          ],
+          "resource": {
+            "type": "document"
+          }
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
