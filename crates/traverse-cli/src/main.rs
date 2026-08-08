@@ -23,8 +23,8 @@ use std::path::Component;
 use std::path::{Path, PathBuf};
 use std::process::ExitCode;
 use traverse_contracts::{
-    EventContract, EventValidationContext, ValidationContext, parse_contract, parse_event_contract,
-    validate_contract, validate_event_contract,
+    CapabilityContract, EventContract, EventValidationContext, ValidationContext, parse_contract,
+    parse_event_contract, validate_contract, validate_event_contract,
 };
 use traverse_contracts::{ViolationRecord, reference_connector_contracts};
 use traverse_registry::{
@@ -134,6 +134,9 @@ enum Command {
     CapabilityDiscover {
         manifest_path: PathBuf,
         json_output: bool,
+    },
+    CapabilityInspect {
+        contract_path: PathBuf,
     },
     Event {
         contract_path: PathBuf,
@@ -338,6 +341,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
             manifest_path,
             json_output,
         } => discover_capabilities(&manifest_path, json_output),
+        Command::CapabilityInspect { contract_path } => inspect_capability(&contract_path),
         command @ (Command::Event { .. } | Command::EventValidateProduct { .. }) => {
             run_event_command(command)
         }
@@ -1529,6 +1533,9 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
         }),
         ("capability-package", "inspect") => Ok(Command::CapabilityPackageInspect {
             manifest_path: PathBuf::from(positional[3]),
+        }),
+        ("capability", "inspect") => Ok(Command::CapabilityInspect {
+            contract_path: PathBuf::from(positional[3]),
         }),
         ("federation", "peers") => Ok(Command::FederationPeers {
             manifest_path: PathBuf::from(positional[3]),
@@ -4019,6 +4026,37 @@ fn validate_expedition_request(request_path: &Path) -> Result<String, CliError> 
     ))
 }
 
+fn inspect_capability(contract_path: &Path) -> Result<String, CliError> {
+    let contents = read_text_file(contract_path, "capability contract")?;
+    let parsed = parse_contract(&contents).map_err(|failure| {
+        CliError::ValidationFailed(render_validation_failure(
+            "capability contract",
+            contract_path,
+            failure,
+        ))
+    })?;
+    let validated = validate_contract(
+        parsed,
+        &ValidationContext {
+            governing_spec: "002-capability-contracts",
+            validator_version: env!("CARGO_PKG_VERSION"),
+            existing_published: None,
+        },
+    )
+    .map_err(|failure| {
+        CliError::ValidationFailed(render_validation_failure(
+            "capability contract",
+            contract_path,
+            failure,
+        ))
+    })?;
+
+    Ok(render_capability_summary(
+        contract_path,
+        &validated.normalized,
+    ))
+}
+
 fn inspect_event(contract_path: &Path) -> Result<String, CliError> {
     let contents = read_text_file(contract_path, "event contract")?;
     let parsed = parse_event_contract(&contents).map_err(|failure| {
@@ -4310,6 +4348,45 @@ fn render_bundle_registration_summary(
     }
 
     lines.join("\n")
+}
+
+fn render_capability_summary(path: &Path, contract: &CapabilityContract) -> String {
+    let input_properties = schema_property_count(&contract.inputs.schema);
+    let output_properties = schema_property_count(&contract.outputs.schema);
+    let mut lines = vec![
+        format!("path: {}", path.display()),
+        format!("id: {}", contract.id),
+        format!("namespace: {}", contract.namespace),
+        format!("name: {}", contract.name),
+        format!("version: {}", contract.version),
+        format!("lifecycle: {:?}", contract.lifecycle).to_lowercase(),
+        format!("service_type: {:?}", contract.service_type).to_lowercase(),
+        format!("summary: {}", contract.summary),
+        format!("input_schema_properties: {input_properties}"),
+        format!("output_schema_properties: {output_properties}"),
+        format!("emits: {}", contract.emits.len()),
+        format!("consumes: {}", contract.consumes.len()),
+        format!("owner_team: {}", contract.owner.team),
+        format!("provenance_author: {}", contract.provenance.author),
+    ];
+    if let Some(spec_ref) = &contract.provenance.spec_ref {
+        lines.push(format!("provenance_spec_ref: {spec_ref}"));
+    }
+    lines.push(
+        format!(
+            "host_api_access: {:?}",
+            contract.execution.constraints.host_api_access
+        )
+        .to_lowercase(),
+    );
+    lines.join("\n")
+}
+
+fn schema_property_count(schema: &Value) -> usize {
+    schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .map_or(0, serde_json::Map::len)
 }
 
 fn render_event_summary(path: &Path, contract: &EventContract) -> String {
@@ -5708,8 +5785,8 @@ mod tests {
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, help_expedition_execute, help_serve, inspect_bundle,
-        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_capability_package, load_registered_bundle,
+        inspect_capability, inspect_capability_package, inspect_event, inspect_trace,
+        latest_index_release_asset, load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
@@ -8195,6 +8272,42 @@ mod tests {
         );
     }
 
+    #[test]
+    fn inspect_capability_renders_canonical_capability_contract() {
+        let path = repo_root().join(
+            "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        );
+
+        let output = inspect_capability(&path).expect("capability inspect should succeed");
+
+        assert!(output.contains("id: expedition.planning.capture-expedition-objective"));
+        assert!(output.contains("lifecycle:"));
+        assert!(output.contains("input_schema_properties:"));
+        assert!(output.contains("output_schema_properties:"));
+        assert!(output.contains("host_api_access:"));
+    }
+
+    #[test]
+    fn inspect_capability_rejects_malformed_contract() {
+        let temp_dir = unique_temp_dir();
+        let path = temp_dir.join("capability.json");
+        fs::write(&path, "{\"kind\":\"capability_contract\"}")
+            .expect("capability file should write");
+
+        let error =
+            inspect_capability(&path).expect_err("malformed capability contract should fail");
+
+        assert!(
+            error
+                .message()
+                .contains("failed to validate capability contract")
+                || error
+                    .message()
+                    .contains("failed to parse capability contract")
+                || error.message().contains("capability contract")
+        );
+    }
+
     fn repo_root() -> PathBuf {
         PathBuf::from(env!("CARGO_MANIFEST_DIR")).join("../..")
     }
@@ -8809,7 +8922,16 @@ mod tests {
                 ..
             })
         ));
+        assert!(matches!(
+            parse_command(&argv(&[
+                "capability",
+                "inspect",
+                "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json"
+            ])),
+            Ok(Command::CapabilityInspect { .. })
+        ));
         assert!(parse_command(&argv(&["capability", "discover"])).is_err());
+        assert!(parse_command(&argv(&["capability", "inspect"])).is_err());
     }
 
     #[test]
@@ -8836,6 +8958,9 @@ mod tests {
             },
             Command::CapabilityPackageInspect {
                 manifest_path: missing.clone(),
+            },
+            Command::CapabilityInspect {
+                contract_path: missing.clone(),
             },
             Command::CapabilityPackageExecute {
                 manifest_path: missing.clone(),

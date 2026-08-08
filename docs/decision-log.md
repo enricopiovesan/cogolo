@@ -1835,7 +1835,205 @@ coverage against spec 013 (request_id XOR execution_id) before/while
 removing the fallback tool, open a PR declaring `097-websocket-grpc-event-transport`
 as the governing spec, and close `#973` on merge.
 
-## Decision 54: Fix the Placeholder Ed25519 Signature in `supply_chain_check.sh` Under Existing Spec 031 — Not a New Decision
+## Decision 54: Canonical Capability Create Path Is `capability new` (Option A)
+
+- **Date**: 2026-08-07
+- **Status**: Accepted
+- **Governing spec**: `100-capability-package-authoring` (new; approval via #989)
+- **Related issues**: `#988` (umbrella), `#989` (spec), `#990` (implement), `#991` (docs); adjacent Ready bugs `#986`, `#987`
+- **Origin**: E2E capability-authoring probe + `/brainstorm` create-path question
+
+### Context
+
+A developer/LLM persona walkthrough (registry → CLI create → skill path →
+inspect/execute) found that Traverse already has a working production package
+model (`kind: capability_package` + Host ABI / no-std guest profile), but the
+advertised or discoverable create paths do not emit it:
+
+- `traverse-cli component new` (governed by `044` FR-015) creates an empty
+  `lib.rs`, empty I/O schemas, draft-oriented contract fields, and a
+  non-`capability_package` manifest shape.
+- `scripts/scaffold/new-capability.sh` emits stale contract fields and a
+  draft/WASI-oriented layout.
+- Working knowledge of the ABI-clean guest profile lived primarily in the
+  `traverse-app-builder` skill, not in the CLI scaffold.
+
+Adjacent CLI bugs (`capability inspect` advertised but unwired; 
+`capability-package execute` hardcoding version and allowlisting demo output)
+are implementation gaps under already-approved `017` / `516` and do not need
+this decision.
+
+### Decision
+
+**Option A**: Add `traverse-cli capability new <capability-id>` as the
+canonical create command. It MUST scaffold a skill-correct
+`capability_package` (manifest, authorable contract I/O, no-std-oriented
+guest stub, artifacts + sample request, next-step messaging that does not
+claim executability early). `component new` and the bash scaffold MUST
+redirect or fail toward that command rather than remaining silent success
+paths for the pre-Spec-100 empty layout.
+
+No new ADR: this is CLI/scaffold authority, not a new runtime or Host ABI
+boundary. Guest constraints remain governed by `091` / `090`.
+
+### Alternatives Considered
+
+- **Option B** — Fix only `component new` in place to emit `capability_package`:
+  smaller command surface, but keeps “component” naming while the product
+  language and package kind are “capability.”
+- **Option C** — Keep both commands forever with different jobs: preserves
+  `044` wording literally, but leaves two overlapping scaffolds that LLMs
+  and humans keep confusing.
+
+### Outcome
+
+- Spec `100-capability-package-authoring` authored for owner approval (#989).
+- Implementation (#990) and docs/skill alignment (#991) blocked on approval.
+- `#986` / `#987` remain independently Ready under existing specs.
+- Decision 48 (no pre-production backward-compatibility tax) applies: do not
+  maintain a long dual-scaffold era.
+
+## Decision 55: New Spec + ADR for `LocalExecutor` Event Emission, Extending `LocalExecutor`'s Trait Signature Rather Than Patching Around It
+
+- **Date**: 2026-08-07
+- **Status**: Accepted
+- **Governing specs**: [ADR-0037](adr/0037-local-executor-event-emission.md) + `101-local-executor-event-emission` (authored in #995), extends `098-capability-event-host-abi`, `207-event-broker`; touches but does not amend `099-workflow-event-broker-unification` (that spec's boundary explicitly excludes "how a capability emits an event")
+- **Related issues**: follows up on `#970` (098's implementation); `#995` (spec, complete), `#996` (implementation, Ready)
+- **Origin**: `/brainstorm` session auditing `#970`'s follow-through
+
+### Context
+
+`#970` implemented spec `098`'s `traverse_host::emit_event` WASM ABI and
+threaded it through `CapabilityExecutor::execute() -> ExecutorOutput` and
+`PlacementRouter` Step 5, but only for the `CapabilityExecutor` trait. A
+separate, older trait, `LocalExecutor::execute() -> Result<Value,
+LocalExecutionFailure>` (`crates/traverse-runtime/src/lib.rs`), has no
+event channel at all and is used by two real production paths:
+`BoundLocalExecutor` (bridges a host-provided native `LocalExecutor` into
+`Runtime::execute()`'s live path) and `ArtifactRouter` (the `LocalExecutor`
+used for workflow-internal node execution in `workflows.rs`, and — since
+`traverse-cli`'s `main.rs` constructs `Runtime::new(registry,
+ArtifactRouter::new()?)` — the *same* underlying executor as the live path).
+`ArtifactRouter` calls `WasmExecutor` internally for WASM capabilities and
+already receives real, ABI-validated `ExecutorOutput.emitted_events`, but
+discards them (`.map(|output| output.value)`) before returning. Both gaps
+were already flagged in-repo as known issues (tests documenting the drop in
+`lib.rs` and `tests/placement_router_live_wiring.rs`).
+
+A related, closely coupled gap surfaced during investigation: spec `098`'s
+FR-004 required removing the old output-JSON `emitted_events` convention
+"once this ABI exists — not kept as a second supported path," but
+`workflows.rs`'s `emitted_events(&output: &Value)` JSON-parsing convention
+is still the only event-emission mechanism available to native
+(non-WASM) capabilities inside workflows, and was therefore never actually
+removed. It's also narrower than `EventBroker`-backed emission: a
+workflow node's emitted events today only ever satisfy waiting edges
+within the *same* workflow execution — they never reach `EventBroker` for
+other workflows, capabilities, or external subscribers.
+
+### Decision
+
+Six sub-decisions, worked through in sequence:
+
+1. **Fix shape**: extend `LocalExecutor::execute()`'s return type (e.g. a
+   new `LocalExecutionOutput { value: Value, emitted_events:
+   Vec<TraverseEvent> }`, mirroring `ExecutorOutput`) rather than a
+   narrower fix scoped to `ArtifactRouter` alone. Accepted as a breaking
+   change to a public, embedder-facing trait (~12 call sites across
+   `traverse-runtime`, `traverse-cli`, `traverse-mcp`) because it's the
+   only shape that gives native `LocalExecutor` implementors (host
+   closures, `ArtifactRouter`'s native handlers) an actual, structural way
+   to emit events at all — a narrower `ArtifactRouter`-only fix would have
+   left native capabilities with no channel, and full unification into
+   `CapabilityExecutor` was rejected as disproportionate to this bug.
+2. **Old JSON convention**: removed outright, migrating `workflows.rs`'s
+   node-execution and Pass-1 event-driven edge matching onto the new
+   structured `emitted_events` field. This finally satisfies `098`'s
+   FR-004 across the full codebase (it previously only covered the
+   `executor`/`router` slice), consistent with Decision 48 (no
+   back-compat tax pre-production).
+3. **External publish**: a workflow node's emitted events now also publish
+   to `EventBroker` (in addition to satisfying same-execution waiting
+   edges), closing the "workflow events are invisible outside their own
+   execution" gap while the same code path is already being touched.
+4. **Governance vehicle**: a new ADR + spec, not an amendment to `098`.
+   `098`'s capability boundary explicitly scoped itself to
+   `executor`/`router`/`traverse-contracts`/`traverse-native-bridge`, and
+   this is a materially different mechanism (a trait signature change,
+   not a WASM host import) serving a related but distinct purpose —
+   matching the Decision 51 precedent of one ADR+spec per distinct
+   capability boundary.
+5. **Native event validation**: events populated directly by native
+   `LocalExecutor` implementors must be validated against the capability
+   contract's `emits` list and `service_type == Subscribable` before
+   publish, mirroring the WASM ABI's FR-002/FR-003 synchronous validation.
+   Without this, native code (unsandboxed, unlike WASM) could emit
+   undeclared events straight to `EventBroker`, since the existing
+   `PlacementRouter` Step 5 check only gates on `service_type`, not on
+   `emits` content.
+6. **Failure mode on invalid native event**: an undeclared/invalid native
+   event fails the whole capability/node execution (same severity as a
+   WASM ABI rejection), even though native validation necessarily happens
+   *after* the closure has already returned (it can't be rejected
+   mid-call the way the synchronous WASM host function can). Chosen over
+   silently dropping the event with a warning, to keep "emitted events are
+   always declared" a real guarantee on the native path too, not just WASM.
+
+An architectural consequence of (1) that isn't a preference but a forced
+correctness constraint: `ArtifactRouter` must not hold its own
+`EventBroker` reference or publish internally, since it is used both
+directly by `workflows.rs` (bypassing `PlacementRouter`) and, wrapped in
+`BoundLocalExecutor`, by `PlacementRouter` Step 5 for the live
+`Runtime::execute()` path. Publishing from within `ArtifactRouter` itself
+would double-publish on the live path. The single publish point per path
+stays `PlacementRouter` Step 5 (already correct once `BoundLocalExecutor`
+threads real `emitted_events` through) for the live path, plus a new,
+analogous publish step inside `workflows.rs`'s
+`execute_workflow_capability` for the workflow-internal path.
+
+### Alternatives Considered
+
+- Narrow fix scoped to `ArtifactRouter` only (inject `EventBroker`
+  directly, no trait signature change) — smaller and non-breaking, but
+  leaves native `LocalExecutor` implementors with no event-emission
+  channel at all, and would have needed reverting once decision 5's native
+  closures could populate real events. Not chosen.
+- Collapse `LocalExecutor` into `CapabilityExecutor` entirely — removes
+  the dual-trait split at its root, but rewrites `BoundLocalExecutor`,
+  `ArtifactRouter`'s trait impl, every workflow test double, and both
+  embedders (`traverse-cli`, `traverse-mcp`) simultaneously; disproportionate
+  to this bug. Not chosen.
+- Keep the old JSON `emitted_events` convention as a documented fallback
+  alongside the new structured field — less migration work, but directly
+  contradicts `098` FR-004 and Decision 48's no-back-compat-tax principle.
+  Not chosen.
+- Drop invalid native-emitted events with a warning instead of failing
+  execution — avoids punishing an otherwise-successful capability result
+  for an unrelated event-declaration bug, but weakens the "emitted events
+  are always declared" guarantee to something easy to silently miss. Not
+  chosen.
+
+### Outcome
+
+Two tickets, following the repo's spec-then-implement convention: `#995`
+authored ADR-0037 + spec `101-local-executor-event-emission` v1.0.0
+(extending `098`'s emission model to the `LocalExecutor` surface,
+including the `workflows.rs` publish step and native-event
+validation/failure semantics) directly in-session, registered `approved`
+in `specs/governance/approved-specs.json` per the auto-approval policy
+(aligned with this decision log entry); `#996` tracks the implementation —
+the trait signature change and all ~12 call-site migrations, the
+`workflows.rs` JSON-convention removal and structured-field migration, and
+updates to the tests that currently document the gap as expected behavior
+(`lib.rs`'s `bound_local_executor_never_publishes_events_through_placement_router`,
+`tests/placement_router_live_wiring.rs`'s
+`live_native_execution_completes_and_writes_trace_without_publishing_events`).
+Both filed on org Project 1 (`#995` In Progress pending PR merge, `#996`
+Ready). Spec canonical id renumbered from `100` to `101` during this
+session's rebase after discovering `origin/main` had concurrently claimed
+`100-capability-package-authoring` (Decision 54, #989).
+
+## Decision 56: Fix the Placeholder Ed25519 Signature in `supply_chain_check.sh` Under Existing Spec 031 — Not a New Decision
 
 - **Date**: 2026-08-07
 - **Status**: Accepted
