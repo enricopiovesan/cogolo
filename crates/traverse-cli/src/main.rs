@@ -4470,10 +4470,6 @@ fn render_capability_package_execution_summary(
     outcome: &RuntimeExecutionOutcome,
 ) -> String {
     let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
-    let rendered_output = match serde_json::to_string_pretty(output) {
-        Ok(text) => text,
-        Err(_) => "null".to_string(),
-    };
     [
         format!("request_id: {}", outcome.result.request_id),
         format!("execution_id: {}", outcome.result.execution_id),
@@ -4483,7 +4479,8 @@ fn render_capability_package_execution_summary(
         "status: completed".to_string(),
         format!("trace_ref: {}", outcome.result.trace_ref),
         "output:".to_string(),
-        rendered_output,
+        // Infallible pretty JSON via serde_json::Value's alternate Display.
+        format!("{output:#}"),
     ]
     .join("\n")
 }
