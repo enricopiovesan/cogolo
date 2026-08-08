@@ -1310,6 +1310,20 @@
         "specs/100-capability-package-authoring/",
         "docs/decision-log.md"
       ]
+    },
+    {
+      "id": "101-local-executor-event-emission",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/995-local-executor-event-emission/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/lib.rs",
+        "crates/traverse-runtime/src/artifact_router.rs",
+        "crates/traverse-runtime/src/workflows.rs",
+        "docs/adr/0037-local-executor-event-emission.md",
+        "specs/995-local-executor-event-emission/"
+      ]
     }
   ]
 }
