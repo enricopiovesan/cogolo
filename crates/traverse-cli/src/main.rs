@@ -3913,6 +3913,7 @@ fn execute_capability_package(
     Ok(render_capability_package_execution_summary(
         &package.manifest.package_id,
         &package.manifest.capability_ref.id,
+        &package.manifest.capability_ref.version,
         &outcome,
     ))
 }
@@ -4465,138 +4466,26 @@ fn render_runtime_execution_summary(
 fn render_capability_package_execution_summary(
     package_id: &str,
     capability_id: &str,
+    capability_version: &str,
     outcome: &RuntimeExecutionOutcome,
 ) -> String {
     let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
-    let mut lines = vec![
+    let rendered_output = match serde_json::to_string_pretty(output) {
+        Ok(text) => text,
+        Err(_) => "null".to_string(),
+    };
+    [
         format!("request_id: {}", outcome.result.request_id),
         format!("execution_id: {}", outcome.result.execution_id),
         format!("package_id: {package_id}"),
         format!("capability_id: {capability_id}"),
-        "capability_version: 1.0.0".to_string(),
+        format!("capability_version: {capability_version}"),
         "status: completed".to_string(),
         format!("trace_ref: {}", outcome.result.trace_ref),
-    ];
-    push_capability_output_lines(capability_id, output, &mut lines);
-    lines.join("\n")
-}
-
-fn push_capability_output_lines(capability_id: &str, output: &Value, lines: &mut Vec<String>) {
-    match capability_id {
-        "expedition.planning.interpret-expedition-intent" => {
-            if let Some(intent_id) = output.get("intent_id").and_then(Value::as_str) {
-                lines.push(format!("intent_id: {intent_id}"));
-            }
-            if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
-                lines.push(format!("objective_id: {objective_id}"));
-            }
-            if let Some(confidence) = output.get("confidence").and_then(Value::as_f64) {
-                lines.push(format!("confidence: {confidence:.2}"));
-            }
-            if let Some(route_preferences) =
-                output.get("route_preferences").and_then(Value::as_array)
-            {
-                let joined = route_preferences
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                lines.push(format!("route_preferences: {joined}"));
-            }
-        }
-        "expedition.planning.validate-team-readiness" => {
-            if let Some(readiness_result_id) =
-                output.get("readiness_result_id").and_then(Value::as_str)
-            {
-                lines.push(format!("readiness_result_id: {readiness_result_id}"));
-            }
-            if let Some(objective_id) = output.get("objective_id").and_then(Value::as_str) {
-                lines.push(format!("objective_id: {objective_id}"));
-            }
-            if let Some(status) = output.get("status").and_then(Value::as_str) {
-                lines.push(format!("readiness_status: {status}"));
-            }
-            if let Some(required_actions) = output.get("required_actions").and_then(Value::as_array)
-            {
-                let joined = required_actions
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                lines.push(format!("required_actions: {joined}"));
-            }
-        }
-        "hello.world.say-hello" => {
-            if let Some(name) = output.get("name").and_then(Value::as_str) {
-                lines.push(format!("name: {name}"));
-            }
-            if let Some(greeting) = output.get("greeting").and_then(Value::as_str) {
-                lines.push(format!("greeting: {greeting}"));
-            }
-        }
-        "traverse-starter.process" => {
-            if let Some(title) = output.get("title").and_then(Value::as_str) {
-                lines.push(format!("title: {title}"));
-            }
-            if let Some(tags) = output.get("tags").and_then(Value::as_array) {
-                let joined = tags
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                lines.push(format!("tags: {joined}"));
-            }
-            if let Some(note_type) = output.get("noteType").and_then(Value::as_str) {
-                lines.push(format!("noteType: {note_type}"));
-            }
-            if let Some(action) = output.get("suggestedNextAction").and_then(Value::as_str) {
-                lines.push(format!("suggestedNextAction: {action}"));
-            }
-            if let Some(status) = output.get("status").and_then(Value::as_str) {
-                lines.push(format!("starter_status: {status}"));
-            }
-        }
-        "traverse-starter.validate" => {
-            if let Some(valid) = output.get("valid").and_then(Value::as_bool) {
-                lines.push(format!("valid: {valid}"));
-            }
-            if let Some(issues) = output.get("issues").and_then(Value::as_array) {
-                let joined = issues
-                    .iter()
-                    .filter_map(Value::as_str)
-                    .collect::<Vec<_>>()
-                    .join(", ");
-                lines.push(format!("issues: {joined}"));
-            }
-        }
-        "traverse-starter.summarize" => {
-            if let Some(summary) = output.get("summary").and_then(Value::as_str) {
-                lines.push(format!("summary: {summary}"));
-            }
-            if let Some(word_count) = output.get("wordCount").and_then(Value::as_u64) {
-                lines.push(format!("wordCount: {word_count}"));
-            }
-        }
-        "meeting-notes.process" => {
-            append_meeting_notes_summary(lines, output);
-        }
-        _ => {}
-    }
-}
-
-fn append_meeting_notes_summary(lines: &mut Vec<String>, output: &Value) {
-    if let Some(summary) = output.get("summary").and_then(Value::as_str) {
-        lines.push(format!("summary: {summary}"));
-    }
-    for (field, label) in [
-        ("action_items", "action_items"),
-        ("decisions", "decisions"),
-        ("follow_ups", "follow_ups"),
-    ] {
-        if let Some(values) = output.get(field).and_then(Value::as_array) {
-            lines.push(format!("{label}: {}", values.len()));
-        }
-    }
+        "output:".to_string(),
+        rendered_output,
+    ]
+    .join("\n")
 }
 
 fn render_trace_summary(trace_path: &Path, trace: &RuntimeTrace) -> String {
@@ -7765,7 +7654,10 @@ mod tests {
             .expect("real doc-approval WASM execution should succeed");
 
         assert!(output.contains("capability_id: doc-approval.analyze"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
+        assert!(output.contains("output:"));
+        assert!(output.contains("\"recommendation\": \"manual_review\""));
     }
 
     #[derive(Default)]
@@ -7828,8 +7720,10 @@ mod tests {
 
         assert!(output.contains("package_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
-        assert!(output.contains("route_preferences: conservative-alpine-push, same-day-return"));
+        assert!(output.contains("\"conservative-alpine-push\""));
+        assert!(output.contains("\"same-day-return\""));
     }
 
     #[test]
@@ -7858,8 +7752,9 @@ mod tests {
 
         assert!(output.contains("package_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("capability_id: expedition.planning.validate-team-readiness"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
-        assert!(output.contains("readiness_status: ready"));
+        assert!(output.contains("\"status\": \"ready\"") || output.contains("\"ready\""));
     }
 
     #[test]
@@ -7886,9 +7781,10 @@ mod tests {
 
         assert!(output.contains("package_id: hello.world.say-hello-agent"));
         assert!(output.contains("capability_id: hello.world.say-hello"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
-        assert!(output.contains("name: Traverse"));
-        assert!(output.contains("greeting: Hello, Traverse!"));
+        assert!(output.contains("\"name\": \"Traverse\""));
+        assert!(output.contains("\"greeting\": \"Hello, Traverse!\""));
     }
 
     #[test]
@@ -7904,12 +7800,12 @@ mod tests {
 
         assert!(output.contains("package_id: traverse-starter.process-agent"));
         assert!(output.contains("capability_id: traverse-starter.process"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
-        assert!(output.contains("title: Review Traverse starter app registration"));
-        assert!(output.contains("tags: review, traverse, starter"));
-        assert!(output.contains("noteType: project"));
-        assert!(output.contains("suggestedNextAction: expand"));
-        assert!(output.contains("starter_status: complete"));
+        assert!(output.contains("\"title\": \"Review Traverse starter app registration\""));
+        assert!(output.contains("\"noteType\": \"project\""));
+        assert!(output.contains("\"suggestedNextAction\": \"expand\""));
+        assert!(output.contains("\"status\": \"complete\""));
     }
 
     #[test]
@@ -7925,9 +7821,10 @@ mod tests {
 
         assert!(output.contains("package_id: traverse-starter.validate-agent"));
         assert!(output.contains("capability_id: traverse-starter.validate"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
-        assert!(output.contains("valid: true"));
-        assert!(output.contains("issues: "));
+        assert!(output.contains("\"valid\": true"));
+        assert!(output.contains("\"issues\""));
     }
 
     #[test]
@@ -7943,11 +7840,12 @@ mod tests {
 
         assert!(output.contains("package_id: traverse-starter.summarize-agent"));
         assert!(output.contains("capability_id: traverse-starter.summarize"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
         assert!(output.contains(
-            "summary: Review Traverse starter app (project) - tags: review, traverse, starter; next action: expand"
+            "Review Traverse starter app (project) - tags: review, traverse, starter; next action: expand"
         ));
-        assert!(output.contains("wordCount: 13"));
+        assert!(output.contains("\"wordCount\": 13"));
     }
 
     #[test]
@@ -8105,11 +8003,12 @@ mod tests {
 
         assert!(output.contains("package_id: meeting-notes.process-agent"));
         assert!(output.contains("capability_id: meeting-notes.process"));
+        assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
-        assert!(output.contains("summary: Kickoff notes for Traverse reference app."));
-        assert!(output.contains("action_items: 2"));
-        assert!(output.contains("decisions: 1"));
-        assert!(output.contains("follow_ups: 1"));
+        assert!(output.contains("Kickoff notes for Traverse reference app."));
+        assert!(output.contains("\"action_items\""));
+        assert!(output.contains("\"decisions\""));
+        assert!(output.contains("\"follow_ups\""));
     }
 
     #[test]
