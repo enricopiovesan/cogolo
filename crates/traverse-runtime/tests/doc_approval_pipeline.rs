@@ -12,7 +12,7 @@ use traverse_registry::{
 };
 use traverse_runtime::security::RuntimeSecurityConfig;
 use traverse_runtime::{
-    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, Runtime,
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutionOutput, LocalExecutor, Runtime,
     WorkflowExecutionRequest, WorkflowLookupScope, WorkflowTraversalStatus,
 };
 
@@ -26,28 +26,34 @@ impl LocalExecutor for DocApprovalExecutor {
         &self,
         capability: &ResolvedCapability,
         input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
         match capability.contract.id.as_str() {
             "doc-approval.analyze" => {
                 let document = input["document"].as_str().unwrap_or_default();
-                Ok(json!({
-                    "docType": if document.contains("Invoice") { "invoice" } else { "contract" },
-                    "parties": ["Acme Corp", "Globex LLC"],
-                    "amounts": ["USD 12000.00"],
-                    "confidence": "high",
-                    "recommendation": "review",
-                }))
+                Ok(LocalExecutionOutput {
+                    value: json!({
+                        "docType": if document.contains("Invoice") { "invoice" } else { "contract" },
+                        "parties": ["Acme Corp", "Globex LLC"],
+                        "amounts": ["USD 12000.00"],
+                        "confidence": "high",
+                        "recommendation": "review",
+                    }),
+                    emitted_events: Vec::new(),
+                })
             }
             "doc-approval.recommend" => {
                 let confidence = input["confidence"].as_str().unwrap_or_default();
                 let doc_type = input["docType"].as_str().unwrap_or_default();
-                Ok(json!({
-                    "recommendation": if confidence == "high" { "approve" } else { "escalate" },
-                    "rationale": format!(
-                        "deterministic {doc_type} analysis with {confidence} confidence"
-                    ),
-                    "confidence": confidence,
-                }))
+                Ok(LocalExecutionOutput {
+                    value: json!({
+                        "recommendation": if confidence == "high" { "approve" } else { "escalate" },
+                        "rationale": format!(
+                            "deterministic {doc_type} analysis with {confidence} confidence"
+                        ),
+                        "confidence": confidence,
+                    }),
+                    emitted_events: Vec::new(),
+                })
             }
             other => Err(LocalExecutionFailure {
                 code: LocalExecutionFailureCode::ConstraintViolated,
