@@ -4469,15 +4469,34 @@ fn render_capability_package_execution_summary(
     capability_version: &str,
     outcome: &RuntimeExecutionOutcome,
 ) -> String {
-    let output = outcome.result.output.as_ref().unwrap_or(&Value::Null);
+    format_capability_package_execution_summary(
+        package_id,
+        capability_id,
+        capability_version,
+        &outcome.result.request_id,
+        &outcome.result.execution_id,
+        &outcome.result.trace_ref,
+        outcome.result.output.as_ref().unwrap_or(&Value::Null),
+    )
+}
+
+fn format_capability_package_execution_summary(
+    package_id: &str,
+    capability_id: &str,
+    capability_version: &str,
+    request_id: &str,
+    execution_id: &str,
+    trace_ref: &str,
+    output: &Value,
+) -> String {
     [
-        format!("request_id: {}", outcome.result.request_id),
-        format!("execution_id: {}", outcome.result.execution_id),
+        format!("request_id: {request_id}"),
+        format!("execution_id: {execution_id}"),
         format!("package_id: {package_id}"),
         format!("capability_id: {capability_id}"),
         format!("capability_version: {capability_version}"),
         "status: completed".to_string(),
-        format!("trace_ref: {}", outcome.result.trace_ref),
+        format!("trace_ref: {trace_ref}"),
         "output:".to_string(),
         // Infallible pretty JSON via serde_json::Value's alternate Display.
         format!("{output:#}"),
@@ -5670,9 +5689,10 @@ mod tests {
         canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, help_expedition_execute, help_serve, inspect_bundle,
-        inspect_capability, inspect_capability_package, inspect_event, inspect_trace,
-        latest_index_release_asset, load_capability_package, load_registered_bundle,
+        execute_traverse_starter_validate, format_capability_package_execution_summary,
+        help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
+        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
+        load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
@@ -7655,6 +7675,45 @@ mod tests {
         assert!(output.contains("status: completed"));
         assert!(output.contains("output:"));
         assert!(output.contains("\"recommendation\": \"manual_review\""));
+    }
+
+    #[test]
+    fn format_capability_package_execution_summary_uses_manifest_version_and_json_output() {
+        let rendered = format_capability_package_execution_summary(
+            "example.package",
+            "example.capability",
+            "2.3.4",
+            "req-1",
+            "exec-1",
+            "trace-1",
+            &serde_json::json!({
+                "greeting": "Hello",
+                "nested": {"ok": true}
+            }),
+        );
+
+        assert!(rendered.contains("capability_version: 2.3.4"));
+        assert!(rendered.contains("package_id: example.package"));
+        assert!(rendered.contains("capability_id: example.capability"));
+        assert!(rendered.contains("request_id: req-1"));
+        assert!(rendered.contains("execution_id: exec-1"));
+        assert!(rendered.contains("trace_ref: trace-1"));
+        assert!(rendered.contains("status: completed"));
+        assert!(rendered.contains("output:"));
+        assert!(rendered.contains("\"greeting\": \"Hello\""));
+        assert!(rendered.contains("\"ok\": true"));
+
+        let null_output = format_capability_package_execution_summary(
+            "example.package",
+            "example.capability",
+            "9.9.9",
+            "req-2",
+            "exec-2",
+            "trace-2",
+            &Value::Null,
+        );
+        assert!(null_output.contains("capability_version: 9.9.9"));
+        assert!(null_output.contains("output:\nnull"));
     }
 
     #[derive(Default)]
