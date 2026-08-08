@@ -1,13 +1,16 @@
 use crate::executor::ExecutorError;
 #[cfg(feature = "wasmtime-executor")]
 use crate::executor::{ArtifactType, CapabilityExecutor, ExecutorCapability, WasmExecutor};
-use crate::{LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor};
+use crate::{
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutionOutput, LocalExecutor,
+};
 use serde_json::Value;
 use std::collections::BTreeMap;
 use std::sync::Arc;
 use traverse_registry::ResolvedCapability;
 
-type NativeHandler = dyn Fn(&Value) -> Result<Value, LocalExecutionFailure> + Send + Sync;
+type NativeHandler =
+    dyn Fn(&Value) -> Result<LocalExecutionOutput, LocalExecutionFailure> + Send + Sync;
 
 /// Production local-execution boundary for registered artifacts.
 ///
@@ -48,7 +51,10 @@ impl ArtifactRouter {
     /// Registers one host-provided native handler for an exact capability id.
     pub fn register_native_handler<F>(&mut self, capability_id: impl Into<String>, handler: F)
     where
-        F: Fn(&Value) -> Result<Value, LocalExecutionFailure> + Send + Sync + 'static,
+        F: Fn(&Value) -> Result<LocalExecutionOutput, LocalExecutionFailure>
+            + Send
+            + Sync
+            + 'static,
     {
         self.native_handlers
             .insert(capability_id.into(), Arc::new(handler));
@@ -60,7 +66,7 @@ impl LocalExecutor for ArtifactRouter {
         &self,
         capability: &ResolvedCapability,
         input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
         if let Some(binary) = &capability.artifact.binary {
             #[cfg(feature = "wasmtime-executor")]
             {
@@ -80,16 +86,20 @@ impl LocalExecutor for ArtifactRouter {
                     service_type: capability.contract.service_type.clone(),
                 };
                 // Events emitted via `traverse_host::emit_event` during this
-                // call are intentionally discarded here: `ArtifactRouter`
-                // bridges directly into `LocalExecutor`, bypassing
-                // `PlacementRouter` Step 5's `EventBroker` publish (a
-                // pre-existing gap for workflow-internal node execution,
-                // unrelated to this ABI — see spec 098's Capability
-                // Boundary).
+                // call are returned as real `LocalExecutionOutput.emitted_events`
+                // (spec 101-local-executor-event-emission FR-003) — already
+                // ABI-validated by `WasmExecutor`. `ArtifactRouter` itself
+                // does not publish them (FR-004): it is used both directly
+                // by `workflows.rs` and, via `BoundLocalExecutor`, by
+                // `PlacementRouter` Step 5, so publishing here would
+                // double-publish on the live `Runtime::execute()` path.
                 return self
                     .wasm
                     .execute(&executor_capability, input)
-                    .map(|output| output.value)
+                    .map(|output| LocalExecutionOutput {
+                        value: output.value,
+                        emitted_events: output.emitted_events,
+                    })
                     .map_err(|error| map_executor_error(&error));
             }
             #[cfg(not(feature = "wasmtime-executor"))]
@@ -212,11 +222,17 @@ mod tests {
         assert_eq!(failure.code, LocalExecutionFailureCode::ConstraintViolated);
 
         router.register_native_handler("hello.world.say-hello", |_| {
-            Ok(serde_json::json!({"ok": true}))
+            Ok(LocalExecutionOutput {
+                value: serde_json::json!({"ok": true}),
+                emitted_events: Vec::new(),
+            })
         });
         assert_eq!(
             router.execute(&capability, &serde_json::json!({})),
-            Ok(serde_json::json!({"ok": true}))
+            Ok(LocalExecutionOutput {
+                value: serde_json::json!({"ok": true}),
+                emitted_events: Vec::new(),
+            })
         );
     }
 
@@ -234,6 +250,69 @@ mod tests {
             .expect_err("missing registered binary should fail");
         assert_eq!(failure.code, LocalExecutionFailureCode::ConstraintViolated);
         assert_eq!(failure.message, "registered artifact execution failed");
+    }
+
+    #[cfg(feature = "wasmtime-executor")]
+    #[test]
+    fn wasm_execution_success_returns_real_value_and_emitted_events() {
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write as _;
+
+        // Spec 101-local-executor-event-emission FR-003: on a successful
+        // WASM execution, `ArtifactRouter` must return the executor's real
+        // `value`/`emitted_events`, not discard or reshape them.
+        let wat_src = r#"
+            (module
+                (import "wasi_snapshot_preview1" "fd_write"
+                    (func $fd_write (param i32 i32 i32 i32) (result i32)))
+                (memory (export "memory") 1)
+                (data (i32.const 8) "{}")
+                (func $_start (export "_start")
+                    (i32.store (i32.const 0) (i32.const 8))
+                    (i32.store (i32.const 4) (i32.const 2))
+                    (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4)))
+                )
+            )
+        "#;
+        let wasm_bytes = wat::parse_str(wat_src).expect("WAT source should parse");
+
+        let mut hasher = Sha256::new();
+        hasher.update(&wasm_bytes);
+        let checksum = hasher
+            .finalize()
+            .iter()
+            .fold(String::new(), |mut acc, byte| {
+                let _ = write!(acc, "{byte:02x}");
+                acc
+            });
+
+        let tmp = format!(
+            "/tmp/traverse-artifact-router-test-{}.wasm",
+            std::time::SystemTime::now()
+                .duration_since(std::time::UNIX_EPOCH)
+                .map_or(0, |d| d.as_nanos())
+        );
+        std::fs::write(&tmp, &wasm_bytes).expect("temp wasm module should write");
+
+        let mut capability = resolved_capability(Some(BinaryReference {
+            format: BinaryFormat::Wasm,
+            location: tmp.clone(),
+            signature: None,
+        }));
+        capability.artifact.digests.binary_digest = Some(format!("sha256:{checksum}"));
+
+        let result = ArtifactRouter::new()
+            .expect("router should initialize")
+            .execute(&capability, &serde_json::json!({}));
+        std::fs::remove_file(&tmp).ok();
+
+        assert_eq!(
+            result,
+            Ok(LocalExecutionOutput {
+                value: serde_json::json!({}),
+                emitted_events: Vec::new(),
+            })
+        );
     }
 
     #[test]

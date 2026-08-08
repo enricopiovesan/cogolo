@@ -8,7 +8,7 @@ use crate::{
 use serde::{Deserialize, Serialize};
 use serde_json::{Map, Value, json};
 use std::collections::BTreeSet;
-use traverse_contracts::EventReference;
+use traverse_contracts::{EventReference, ServiceType};
 use traverse_registry::{
     LookupScope, RegistryScope, ResolvedCapability, ResolvedWorkflow, WorkflowEdge,
     WorkflowEdgePredicate, WorkflowEdgeTrigger, WorkflowNode,
@@ -601,7 +601,7 @@ where
             };
 
             if let Err(error) = validate_payload_against_contract(
-                &output,
+                &output.value,
                 &capability.contract.outputs.schema,
                 RuntimeErrorCode::OutputValidationFailed,
                 "workflow node output does not satisfy the capability output contract",
@@ -622,8 +622,64 @@ where
                 ));
             }
 
-            update_state(&mut state, node, &output);
-            let node_emitted = emitted_events(&output);
+            // Spec 101-local-executor-event-emission FR-007/FR-008: validate
+            // natively-populated events before using them for anything,
+            // mirroring spec 098's WASM-boundary checks.
+            if let Err(validation_message) = crate::validate_natively_emitted_events(
+                &capability.contract,
+                &output.emitted_events,
+            ) {
+                let mut failed = visited;
+                if let Some(last) = failed.last_mut() {
+                    last.status = WorkflowTraversalStepStatus::Failed;
+                }
+                return Err(workflow_failure(
+                    request,
+                    WorkflowTraversalFailureReason::StepExecutionFailed,
+                    runtime_error(
+                        RuntimeErrorCode::ContractViolation,
+                        &validation_message,
+                        json!({"node_id": node.node_id}),
+                    ),
+                    failed,
+                    traversed,
+                    emitted,
+                    event_evidence,
+                    warnings,
+                ));
+            }
+
+            update_state(&mut state, node, &output.value);
+
+            // Spec 101-local-executor-event-emission FR-005: publish to
+            // EventBroker for Subscribable capabilities, structurally
+            // analogous to PlacementRouter Step 5 (same gate, same
+            // best-effort semantics — a publish error is recorded but does
+            // not fail the workflow step).
+            if capability.contract.service_type == ServiceType::Subscribable {
+                for event in &output.emitted_events {
+                    let _ = self.event_broker.publish(event.clone());
+                }
+            }
+
+            // Spec 101-local-executor-event-emission FR-006: Pass-1
+            // event-driven edge matching reads from the structured
+            // `LocalExecutionOutput.emitted_events` field, not a
+            // JSON-parsed "emitted_events" convention key.
+            let node_emitted: Vec<EmittedEventRecord> = output
+                .emitted_events
+                .iter()
+                .enumerate()
+                .map(|(index, event)| EmittedEventRecord {
+                    record_id: format!("event_record_{index}"),
+                    event: EventReference {
+                        event_id: event.event_type.clone(),
+                        version: event.version.clone(),
+                    },
+                    payload: Some(event.data.clone()),
+                    source: None,
+                })
+                .collect();
             emitted.extend(node_emitted.iter().map(|record| record.event.clone()));
             if let Some(last) = visited.last_mut() {
                 last.status = WorkflowTraversalStepStatus::Completed;
@@ -979,33 +1035,6 @@ fn final_workflow_output(state: &Map<String, Value>, output_projection: &[String
     Value::Object(projected)
 }
 
-fn emitted_events(output: &Value) -> Vec<EmittedEventRecord> {
-    let Value::Object(object) = output else {
-        return Vec::new();
-    };
-    let Some(Value::Array(events)) = object.get("emitted_events") else {
-        return Vec::new();
-    };
-    events
-        .iter()
-        .enumerate()
-        .filter_map(|(index, event)| {
-            let Value::Object(event) = event else {
-                return None;
-            };
-            Some(EmittedEventRecord {
-                record_id: format!("event_record_{index}"),
-                event: EventReference {
-                    event_id: event.get("event_id")?.as_str()?.to_string(),
-                    version: event.get("version")?.as_str()?.to_string(),
-                },
-                payload: event.get("payload").cloned(),
-                source: None,
-            })
-        })
-        .collect()
-}
-
 fn waiting_edge_contexts(
     workflow_execution_id: &str,
     edges: &[WorkflowEdge],
@@ -1358,8 +1387,8 @@ mod tests {
     use crate::security::RuntimeSecurityConfig;
     use crate::{
         CandidateCollectionRecord, LocalExecutionFailure, LocalExecutionFailureCode,
-        RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
-        RuntimeResultStatus, SelectionRecord,
+        LocalExecutionOutput, RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope,
+        RuntimeRequest, RuntimeResultStatus, SelectionRecord,
     };
     use serde_json::json;
     use std::sync::Arc;
@@ -1411,7 +1440,7 @@ mod tests {
     }
 
     #[test]
-    fn workflow_helpers_cover_state_and_event_extraction_paths() {
+    fn workflow_helpers_cover_state_and_edge_paths() {
         let scalar = workflow_state(&json!("value"));
         assert_eq!(scalar.get("input"), Some(&json!("value")));
 
@@ -1432,30 +1461,6 @@ mod tests {
         update_state(&mut state, &node, &json!({"draft_id": "draft-1"}));
         assert_eq!(state.get("draft_id"), Some(&json!("draft-1")));
         update_state(&mut state, &node, &json!("not-an-object"));
-
-        assert!(emitted_events(&json!("nope")).is_empty());
-        assert_eq!(
-            emitted_events(&json!({
-                "emitted_events": [
-                    "bad",
-                    {
-                        "event_id": "content.comments.draft-created",
-                        "version": "1.0.0",
-                        "payload": {"severity": "normal"}
-                    },
-                    {"event_id": "bad"}
-                ]
-            })),
-            vec![EmittedEventRecord {
-                record_id: "event_record_1".to_string(),
-                event: EventReference {
-                    event_id: "content.comments.draft-created".to_string(),
-                    version: "1.0.0".to_string(),
-                },
-                payload: Some(json!({"severity": "normal"})),
-                source: None,
-            }]
-        );
 
         let edge = WorkflowEdge {
             edge_id: "edge".to_string(),
@@ -1602,6 +1607,54 @@ mod tests {
                 .iter()
                 .any(|warning| warning.code == "unsigned_local_dev_artifact")
         );
+    }
+
+    /// Spec 101-local-executor-event-emission FR-005 / acceptance scenario 2:
+    /// a workflow node's declared, `Subscribable`-gated event both satisfies
+    /// same-execution waiting edges (already covered by
+    /// `executes_workflow_deterministically_and_supports_workflow_backed_capabilities`)
+    /// AND is published to `EventBroker` for external consumers, mirroring
+    /// `PlacementRouter` Step 5's publish semantics.
+    #[test]
+    fn workflow_node_emitted_events_are_published_to_event_broker() {
+        let broker = event_catalog_broker_fixture("content.comments.draft-created", "1.0.0");
+        let subscription = broker
+            .subscribe("content.comments.draft-created", "0")
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+
+        let workflow_registry = workflow_registry_fixture();
+        let runtime = Runtime::new(capability_registry_fixture(), WorkflowExecutor)
+            .with_workflow_registry(workflow_registry)
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(broker.clone());
+
+        let workflow = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(workflow.result.status, WorkflowTraversalStatus::Completed);
+
+        let poll = broker
+            .poll(&subscription.subscription_id, 10)
+            .unwrap_or_else(|error| unreachable!("{error:?}"));
+        assert_eq!(poll.events.len(), 1);
+        assert_eq!(
+            poll.events[0].event.event_type,
+            "content.comments.draft-created"
+        );
+    }
+
+    /// Spec 101-local-executor-event-emission FR-005 / acceptance scenario 7:
+    /// an `EventBroker` publish failure at workflow-node publish time is
+    /// recorded (best-effort, matching `PlacementRouter` Step 5) but does not
+    /// fail the workflow step — a broker outage does not fail traversal.
+    #[test]
+    fn workflow_node_publish_failure_does_not_fail_workflow_step() {
+        let workflow_registry = workflow_registry_fixture();
+        let runtime = Runtime::new(capability_registry_fixture(), WorkflowExecutor)
+            .with_workflow_registry(workflow_registry)
+            .with_security_config(RuntimeSecurityConfig::development())
+            .with_event_broker(Arc::new(AlwaysFailingBroker));
+
+        let workflow = runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(workflow.result.status, WorkflowTraversalStatus::Completed);
     }
 
     #[test]
@@ -2435,6 +2488,22 @@ mod tests {
             Some(WorkflowTraversalFailureReason::StepExecutionFailed)
         );
 
+        // Spec 101-local-executor-event-emission FR-007/FR-008: a workflow
+        // node that emits an event its contract does not declare must fail
+        // the step with a contract-violation error, mirroring
+        // `PlacementRouter`'s native-boundary validation.
+        let undeclared_event_runtime = Runtime::new(
+            capability_registry_fixture(),
+            UndeclaredEventWorkflowExecutor,
+        )
+        .with_workflow_registry(workflow_registry_fixture())
+        .with_security_config(RuntimeSecurityConfig::development());
+        let undeclared_event = undeclared_event_runtime.execute_workflow(valid_workflow_request());
+        assert_eq!(
+            undeclared_event.evidence.result.failure_reason,
+            Some(WorkflowTraversalFailureReason::StepExecutionFailed)
+        );
+
         let direct_success = runtime.traverse_workflow(
             &valid_workflow_request(),
             &resolved_workflow(workflow_definition_fixture(
@@ -3089,8 +3158,8 @@ mod tests {
             &self,
             capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
-            let output = match capability.record.id.as_str() {
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            let value = match capability.record.id.as_str() {
                 "content.comments.pipeline-validate" => json!({"valid": true, "issues": []}),
                 "content.comments.pipeline-process" => json!({
                     "title": "Hello world",
@@ -3101,7 +3170,10 @@ mod tests {
                 }),
                 _ => json!({"summary": "Hello world (fleeting)", "wordCount": 3}),
             };
-            Ok(output)
+            Ok(LocalExecutionOutput {
+                value,
+                emitted_events: Vec::new(),
+            })
         }
     }
 
@@ -3112,9 +3184,12 @@ mod tests {
             &self,
             capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
             match capability.record.id.as_str() {
-                "content.comments.pipeline-validate" => Ok(json!({"valid": true, "issues": []})),
+                "content.comments.pipeline-validate" => Ok(LocalExecutionOutput {
+                    value: json!({"valid": true, "issues": []}),
+                    emitted_events: Vec::new(),
+                }),
                 other => Err(LocalExecutionFailure {
                     code: LocalExecutionFailureCode::ExecutionFailed,
                     message: format!("step failed: {other}"),
@@ -3390,6 +3465,12 @@ mod tests {
         inputs: Value,
         outputs: Value,
     ) -> CapabilityContract {
+        // Subscribable requires a non-empty event_trigger (registry
+        // ContractValidationFailed otherwise); only capabilities that
+        // actually declare `emits` need to be Subscribable at all (spec
+        // 101-local-executor-event-emission FR-007/FR-008 rejects a
+        // non-Subscribable capability's emitted events).
+        let has_emits = !emits.is_empty();
         CapabilityContract {
             kind: "capability_contract".to_string(),
             schema_version: "1.0.0".to_string(),
@@ -3451,14 +3532,22 @@ mod tests {
                 evidence_type: EvidenceType::ContractValidation,
                 status: EvidenceStatus::Passed,
             }],
-            service_type: ServiceType::Stateless,
+            service_type: if has_emits {
+                ServiceType::Subscribable
+            } else {
+                ServiceType::Stateless
+            },
             permitted_targets: vec![
                 ExecutionTarget::Local,
                 ExecutionTarget::Cloud,
                 ExecutionTarget::Edge,
                 ExecutionTarget::Device,
             ],
-            event_trigger: None,
+            event_trigger: if has_emits {
+                Some(format!("{id}.triggered"))
+            } else {
+                None
+            },
             connector_requirements: Vec::new(),
             state_schema: None,
         }
@@ -3513,26 +3602,28 @@ mod tests {
             &self,
             capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
-            let output = match capability.record.id.as_str() {
-                "content.comments.create-comment-draft" => json!({
-                    "draft_id": "draft-1",
-                    "emitted_events": [
-                        {"event_id": "content.comments.draft-created", "version": "1.0.0"}
-                    ]
-                }),
-                "content.comments.validate-comment" => json!({
-                    "draft_id": "draft-1",
-                    "emitted_events": [
-                        {"event_id": "content.comments.validated", "version": "1.0.0"}
-                    ]
-                }),
-                "content.comments.persist-comment" => json!({
-                    "comment_id": "comment-1"
-                }),
-                _ => json!({}),
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            let (value, emitted_events) = match capability.record.id.as_str() {
+                "content.comments.create-comment-draft" => (
+                    json!({"draft_id": "draft-1"}),
+                    vec![sample_traverse_event(
+                        "content.comments.draft-created",
+                        "1.0.0",
+                    )],
+                ),
+                "content.comments.validate-comment" => (
+                    json!({"draft_id": "draft-1"}),
+                    vec![sample_traverse_event("content.comments.validated", "1.0.0")],
+                ),
+                "content.comments.persist-comment" => {
+                    (json!({"comment_id": "comment-1"}), Vec::new())
+                }
+                _ => (json!({}), Vec::new()),
             };
-            Ok(output)
+            Ok(LocalExecutionOutput {
+                value,
+                emitted_events,
+            })
         }
     }
 
@@ -3543,7 +3634,7 @@ mod tests {
             &self,
             _capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
             Err(LocalExecutionFailure {
                 code: LocalExecutionFailureCode::ExecutionFailed,
                 message: "boom".to_string(),
@@ -3560,23 +3651,25 @@ mod tests {
             &self,
             capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
-            let output = match capability.record.id.as_str() {
-                "content.comments.create-comment-draft" => json!({
-                    "draft_id": "draft-1",
-                    "emitted_events": [
-                        {"event_id": "content.comments.draft-created", "version": "1.0.0"}
-                    ]
-                }),
-                "content.comments.validate-comment" => json!({
-                    "draft_id": "draft-1"
-                }),
-                "content.comments.persist-comment" => json!({
-                    "comment_id": "comment-1"
-                }),
-                _ => json!({}),
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            let (value, emitted_events) = match capability.record.id.as_str() {
+                "content.comments.create-comment-draft" => (
+                    json!({"draft_id": "draft-1"}),
+                    vec![sample_traverse_event(
+                        "content.comments.draft-created",
+                        "1.0.0",
+                    )],
+                ),
+                "content.comments.validate-comment" => (json!({"draft_id": "draft-1"}), Vec::new()),
+                "content.comments.persist-comment" => {
+                    (json!({"comment_id": "comment-1"}), Vec::new())
+                }
+                _ => (json!({}), Vec::new()),
             };
-            Ok(output)
+            Ok(LocalExecutionOutput {
+                value,
+                emitted_events,
+            })
         }
     }
 
@@ -3585,16 +3678,44 @@ mod tests {
             &self,
             capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
-            let output = match capability.record.id.as_str() {
-                "content.comments.create-comment-draft" => json!({
-                    "emitted_events": [
-                        {"event_id": "content.comments.draft-created", "version": "1.0.0"}
-                    ]
-                }),
-                _ => json!({}),
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            let (value, emitted_events) = match capability.record.id.as_str() {
+                "content.comments.create-comment-draft" => (
+                    json!({}),
+                    vec![sample_traverse_event(
+                        "content.comments.draft-created",
+                        "1.0.0",
+                    )],
+                ),
+                _ => (json!({}), Vec::new()),
             };
-            Ok(output)
+            Ok(LocalExecutionOutput {
+                value,
+                emitted_events,
+            })
+        }
+    }
+
+    struct UndeclaredEventWorkflowExecutor;
+
+    impl LocalExecutor for UndeclaredEventWorkflowExecutor {
+        fn execute(
+            &self,
+            _capability: &ResolvedCapability,
+            _input: &Value,
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            // The workflow under test in `workflow_failures_cover_not_found_missing_events_and_step_failures`
+            // fails FR-007/FR-008 validation at its start node, so this
+            // executor is only ever invoked for
+            // "content.comments.create-comment-draft" and never reaches a
+            // second node.
+            Ok(LocalExecutionOutput {
+                value: json!({"draft_id": "draft-1"}),
+                emitted_events: vec![sample_traverse_event(
+                    "content.comments.undeclared-event",
+                    "1.0.0",
+                )],
+            })
         }
     }
 

@@ -1073,8 +1073,9 @@ impl LocalExecutor for ExpeditionExampleExecutor {
         &self,
         capability: &traverse_registry::ResolvedCapability,
         input: &Value,
-    ) -> Result<Value, traverse_runtime::LocalExecutionFailure> {
-        match capability.contract.id.as_str() {
+    ) -> Result<traverse_runtime::LocalExecutionOutput, traverse_runtime::LocalExecutionFailure>
+    {
+        let value = match capability.contract.id.as_str() {
             "expedition.planning.capture-expedition-objective" => {
                 execute_capture_expedition_objective(input)
             }
@@ -1091,7 +1092,11 @@ impl LocalExecutor for ExpeditionExampleExecutor {
             other => Err(executor_failure(&format!(
                 "unsupported expedition capability for stdio execution: {other}"
             ))),
-        }
+        }?;
+        Ok(traverse_runtime::LocalExecutionOutput {
+            value,
+            emitted_events: Vec::new(),
+        })
     }
 }
 
