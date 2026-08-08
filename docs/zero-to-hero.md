@@ -36,7 +36,7 @@ bash scripts/ci/hello_world_example_smoke.sh
 What success looks like:
 
 - status is `completed`
-- the output contains `greeting: Hello, Traverse!`
+- the output JSON contains `"greeting": "Hello, Traverse!"`
 
 ## Step 2: Browser Host (App-Consumable)
 
