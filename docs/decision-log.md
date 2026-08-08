@@ -2032,3 +2032,74 @@ Both filed on org Project 1 (`#995` In Progress pending PR merge, `#996`
 Ready). Spec canonical id renumbered from `100` to `101` during this
 session's rebase after discovering `origin/main` had concurrently claimed
 `100-capability-package-authoring` (Decision 54, #989).
+
+## Decision 56: Fix the Placeholder Ed25519 Signature in `supply_chain_check.sh` Under Existing Spec 031 — Not a New Decision
+
+- **Date**: 2026-08-07
+- **Status**: Accepted
+- **Governing spec**: `031-supply-chain-hardening` (already approved; FR-009, SC-001)
+- **Related issues**: `#985`
+- **Origin**: Discovered while checking `main`'s CI health after the eventing sequence (#963–#973) finished; unrelated to eventing.
+
+### Context
+
+`main`'s `Supply Chain` GitHub Actions workflow was failing on every recent
+push (confirmed on 3 consecutive commits) with `"ed25519 signature does not
+verify the artifact bytes"`. Root cause:
+`scripts/ci/supply_chain_check.sh` has hardcoded an all-zero placeholder
+`public_key_hex`/`signature_hex` into the release-artifact manifest since it
+was added in #431 — it never actually signed anything.
+`crates/traverse-cli/src/supply_chain.rs::verify_signature`'s Ed25519 check
+is genuinely cryptographic (confirmed by reading it directly) and correctly
+rejects an all-zero signature, so this had silently never worked. It went
+unnoticed because this workflow only triggers on `push`/`schedule`/
+`workflow_dispatch` (no `pull_request` trigger), so it never blocked a PR
+merge.
+
+Before treating this as a design decision, `031-supply-chain-hardening` was
+checked directly: FR-009 already requires "Ed25519 keypair as the required
+baseline" for artifact signing, and SC-001 already requires
+`artifact verify` to return `overall_status: passed` for a valid, *signed*
+artifact — both already presuppose a real signature exists to check. This
+is a gap between an already-approved spec and the implementation, the same
+pattern as Decision 44 (`PlacementRouter` wiring), not a new decision.
+
+### Decision
+
+Add `traverse-cli artifact sign <path>` (the natural counterpart to the
+existing `artifact verify`) that signs an artifact with a freshly derived,
+single-use Ed25519 keypair, and have `supply_chain_check.sh` call it instead
+of hand-writing a placeholder manifest. The signing key is derived
+deterministically from the artifact's own checksum and the current time —
+not a persistent, publicly trusted release key. This is a deliberate scope
+choice, not an oversight: Traverse's only real distribution channel is
+`cargo publish` to crates.io (source, not this compiled binary — Decision
+43), so no persistent binary-signing key exists anywhere in this repo's
+governance to use instead, and provisioning one (a GitHub Actions secret)
+is exactly the kind of credential/account action Decision 43 already
+established Claude does not perform on the user's behalf. An ephemeral key
+fully satisfies what this specific CI self-check needs: proving the
+sign/verify round trip is internally consistent, not asserting a publicly
+verifiable release signature.
+
+### Alternatives Considered
+
+- Provision a persistent signing key as a GitHub Actions secret for real
+  release-artifact signing — rejected for this ticket: no such concept
+  exists elsewhere in this repo's governance (the actual release channel is
+  source-only via crates.io), and creating the secret is account/credential
+  provisioning outside what Claude performs unprompted, matching Decision
+  43's precedent exactly.
+- Sign with a fixed, hardcoded (but non-zero) keypair committed to the repo
+  — rejected: this would look like a real key without being one, inviting
+  exactly the false confidence the original all-zero placeholder created,
+  just with extra steps.
+
+### Outcome
+
+`crates/traverse-cli/src/supply_chain.rs` gains `sign_artifact`,
+`ArtifactSigningReport`, and `SigningError`; `main.rs` gains the
+`artifact sign` subcommand mirroring `artifact verify`. Verified locally
+end-to-end: `bash scripts/ci/supply_chain_check.sh` now reports
+`overall_status: passed` with zero warnings. Tracked as `#985`, no new spec
+or ADR required.

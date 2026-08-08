@@ -113,6 +113,9 @@ enum Command {
     ArtifactVerify {
         artifact_path: PathBuf,
     },
+    ArtifactSign {
+        artifact_path: PathBuf,
+    },
     FederationPeers {
         manifest_path: PathBuf,
     },
@@ -313,6 +316,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
         } => execute_capability_package(&manifest_path, &request_path),
         Command::WasmAbiVerify { wasm_paths } => verify_wasm_abi_imports(&wasm_paths),
         Command::ArtifactVerify { artifact_path } => verify_supply_chain_artifact(&artifact_path),
+        Command::ArtifactSign { artifact_path } => sign_supply_chain_artifact(&artifact_path),
         Command::FederationPeers { manifest_path } => {
             render_federation_peers(&manifest_path).map_err(CliError::IoError)
         }
@@ -439,6 +443,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
             parse_capability_package_execute_command(args)
         }
         (Some("artifact"), Some("verify")) => parse_artifact_verify_command(args),
+        (Some("artifact"), Some("sign")) => parse_artifact_sign_command(args),
         (Some("wasm"), Some("abi")) => parse_wasm_abi_command(args),
         (Some("expedition"), Some("execute")) => parse_expedition_execute_command(args),
         (Some("capability"), Some("discover")) => parse_capability_discover_command(args),
@@ -470,6 +475,7 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("capability-package"), Some("execute")) => help_capability_package_execute(),
         (Some("capability-package"), _) => help_capability_package(),
         (Some("artifact"), Some("verify")) => help_artifact_verify(),
+        (Some("artifact"), Some("sign")) => help_artifact_sign(),
         (Some("artifact"), _) => help_artifact(),
         (Some("wasm"), Some("abi")) => help_wasm_abi(),
         (Some("wasm"), _) => help_wasm(),
@@ -910,13 +916,37 @@ fn help_artifact_verify() -> String {
         .to_string()
 }
 
+fn help_artifact_sign() -> String {
+    "traverse-cli artifact sign <artifact-path>
+
+  Purpose:
+    Sign one artifact with a freshly derived, single-use Ed25519 keypair and
+    write a <artifact>.manifest.json sidecar that `artifact verify` can
+    check. The signing key is derived from the artifact's own checksum and
+    the current time, not a persistent release key — this proves the
+    sign/verify round trip is internally consistent, it does not produce a
+    publicly trusted release signature. Emits a structured JSON report to
+    stdout describing what was signed and where the manifest sidecar landed.
+
+  Required arguments:
+    <artifact-path>   Artifact file to sign.
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli artifact sign target/release/traverse-cli"
+        .to_string()
+}
+
 fn help_artifact() -> String {
     "traverse-cli artifact <subcommand> [options]
 
   Subcommands:
     verify <artifact-or-manifest-path>   Verify checksum, signature, and provenance evidence.
+    sign <artifact-path>                 Sign an artifact and write its manifest sidecar.
 
-  Run `traverse-cli artifact verify --help` for subcommand-specific help."
+  Run `traverse-cli artifact verify --help` or `traverse-cli artifact sign --help` for subcommand-specific help."
         .to_string()
 }
 
@@ -1532,6 +1562,15 @@ fn parse_fixed_arity_command(args: &[String]) -> Result<Command, String> {
 fn parse_artifact_verify_command(args: &[String]) -> Result<Command, String> {
     match args {
         [_, _, _, artifact_path] => Ok(Command::ArtifactVerify {
+            artifact_path: PathBuf::from(artifact_path),
+        }),
+        _ => Err(usage()),
+    }
+}
+
+fn parse_artifact_sign_command(args: &[String]) -> Result<Command, String> {
+    match args {
+        [_, _, _, artifact_path] => Ok(Command::ArtifactSign {
             artifact_path: PathBuf::from(artifact_path),
         }),
         _ => Err(usage()),
@@ -3911,6 +3950,13 @@ fn verify_supply_chain_artifact(artifact_path: &Path) -> Result<String, CliError
     } else {
         Err(CliError::ValidationFailed(json))
     }
+}
+
+fn sign_supply_chain_artifact(artifact_path: &Path) -> Result<String, CliError> {
+    let report =
+        supply_chain::sign_artifact(artifact_path).map_err(|e| CliError::IoError(e.to_string()))?;
+    serde_json::to_string_pretty(&report)
+        .map_err(|e| CliError::IoError(format!("failed to serialize signing report: {e}")))
 }
 
 fn execute_expedition(
@@ -7248,6 +7294,77 @@ mod tests {
     }
 
     #[test]
+    fn parse_command_returns_artifact_sign_help_on_help_flag() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "artifact".to_string(),
+            "sign".to_string(),
+            "--help".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(result.is_err(), "expected Err for --help");
+        let text = result.err().unwrap_or_default();
+        assert!(text.contains("artifact sign"));
+        assert!(text.contains("<artifact-path>"));
+        assert!(text.contains("Example:"));
+    }
+
+    #[test]
+    fn parse_command_parses_artifact_sign() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "artifact".to_string(),
+            "sign".to_string(),
+            "target/release/traverse-cli".to_string(),
+        ];
+        let result = parse_command(&args);
+        assert!(matches!(
+            result,
+            Ok(Command::ArtifactSign { artifact_path })
+                if artifact_path == Path::new("target/release/traverse-cli")
+        ));
+    }
+
+    #[test]
+    fn parse_command_rejects_artifact_sign_with_wrong_arity() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "artifact".to_string(),
+            "sign".to_string(),
+        ];
+        assert!(parse_command(&args).is_err());
+    }
+
+    #[test]
+    fn artifact_sign_then_verify_round_trips_through_run_command() {
+        let dir = unique_temp_dir();
+        let artifact = dir.join("artifact.bin");
+        fs::write(&artifact, b"cli round trip bytes").expect("artifact should write");
+
+        let signed = run_command(Command::ArtifactSign {
+            artifact_path: artifact.clone(),
+        })
+        .expect("signing a real artifact must succeed");
+        assert!(signed.contains("\"signing_scheme\": \"ed25519\""));
+
+        let verified = run_command(Command::ArtifactVerify {
+            artifact_path: artifact.clone(),
+        });
+        // Checksum and signature must verify even without a provenance
+        // sidecar; overall status stays Failed only because provenance is
+        // absent, which is expected and separate from what this command
+        // signs.
+        let report_json = verified
+            .or_else(|error| match error {
+                CliError::ValidationFailed(json) => Ok(json),
+                other => Err(other),
+            })
+            .expect("verifying a signed artifact should only fail on missing provenance");
+        assert!(report_json.contains("\"signature_status\": \"verified\""));
+        assert!(report_json.contains("\"checksum_status\": \"matched\""));
+    }
+
+    #[test]
     fn parse_command_returns_workflow_inspect_help_on_help_flag() {
         let args = vec![
             "traverse-cli".to_string(),
@@ -8853,6 +8970,9 @@ mod tests {
                 wasm_paths: vec![missing.clone()],
             },
             Command::ArtifactVerify {
+                artifact_path: missing.clone(),
+            },
+            Command::ArtifactSign {
                 artifact_path: missing.clone(),
             },
             Command::FederationPeers {
