@@ -100,6 +100,9 @@ enum Command {
     ComponentNew {
         component_id: String,
     },
+    CapabilityNew {
+        capability_id: String,
+    },
     CapabilityPackageInspect {
         manifest_path: PathBuf,
     },
@@ -262,6 +265,7 @@ fn main() -> ExitCode {
     }
 }
 
+#[allow(clippy::too_many_lines)]
 fn run_command(command: Command) -> Result<String, CliError> {
     match command {
         Command::BundleInspect {
@@ -306,6 +310,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
             dry_run,
         ),
         Command::ComponentNew { component_id } => component_new(&component_id),
+        Command::CapabilityNew { capability_id } => capability_new(&capability_id),
         Command::Serve { .. } => Err(CliError::UsageError(usage())),
         Command::CapabilityPackageInspect { manifest_path } => {
             inspect_capability_package(&manifest_path)
@@ -438,6 +443,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("registry"), Some("list")) => parse_registry_list_command(args),
         (Some("registry"), Some("search")) => parse_registry_search_command(args),
         (Some("component"), Some("new")) => parse_component_new_command(args),
+        (Some("capability"), Some("new")) => parse_capability_new_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
         (Some("capability-package"), Some("execute")) => {
             parse_capability_package_execute_command(args)
@@ -485,6 +491,7 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("workflow"), _) => help_workflow(),
         (Some("expedition"), Some("execute")) => help_expedition_execute(),
         (Some("expedition"), _) => help_expedition(),
+        (Some("capability"), Some("new")) => help_capability_new(),
         (Some("capability"), Some("inspect")) => help_capability_inspect(),
         (Some("capability"), Some("discover")) => help_capability_discover(),
         (Some("capability"), Some("publish")) => help_capability_publish(),
@@ -768,20 +775,14 @@ fn help_capability_publish() -> String {
 fn help_component_new() -> String {
     "traverse-cli component new <component-id>
 
-  Purpose:
-    Create a governed WASM component package directory under
-    components/<component-id>. The scaffold contains a schema-valid component
-    manifest, draft capability contract, Rust package shell, source directory,
-    and artifact directory. It does not create an executable WASM artifact.
+  Retired (spec 100-capability-package-authoring FR-008):
+    This command no longer scaffolds a package. It exits non-zero and
+    directs you to the real create path.
 
-  Required arguments:
-    <component-id>   Component and capability id to scaffold.
+  Use instead:
+    traverse-cli capability new <capability-id>
 
-  Optional flags:
-    --help           Print this help text.
-
-  Example:
-    traverse-cli component new knowledge.retrieve"
+  Run `traverse-cli capability new --help` for details."
         .to_string()
 }
 
@@ -789,9 +790,9 @@ fn help_component() -> String {
     "traverse-cli component <subcommand> [options]
 
   Subcommands:
-    new <component-id>   Create a governed WASM component package scaffold.
+    new <component-id>   Retired — redirects to `capability new` (spec 100).
 
-  Run `traverse-cli component new --help` for subcommand-specific help."
+  Run `traverse-cli capability new --help` for the real create path."
         .to_string()
 }
 
@@ -1126,10 +1127,35 @@ fn help_capability_discover() -> String {
         .to_string()
 }
 
+fn help_capability_new() -> String {
+    "traverse-cli capability new <capability-id>
+
+  Purpose:
+    Create a governed WASM capability package directory under
+    capabilities/<capability-id> (spec 100-capability-package-authoring).
+    The scaffold is a real `kind: capability_package` — the same shape
+    `capability-package inspect`/`execute` load in production — with a
+    contract carrying authorable input/output fields (not empty
+    placeholders) and a #![no_std] WASI guest stub. It does not claim to be
+    executable yet: no wasm artifact exists until you build one.
+
+  Required arguments:
+    <capability-id>   Capability id to scaffold (dot-separated, e.g.
+                       example.domain.my-cap).
+
+  Optional flags:
+    --help            Print this help text.
+
+  Example:
+    traverse-cli capability new example.domain.my-cap"
+        .to_string()
+}
+
 fn help_capability() -> String {
     "traverse-cli capability <subcommand> [options]
 
   Subcommands:
+    new <capability-id>             Scaffold a governed WASM capability package.
     inspect <contract-path>         Parse and validate a capability contract.
     discover <manifest-path>        List capabilities from a registry bundle.
     publish --contract <path>       Open a governed registry publication PR.
@@ -1348,6 +1374,15 @@ fn parse_component_new_command(args: &[String]) -> Result<Command, String> {
     match args {
         [_, _, _, component_id] => Ok(Command::ComponentNew {
             component_id: component_id.clone(),
+        }),
+        _ => Err(usage()),
+    }
+}
+
+fn parse_capability_new_command(args: &[String]) -> Result<Command, String> {
+    match args {
+        [_, _, _, capability_id] => Ok(Command::CapabilityNew {
+            capability_id: capability_id.clone(),
         }),
         _ => Err(usage()),
     }
@@ -1867,24 +1902,38 @@ fn app_new_at(
     Ok(lines.join("\n"))
 }
 
-fn component_new(component_id: &str) -> Result<String, CliError> {
-    let base_dir = env::current_dir()
-        .map_err(|e| CliError::IoError(format!("failed to resolve current directory: {e}")))?;
-    component_new_at(&base_dir, component_id)
+/// Spec `100-capability-package-authoring` FR-008: `component new` no longer
+/// emits the pre-Spec-100 empty, non-loadable scaffold. It redirects authors
+/// to the real `capability new` create path instead.
+fn component_new(_component_id: &str) -> Result<String, CliError> {
+    Err(CliError::UsageError(
+        "`traverse-cli component new` has been retired in favor of `traverse-cli capability new \
+         <capability-id>`, which scaffolds a real, inspectable `kind: capability_package` \
+         (spec 100-capability-package-authoring). Run `traverse-cli capability new --help` for \
+         details."
+            .to_string(),
+    ))
 }
 
-fn component_new_at(base_dir: &Path, component_id: &str) -> Result<String, CliError> {
-    validate_scaffold_id(component_id, "component id")?;
-    let component_dir = base_dir.join("components").join(component_id);
-    if component_dir.exists() {
+fn capability_new(capability_id: &str) -> Result<String, CliError> {
+    let base_dir = env::current_dir()
+        .map_err(|e| CliError::IoError(format!("failed to resolve current directory: {e}")))?;
+    capability_new_at(&base_dir, capability_id)
+}
+
+fn capability_new_at(base_dir: &Path, capability_id: &str) -> Result<String, CliError> {
+    validate_scaffold_id(capability_id, "capability id")?;
+    let capability_dir = base_dir.join("capabilities").join(capability_id);
+    if capability_dir.exists() {
         return Err(CliError::IoError(format!(
-            "component scaffold target already exists: {}",
-            component_dir.display()
+            "capability scaffold target already exists: {}",
+            capability_dir.display()
         )));
     }
 
-    let src_dir = component_dir.join("src");
-    let artifacts_dir = component_dir.join("artifacts");
+    let src_dir = capability_dir.join("src");
+    let artifacts_dir = capability_dir.join("artifacts");
+    let runtime_requests_dir = capability_dir.join("runtime-requests");
     fs::create_dir_all(&src_dir).map_err(|e| {
         CliError::IoError(format!(
             "failed to create source directory {}: {e}",
@@ -1897,62 +1946,273 @@ fn component_new_at(base_dir: &Path, component_id: &str) -> Result<String, CliEr
             artifacts_dir.display()
         ))
     })?;
+    fs::create_dir_all(&runtime_requests_dir).map_err(|e| {
+        CliError::IoError(format!(
+            "failed to create runtime-requests directory {}: {e}",
+            runtime_requests_dir.display()
+        ))
+    })?;
 
-    let component_name = scaffold_leaf_name(component_id);
-    let wasm_name = format!("{component_name}.wasm");
-    let package_name = component_id.replace('.', "-");
-    write_new_file(
-        &component_dir.join("Cargo.toml"),
-        &format!(
-            "[package]\nname = \"{package_name}\"\nversion = \"0.1.0\"\nedition = \"2024\"\n\n[lib]\ncrate-type = [\"cdylib\"]\npath = \"src/lib.rs\"\n"
-        ),
-    )?;
-    write_new_file(&src_dir.join("lib.rs"), "")?;
+    let leaf_name = scaffold_leaf_name(capability_id);
+    let wasm_name = format!("{leaf_name}.wasm");
+
+    write_new_file(&src_dir.join("agent.rs"), &capability_guest_stub_source())?;
     write_new_file(
         &artifacts_dir.join("README.md"),
-        "Place the compiled WASM artifact here after the component implementation is built.\n",
+        "Place the compiled WASM artifact here after running build-fixture.sh. \
+         `capability-package inspect`/`execute` refuse to treat this package as executable \
+         until a real artifact exists here and its digest matches manifest.json's \
+         binary.expected_digest.\n",
+    )?;
+    write_new_file(
+        &capability_dir.join("build-fixture.sh"),
+        &capability_build_fixture_script(&wasm_name),
     )?;
     write_pretty_json(
-        &component_dir.join("contract.json"),
-        &component_contract_json(component_id, &component_name),
+        &capability_dir.join("contract.json"),
+        &capability_contract_json(capability_id, &leaf_name),
     )?;
     write_pretty_json(
-        &component_dir.join("manifest.json"),
-        &serde_json::json!({
-            "component_id": component_id,
+        &capability_dir.join("manifest.json"),
+        &capability_package_manifest_json(capability_id, &wasm_name),
+    )?;
+    write_pretty_json(
+        &runtime_requests_dir.join(format!("{leaf_name}.json")),
+        &capability_sample_runtime_request_json(capability_id, &leaf_name),
+    )?;
+
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        let build_script = capability_dir.join("build-fixture.sh");
+        if let Ok(metadata) = fs::metadata(&build_script) {
+            let mut permissions = metadata.permissions();
+            permissions.set_mode(0o755);
+            let _ = fs::set_permissions(&build_script, permissions);
+        }
+    }
+
+    let manifest_path = capability_dir.join("manifest.json");
+    let request_path = runtime_requests_dir.join(format!("{leaf_name}.json"));
+    Ok([
+        format!("created_capability: {capability_id}"),
+        format!("capability_dir: {}", capability_dir.display()),
+        format!("manifest: {}", manifest_path.display()),
+        format!(
+            "contract: {}",
+            capability_dir.join("contract.json").display()
+        ),
+        format!("source: {}", src_dir.join("agent.rs").display()),
+        format!("sample_request: {}", request_path.display()),
+        "next_steps:".to_string(),
+        "  1. Implement real input/output fields and business logic in src/agent.rs \
+             and contract.json (this scaffold is a placeholder, not executable yet)."
+            .to_string(),
+        format!(
+            "  2. Build the WASM artifact: bash {}",
+            capability_dir.join("build-fixture.sh").display()
+        ),
+        format!(
+            "  3. Run `traverse-cli capability-package inspect {}` — if binary.expected_digest \
+             doesn't match yet, the error reports the real digest to paste into manifest.json.",
+            manifest_path.display()
+        ),
+        format!(
+            "  4. Once inspect succeeds, run `traverse-cli capability-package execute {} {}`.",
+            manifest_path.display(),
+            request_path.display()
+        ),
+    ]
+    .join("\n"))
+}
+
+fn capability_package_manifest_json(capability_id: &str, wasm_name: &str) -> Value {
+    serde_json::json!({
+        "kind": "capability_package",
+        "schema_version": "1.0.0",
+        "package_id": capability_id,
+        "version": "1.0.0",
+        "summary": format!("Governed capability package for {capability_id}."),
+        "capability_ref": {
+            "id": capability_id,
             "version": "1.0.0",
-            "schema_version": "1.0.0",
-            "capability_id": component_id,
-            "capability_version": "1.0.0",
-            "contract_path": "contract.json",
-            "wasm_binary_path": format!("artifacts/{wasm_name}"),
-            "wasm_digest": "sha256:e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
-            "runtime_constraints": {
+            "contract_path": "contract.json"
+        },
+        "workflow_refs": [
+            {
+                "workflow_id": capability_id,
+                "workflow_version": "1.0.0"
+            }
+        ],
+        "source": {
+            "path": "src/agent.rs",
+            "language": "rust",
+            "entry": "run"
+        },
+        "binary": {
+            "path": format!("artifacts/{wasm_name}"),
+            "format": "wasm",
+            "expected_digest": "fnv1a64:0000000000000000",
+            "abi_version": SUPPORTED_HOST_ABI_VERSION
+        },
+        "constraints": {
+            "host_api_access": "none",
+            "network_access": "forbidden",
+            "filesystem_access": "none"
+        }
+    })
+}
+
+fn capability_contract_json(capability_id: &str, name: &str) -> Value {
+    let namespace = component_namespace(capability_id);
+    serde_json::json!({
+        "kind": "capability_contract",
+        "schema_version": "1.0.0",
+        "id": capability_id,
+        "namespace": namespace,
+        "name": name,
+        "version": "1.0.0",
+        "lifecycle": "active",
+        "owner": {
+            "team": "local-author",
+            "contact": "local-author"
+        },
+        "summary": format!("Governed capability contract for {capability_id}."),
+        "description": format!("Draft Traverse capability contract for the real WASM capability {capability_id}."),
+        "inputs": {
+            "schema": {
+                "type": "object",
+                "required": ["input_value"],
+                "additionalProperties": false,
+                "properties": {
+                    "input_value": {
+                        "type": "string",
+                        "description": "Placeholder input field. Replace with this capability's real input fields."
+                    }
+                }
+            }
+        },
+        "outputs": {
+            "schema": {
+                "type": "object",
+                "required": ["output_value"],
+                "additionalProperties": false,
+                "properties": {
+                    "output_value": {
+                        "type": "string",
+                        "description": "Placeholder output field. Replace with this capability's real output fields."
+                    }
+                }
+            }
+        },
+        "preconditions": [],
+        "postconditions": [],
+        "side_effects": [
+            {
+                "kind": "memory_only",
+                "description": "No external side effects are declared for this draft capability contract."
+            }
+        ],
+        "emits": [],
+        "consumes": [],
+        "permissions": [
+            {
+                "id": capability_id
+            }
+        ],
+        "execution": {
+            "binary_format": "wasm",
+            "entrypoint": {
+                "kind": "wasi-command",
+                "command": "run"
+            },
+            "preferred_targets": ["local"],
+            "constraints": {
                 "host_api_access": "none",
                 "network_access": "forbidden",
                 "filesystem_access": "none"
-            },
-            "permitted_targets": ["local"],
-            "dependencies": [],
-            "connector_requirements": [],
-            "validation_evidence": []
-        }),
-    )?;
+            }
+        },
+        "policies": [
+            {
+                "id": "manual-approval-required"
+            }
+        ],
+        "dependencies": [],
+        "provenance": {
+            "source": "greenfield",
+            "author": "traverse-cli",
+            "created_at": "capability-scaffold",
+            "spec_ref": "100-capability-package-authoring@1.0.0",
+            "adr_refs": [],
+            "exception_refs": []
+        },
+        "evidence": [],
+        "service_type": "stateless",
+        "permitted_targets": ["local"],
+        "artifact_type": "native"
+    })
+}
 
-    Ok([
-        format!("created_component: {component_id}"),
-        format!("component_dir: {}", component_dir.display()),
-        format!(
-            "manifest: {}",
-            component_dir.join("manifest.json").display()
-        ),
-        format!(
-            "contract: {}",
-            component_dir.join("contract.json").display()
-        ),
-        format!("source: {}", src_dir.join("lib.rs").display()),
-    ]
-    .join("\n"))
+fn capability_sample_runtime_request_json(capability_id: &str, leaf_name: &str) -> Value {
+    serde_json::json!({
+        "kind": "runtime_request",
+        "schema_version": "1.0.0",
+        "request_id": format!("{leaf_name}-scaffold-001"),
+        "intent": {
+            "capability_id": capability_id,
+            "capability_version": "1.0.0"
+        },
+        "input": {
+            "input_value": "example value"
+        },
+        "lookup": {
+            "scope": "prefer_private",
+            "allow_ambiguity": false
+        },
+        "context": {
+            "requested_target": "local",
+            "caller": "capability-scaffold"
+        },
+        "governing_spec": "006-runtime-request-execution"
+    })
+}
+
+/// A `#![no_std]` WASI guest stub matching the no-std guest profile
+/// (`091-no-std-wasi-guest-profile`): it imports only
+/// `wasi_snapshot_preview1::fd_write` (never `environ_get`) and emits a
+/// static placeholder that matches `capability_contract_json`'s output
+/// schema. It is an honest placeholder, not fake business logic (`044`
+/// QG-004) — the author must implement real input handling and logic here.
+/// The template's own source keeps `unsafe` syntax, as any real
+/// `#![no_std]` WASI guest must (spec `091-no-std-wasi-guest-profile`
+/// FR-004's raw host-import boundary). It lives in a `.rs.template` data
+/// file rather than a `.rs` string literal here specifically so
+/// `scripts/ci/scoped_unsafe_boundary_check.sh`'s repo-wide `unsafe` grep
+/// (scoped to files this crate itself compiles as Rust) does not mistake
+/// *generated scaffold text* for unsafe code in `traverse-cli` itself.
+fn capability_guest_stub_source() -> String {
+    include_str!("../templates/capability_guest_stub.rs.template").to_string()
+}
+
+fn capability_build_fixture_script(wasm_name: &str) -> String {
+    format!(
+        "#!/usr/bin/env bash\n\
+         \n\
+         set -euo pipefail\n\
+         \n\
+         script_dir=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"\n\
+         artifact_dir=\"$script_dir/artifacts\"\n\
+         artifact_path=\"$artifact_dir/{wasm_name}\"\n\
+         \n\
+         mkdir -p \"$artifact_dir\"\n\
+         \n\
+         rustup run \"$(rustup show active-toolchain | awk '{{print $1}}')\" rustc \"$script_dir/src/agent.rs\" \\\n  \
+             --target wasm32-unknown-unknown --crate-type cdylib -O -C panic=abort -C strip=symbols \\\n  \
+             --remap-path-prefix \"$script_dir=/traverse-repo/agent\" -o \"$artifact_path\"\n\
+         \n\
+         printf 'built %s\\n' \"$artifact_path\"\n"
+    )
 }
 
 fn register_generated_app_bundle(
@@ -3702,85 +3962,6 @@ fn validate_non_placeholder_sha256(
         });
     }
     None
-}
-
-fn component_contract_json(component_id: &str, name: &str) -> Value {
-    let namespace = component_namespace(component_id);
-    serde_json::json!({
-        "kind": "capability_contract",
-        "schema_version": "1.0.0",
-        "id": component_id,
-        "namespace": namespace,
-        "name": name,
-        "version": "1.0.0",
-        "lifecycle": "draft",
-        "owner": {
-            "team": "local-author",
-            "contact": "local-author"
-        },
-        "summary": format!("Governed capability contract for {component_id}."),
-        "description": format!("Draft Traverse capability contract for the real WASM component {component_id}."),
-        "inputs": {
-            "schema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {}
-            }
-        },
-        "outputs": {
-            "schema": {
-                "type": "object",
-                "additionalProperties": false,
-                "properties": {}
-            }
-        },
-        "preconditions": [],
-        "postconditions": [],
-        "side_effects": [
-            {
-                "kind": "memory_only",
-                "description": "No external side effects are declared for this draft component contract."
-            }
-        ],
-        "emits": [],
-        "consumes": [],
-        "permissions": [
-            {
-                "id": component_id
-            }
-        ],
-        "execution": {
-            "binary_format": "wasm",
-            "entrypoint": {
-                "kind": "wasi-command",
-                "command": "run"
-            },
-            "preferred_targets": ["local"],
-            "constraints": {
-                "host_api_access": "none",
-                "network_access": "forbidden",
-                "filesystem_access": "none"
-            }
-        },
-        "policies": [
-            {
-                "id": "manual-approval-required"
-            }
-        ],
-        "dependencies": [],
-        "provenance": {
-            "source": "greenfield",
-            "author": "traverse-cli",
-            "created_at": "app-scaffold",
-            "spec_ref": "044-application-bundle-manifest@1.0.0",
-            "adr_refs": [],
-            "exception_refs": []
-        },
-        "evidence": [],
-        "service_type": "stateless",
-        "permitted_targets": ["local"],
-        "artifact_type": "native"
-    })
 }
 
 fn component_namespace(component_id: &str) -> String {
@@ -5684,10 +5865,10 @@ mod tests {
         ArtifactRouter, CapabilityPublishRequest, CapabilityRegistry, CliError, Command,
         DEFAULT_PUBLIC_REGISTRY_SOURCE, ExpeditionExampleExecutor, FetchedRegistryIndex,
         PublishCommandOutput, PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher,
-        RegistrySyncError, Runtime, RuntimeResultStatus, app_new_at, app_register_at,
-        app_registration_state_path, app_validate, app_validate_at,
-        canonical_expedition_bundle_path, capability_publish_at, component_new_at, curl_text,
-        ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
+        RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION, app_new_at,
+        app_register_at, app_registration_state_path, app_validate, app_validate_at,
+        canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
+        curl_text, ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, format_capability_package_execution_summary,
         help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
@@ -6863,35 +7044,88 @@ mod tests {
     }
 
     #[test]
-    fn component_new_generates_manifest_contract_and_non_executable_package() {
+    fn component_new_redirects_to_capability_new() {
+        let error = component_new("knowledge.retrieve").expect_err("component new must fail");
+        assert!(matches!(error, CliError::UsageError(_)));
+        assert!(error.message().contains("capability new"));
+        assert!(error.message().contains("retired"));
+    }
+
+    #[test]
+    fn capability_new_generates_loadable_capability_package() {
         let temp_dir = unique_temp_dir();
 
-        let output = component_new_at(&temp_dir, "knowledge.retrieve")
-            .expect("component scaffold should be created");
+        let output = capability_new_at(&temp_dir, "knowledge.retrieve")
+            .expect("capability scaffold should be created");
 
-        let component_dir = temp_dir.join("components/knowledge.retrieve");
-        assert!(output.contains("created_component: knowledge.retrieve"));
-        assert!(component_dir.join("manifest.json").is_file());
-        assert!(component_dir.join("contract.json").is_file());
-        assert!(component_dir.join("Cargo.toml").is_file());
-        assert!(component_dir.join("src/lib.rs").is_file());
-        assert!(!component_dir.join("artifacts/retrieve.wasm").exists());
+        let capability_dir = temp_dir.join("capabilities/knowledge.retrieve");
+        assert!(output.contains("created_capability: knowledge.retrieve"));
+        assert!(capability_dir.join("manifest.json").is_file());
+        assert!(capability_dir.join("contract.json").is_file());
+        assert!(capability_dir.join("src/agent.rs").is_file());
+        assert!(capability_dir.join("build-fixture.sh").is_file());
+        assert!(capability_dir.join("artifacts/README.md").is_file());
+        assert!(
+            capability_dir
+                .join("runtime-requests/retrieve.json")
+                .is_file()
+        );
+        assert!(!capability_dir.join("artifacts/retrieve.wasm").exists());
 
         let manifest = serde_json::from_str::<serde_json::Value>(
-            &fs::read_to_string(component_dir.join("manifest.json"))
-                .expect("component manifest should read"),
+            &fs::read_to_string(capability_dir.join("manifest.json"))
+                .expect("capability manifest should read"),
         )
-        .expect("component manifest should parse as JSON");
-        assert_eq!(manifest["component_id"], "knowledge.retrieve");
-        assert_eq!(manifest["capability_id"], "knowledge.retrieve");
-        assert_eq!(manifest["wasm_binary_path"], "artifacts/retrieve.wasm");
+        .expect("capability manifest should parse as JSON");
+        assert_eq!(manifest["kind"], "capability_package");
+        assert_eq!(manifest["package_id"], "knowledge.retrieve");
+        assert_eq!(manifest["capability_ref"]["id"], "knowledge.retrieve");
+        assert_eq!(manifest["capability_ref"]["contract_path"], "contract.json");
+        assert_eq!(manifest["binary"]["path"], "artifacts/retrieve.wasm");
+        assert_eq!(
+            manifest["binary"]["abi_version"],
+            SUPPORTED_HOST_ABI_VERSION
+        );
+        assert!(
+            manifest["workflow_refs"]
+                .as_array()
+                .is_some_and(|refs| !refs.is_empty())
+        );
 
         let contract_contents =
-            fs::read_to_string(component_dir.join("contract.json")).expect("contract should read");
+            fs::read_to_string(capability_dir.join("contract.json")).expect("contract should read");
         let contract = parse_contract(&contract_contents).expect("contract should parse");
         assert_eq!(contract.id, "knowledge.retrieve");
-        assert_eq!(contract.lifecycle, traverse_contracts::Lifecycle::Draft);
-        assert!(!read_tree(&component_dir).contains("TODO"));
+        assert_eq!(contract.lifecycle, traverse_contracts::Lifecycle::Active);
+        assert!(!read_tree(&capability_dir).contains("TODO"));
+
+        let request = serde_json::from_str::<serde_json::Value>(
+            &fs::read_to_string(capability_dir.join("runtime-requests/retrieve.json"))
+                .expect("sample request should read"),
+        )
+        .expect("sample request should parse as JSON");
+        assert_eq!(request["intent"]["capability_id"], "knowledge.retrieve");
+    }
+
+    #[test]
+    fn capability_new_rejects_invalid_id_without_writing_files() {
+        let temp_dir = unique_temp_dir();
+
+        let error =
+            capability_new_at(&temp_dir, "../escape").expect_err("invalid id must be rejected");
+        assert!(matches!(error, CliError::UsageError(_)));
+        assert!(!temp_dir.join("capabilities").exists());
+    }
+
+    #[test]
+    fn capability_new_refuses_to_overwrite_existing_target() {
+        let temp_dir = unique_temp_dir();
+        capability_new_at(&temp_dir, "knowledge.retrieve")
+            .expect("first scaffold should be created");
+
+        let error = capability_new_at(&temp_dir, "knowledge.retrieve")
+            .expect_err("second scaffold must be rejected");
+        assert!(matches!(error, CliError::IoError(message) if message.contains("already exists")));
     }
 
     #[test]
@@ -8811,6 +9045,7 @@ mod tests {
             ("workflow", None),
             ("expedition", Some("execute")),
             ("expedition", None),
+            ("capability", Some("new")),
             ("capability", Some("inspect")),
             ("capability", Some("discover")),
             ("capability", Some("publish")),
