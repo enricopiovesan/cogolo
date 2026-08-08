@@ -1,0 +1,235 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "platform.decide-state-transition",
+  "namespace": "platform",
+  "name": "decide-state-transition",
+  "version": "1.1.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "platform-team",
+    "contact": "platform-team@example.com"
+  },
+  "summary": "Deterministic evaluation of whether a proposed lifecycle/approval state transition is allowed.",
+  "description": "Deterministic, side-effect-free evaluation of whether a proposed state transition is allowed under a versioned lifecycle and approval policy. Returns allow/deny/requires_approval/requires_additional_info with stable reason codes, remaining approvals, next legal states, and UI hints.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": ["entity_type", "current_state", "actor"],
+      "additionalProperties": false,
+      "properties": {
+        "entity_type": { "type": "string", "minLength": 1 },
+        "current_state": { "type": "string", "minLength": 1 },
+        "proposed_state": { "type": "string" },
+        "actor": {
+          "type": "object",
+          "required": ["id", "roles"],
+          "additionalProperties": false,
+          "properties": {
+            "id": { "type": "string", "minLength": 1 },
+            "roles": {
+              "type": "array",
+              "items": { "type": "string", "minLength": 1 },
+              "uniqueItems": true
+            },
+            "groups": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": { "type": "string" }
+            },
+            "department": { "type": "string" }
+          }
+        },
+        "entity_id": { "type": "string" },
+        "entity_attributes": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "already_collected_approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "approver_id"],
+            "additionalProperties": false,
+            "properties": {
+              "role": { "type": "string" },
+              "approver_id": { "type": "string" },
+              "collected_at": { "type": "string", "format": "date-time" }
+            }
+          }
+        },
+        "context": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "now": { "type": "string", "format": "date-time" },
+            "amount": { "type": "number" },
+            "currency": { "type": "string", "minLength": 3, "maxLength": 3 },
+            "priority": {
+              "type": "string",
+              "enum": ["low", "normal", "high", "critical"]
+            },
+            "flags": {
+              "type": "array",
+              "items": { "type": "string" },
+              "uniqueItems": true
+            }
+          }
+        },
+        "mode": {
+          "type": "string",
+          "enum": ["decide", "preview", "query"],
+          "default": "decide"
+        },
+        "correlation_id": { "type": "string" },
+        "tenant_id": { "type": "string" }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "allowed",
+        "decision",
+        "reasons",
+        "contract_version",
+        "policy_version"
+      ],
+      "additionalProperties": false,
+      "properties": {
+        "allowed": { "type": "boolean" },
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allowed",
+            "denied",
+            "requires_approval",
+            "requires_additional_info"
+          ]
+        },
+        "reasons": {
+          "type": "array",
+          "minItems": 1,
+          "items": {
+            "type": "object",
+            "required": ["code", "message"],
+            "additionalProperties": false,
+            "properties": {
+              "code": { "type": "string" },
+              "message": { "type": "string" },
+              "severity": {
+                "type": "string",
+                "enum": ["error", "warning", "info"],
+                "default": "error"
+              }
+            }
+          }
+        },
+        "required_approvals": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": ["role", "min_count", "logic"],
+            "additionalProperties": false,
+            "properties": {
+              "role": { "type": "string" },
+              "min_count": { "type": "integer", "minimum": 1 },
+              "logic": {
+                "type": "string",
+                "enum": ["all", "any"],
+                "default": "all"
+              },
+              "reason": { "type": "string" }
+            }
+          }
+        },
+        "next_legal_states": {
+          "type": "array",
+          "items": { "type": "string" },
+          "uniqueItems": true
+        },
+        "suggested_actions": {
+          "type": "array",
+          "items": { "type": "string" }
+        },
+        "ui_hints": {
+          "type": "object",
+          "additionalProperties": false,
+          "properties": {
+            "severity": {
+              "type": "string",
+              "enum": ["info", "warning", "error"]
+            },
+            "disabled_reason": { "type": "string" },
+            "required_fields": {
+              "type": "array",
+              "items": { "type": "string" }
+            },
+            "badge": { "type": "string" }
+          }
+        },
+        "contract_version": { "type": "string" },
+        "policy_version": { "type": "string" },
+        "correlation_id": { "type": "string" },
+        "tenant_id": { "type": "string" }
+      }
+    }
+  },
+  "preconditions": [
+    {
+      "id": "entity-and-actor-provided",
+      "description": "Caller provides entity_type, current_state, and actor with id/roles."
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "decision-returned",
+      "description": "Returns allowed, decision, reasons, contract_version, and policy_version."
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "none",
+      "description": "Pure decision; no external side effects."
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "platform.decide-state-transition"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": ["local", "browser"],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "greenfield",
+    "author": "platform-team",
+    "created_at": "2026-08-05T00:00:00Z",
+    "spec_ref": "001-foundation-v0-1@1.0.0",
+    "adr_refs": [],
+    "exception_refs": []
+  },
+  "evidence": [],
+  "service_type": "stateless",
+  "permitted_targets": ["local", "browser"],
+  "artifact_type": "native"
+}

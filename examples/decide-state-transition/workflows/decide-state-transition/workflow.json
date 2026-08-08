@@ -1,0 +1,66 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "platform.decide-state-transition",
+  "name": "decide-state-transition",
+  "version": "1.1.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "platform-team",
+    "contact": "platform-team@example.com"
+  },
+  "summary": "Run platform.decide-state-transition as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": ["entity_type", "current_state", "actor"],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": ["allowed", "decision", "reasons", "contract_version", "policy_version"],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "decide",
+      "capability_id": "platform.decide-state-transition",
+      "capability_version": "1.1.0",
+      "input": {
+        "from_workflow_input": [
+          "entity_type",
+          "current_state",
+          "proposed_state",
+          "actor",
+          "context",
+          "mode",
+          "correlation_id",
+          "tenant_id"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "allowed",
+          "decision",
+          "reasons",
+          "required_approvals",
+          "next_legal_states",
+          "suggested_actions",
+          "ui_hints",
+          "contract_version",
+          "policy_version",
+          "correlation_id",
+          "tenant_id"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "decide",
+  "terminal_nodes": ["decide"],
+  "tags": ["probe", "lifecycle", "approval"],
+  "governing_spec": "007-workflow-registry-traversal"
+}

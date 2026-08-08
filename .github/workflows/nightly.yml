@@ -19,6 +19,12 @@ jobs:
       - name: Run hello-world smoke
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/hello_world_example_smoke.sh
 
+      - name: Run decide-state-transition example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/decide_state_transition_example_smoke.sh
+
+      - name: Run capability new E2E smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/capability_new_e2e_smoke.sh
+
       - name: Run expedition golden path
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/expedition_golden_path.sh
 
