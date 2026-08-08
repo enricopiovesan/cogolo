@@ -35,7 +35,7 @@ traverse-cli bundle register --help
 traverse-cli app new --help
 traverse-cli app validate --help
 traverse-cli app register --help
-traverse-cli component new --help
+traverse-cli capability new --help
 traverse-cli capability-package inspect --help
 traverse-cli capability-package execute --help
 traverse-cli workflow inspect --help
@@ -56,7 +56,7 @@ consistent with error output behaviour across the CLI.
 | `app new <app-id> [--register --workspace <workspace-id>]` | Create a governed Traverse app bundle scaffold under `apps/<app-id>`. | `cargo run -p traverse-cli-rs -- app new youaskm3` | Creates `manifest.json`, `workspace.config.json`, component/workflow directories, and a bundle README. `--register` rejects the initial incomplete scaffold until real components and workflows are present. |
 | `app validate --manifest <path> --json` | Validate a downstream app manifest and emit stable setup evidence without writing workspace state. | `cargo run -p traverse-cli-rs -- app validate --manifest examples/applications/expedition-readiness/app.manifest.json --json` | Prints JSON with `status: validated`, app identity, component/workflow ids, verified WASM digests, public surfaces, model readiness, and runtime references. |
 | `app register --manifest <path> --workspace <workspace-id> --json` | Validate a downstream app manifest and atomically persist local workspace registration state. | `cargo run -p traverse-cli-rs -- app register --manifest examples/applications/expedition-readiness/app.manifest.json --workspace local --json` | Prints JSON with `status: registered` or `status: already_registered`, app identity, workspace id, `state_scope: workspace_persisted`, `state_path`, digest evidence, and runtime references. |
-| `component new <component-id>` | Create a governed WASM component package scaffold under `components/<component-id>`. | `cargo run -p traverse-cli-rs -- component new knowledge.retrieve` | Creates a component `manifest.json`, draft capability `contract.json`, Rust package shell, source directory, and artifact directory without creating executable WASM behavior. |
+| `capability new <capability-id>` | Create a governed WASM capability package scaffold under `capabilities/<capability-id>`. | `cargo run -p traverse-cli-rs -- capability new knowledge.retrieve` | Creates a loadable `kind: capability_package` manifest, contract with authorable input/output fields, `#![no_std]` WASI guest stub, and sample runtime request. `component new` is retired and redirects here. |
 | `capability-package inspect <manifest-path>` | Load and summarize a governed WASM capability package manifest. | `cargo run -p traverse-cli-rs -- capability-package inspect examples/capabilities/expedition-intent-agent/manifest.json` | Prints `path`, `package_id`, `package_version`, `capability_id`, binary location, digest, and model/workflow references. |
 | `capability-package execute <manifest-path> <request-path>` | Load a governed WASM capability package and execute it against a runtime request. | `cargo run -p traverse-cli-rs -- capability-package execute examples/capabilities/expedition-intent-agent/manifest.json examples/capabilities/runtime-requests/interpret-expedition-intent.json` | Prints `request_id`, `execution_id`, `package_id`, `capability_id`, `trace_ref`, `status`, and capability-specific result fields. |
 | `event inspect <contract-path>` | Parse and validate an event contract. | `cargo run -p traverse-cli-rs -- event inspect contracts/examples/expedition/events/expedition-objective-captured/contract.json` | Prints `path`, `id`, `version`, lifecycle, classification, publisher/subscriber counts, and publisher/subscriber ids. |
@@ -73,7 +73,7 @@ The following command families are intended to be the public documented surface 
 - `app new`
 - `app validate`
 - `app register`
-- `component new`
+- `capability new`
 - `capability-package inspect`
 - `capability-package execute`
 - `event inspect`
@@ -188,7 +188,7 @@ This reference was checked against the live CLI behavior with:
 - `cargo run -p traverse-cli-rs -- app new --help`
 - `cargo run -p traverse-cli-rs -- app validate --help`
 - `cargo run -p traverse-cli-rs -- app register --help`
-- `cargo run -p traverse-cli-rs -- component new --help`
+- `cargo run -p traverse-cli-rs -- capability new --help`
 - `cargo run -p traverse-cli-rs -- capability-package inspect --help`
 - `cargo run -p traverse-cli-rs -- capability-package execute --help`
 - `cargo run -p traverse-cli-rs -- workflow inspect --help`
