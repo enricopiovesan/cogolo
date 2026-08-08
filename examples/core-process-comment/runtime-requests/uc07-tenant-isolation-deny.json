@@ -1,0 +1,64 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-process-comment-07",
+  "intent": {
+    "capability_id": "core.process-comment",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "action": "create",
+    "actor": {
+      "id": "user-42",
+      "roles": [
+        "admin"
+      ],
+      "attributes": {
+        "tenant_id": "t-100"
+      }
+    },
+    "resource": {
+      "type": "document",
+      "id": "doc-99",
+      "attributes": {
+        "tenant_id": "t-200"
+      }
+    },
+    "comment": {
+      "body": "Trying to comment across tenants",
+      "parent_id": null
+    },
+    "context": {},
+    "comment_policy": {
+      "version": "2026.08.1",
+      "max_body_length": 10000,
+      "max_thread_depth": 8,
+      "allowed_markups": [],
+      "mention_resolution": "strict",
+      "visibility_model": "resource-acl",
+      "soft_delete": true,
+      "actions": {
+        "create": {
+          "roles": [
+            "member",
+            "admin"
+          ]
+        }
+      },
+      "moderation": {
+        "blocklist": [],
+        "require_approval_roles": []
+      },
+      "enforce_tenant_isolation": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-process-comment-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

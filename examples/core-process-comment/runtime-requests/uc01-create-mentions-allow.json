@@ -1,0 +1,105 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-process-comment-01",
+  "intent": {
+    "capability_id": "core.process-comment",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "action": "create",
+    "actor": {
+      "id": "user-42",
+      "roles": [
+        "member"
+      ],
+      "attributes": {
+        "tenant_id": "t-100",
+        "display_name": "Ada Lovelace"
+      }
+    },
+    "resource": {
+      "type": "document",
+      "id": "doc-99",
+      "attributes": {
+        "tenant_id": "t-100",
+        "visibility": "team"
+      }
+    },
+    "comment": {
+      "body": "Hey @user-7 and @user-11, please review the latest draft. See https://example.com/spec",
+      "parent_id": null,
+      "metadata": {}
+    },
+    "context": {
+      "request_id": "req-abc",
+      "client": "web"
+    },
+    "comment_policy": {
+      "version": "2026.08.1",
+      "max_body_length": 10000,
+      "max_thread_depth": 8,
+      "allowed_markups": [
+        "bold",
+        "italic",
+        "code",
+        "link"
+      ],
+      "mention_resolution": "strict",
+      "visibility_model": "resource-acl",
+      "soft_delete": true,
+      "actions": {
+        "create": {
+          "roles": [
+            "member",
+            "admin"
+          ]
+        },
+        "edit": {
+          "roles": [
+            "member",
+            "admin"
+          ],
+          "own_only": true
+        },
+        "delete": {
+          "roles": [
+            "member",
+            "admin"
+          ],
+          "own_only": true
+        },
+        "react": {
+          "roles": [
+            "member",
+            "admin"
+          ]
+        },
+        "resolve": {
+          "roles": [
+            "admin",
+            "owner"
+          ]
+        },
+        "pin": {
+          "roles": [
+            "admin"
+          ]
+        }
+      },
+      "moderation": {
+        "blocklist": [],
+        "require_approval_roles": []
+      }
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-process-comment-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
