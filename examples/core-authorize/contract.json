@@ -1,0 +1,1033 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.authorize",
+  "namespace": "core",
+  "name": "authorize",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "capability-authors@traverse-framework.com"
+  },
+  "summary": "Pure authorization evaluator: allow/deny for principal+action+resource under a caller-supplied versioned policy.",
+  "description": "core.authorize is a pure, side-effect-free authorization capability designed for maximum reusability across web, mobile, desktop, edge, and AI-agent runtimes.\n\nIt deliberately separates policy definition from policy evaluation. The caller supplies a complete, versioned policy configuration at invocation time (or a compact reference in future extensions). The same WASM binary can therefore enforce RBAC, ABAC, ReBAC-lite, hybrid, or explicit allow/deny rules without recompilation.\n\nKey design principles (Persona-Council reviewed):\n- Fail-closed by default (default_effect = deny).\n- Fully deterministic: identical inputs always produce identical outputs.\n- No host, network, or filesystem access.\n- Structured, machine-readable output suitable for audit logs, UI enforcement, and downstream agents.\n- Explicit support for multi-tenant isolation, hierarchical roles, time/context conditions, ownership, relationships, high-priority denies, and break-glass overrides.\n- Obligations are first-class structured objects (not free-form strings) so callers know exactly what additional steps are required.\n\nThe capability never mutates state and never contacts external systems. All decision logic lives inside the supplied policy + the deterministic evaluator.\n\nKnown intentional limitations (disclosed):\n- The evaluator implements a practical subset of common authorization patterns; it is not a full XACML or Cedar engine.\n- Complex boolean expressions inside conditions are limited to a small, safe DSL to keep the WASM footprint and attack surface small.\n- Policy size should be kept modest when inlined; very large policy sets should be versioned and referenced externally in future iterations.",
+  "use_cases": [
+    {
+      "scenario": "As a platform security engineer, I want an admin user with the correct role to be allowed to delete a document so that privileged operations succeed when policy permits them.",
+      "input_example": {
+        "principal": {
+          "id": "user-42",
+          "roles": [
+            "admin"
+          ],
+          "attributes": {
+            "tenant_id": "t-100"
+          },
+          "groups": []
+        },
+        "action": "delete",
+        "resource": {
+          "type": "document",
+          "id": "doc-99",
+          "attributes": {
+            "tenant_id": "t-100"
+          },
+          "owner_id": "user-7"
+        },
+        "context": {
+          "request_time": "2026-08-07T22:00:00Z"
+        },
+        "policy": {
+          "version": "1.0",
+          "mode": "hybrid",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "admin-delete",
+              "effect": "allow",
+              "priority": 100,
+              "principal": {
+                "roles": [
+                  "admin"
+                ]
+              },
+              "action": [
+                "delete"
+              ],
+              "resource": {
+                "type": "document"
+              }
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "allow",
+        "reason": "Matched rule admin-delete (priority 100)",
+        "reason_code": "matched_allow_rule",
+        "matched_rules": [
+          {
+            "rule_id": "admin-delete",
+            "effect": "allow",
+            "priority": 100
+          }
+        ],
+        "obligations": [],
+        "evaluation_trace": [
+          "policy_version=1.0 mode=hybrid default=deny",
+          "evaluated 1 rule(s)",
+          "rule admin-delete matched on role+action+resource.type \u2192 allow"
+        ],
+        "policy_hash": "sha256:3a7f...",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": true,
+      "persona_ref": "platform-security-engineer"
+    },
+    {
+      "scenario": "As a multi-tenant SaaS developer, I want a user to be denied access to a resource that belongs to a different tenant even if they hold a powerful role, so that tenant isolation is enforced.",
+      "input_example": {
+        "principal": {
+          "id": "user-42",
+          "roles": [
+            "admin"
+          ],
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "action": "read",
+        "resource": {
+          "type": "document",
+          "id": "doc-77",
+          "attributes": {
+            "tenant_id": "t-200"
+          }
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "hybrid",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "tenant-isolation",
+              "effect": "deny",
+              "priority": 200,
+              "condition": {
+                "op": "neq",
+                "left": "principal.attributes.tenant_id",
+                "right": "resource.attributes.tenant_id"
+              }
+            },
+            {
+              "id": "admin-read",
+              "effect": "allow",
+              "priority": 100,
+              "principal": {
+                "roles": [
+                  "admin"
+                ]
+              },
+              "action": [
+                "read"
+              ],
+              "resource": {
+                "type": "document"
+              }
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "Matched high-priority deny rule tenant-isolation",
+        "reason_code": "matched_deny_rule",
+        "matched_rules": [
+          {
+            "rule_id": "tenant-isolation",
+            "effect": "deny",
+            "priority": 200
+          }
+        ],
+        "obligations": [],
+        "evaluation_trace": [
+          "policy_version=1.0 mode=hybrid default=deny",
+          "rule tenant-isolation condition matched \u2192 deny (priority 200 wins)"
+        ],
+        "policy_hash": "sha256:9c2e...",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "multi-tenant-saas-developer"
+    },
+    {
+      "scenario": "As a collaboration product owner, I want the owner of a resource to always be able to update it, so that ownership rights are respected regardless of role.",
+      "input_example": {
+        "principal": {
+          "id": "user-7",
+          "roles": [
+            "member"
+          ]
+        },
+        "action": "update",
+        "resource": {
+          "type": "document",
+          "id": "doc-99",
+          "owner_id": "user-7"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "hybrid",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "owner-update",
+              "effect": "allow",
+              "priority": 150,
+              "condition": {
+                "op": "eq",
+                "left": "principal.id",
+                "right": "resource.owner_id"
+              },
+              "action": [
+                "update"
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "allow",
+        "reason": "Matched ownership rule owner-update",
+        "reason_code": "matched_allow_rule",
+        "matched_rules": [
+          {
+            "rule_id": "owner-update",
+            "effect": "allow",
+            "priority": 150
+          }
+        ],
+        "obligations": [],
+        "evaluation_trace": [
+          "rule owner-update condition principal.id == resource.owner_id \u2192 allow"
+        ],
+        "policy_hash": "sha256:1b4d...",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    },
+    {
+      "scenario": "As a security engineer, I want a high-priority explicit deny to override an allow rule so that a compromised or suspended account cannot exercise privileges.",
+      "input_example": {
+        "principal": {
+          "id": "user-99",
+          "roles": [
+            "admin"
+          ],
+          "attributes": {
+            "status": "suspended"
+          }
+        },
+        "action": "delete",
+        "resource": {
+          "type": "document",
+          "id": "doc-1"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "hybrid",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "suspended-deny",
+              "effect": "deny",
+              "priority": 300,
+              "principal": {
+                "attributes": {
+                  "status": "suspended"
+                }
+              }
+            },
+            {
+              "id": "admin-delete",
+              "effect": "allow",
+              "priority": 100,
+              "principal": {
+                "roles": [
+                  "admin"
+                ]
+              },
+              "action": [
+                "delete"
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "Matched high-priority deny rule suspended-deny",
+        "reason_code": "matched_deny_rule",
+        "matched_rules": [
+          {
+            "rule_id": "suspended-deny",
+            "effect": "deny",
+            "priority": 300
+          }
+        ],
+        "obligations": [],
+        "evaluation_trace": [
+          "rule suspended-deny matched on principal.attributes.status \u2192 deny (priority 300)"
+        ],
+        "policy_hash": "sha256:7e8a...",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "platform-security-engineer"
+    },
+    {
+      "scenario": "As a compliance officer, I want an allow decision to carry structured obligations (require MFA + audit) so that the calling system can enforce additional controls.",
+      "input_example": {
+        "principal": {
+          "id": "user-42",
+          "roles": [
+            "finance"
+          ]
+        },
+        "action": "transfer",
+        "resource": {
+          "type": "payment",
+          "id": "pay-55",
+          "attributes": {
+            "amount": 50000
+          }
+        },
+        "context": {
+          "amount": 50000
+        },
+        "policy": {
+          "version": "1.0",
+          "mode": "hybrid",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "high-value-transfer",
+              "effect": "allow",
+              "priority": 100,
+              "principal": {
+                "roles": [
+                  "finance"
+                ]
+              },
+              "action": [
+                "transfer"
+              ],
+              "resource": {
+                "type": "payment"
+              },
+              "obligations": [
+                {
+                  "type": "require_mfa",
+                  "severity": "required"
+                },
+                {
+                  "type": "audit_log",
+                  "severity": "required",
+                  "metadata": {
+                    "category": "high_value"
+                  }
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "allow",
+        "reason": "Matched rule high-value-transfer",
+        "reason_code": "matched_allow_rule",
+        "matched_rules": [
+          {
+            "rule_id": "high-value-transfer",
+            "effect": "allow",
+            "priority": 100
+          }
+        ],
+        "obligations": [
+          {
+            "type": "require_mfa",
+            "severity": "required"
+          },
+          {
+            "type": "audit_log",
+            "severity": "required",
+            "metadata": {
+              "category": "high_value"
+            }
+          }
+        ],
+        "evaluation_trace": [
+          "rule high-value-transfer matched \u2192 allow + 2 obligations"
+        ],
+        "policy_hash": "sha256:4f2c...",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": true,
+      "persona_ref": "compliance-officer"
+    },
+    {
+      "scenario": "As a developer, I want any request that matches no rule to be denied when default_effect is deny, so that the system fails closed.",
+      "input_example": {
+        "principal": {
+          "id": "user-1",
+          "roles": [
+            "guest"
+          ]
+        },
+        "action": "delete",
+        "resource": {
+          "type": "document",
+          "id": "doc-1"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "rbac",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "member-read",
+              "effect": "allow",
+              "priority": 50,
+              "principal": {
+                "roles": [
+                  "member"
+                ]
+              },
+              "action": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "No matching rule; default_effect=deny",
+        "reason_code": "no_matching_rule",
+        "matched_rules": [],
+        "obligations": [],
+        "evaluation_trace": [
+          "evaluated 1 rule(s), none matched",
+          "falling back to default_effect=deny"
+        ],
+        "policy_hash": "sha256:0a1b...",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "platform-developer"
+    },
+    {
+      "scenario": "As a runtime, I want an empty or malformed policy to always produce a deny with a clear reason_code so that invalid configurations cannot open the system.",
+      "input_example": {
+        "principal": {
+          "id": "user-1"
+        },
+        "action": "read",
+        "resource": {
+          "type": "document"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "rbac",
+          "default_effect": "deny",
+          "rules": []
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "Policy contains no rules and default_effect=deny",
+        "reason_code": "empty_or_invalid_policy",
+        "matched_rules": [],
+        "obligations": [],
+        "evaluation_trace": [
+          "policy.rules length = 0",
+          "default_effect=deny applied"
+        ],
+        "policy_hash": "sha256:empty",
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As an incident responder, I want a break-glass flag to allow a temporary override while still recording that the override was used, so that emergency access is possible but fully auditable.",
+      "input_example": {
+        "principal": {
+          "id": "user-ops",
+          "roles": [
+            "sre"
+          ],
+          "attributes": {
+            "break_glass": true
+          }
+        },
+        "action": "read",
+        "resource": {
+          "type": "secret",
+          "id": "sec-1"
+        },
+        "context": {
+          "incident_id": "INC-2048"
+        },
+        "policy": {
+          "version": "1.0",
+          "mode": "hybrid",
+          "default_effect": "deny",
+          "break_glass": {
+            "enabled": true,
+            "required_attribute": "break_glass",
+            "max_priority": 999
+          },
+          "rules": [
+            {
+              "id": "break-glass-allow",
+              "effect": "allow",
+              "priority": 999,
+              "principal": {
+                "attributes": {
+                  "break_glass": true
+                }
+              },
+              "obligations": [
+                {
+                  "type": "audit_log",
+                  "severity": "required",
+                  "metadata": {
+                    "break_glass": true
+                  }
+                },
+                {
+                  "type": "notify_security",
+                  "severity": "required"
+                }
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "allow",
+        "reason": "Break-glass override matched",
+        "reason_code": "break_glass_override",
+        "matched_rules": [
+          {
+            "rule_id": "break-glass-allow",
+            "effect": "allow",
+            "priority": 999
+          }
+        ],
+        "obligations": [
+          {
+            "type": "audit_log",
+            "severity": "required",
+            "metadata": {
+              "break_glass": true
+            }
+          },
+          {
+            "type": "notify_security",
+            "severity": "required"
+          }
+        ],
+        "evaluation_trace": [
+          "break_glass attribute present and enabled in policy",
+          "rule break-glass-allow matched \u2192 allow + obligations"
+        ],
+        "policy_hash": "sha256:bg01...",
+        "confidence": "high",
+        "break_glass_used": true
+      },
+      "happy": true,
+      "persona_ref": "incident-responder"
+    },
+    {
+      "scenario": "As a client developer, I want a clear structured denial when the principal object is missing required fields so that I can surface a precise error instead of a generic failure.",
+      "input_example": {
+        "principal": {
+          "roles": [
+            "admin"
+          ]
+        },
+        "action": "read",
+        "resource": {
+          "type": "document"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "rbac",
+          "default_effect": "deny",
+          "rules": []
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "principal.id is required but missing",
+        "reason_code": "invalid_principal",
+        "matched_rules": [],
+        "obligations": [],
+        "evaluation_trace": [
+          "precondition failed: principal.id missing"
+        ],
+        "policy_hash": null,
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "client-developer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "principal",
+        "action",
+        "resource",
+        "policy"
+      ],
+      "properties": {
+        "principal": {
+          "type": "object",
+          "description": "Caller identity. Missing or empty id is not schema-rejected so the guest can return reason_code invalid_principal (UC-09).",
+          "properties": {
+            "id": {
+              "type": "string",
+              "minLength": 1
+            },
+            "roles": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "groups": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              },
+              "default": []
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": true,
+              "description": "Arbitrary key-value attributes (tenant_id, status, department, clearance, etc.)"
+            }
+          },
+          "additionalProperties": false
+        },
+        "action": {
+          "type": "string",
+          "minLength": 1,
+          "description": "The action being requested (read, write, delete, approve, transfer, invite, ...)"
+        },
+        "resource": {
+          "type": "object",
+          "required": [
+            "type"
+          ],
+          "properties": {
+            "type": {
+              "type": "string",
+              "minLength": 1
+            },
+            "id": {
+              "type": "string"
+            },
+            "owner_id": {
+              "type": "string"
+            },
+            "attributes": {
+              "type": "object",
+              "additionalProperties": true
+            },
+            "relationships": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "relation",
+                  "target_id"
+                ],
+                "properties": {
+                  "relation": {
+                    "type": "string"
+                  },
+                  "target_id": {
+                    "type": "string"
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        },
+        "context": {
+          "type": "object",
+          "description": "Request-time attributes (time, ip_risk, device_trust, location, incident_id, ...)",
+          "additionalProperties": true,
+          "default": {}
+        },
+        "policy": {
+          "type": "object",
+          "required": [
+            "version",
+            "mode",
+            "default_effect",
+            "rules"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "mode": {
+              "type": "string",
+              "enum": [
+                "rbac",
+                "abac",
+                "hybrid",
+                "explicit"
+              ]
+            },
+            "default_effect": {
+              "type": "string",
+              "enum": [
+                "allow",
+                "deny"
+              ],
+              "default": "deny"
+            },
+            "break_glass": {
+              "type": "object",
+              "properties": {
+                "enabled": {
+                  "type": "boolean"
+                },
+                "required_attribute": {
+                  "type": "string"
+                },
+                "max_priority": {
+                  "type": "integer"
+                }
+              }
+            },
+            "rules": {
+              "type": "array",
+              "items": {
+                "type": "object",
+                "required": [
+                  "id",
+                  "effect",
+                  "priority"
+                ],
+                "properties": {
+                  "id": {
+                    "type": "string"
+                  },
+                  "effect": {
+                    "type": "string",
+                    "enum": [
+                      "allow",
+                      "deny"
+                    ]
+                  },
+                  "priority": {
+                    "type": "integer"
+                  },
+                  "principal": {
+                    "type": "object"
+                  },
+                  "action": {
+                    "type": "array",
+                    "items": {
+                      "type": "string"
+                    }
+                  },
+                  "resource": {
+                    "type": "object"
+                  },
+                  "condition": {
+                    "type": "object",
+                    "description": "Simple safe DSL: {op, left, right} where op is eq|neq|gt|lt|in|contains"
+                  },
+                  "obligations": {
+                    "type": "array",
+                    "items": {
+                      "type": "object",
+                      "required": [
+                        "type",
+                        "severity"
+                      ],
+                      "properties": {
+                        "type": {
+                          "type": "string"
+                        },
+                        "severity": {
+                          "type": "string",
+                          "enum": [
+                            "required",
+                            "recommended",
+                            "optional"
+                          ]
+                        },
+                        "metadata": {
+                          "type": "object"
+                        }
+                      }
+                    }
+                  }
+                },
+                "additionalProperties": false
+              }
+            }
+          },
+          "additionalProperties": false
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "decision",
+        "reason",
+        "reason_code",
+        "matched_rules",
+        "obligations",
+        "evaluation_trace",
+        "confidence",
+        "break_glass_used"
+      ],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": [
+            "allow",
+            "deny"
+          ]
+        },
+        "reason": {
+          "type": "string",
+          "description": "Human-readable explanation"
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "matched_allow_rule",
+            "matched_deny_rule",
+            "no_matching_rule",
+            "empty_or_invalid_policy",
+            "invalid_principal",
+            "invalid_resource",
+            "invalid_action",
+            "break_glass_override",
+            "condition_failed",
+            "policy_evaluation_error"
+          ]
+        },
+        "matched_rules": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "rule_id",
+              "effect",
+              "priority"
+            ],
+            "properties": {
+              "rule_id": {
+                "type": "string"
+              },
+              "effect": {
+                "type": "string"
+              },
+              "priority": {
+                "type": "integer"
+              }
+            }
+          }
+        },
+        "obligations": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "type",
+              "severity"
+            ],
+            "properties": {
+              "type": {
+                "type": "string"
+              },
+              "severity": {
+                "type": "string",
+                "enum": [
+                  "required",
+                  "recommended",
+                  "optional"
+                ]
+              },
+              "metadata": {
+                "type": "object"
+              }
+            }
+          }
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "policy_hash": {
+          "type": [
+            "string",
+            "null"
+          ],
+          "description": "Deterministic hash of the evaluated policy for audit correlation"
+        },
+        "confidence": {
+          "type": "string",
+          "enum": [
+            "high",
+            "medium",
+            "low"
+          ]
+        },
+        "break_glass_used": {
+          "type": "boolean"
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "preconditions": [
+    {
+      "id": "principal-id-present",
+      "description": "principal.id must be a non-empty string"
+    },
+    {
+      "id": "action-present",
+      "description": "action must be a non-empty string"
+    },
+    {
+      "id": "resource-type-present",
+      "description": "resource.type must be a non-empty string"
+    },
+    {
+      "id": "policy-structure-valid",
+      "description": "policy must contain version, mode, default_effect and a rules array"
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "decision-is-binary",
+      "description": "Exactly one of allow or deny is returned"
+    },
+    {
+      "id": "deterministic",
+      "description": "Identical inputs always produce identical outputs"
+    },
+    {
+      "id": "trace-always-present",
+      "description": "evaluation_trace is always populated, even on early precondition failure"
+    },
+    {
+      "id": "reason-code-always-present",
+      "description": "A machine-readable reason_code is always present"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure computation. No network, filesystem, or host state is accessed or mutated."
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.authorize"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "fail-closed-default"
+    },
+    {
+      "id": "pure-computation-only"
+    }
+  ],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "traverse-capability-author + persona-council",
+    "created_at": "2026-08-08T05:36:00Z",
+    "spec_ref": "core.authorize@1.0.0",
+    "adr_refs": [
+      "0001-rust-wasm-foundation",
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-authorize-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

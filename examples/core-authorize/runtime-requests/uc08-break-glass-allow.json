@@ -1,0 +1,72 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-08",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "principal": {
+      "id": "user-ops",
+      "roles": [
+        "sre"
+      ],
+      "attributes": {
+        "break_glass": true
+      }
+    },
+    "action": "read",
+    "resource": {
+      "type": "secret",
+      "id": "sec-1"
+    },
+    "context": {
+      "incident_id": "INC-2048"
+    },
+    "policy": {
+      "version": "1.0",
+      "mode": "hybrid",
+      "default_effect": "deny",
+      "break_glass": {
+        "enabled": true,
+        "required_attribute": "break_glass",
+        "max_priority": 999
+      },
+      "rules": [
+        {
+          "id": "break-glass-allow",
+          "effect": "allow",
+          "priority": 999,
+          "principal": {
+            "attributes": {
+              "break_glass": true
+            }
+          },
+          "obligations": [
+            {
+              "type": "audit_log",
+              "severity": "required",
+              "metadata": {
+                "break_glass": true
+              }
+            },
+            {
+              "type": "notify_security",
+              "severity": "required"
+            }
+          ]
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

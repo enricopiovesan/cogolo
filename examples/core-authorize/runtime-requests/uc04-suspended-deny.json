@@ -1,0 +1,65 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-04",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "principal": {
+      "id": "user-99",
+      "roles": [
+        "admin"
+      ],
+      "attributes": {
+        "status": "suspended"
+      }
+    },
+    "action": "delete",
+    "resource": {
+      "type": "document",
+      "id": "doc-1"
+    },
+    "context": {},
+    "policy": {
+      "version": "1.0",
+      "mode": "hybrid",
+      "default_effect": "deny",
+      "rules": [
+        {
+          "id": "suspended-deny",
+          "effect": "deny",
+          "priority": 300,
+          "principal": {
+            "attributes": {
+              "status": "suspended"
+            }
+          }
+        },
+        {
+          "id": "admin-delete",
+          "effect": "allow",
+          "priority": 100,
+          "principal": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "action": [
+            "delete"
+          ]
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

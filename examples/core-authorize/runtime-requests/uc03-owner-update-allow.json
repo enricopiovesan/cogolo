@@ -1,0 +1,53 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-03",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "principal": {
+      "id": "user-7",
+      "roles": [
+        "member"
+      ]
+    },
+    "action": "update",
+    "resource": {
+      "type": "document",
+      "id": "doc-99",
+      "owner_id": "user-7"
+    },
+    "context": {},
+    "policy": {
+      "version": "1.0",
+      "mode": "hybrid",
+      "default_effect": "deny",
+      "rules": [
+        {
+          "id": "owner-update",
+          "effect": "allow",
+          "priority": 150,
+          "condition": {
+            "op": "eq",
+            "left": "principal.id",
+            "right": "resource.owner_id"
+          },
+          "action": [
+            "update"
+          ]
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

@@ -1,0 +1,79 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.authorize",
+  "name": "authorize",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "capability-authors@traverse-framework.com"
+  },
+  "summary": "Run core.authorize as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "principal",
+        "action",
+        "resource",
+        "policy"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "decision",
+        "reason",
+        "reason_code",
+        "matched_rules",
+        "obligations",
+        "break_glass_used"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "authorize",
+      "capability_id": "core.authorize",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "principal",
+          "action",
+          "resource",
+          "context",
+          "policy"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "decision",
+          "reason",
+          "reason_code",
+          "matched_rules",
+          "obligations",
+          "evaluation_trace",
+          "policy_hash",
+          "confidence",
+          "break_glass_used"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "authorize",
+  "terminal_nodes": [
+    "authorize"
+  ],
+  "tags": [
+    "authorization",
+    "policy",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}
