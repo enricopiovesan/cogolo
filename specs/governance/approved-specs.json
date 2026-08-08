@@ -1322,7 +1322,8 @@
         "crates/traverse-runtime/src/artifact_router.rs",
         "crates/traverse-runtime/src/workflows.rs",
         "docs/adr/0037-local-executor-event-emission.md",
-        "specs/995-local-executor-event-emission/"
+        "specs/995-local-executor-event-emission/",
+        "docs/decision-log.md"
       ]
     }
   ]
