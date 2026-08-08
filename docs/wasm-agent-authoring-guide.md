@@ -16,19 +16,16 @@ If you've completed the zero-to-hero path, you have a working `say-hello` agent.
 ### Generate a capability scaffold
 
 ```bash
-bash scripts/scaffold/new-capability.sh \
-  --name my-classifier \
-  --namespace acme.ml \
-  --output-dir ./my-classifier
+traverse-cli capability new acme.ml.my-classifier
 ```
 
-This generates a complete directory with a valid contract stub, compilable Rust source, and a test request. You only need to fill in the TODOs.
+This generates `capabilities/acme.ml.my-classifier/` with a real, loadable `kind: capability_package` manifest, a contract with authorable placeholder input/output fields, a `#![no_std]` WASI guest stub, and a sample runtime request — the same shape `traverse-cli capability-package inspect`/`traverse-cli capability-package execute` load in production. `scripts/scaffold/new-capability.sh` is retired (spec `100-capability-package-authoring` FR-009); it now exits non-zero and points here. `component new` is retired too (FR-008): it redirects to `capability new`.
 
 ### What to change
 
-1. **`contract.json`** — replace `input_schema` and `output_schema` with your actual fields. The `description` field is required.
-2. **`src/main.rs`** — replace the stub logic with your computation. Read JSON from stdin, write JSON to stdout.
-3. **Build and verify** — `bash my-classifier/build-fixture.sh` compiles to WASM and prints the digest.
+1. **`contract.json`** — replace the placeholder `input_value`/`output_value` fields under `inputs.schema`/`outputs.schema` with your actual fields. The `description` field is required.
+2. **`src/agent.rs`** — replace the static placeholder output with your computation. Read JSON from stdin, write JSON to stdout.
+3. **Build and verify** — `bash capabilities/acme.ml.my-classifier/build-fixture.sh` compiles to WASM; `traverse-cli capability-package inspect <manifest>` reports the real digest to paste into `manifest.json`'s `binary.expected_digest` if it doesn't match yet, then `traverse-cli capability-package execute <manifest> <request>` runs it.
 
 ### Common mistake
 
