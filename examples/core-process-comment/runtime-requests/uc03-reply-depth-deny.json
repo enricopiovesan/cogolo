@@ -1,0 +1,67 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-process-comment-03",
+  "intent": {
+    "capability_id": "core.process-comment",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "action": "reply",
+    "actor": {
+      "id": "user-42",
+      "roles": [
+        "member"
+      ],
+      "attributes": {
+        "tenant_id": "t-100"
+      }
+    },
+    "resource": {
+      "type": "document",
+      "id": "doc-99",
+      "attributes": {
+        "tenant_id": "t-100"
+      }
+    },
+    "comment": {
+      "body": "One more level",
+      "parent_id": "cmt-depth-7",
+      "parent_depth": 7
+    },
+    "context": {},
+    "comment_policy": {
+      "version": "2026.08.1",
+      "max_body_length": 10000,
+      "max_thread_depth": 8,
+      "allowed_markups": [
+        "bold",
+        "italic"
+      ],
+      "mention_resolution": "strict",
+      "visibility_model": "resource-acl",
+      "soft_delete": true,
+      "actions": {
+        "reply": {
+          "roles": [
+            "member",
+            "admin"
+          ]
+        }
+      },
+      "moderation": {
+        "blocklist": [],
+        "require_approval_roles": []
+      }
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-process-comment-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

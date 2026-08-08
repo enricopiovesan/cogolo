@@ -1,0 +1,80 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.process-comment",
+  "name": "process-comment",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "traverse-core",
+    "contact": "capability-authors@traverse-framework.com"
+  },
+  "summary": "Run core.process-comment as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "action",
+        "actor",
+        "resource",
+        "comment",
+        "comment_policy"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "decision",
+        "reason",
+        "reason_code",
+        "obligations",
+        "evaluation_trace",
+        "confidence"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "process",
+      "capability_id": "core.process-comment",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "action",
+          "actor",
+          "resource",
+          "comment",
+          "context",
+          "comment_policy"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "decision",
+          "reason",
+          "reason_code",
+          "normalized_comment",
+          "obligations",
+          "evaluation_trace",
+          "policy_hash",
+          "confidence"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "process",
+  "terminal_nodes": [
+    "process"
+  ],
+  "tags": [
+    "commenting",
+    "moderation",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}
