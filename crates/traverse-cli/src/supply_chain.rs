@@ -1,9 +1,10 @@
-use ed25519_dalek::{Signature, Verifier, VerifyingKey};
+use ed25519_dalek::{Signature, Signer, SigningKey, Verifier, VerifyingKey};
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha256};
 use std::fmt::Write;
 use std::fs;
 use std::path::{Path, PathBuf};
+use std::time::{SystemTime, UNIX_EPOCH};
 
 #[derive(Debug, Clone, Deserialize)]
 struct ArtifactManifest {
@@ -84,6 +85,95 @@ impl ArtifactVerificationReport {
     pub fn passed(&self) -> bool {
         self.overall_status == OverallStatus::Passed
     }
+}
+
+#[derive(Debug, Clone, Serialize, PartialEq, Eq)]
+pub struct ArtifactSigningReport {
+    pub artifact_path: String,
+    pub manifest_path: String,
+    pub checksum_algorithm: String,
+    pub checksum_sha256: String,
+    pub signing_scheme: String,
+    pub public_key_hex: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum SigningError {
+    ArtifactUnreadable(String),
+    ManifestUnwritable(String),
+}
+
+impl SigningError {
+    pub fn message(&self) -> &str {
+        match self {
+            SigningError::ArtifactUnreadable(message)
+            | SigningError::ManifestUnwritable(message) => message,
+        }
+    }
+}
+
+impl std::fmt::Display for SigningError {
+    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        f.write_str(self.message())
+    }
+}
+
+/// Signs an artifact with a freshly derived, single-use Ed25519 keypair and
+/// writes the `<artifact>.manifest.json` sidecar [`verify_artifact`] reads.
+///
+/// The key is derived deterministically from the artifact's own checksum and
+/// the current time — not a persistent, publicly trusted release key, since
+/// this proves the sign/verify round trip is internally consistent rather
+/// than asserting a real distribution-channel identity (see
+/// `docs/decision-log.md` Decision 43).
+pub fn sign_artifact(artifact_path: &Path) -> Result<ArtifactSigningReport, SigningError> {
+    let artifact_bytes = fs::read(artifact_path).map_err(|error| {
+        SigningError::ArtifactUnreadable(format!(
+            "failed to read artifact {}: {error}",
+            artifact_path.display()
+        ))
+    })?;
+
+    let checksum_sha256 = sha256_hex(&artifact_bytes);
+    let signing_key = derive_signing_key(&checksum_sha256);
+    let signature = signing_key.sign(&artifact_bytes);
+    let public_key_hex = hex_encode(&signing_key.verifying_key().to_bytes());
+    let signature_hex = hex_encode(&signature.to_bytes());
+
+    let manifest_path = PathBuf::from(format!("{}.manifest.json", artifact_path.display()));
+    let manifest = serde_json::json!({
+        "artifact_path": artifact_path.display().to_string(),
+        "checksum_algorithm": "sha256",
+        "checksum_sha256": checksum_sha256,
+        "signing_scheme": "ed25519",
+        "public_key_hex": public_key_hex,
+        "signature_hex": signature_hex,
+    });
+    let manifest_contents = serde_json::to_string_pretty(&manifest).unwrap_or_default();
+    fs::write(&manifest_path, format!("{manifest_contents}\n")).map_err(|error| {
+        SigningError::ManifestUnwritable(format!(
+            "failed to write manifest {}: {error}",
+            manifest_path.display()
+        ))
+    })?;
+
+    Ok(ArtifactSigningReport {
+        artifact_path: artifact_path.display().to_string(),
+        manifest_path: manifest_path.display().to_string(),
+        checksum_algorithm: "sha256".to_string(),
+        checksum_sha256,
+        signing_scheme: "ed25519".to_string(),
+        public_key_hex,
+    })
+}
+
+fn derive_signing_key(checksum_hex: &str) -> SigningKey {
+    let timestamp_nanos = SystemTime::now()
+        .duration_since(UNIX_EPOCH)
+        .map_or(0, |duration| duration.as_nanos());
+    let seed_material = format!("{checksum_hex}:{timestamp_nanos}");
+    let seed: [u8; 32] = Sha256::digest(seed_material.as_bytes()).into();
+    SigningKey::from_bytes(&seed)
 }
 
 pub fn verify_artifact(input_path: &Path) -> ArtifactVerificationReport {
@@ -469,9 +559,12 @@ fn decode_hex_array<const N: usize>(value: &str) -> Option<[u8; N]> {
 }
 
 fn sha256_hex(bytes: &[u8]) -> String {
-    let digest = Sha256::digest(bytes);
-    let mut output = String::with_capacity(digest.len() * 2);
-    for byte in digest {
+    hex_encode(&Sha256::digest(bytes))
+}
+
+fn hex_encode(bytes: &[u8]) -> String {
+    let mut output = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
         let _ = write!(output, "{byte:02x}");
     }
     output
@@ -481,7 +574,9 @@ fn sha256_hex(bytes: &[u8]) -> String {
 mod tests {
     #![allow(clippy::expect_used)]
 
-    use super::{CheckStatus, OverallStatus, sha256_hex, verify_artifact};
+    use super::{
+        CheckStatus, OverallStatus, SigningError, sha256_hex, sign_artifact, verify_artifact,
+    };
     use ed25519_dalek::{Signer, SigningKey};
     use std::fmt::Write as _;
     use std::fs;
@@ -817,5 +912,60 @@ mod tests {
         let path = std::env::temp_dir().join(format!("traverse-{name}-{now}"));
         fs::create_dir_all(&path).expect("temp dir should be created");
         path
+    }
+
+    #[test]
+    fn sign_artifact_writes_a_manifest_that_verify_confirms() {
+        let dir = temp_dir("supply-chain-sign-roundtrip");
+        let artifact = dir.join("artifact.bin");
+        fs::write(&artifact, b"signed artifact bytes").expect("artifact should write");
+
+        let report = sign_artifact(&artifact).expect("signing should succeed");
+        assert_eq!(report.checksum_algorithm, "sha256");
+        assert_eq!(report.signing_scheme, "ed25519");
+        assert_eq!(report.checksum_sha256, sha256_hex(b"signed artifact bytes"));
+        assert!(
+            fs::metadata(format!("{}.manifest.json", artifact.display())).is_ok(),
+            "manifest sidecar must exist"
+        );
+
+        let verify_report = verify_artifact(&artifact);
+        assert_eq!(verify_report.checksum_status, CheckStatus::Matched);
+        assert_eq!(verify_report.signature_status, CheckStatus::Verified);
+    }
+
+    #[test]
+    fn sign_artifact_returns_artifact_unreadable_for_missing_file() {
+        let dir = temp_dir("supply-chain-sign-missing");
+        let artifact = dir.join("does-not-exist.bin");
+
+        let error = sign_artifact(&artifact).expect_err("signing a missing file must fail");
+        assert!(matches!(error, SigningError::ArtifactUnreadable(_)));
+    }
+
+    #[cfg(unix)]
+    #[test]
+    fn sign_artifact_returns_manifest_unwritable_for_blocked_path() {
+        use std::os::unix::fs::PermissionsExt;
+
+        let dir = temp_dir("supply-chain-sign-unwritable");
+        let artifact = dir.join("artifact.bin");
+        fs::write(&artifact, b"signed artifact bytes").expect("artifact should write");
+
+        let mut permissions = fs::metadata(&dir)
+            .expect("dir metadata should be available")
+            .permissions();
+        permissions.set_mode(0o555);
+        fs::set_permissions(&dir, permissions.clone()).expect("dir should become read-only");
+
+        let error = sign_artifact(&artifact);
+
+        permissions.set_mode(0o755);
+        fs::set_permissions(&dir, permissions).expect("dir permissions should be restored");
+
+        assert!(matches!(
+            error.expect_err("signing into a read-only dir must fail"),
+            SigningError::ManifestUnwritable(_)
+        ));
     }
 }

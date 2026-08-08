@@ -8,7 +8,6 @@ mkdir -p "${output_dir}"
 
 summary_path="${output_dir}/supply-chain-summary.json"
 sbom_path="${output_dir}/traverse-sbom.cdx.json"
-provenance_path="${output_dir}/traverse-cli.provenance.json"
 
 status="passed"
 warnings=()
@@ -103,22 +102,15 @@ artifact_one="${output_dir}/traverse-cli.first"
 artifact_two="${output_dir}/traverse-cli.second"
 hash_one="$(shasum -a 256 "${artifact_one}" | awk '{print $1}')"
 hash_two="$(shasum -a 256 "${artifact_two}" | awk '{print $1}')"
+provenance_path="${artifact_one}.provenance.json"
 
 if [[ "${hash_one}" != "${hash_two}" ]]; then
   fail "release build is not byte-identical across two runs"
 fi
 
-cat > "${artifact_one}.manifest.json" <<JSON
-{
-  "artifact_path": "${artifact_one}",
-  "checksum_algorithm": "sha256",
-  "checksum_sha256": "${hash_one}",
-  "signing_scheme": "ed25519",
-  "public_key_hex": "0000000000000000000000000000000000000000000000000000000000000000",
-  "signature_hex": "00000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000000",
-  "provenance_path": "${provenance_path}"
-}
-JSON
+if ! cargo run --manifest-path "${repo_root}/Cargo.toml" -p traverse-cli-rs -- artifact sign "${artifact_one}" > "${output_dir}/artifact-sign-report.json"; then
+  fail "traverse-cli artifact sign failed for release artifact"
+fi
 
 source_sha="$(git -C "${repo_root}" rev-parse HEAD)"
 cat > "${provenance_path}" <<JSON
