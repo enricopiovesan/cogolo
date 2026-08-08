@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "platform.decide-state-transition",
   "name": "decide-state-transition",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "lifecycle": "active",
   "owner": {
     "team": "platform-team",
@@ -13,14 +13,24 @@
   "inputs": {
     "schema": {
       "type": "object",
-      "required": ["entity_type", "current_state", "actor"],
+      "required": [
+        "entity_type",
+        "current_state",
+        "actor"
+      ],
       "additionalProperties": true
     }
   },
   "outputs": {
     "schema": {
       "type": "object",
-      "required": ["allowed", "decision", "reasons", "contract_version", "policy_version"],
+      "required": [
+        "allowed",
+        "decision",
+        "reasons",
+        "contract_version",
+        "policy_version"
+      ],
       "additionalProperties": true
     }
   },
@@ -28,7 +38,7 @@
     {
       "node_id": "decide",
       "capability_id": "platform.decide-state-transition",
-      "capability_version": "1.1.0",
+      "capability_version": "1.2.0",
       "input": {
         "from_workflow_input": [
           "entity_type",
@@ -60,7 +70,13 @@
   ],
   "edges": [],
   "start_node": "decide",
-  "terminal_nodes": ["decide"],
-  "tags": ["probe", "lifecycle", "approval"],
+  "terminal_nodes": [
+    "decide"
+  ],
+  "tags": [
+    "probe",
+    "lifecycle",
+    "approval"
+  ],
   "governing_spec": "007-workflow-registry-traversal"
 }

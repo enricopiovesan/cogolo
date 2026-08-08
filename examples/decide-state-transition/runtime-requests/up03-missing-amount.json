@@ -1,7 +1,7 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "hp01-low-value-allow",
+  "request_id": "up03-missing-amount",
   "intent": {
     "capability_id": "platform.decide-state-transition",
     "capability_version": "1.2.0"
@@ -11,18 +11,17 @@
     "current_state": "draft",
     "proposed_state": "submitted",
     "actor": {
-      "id": "u-123",
+      "id": "u-mgr",
       "roles": [
-        "employee"
+        "manager"
       ]
     },
     "context": {
       "now": "2026-08-05T14:30:00Z",
-      "amount": 42.5,
       "currency": "USD"
     },
     "mode": "decide",
-    "correlation_id": "corr-hp01"
+    "correlation_id": "corr-up03"
   },
   "lookup": {
     "scope": "prefer_private",

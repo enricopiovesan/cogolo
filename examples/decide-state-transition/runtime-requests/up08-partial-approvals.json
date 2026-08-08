@@ -1,28 +1,35 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "hp01-low-value-allow",
+  "request_id": "up08-partial-approvals",
   "intent": {
     "capability_id": "platform.decide-state-transition",
     "capability_version": "1.2.0"
   },
   "input": {
     "entity_type": "expense",
-    "current_state": "draft",
-    "proposed_state": "submitted",
+    "current_state": "submitted",
+    "proposed_state": "approved",
     "actor": {
-      "id": "u-123",
+      "id": "comp-1",
       "roles": [
-        "employee"
+        "compliance"
       ]
     },
     "context": {
       "now": "2026-08-05T14:30:00Z",
-      "amount": 42.5,
-      "currency": "USD"
+      "amount": 9000,
+      "requires_dual_approval": true
     },
+    "already_collected_approvals": [
+      {
+        "role": "legal",
+        "approver_id": "l-1",
+        "collected_at": "2026-08-05T12:00:00Z"
+      }
+    ],
     "mode": "decide",
-    "correlation_id": "corr-hp01"
+    "correlation_id": "corr-up08"
   },
   "lookup": {
     "scope": "prefer_private",

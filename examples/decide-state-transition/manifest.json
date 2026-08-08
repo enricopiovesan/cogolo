@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "platform.decide-state-transition-agent",
-  "version": "1.1.0",
-  "summary": "E2E probe package for decide-state-transition authored from the v1.1.0 product TOML.",
+  "version": "1.2.0",
+  "summary": "Capability package for platform.decide-state-transition@1.2.0 (TOML-derived HP/UP matrix).",
   "capability_ref": {
     "id": "platform.decide-state-transition",
-    "version": "1.1.0",
+    "version": "1.2.0",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "platform.decide-state-transition",
-      "workflow_version": "1.1.0"
+      "workflow_version": "1.2.0"
     }
   ],
   "source": {
@@ -23,7 +23,7 @@
   "binary": {
     "path": "./artifacts/decide-state-transition.wasm",
     "format": "wasm",
-    "expected_digest": "fnv1a64:34d6a3aa9e2fb310",
+    "expected_digest": "fnv1a64:cbf1a51ff4856a1c",
     "abi_version": "1.0.0"
   },
   "constraints": {
