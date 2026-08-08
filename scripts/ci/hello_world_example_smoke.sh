@@ -22,5 +22,6 @@ printf '%s\n' "$execute_output"
 
 grep -q "status: completed" <<<"$execute_output"
 grep -q "capability_id: hello.world.say-hello" <<<"$execute_output"
-grep -q "name: Traverse" <<<"$execute_output"
-grep -q "greeting: Hello, Traverse!" <<<"$execute_output"
+grep -q "capability_version: 1.0.0" <<<"$execute_output"
+grep -q '"name": "Traverse"' <<<"$execute_output"
+grep -q '"greeting": "Hello, Traverse!"' <<<"$execute_output"
