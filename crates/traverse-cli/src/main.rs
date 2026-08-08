@@ -1960,9 +1960,9 @@ fn capability_new_at(base_dir: &Path, capability_id: &str) -> Result<String, Cli
     write_new_file(
         &artifacts_dir.join("README.md"),
         "Place the compiled WASM artifact here after running build-fixture.sh. \
+         That script writes the matching `binary.expected_digest` into manifest.json. \
          `capability-package inspect`/`execute` refuse to treat this package as executable \
-         until a real artifact exists here and its digest matches manifest.json's \
-         binary.expected_digest.\n",
+         until a real artifact exists here with a matching digest.\n",
     )?;
     write_new_file(
         &capability_dir.join("build-fixture.sh"),
@@ -2009,16 +2009,15 @@ fn capability_new_at(base_dir: &Path, capability_id: &str) -> Result<String, Cli
              and contract.json (this scaffold is a placeholder, not executable yet)."
             .to_string(),
         format!(
-            "  2. Build the WASM artifact: bash {}",
+            "  2. Build the WASM artifact (also writes binary.expected_digest): bash {}",
             capability_dir.join("build-fixture.sh").display()
         ),
         format!(
-            "  3. Run `traverse-cli capability-package inspect {}` — if binary.expected_digest \
-             doesn't match yet, the error reports the real digest to paste into manifest.json.",
+            "  3. Run `traverse-cli capability-package inspect {}`.",
             manifest_path.display()
         ),
         format!(
-            "  4. Once inspect succeeds, run `traverse-cli capability-package execute {} {}`.",
+            "  4. Run `traverse-cli capability-package execute {} {}`.",
             manifest_path.display(),
             request_path.display()
         ),
@@ -2196,22 +2195,52 @@ fn capability_guest_stub_source() -> String {
 }
 
 fn capability_build_fixture_script(wasm_name: &str) -> String {
+    // Self-contained scaffold script: compile the guest, then write the
+    // matching FNV-1a 64 digest into manifest.json so authors never hand-paste it.
     format!(
-        "#!/usr/bin/env bash\n\
-         \n\
-         set -euo pipefail\n\
-         \n\
-         script_dir=\"$(cd \"$(dirname \"${{BASH_SOURCE[0]}}\")\" && pwd)\"\n\
-         artifact_dir=\"$script_dir/artifacts\"\n\
-         artifact_path=\"$artifact_dir/{wasm_name}\"\n\
-         \n\
-         mkdir -p \"$artifact_dir\"\n\
-         \n\
-         rustup run \"$(rustup show active-toolchain | awk '{{print $1}}')\" rustc \"$script_dir/src/agent.rs\" \\\n  \
-             --target wasm32-unknown-unknown --crate-type cdylib -O -C panic=abort -C strip=symbols \\\n  \
-             --remap-path-prefix \"$script_dir=/traverse-repo/agent\" -o \"$artifact_path\"\n\
-         \n\
-         printf 'built %s\\n' \"$artifact_path\"\n"
+        r#"#!/usr/bin/env bash
+
+set -euo pipefail
+
+script_dir="$(cd "$(dirname "${{BASH_SOURCE[0]}}")" && pwd)"
+artifact_dir="$script_dir/artifacts"
+artifact_path="$artifact_dir/{wasm_name}"
+manifest_path="$script_dir/manifest.json"
+
+mkdir -p "$artifact_dir"
+
+rustup run "$(rustup show active-toolchain | awk '{{print $1}}')" rustc "$script_dir/src/agent.rs" \
+  --target wasm32-unknown-unknown --crate-type cdylib -O -C panic=abort -C strip=symbols \
+  --remap-path-prefix "$script_dir=/traverse-repo/agent" -o "$artifact_path"
+
+digest="$(python3 - "$artifact_path" <<'PY'
+import sys
+from pathlib import Path
+
+data = Path(sys.argv[1]).read_bytes()
+h = 0xcbf29ce484222325
+for b in data:
+    h ^= b
+    h = (h * 0x100000001b3) & 0xFFFFFFFFFFFFFFFF
+print(f"fnv1a64:{{h:016x}}")
+PY
+)"
+
+python3 - "$manifest_path" "$digest" <<'PY'
+import json
+import sys
+from pathlib import Path
+
+manifest = Path(sys.argv[1])
+digest = sys.argv[2]
+data = json.loads(manifest.read_text())
+data.setdefault("binary", {{}})["expected_digest"] = digest
+manifest.write_text(json.dumps(data, indent=2) + "\n")
+print(f"updated {{manifest}}: binary.expected_digest={{digest}}")
+PY
+
+printf 'built %s\n' "$artifact_path"
+"#
     )
 }
 
@@ -7065,6 +7094,16 @@ mod tests {
         assert!(capability_dir.join("src/agent.rs").is_file());
         assert!(capability_dir.join("build-fixture.sh").is_file());
         assert!(capability_dir.join("artifacts/README.md").is_file());
+        let build_fixture = fs::read_to_string(capability_dir.join("build-fixture.sh"))
+            .expect("build-fixture.sh should read");
+        assert!(
+            build_fixture.contains("expected_digest"),
+            "build-fixture.sh must auto-write binary.expected_digest"
+        );
+        assert!(
+            build_fixture.contains("0xcbf29ce484222325"),
+            "build-fixture.sh must compute fnv1a64 digests"
+        );
         assert!(
             capability_dir
                 .join("runtime-requests/retrieve.json")

@@ -81,6 +81,12 @@ jobs:
       - name: Run zero-to-hero acceptance
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/zero_to_hero_acceptance.sh
 
+      - name: Run decide-state-transition example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/decide_state_transition_example_smoke.sh
+
+      - name: Run capability new E2E smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/capability_new_e2e_smoke.sh
+
       - name: Run repository checks
         run: bash scripts/ci/repository_checks.sh
 
