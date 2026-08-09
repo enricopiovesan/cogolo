@@ -28,4 +28,13 @@ bash scripts/ci/core_authorize_example_smoke.sh
 | UC-08 | `uc08-break-glass-allow.json` | `break_glass_override` |
 | UC-09 | `uc09-invalid-principal-deny.json` | `invalid_principal` |
 
+## Guest-enforced fields
+
+`principal.id` is intentionally omitted from `inputs.schema.properties.principal.required`
+so UC-09 can reach the WASM guest. Host JSON Schema would otherwise reject the
+omission before execution. The guest returns `reason_code: invalid_principal`.
+This follows the guest-enforced fields convention in
+`docs/capability-contract-authoring-guide.md` — it is not a silent weakening of
+default fail-closed host validation for other required fields.
+
 Registry: publish `capabilities/core/core.authorize/1.1.0/` with a real artifact release after this package lands.
