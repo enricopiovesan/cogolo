@@ -746,7 +746,9 @@ fn help_capability_publish() -> String {
     --json                  Emit machine-readable publish evidence.
 
   Optional flags:
-    --dry-run                       Validate and report planned branch/path without writes.
+    --dry-run                       Validate (including persona_ref resolution against
+                                    the registry personas tree) and report planned
+                                    branch/path without writes.
     --registry-repo-remote <owner/repo>  Open the PR against this GitHub repo instead
                                     of traverse-framework/registry -- the counterpart
                                     to --registry-repo, since the local checkout path
@@ -3008,6 +3010,8 @@ fn capability_publish_plan(
     reject_private_contract_scope(&contract_text)?;
     // Spec 102: check raw JSON so use_cases (not on CapabilityContract) are visible.
     enforce_contract_surface_coverage(&contract_text)?;
+    // Fail fast on persona_ref gaps before opening a registry PR.
+    enforce_persona_refs_resolve(&contract_text, &request.registry_repo_path)?;
 
     let contract = parse_contract(&contract_text).map_err(|failure| {
         (
@@ -3165,6 +3169,85 @@ fn uncovered_action_enum_values(contract: &Value) -> Result<Vec<String>, String>
         .into_iter()
         .filter(|action| !covered.contains(action))
         .collect())
+}
+
+/// Resolve each `use_cases[].persona_ref` against `personas/<id>/<version>/persona.json`
+/// in the target registry checkout so authors learn about gaps before a registry PR.
+fn enforce_persona_refs_resolve(
+    contract_text: &str,
+    registry_repo_path: &Path,
+) -> Result<(), (&'static str, String)> {
+    let value: Value = serde_json::from_str(contract_text).map_err(|error| {
+        (
+            "capability_publish_contract_parse_failed",
+            format!("failed to parse capability contract JSON: {error}"),
+        )
+    })?;
+    match unresolved_persona_refs(&value, registry_repo_path) {
+        Ok(missing) if missing.is_empty() => Ok(()),
+        Ok(missing) => Err((
+            "capability_publish_persona_ref_unresolved",
+            format!(
+                "use_cases[].persona_ref values are missing from the registry personas tree: {}. Expected personas/<id>/<version>/persona.json under {}",
+                missing.join(", "),
+                registry_repo_path.display()
+            ),
+        )),
+        Err(message) => Err(("capability_publish_persona_ref_unresolved", message)),
+    }
+}
+
+fn unresolved_persona_refs(
+    contract: &Value,
+    registry_repo_path: &Path,
+) -> Result<Vec<String>, String> {
+    let use_cases = contract
+        .get("use_cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut required = std::collections::BTreeSet::new();
+    for use_case in &use_cases {
+        let Some(persona_ref) = use_case.get("persona_ref") else {
+            continue;
+        };
+        let Some(persona_id) = persona_ref.as_str() else {
+            return Err(
+                "use_cases[].persona_ref must be a string id (for example platform-security-engineer)"
+                    .to_string(),
+            );
+        };
+        if persona_id.trim().is_empty()
+            || persona_id == "."
+            || persona_id == ".."
+            || persona_id.contains('/')
+            || persona_id.contains('\\')
+        {
+            return Err(format!(
+                "use_cases[].persona_ref is not a safe persona id: {persona_id}"
+            ));
+        }
+        required.insert(persona_id.to_string());
+    }
+
+    Ok(required
+        .into_iter()
+        .filter(|persona_id| !persona_exists_in_registry(registry_repo_path, persona_id))
+        .collect())
+}
+
+fn persona_exists_in_registry(registry_repo_path: &Path, persona_id: &str) -> bool {
+    let persona_root = registry_repo_path.join("personas").join(persona_id);
+    let Ok(entries) = fs::read_dir(&persona_root) else {
+        return false;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        if path.is_dir() && path.join("persona.json").is_file() {
+            return true;
+        }
+    }
+    false
 }
 
 fn validate_registry_path_segment(
@@ -3374,7 +3457,7 @@ fn run_publish_command(
 
 fn capability_publish_pr_body(plan: &CapabilityPublishPlan) -> String {
     format!(
-        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n- `102-contract-surface-coverage`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
+        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n- `102-contract-surface-coverage`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- use_cases persona_ref resolution against registry personas passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
         plan.capability_id,
         plan.version,
         plan.registry_relative_path.display(),
@@ -6044,17 +6127,19 @@ mod tests {
         RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION, app_new_at,
         app_register_at, app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_text, enforce_contract_surface_coverage, ensure_clean_registry_checkout,
-        execute_capability_package, execute_expedition, execute_traverse_starter_process,
-        execute_traverse_starter_summarize, execute_traverse_starter_validate,
-        format_capability_package_execution_summary, help_expedition_execute, help_serve,
-        inspect_bundle, inspect_capability, inspect_capability_package, inspect_event,
-        inspect_trace, latest_index_release_asset, load_capability_package, load_registered_bundle,
+        curl_text, enforce_contract_surface_coverage, enforce_persona_refs_resolve,
+        ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
+        execute_traverse_starter_process, execute_traverse_starter_summarize,
+        execute_traverse_starter_validate, format_capability_package_execution_summary,
+        help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
+        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
+        load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
         registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
-        telemetry, uncovered_action_enum_values, validate_registry_path_segment,
+        telemetry, uncovered_action_enum_values, unresolved_persona_refs,
+        validate_registry_path_segment,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
@@ -6710,6 +6795,141 @@ mod tests {
             "failure should name uncovered action"
         );
         assert!(runner.commands.borrow().is_empty());
+    }
+
+    #[test]
+    fn capability_publish_persona_ref_unresolved_runs_no_commands() {
+        let fixture = capability_publish_fixture();
+        let mut contract: Value = serde_json::from_str(
+            &fs::read_to_string(&fixture.contract).expect("contract fixture should read"),
+        )
+        .expect("contract fixture should parse");
+        contract["use_cases"] = serde_json::json!([
+            {
+                "name": "missing persona",
+                "description": "references a persona that is not in the registry checkout",
+                "persona_ref": "missing-persona-for-publish",
+                "input_example": { "action": "create" },
+                "expected_output_example": { "ok": true }
+            }
+        ]);
+        fs::write(
+            &fixture.contract,
+            serde_json::to_string_pretty(&contract).expect("contract fixture should serialize"),
+        )
+        .expect("missing-persona contract should write");
+        let runner = RecordingPublishRunner::default();
+
+        let output = capability_publish_at(&fixture.request(true), &runner)
+            .expect("unresolved persona_ref should return JSON evidence");
+        let json: Value = serde_json::from_str(&output).expect("publish output must be JSON");
+
+        assert_eq!(json["status"], "failed");
+        assert_eq!(
+            json["errors"][0]["code"],
+            "capability_publish_persona_ref_unresolved"
+        );
+        assert!(
+            json["errors"][0]["message"]
+                .as_str()
+                .expect("message")
+                .contains("missing-persona-for-publish"),
+            "failure should name missing persona id"
+        );
+        assert!(
+            json["errors"][0]["message"]
+                .as_str()
+                .expect("message")
+                .contains("personas/<id>/<version>/persona.json"),
+            "failure should suggest persona path shape"
+        );
+        assert!(runner.commands.borrow().is_empty());
+    }
+
+    #[test]
+    fn capability_publish_persona_ref_resolves_when_present() {
+        let fixture = capability_publish_fixture();
+        let persona_path = fixture
+            .registry_repo
+            .join("personas/platform-security-engineer/1.0.0");
+        fs::create_dir_all(&persona_path).expect("persona dir should create");
+        fs::write(
+            persona_path.join("persona.json"),
+            r#"{"id":"platform-security-engineer"}"#,
+        )
+        .expect("persona.json should write");
+        let mut contract: Value = serde_json::from_str(
+            &fs::read_to_string(&fixture.contract).expect("contract fixture should read"),
+        )
+        .expect("contract fixture should parse");
+        contract["use_cases"] = serde_json::json!([
+            {
+                "name": "present persona",
+                "description": "references a persona that exists in the registry checkout",
+                "persona_ref": "platform-security-engineer",
+                "input_example": { "action": "create" },
+                "expected_output_example": { "ok": true }
+            }
+        ]);
+        fs::write(
+            &fixture.contract,
+            serde_json::to_string_pretty(&contract).expect("contract fixture should serialize"),
+        )
+        .expect("resolved-persona contract should write");
+        let runner = RecordingPublishRunner::default();
+
+        let output = capability_publish_at(&fixture.request(true), &runner)
+            .expect("resolved persona_ref dry-run should succeed");
+        let json: Value = serde_json::from_str(&output).expect("publish output must be JSON");
+
+        assert_eq!(json["status"], "dry_run");
+        assert!(runner.commands.borrow().is_empty());
+    }
+
+    #[test]
+    fn unresolved_persona_refs_reports_gaps_and_skips_when_absent() {
+        let temp_dir = unique_temp_dir();
+        let persona_path = temp_dir.join("personas/client-developer/1.0.0");
+        fs::create_dir_all(&persona_path).expect("persona dir should create");
+        fs::write(
+            persona_path.join("persona.json"),
+            r#"{"id":"client-developer"}"#,
+        )
+        .expect("persona.json should write");
+
+        let covered = serde_json::json!({
+            "use_cases": [
+                { "persona_ref": "client-developer" },
+                { "name": "no persona" }
+            ]
+        });
+        assert_eq!(
+            unresolved_persona_refs(&covered, &temp_dir).expect("covered personas"),
+            Vec::<String>::new()
+        );
+
+        let gap = serde_json::json!({
+            "use_cases": [
+                { "persona_ref": "client-developer" },
+                { "persona_ref": "missing-persona" }
+            ]
+        });
+        assert_eq!(
+            unresolved_persona_refs(&gap, &temp_dir).expect("gap personas"),
+            vec!["missing-persona".to_string()]
+        );
+
+        assert_eq!(
+            unresolved_persona_refs(&serde_json::json!({}), &temp_dir).expect("no use_cases"),
+            Vec::<String>::new()
+        );
+
+        let bad = enforce_persona_refs_resolve(
+            r#"{"use_cases":[{"persona_ref":"../escape"}]}"#,
+            &temp_dir,
+        )
+        .expect_err("unsafe persona id must fail");
+        assert_eq!(bad.0, "capability_publish_persona_ref_unresolved");
     }
 
     #[test]

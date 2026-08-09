@@ -188,10 +188,19 @@ be removed or called out under an explicit **Known limitations** section.
 Governed by Spec `102-contract-surface-coverage` / ADR-0038.
 `capability publish` / `--dry-run` enforce enum ⊆ use_cases (issue #1016).
 
+## Persona references
+
+When a use case names `persona_ref`, that id MUST already exist in the target
+registry checkout as `personas/<id>/<version>/persona.json`.
+`capability publish` / `--dry-run` resolve every referenced persona against the
+`--registry-repo` tree and fail with `capability_publish_persona_ref_unresolved`
+before opening a registry PR (issue #1011).
+
 ## Common Mistakes
 
 - Leaving schemas permissive (for example, `additionalProperties: true`) and then expecting deterministic validation and stable tool behavior.
 - Advertising enum values or description features that have no covering use case (see Contract surface coverage above; incident: `core.process-comment@1.0.0`).
+- Referencing a `persona_ref` that is not yet published under `personas/<id>/` in the registry checkout.
 - Declaring side effects implicitly but forgetting to declare `side_effects` and event edges (`emits` / `consumes`).
 - Using `host_api_access: exception_required` without adding an exception reference in `provenance.exception_refs`.
 - Treating `preconditions` / `postconditions` as executable policy. They are documentation, not runtime code.
