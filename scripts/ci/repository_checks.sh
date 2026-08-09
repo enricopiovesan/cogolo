@@ -128,6 +128,7 @@ required_files=(
   "scripts/ci/core_authorize_example_smoke.sh"
   "scripts/ci/core_process_comment_example_smoke.sh"
   "scripts/ci/core_transition_action_status_example_smoke.sh"
+  "scripts/ci/core_assign_ownership_example_smoke.sh"
   "scripts/ci/capability_new_e2e_smoke.sh"
   "scripts/ci/wasi_host_abi_imports.sh"
   "scripts/ci/zero_to_hero_acceptance.sh"
