@@ -3083,9 +3083,7 @@ fn reject_private_contract_scope(contract_text: &str) -> Result<(), (&'static st
 
 /// Spec `102-contract-surface-coverage` FR-001/FR-002: every `action` enum value
 /// must appear in at least one `use_cases[].input_example.action`.
-fn enforce_contract_surface_coverage(
-    contract_text: &str,
-) -> Result<(), (&'static str, String)> {
+fn enforce_contract_surface_coverage(contract_text: &str) -> Result<(), (&'static str, String)> {
     let value: Value = serde_json::from_str(contract_text).map_err(|error| {
         (
             "capability_publish_contract_parse_failed",
@@ -3106,9 +3104,7 @@ fn enforce_contract_surface_coverage(
 }
 
 fn uncovered_action_enum_values(contract: &Value) -> Result<Vec<String>, String> {
-    let Some(action_schema) = contract
-        .pointer("/inputs/schema/properties/action")
-    else {
+    let Some(action_schema) = contract.pointer("/inputs/schema/properties/action") else {
         return Ok(Vec::new());
     };
     let Some(enum_values) = action_schema.get("enum").and_then(Value::as_array) else {
@@ -5967,18 +5963,17 @@ mod tests {
         RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION, app_new_at,
         app_register_at, app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_text, ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
-        execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, format_capability_package_execution_summary,
-        help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
-        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_capability_package, load_registered_bundle,
+        curl_text, enforce_contract_surface_coverage, ensure_clean_registry_checkout,
+        execute_capability_package, execute_expedition, execute_traverse_starter_process,
+        execute_traverse_starter_summarize, execute_traverse_starter_validate,
+        format_capability_package_execution_summary, help_expedition_execute, help_serve,
+        inspect_bundle, inspect_capability, inspect_capability_package, inspect_event,
+        inspect_trace, latest_index_release_asset, load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
-        registry_sync_failure_json, reject_private_contract_scope,
-        enforce_contract_surface_coverage, uncovered_action_enum_values, run_command, sha256_hex,
-        telemetry, validate_registry_path_segment,
+        registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
+        telemetry, uncovered_action_enum_values, validate_registry_path_segment,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
