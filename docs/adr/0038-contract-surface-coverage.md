@@ -1,7 +1,7 @@
 # ADR-0038: Contract Surface Must Be Covered by Use Cases
 
-- Status: Proposed (accept with Spec `102-contract-surface-coverage` approval)
-- Governing spec: `102-contract-surface-coverage` (Draft)
+- Status: Accepted
+- Governing spec: `102-contract-surface-coverage`
 - Related issues: traverse#1014, #1015, #1016; registry#192, #193
 
 ## Context
