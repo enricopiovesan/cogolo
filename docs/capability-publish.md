@@ -22,7 +22,11 @@ includes the computed `artifact_digest`, `artifact_release_tag`, and
 
 Use `--dry-run` to validate the contract and artifact and print the exact tag,
 URL, digest, branch, and registry path without uploading an asset or changing
-the registry checkout. Publish fails with actionable JSON evidence when GitHub
+the registry checkout. Dry-run and publish both resolve each
+`use_cases[].persona_ref` against the target registry checkout's
+`personas/<id>/<version>/persona.json` tree and fail fast with
+`capability_publish_persona_ref_unresolved` when any referenced persona is
+missing. Publish also fails with actionable JSON evidence when GitHub
 authentication cannot create the release, the artifact filename cannot safely
 form a release URL, or a version's registry path already exists. If a later
 branch or PR step fails, the reported partial state identifies the release tag
