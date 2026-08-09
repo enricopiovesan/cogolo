@@ -31,6 +31,13 @@ This generates `capabilities/acme.ml.my-classifier/` with a real, loadable `kind
 
 Do not skip the contract edit. The runtime validates inputs and outputs against the schema before executing. A permissive schema (`additionalProperties: true`) will pass validation but defeat governance.
 
+If a use case must return a structured guest denial for a missing field, keep
+that field schema-optional and enforce it in the guest — host `required` will
+otherwise reject the request before the guest runs. Document the field as
+guest-enforced and cover it with a use case (see
+[`docs/capability-contract-authoring-guide.md`](capability-contract-authoring-guide.md)
+“Guest-enforced fields”; example: `examples/core-authorize` UC-09).
+
 ## Start From a Governed Package
 
 Begin with the executable capability package template, then specialize it for the new agent:
