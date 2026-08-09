@@ -3325,6 +3325,13 @@ fn prepare_and_open_registry_pr(
     runner: &dyn PublishProcessRunner,
     registry_repo: &str,
 ) -> Result<String, (&'static str, String, Option<String>)> {
+    // `gh release create` runs with cwd = registry checkout, so relative artifact
+    // paths from the Traverse workspace fail with "no matches found". Always pass
+    // an absolute path when one can be resolved.
+    let artifact_for_release = request
+        .artifact_path
+        .canonicalize()
+        .unwrap_or_else(|_| request.artifact_path.clone());
     run_publish_command(
         runner,
         &request.registry_repo_path,
@@ -3333,7 +3340,7 @@ fn prepare_and_open_registry_pr(
             "release".to_string(),
             "create".to_string(),
             plan.artifact_release_tag.clone(),
-            request.artifact_path.display().to_string(),
+            artifact_for_release.display().to_string(),
             "--repo".to_string(),
             registry_repo.to_string(),
             "--title".to_string(),
@@ -3456,8 +3463,10 @@ fn run_publish_command(
 }
 
 fn capability_publish_pr_body(plan: &CapabilityPublishPlan) -> String {
+    // Governing specs must be from the *registry* approved-spec set, not Traverse's.
+    // Declaring Traverse-only IDs (056/054/102) fails registry `spec-alignment`.
     format!(
-        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n- `102-contract-surface-coverage`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- use_cases persona_ref resolution against registry personas passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
+        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `005-yank-deprecation`\n- `006-public-scope-and-identity`\n- `007-artifact-hosting`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- use_cases persona_ref resolution against registry personas passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
         plan.capability_id,
         plan.version,
         plan.registry_relative_path.display(),
@@ -6679,7 +6688,9 @@ mod tests {
         assert!(commands.contains("gh release create artifacts/traverse-starter.process-1.0.0"));
         assert!(commands.contains("git checkout -B publish/traverse-starter.process-1.0.0"));
         assert!(commands.contains("gh pr create"));
-        assert!(commands.contains("056-capability-publish"));
+        assert!(commands.contains("001-registry-foundation"));
+        assert!(commands.contains("007-artifact-hosting"));
+        assert!(!commands.contains("056-capability-publish"));
         assert_eq!(json["registry_repo"], "traverse-framework/registry");
         assert!(commands.contains("--repo traverse-framework/registry"));
     }
