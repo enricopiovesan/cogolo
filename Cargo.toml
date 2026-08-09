@@ -16,12 +16,12 @@ edition = "2024"
 license = "Apache-2.0"
 repository = "https://github.com/traverse-framework/traverse"
 rust-version = "1.94"
-version = "0.9.0"
+version = "0.9.1"
 
 [workspace.dependencies]
-traverse-contracts = { path = "crates/traverse-contracts", version = "0.9.0" }
+traverse-contracts = { path = "crates/traverse-contracts", version = "0.9.1" }
 traverse-registry = { version = "=0.12.0" }
-traverse-runtime = { path = "crates/traverse-runtime", version = "0.9.0" }
+traverse-runtime = { path = "crates/traverse-runtime", version = "0.9.1" }
 
 # The published registry crate pins the current contracts release.  During
 # Traverse development, resolve that transitive dependency to this workspace's
