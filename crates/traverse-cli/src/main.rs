@@ -2844,6 +2844,9 @@ struct CapabilityPublishPlan {
     capability_id: String,
     version: String,
     artifact_digest: String,
+    artifact_asset_name: String,
+    artifact_release_tag: String,
+    artifact_url: String,
     registry_relative_path: PathBuf,
     registry_path: PathBuf,
     branch: String,
@@ -2929,7 +2932,7 @@ fn capability_publish_at(
         .as_deref()
         .unwrap_or(DEFAULT_REGISTRY_REPO);
 
-    let plan = match capability_publish_plan(request) {
+    let plan = match capability_publish_plan(request, registry_repo) {
         Ok(plan) => plan,
         Err((code, message)) => {
             return capability_publish_failure_json(
@@ -2984,6 +2987,7 @@ fn capability_publish_at(
 
 fn capability_publish_plan(
     request: &CapabilityPublishRequest,
+    registry_repo: &str,
 ) -> Result<CapabilityPublishPlan, (&'static str, String)> {
     if !request.registry_repo_path.is_dir() {
         return Err((
@@ -3031,6 +3035,11 @@ fn capability_publish_plan(
     validate_registry_path_segment(&normalized.id, "capability id")?;
     validate_registry_path_segment(&normalized.version, "version")?;
     let artifact_digest = publish_file_sha256_digest(&request.artifact_path)?;
+    let artifact_asset_name = publish_artifact_asset_name(&request.artifact_path)?;
+    let artifact_release_tag = format!("artifacts/{}-{}", normalized.id, normalized.version);
+    let artifact_url = format!(
+        "https://github.com/{registry_repo}/releases/download/{artifact_release_tag}/{artifact_asset_name}"
+    );
 
     let registry_relative_path = PathBuf::from("capabilities")
         .join(&normalized.namespace)
@@ -3044,10 +3053,20 @@ fn capability_publish_plan(
         sanitize_branch_component(&normalized.version)
     );
     let title = format!("Publish {} {}", normalized.id, normalized.version);
-    let contract_json = serde_json::to_string_pretty(&normalized).map_err(|error| {
+    let mut contract_value = serde_json::to_value(&normalized).map_err(|error| {
         (
             "capability_publish_contract_serialize_failed",
             format!("failed to serialize normalized capability contract: {error}"),
+        )
+    })?;
+    contract_value["artifact"] = serde_json::json!({
+        "digest": artifact_digest,
+        "url": artifact_url,
+    });
+    let contract_json = serde_json::to_string_pretty(&contract_value).map_err(|error| {
+        (
+            "capability_publish_contract_serialize_failed",
+            format!("failed to serialize capability contract with artifact metadata: {error}"),
         )
     })?;
 
@@ -3056,6 +3075,9 @@ fn capability_publish_plan(
         capability_id: normalized.id,
         version: normalized.version,
         artifact_digest,
+        artifact_asset_name,
+        artifact_release_tag,
+        artifact_url,
         registry_relative_path,
         registry_path,
         branch,
@@ -3173,6 +3195,32 @@ fn publish_file_sha256_digest(path: &Path) -> Result<String, (&'static str, Stri
     Ok(format!("sha256:{}", sha256_hex(&bytes)))
 }
 
+fn publish_artifact_asset_name(path: &Path) -> Result<String, (&'static str, String)> {
+    let name = path
+        .file_name()
+        .and_then(|value| value.to_str())
+        .ok_or_else(|| {
+            (
+                "capability_publish_artifact_name_invalid",
+                format!(
+                    "artifact path has no valid UTF-8 filename: {}",
+                    path.display()
+                ),
+            )
+        })?;
+    if name.is_empty()
+        || !name.chars().all(|character| {
+            character.is_ascii_alphanumeric() || matches!(character, '.' | '-' | '_')
+        })
+    {
+        return Err((
+            "capability_publish_artifact_name_invalid",
+            format!("artifact filename is not safe for a GitHub release URL: {name}"),
+        ));
+    }
+    Ok(name.to_string())
+}
+
 fn ensure_clean_registry_checkout(
     registry_repo_path: &Path,
     runner: &dyn PublishProcessRunner,
@@ -3197,6 +3245,28 @@ fn prepare_and_open_registry_pr(
     run_publish_command(
         runner,
         &request.registry_repo_path,
+        "gh",
+        &[
+            "release".to_string(),
+            "create".to_string(),
+            plan.artifact_release_tag.clone(),
+            request.artifact_path.display().to_string(),
+            "--repo".to_string(),
+            registry_repo.to_string(),
+            "--title".to_string(),
+            format!("{} {} artifact", plan.capability_id, plan.version),
+            "--notes".to_string(),
+            format!(
+                "Artifact for governed capability publication `{}` version `{}`. Digest: `{}`.",
+                plan.capability_id, plan.version, plan.artifact_digest
+            ),
+        ],
+        "capability_publish_release_create_failed",
+        plan,
+    )?;
+    run_publish_command(
+        runner,
+        &request.registry_repo_path,
         "git",
         &[
             "checkout".to_string(),
@@ -3206,22 +3276,7 @@ fn prepare_and_open_registry_pr(
         "capability_publish_branch_failed",
         plan,
     )?;
-    if let Some(parent) = plan.registry_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            (
-                "capability_publish_write_failed",
-                format!("failed to create registry target directory: {error}"),
-                Some(partial_state(plan)),
-            )
-        })?;
-    }
-    fs::write(&plan.registry_path, format!("{}\n", plan.contract_json)).map_err(|error| {
-        (
-            "capability_publish_write_failed",
-            format!("failed to write registry contract: {error}"),
-            Some(partial_state(plan)),
-        )
-    })?;
+    write_registry_contract(plan)?;
     run_publish_command(
         runner,
         &request.registry_repo_path,
@@ -3283,6 +3338,27 @@ fn prepare_and_open_registry_pr(
     Ok(output.stdout)
 }
 
+fn write_registry_contract(
+    plan: &CapabilityPublishPlan,
+) -> Result<(), (&'static str, String, Option<String>)> {
+    if let Some(parent) = plan.registry_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            (
+                "capability_publish_write_failed",
+                format!("failed to create registry target directory: {error}"),
+                Some(partial_state(plan)),
+            )
+        })?;
+    }
+    fs::write(&plan.registry_path, format!("{}\n", plan.contract_json)).map_err(|error| {
+        (
+            "capability_publish_write_failed",
+            format!("failed to write registry contract: {error}"),
+            Some(partial_state(plan)),
+        )
+    })
+}
+
 fn run_publish_command(
     runner: &dyn PublishProcessRunner,
     cwd: &Path,
@@ -3298,17 +3374,20 @@ fn run_publish_command(
 
 fn capability_publish_pr_body(plan: &CapabilityPublishPlan) -> String {
     format!(
-        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n- `102-contract-surface-coverage`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- artifact digest computed: `{}`\n",
+        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n- `102-contract-surface-coverage`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
         plan.capability_id,
         plan.version,
         plan.registry_relative_path.display(),
-        plan.artifact_digest
+        plan.artifact_digest,
+        plan.artifact_url
     )
 }
 
 fn partial_state(plan: &CapabilityPublishPlan) -> String {
     format!(
-        "branch `{}` may contain `{}`; retry after fixing the reported error or clean up the branch manually",
+        "release `{}` may contain `{}` and branch `{}` may contain `{}`; retry after fixing the reported error or clean up the branch manually",
+        plan.artifact_release_tag,
+        plan.artifact_asset_name,
         plan.branch,
         plan.registry_relative_path.display()
     )
@@ -3329,6 +3408,8 @@ fn capability_publish_success_json(
         "capability_id": plan.capability_id,
         "version": plan.version,
         "artifact_digest": plan.artifact_digest,
+        "artifact_release_tag": plan.artifact_release_tag,
+        "artifact_url": plan.artifact_url,
         "validation_status": "passed"
     });
     if let Some(url) = pull_request_url {
@@ -6450,6 +6531,14 @@ mod tests {
                 .unwrap_or_default()
                 .starts_with("sha256:")
         );
+        assert_eq!(
+            json["artifact_release_tag"],
+            "artifacts/traverse-starter.process-1.0.0"
+        );
+        assert_eq!(
+            json["artifact_url"],
+            "https://github.com/traverse-framework/registry/releases/download/artifacts/traverse-starter.process-1.0.0/artifact.wasm"
+        );
         assert!(!fixture.registry_contract_path().exists());
         assert!(runner.commands.borrow().is_empty());
     }
@@ -6491,6 +6580,14 @@ mod tests {
             "https://github.com/traverse-framework/registry/pull/123"
         );
         assert!(fixture.registry_contract_path().exists());
+        let contract: Value = serde_json::from_str(
+            &fs::read_to_string(fixture.registry_contract_path())
+                .expect("published registry contract should read"),
+        )
+        .expect("published registry contract should parse");
+        assert_eq!(contract["artifact"]["digest"], json["artifact_digest"]);
+        assert_eq!(contract["artifact"]["url"], json["artifact_url"]);
+        assert!(commands.contains("gh release create artifacts/traverse-starter.process-1.0.0"));
         assert!(commands.contains("git checkout -B publish/traverse-starter.process-1.0.0"));
         assert!(commands.contains("gh pr create"));
         assert!(commands.contains("056-capability-publish"));
@@ -6520,7 +6617,8 @@ mod tests {
     fn capability_publish_pr_failure_reports_partial_state() {
         let fixture = capability_publish_fixture();
         let runner = RecordingPublishRunner {
-            fail_program: Some("gh"),
+            fail_program: None,
+            fail_command_prefix: Some("gh pr create"),
             commands: RefCell::new(Vec::new()),
         };
 
@@ -8745,6 +8843,7 @@ mod tests {
     #[derive(Default)]
     struct RecordingPublishRunner {
         fail_program: Option<&'static str>,
+        fail_command_prefix: Option<&'static str>,
         commands: RefCell<Vec<String>>,
     }
 
@@ -8757,7 +8856,11 @@ mod tests {
         ) -> Result<PublishCommandOutput, String> {
             let rendered = format!("{} {} {}", cwd.display(), program, args.join(" "));
             self.commands.borrow_mut().push(rendered);
-            if self.fail_program == Some(program) {
+            if self.fail_program == Some(program)
+                || self.fail_command_prefix.is_some_and(|prefix| {
+                    format!("{program} {}", args.join(" ")).starts_with(prefix)
+                })
+            {
                 return Err(format!("{program} failed in fixture"));
             }
             if program == "gh" {
