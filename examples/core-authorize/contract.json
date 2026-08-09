@@ -4,7 +4,7 @@
   "id": "core.authorize",
   "namespace": "core",
   "name": "authorize",
-  "version": "1.0.0",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
@@ -79,7 +79,7 @@
           "evaluated 1 rule(s)",
           "rule admin-delete matched on role+action+resource.type \u2192 allow"
         ],
-        "policy_hash": "sha256:3a7f...",
+        "policy_hash": "fnv1a64:3a7f...",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -157,7 +157,7 @@
           "policy_version=1.0 mode=hybrid default=deny",
           "rule tenant-isolation condition matched \u2192 deny (priority 200 wins)"
         ],
-        "policy_hash": "sha256:9c2e...",
+        "policy_hash": "fnv1a64:9c2e...",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -216,7 +216,7 @@
         "evaluation_trace": [
           "rule owner-update condition principal.id == resource.owner_id \u2192 allow"
         ],
-        "policy_hash": "sha256:1b4d...",
+        "policy_hash": "fnv1a64:1b4d...",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -287,7 +287,7 @@
         "evaluation_trace": [
           "rule suspended-deny matched on principal.attributes.status \u2192 deny (priority 300)"
         ],
-        "policy_hash": "sha256:7e8a...",
+        "policy_hash": "fnv1a64:7e8a...",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -378,7 +378,7 @@
         "evaluation_trace": [
           "rule high-value-transfer matched \u2192 allow + 2 obligations"
         ],
-        "policy_hash": "sha256:4f2c...",
+        "policy_hash": "fnv1a64:4f2c...",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -431,7 +431,7 @@
           "evaluated 1 rule(s), none matched",
           "falling back to default_effect=deny"
         ],
-        "policy_hash": "sha256:0a1b...",
+        "policy_hash": "fnv1a64:0a1b...",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -466,7 +466,7 @@
           "policy.rules length = 0",
           "default_effect=deny applied"
         ],
-        "policy_hash": "sha256:empty",
+        "policy_hash": "fnv1a64:empty",
         "confidence": "high",
         "break_glass_used": false
       },
@@ -557,7 +557,7 @@
           "break_glass attribute present and enabled in policy",
           "rule break-glass-allow matched \u2192 allow + obligations"
         ],
-        "policy_hash": "sha256:bg01...",
+        "policy_hash": "fnv1a64:bg01...",
         "confidence": "high",
         "break_glass_used": true
       },
@@ -1008,7 +1008,7 @@
     "source": "ai-assisted",
     "author": "traverse-capability-author + persona-council",
     "created_at": "2026-08-08T05:36:00Z",
-    "spec_ref": "core.authorize@1.0.0",
+    "spec_ref": "core.authorize@1.1.0",
     "adr_refs": [
       "0001-rust-wasm-foundation",
       "persona-council-review-2026-08-08"
@@ -1017,7 +1017,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-authorize-1.0.0-contract-validation",
+      "evidence_id": "core-authorize-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

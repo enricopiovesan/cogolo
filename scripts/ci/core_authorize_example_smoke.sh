@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke for examples/core-authorize (core.authorize@1.0.0).
+# End-to-end smoke for examples/core-authorize (core.authorize@1.1.0).
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ echo "==> capability inspect"
 contract_out="$("${cli[@]}" capability inspect "$pkg/contract.json")"
 printf '%s\n' "$contract_out"
 require_match "$contract_out" "id: core.authorize" "contract inspect id"
-require_match "$contract_out" "version: 1.0.0" "contract inspect version"
+require_match "$contract_out" "version: 1.1.0" "contract inspect version"
 
 echo "==> wasm abi verify"
 abi_out="$("${cli[@]}" wasm abi verify "$pkg/artifacts/core-authorize.wasm")"
@@ -39,7 +39,7 @@ echo "==> capability-package inspect"
 pkg_out="$("${cli[@]}" capability-package inspect "$pkg/manifest.json")"
 printf '%s\n' "$pkg_out"
 require_match "$pkg_out" "package_id: core.authorize-agent" "package_id"
-require_match "$pkg_out" "capability_version: 1.0.0" "capability_version"
+require_match "$pkg_out" "capability_version: 1.1.0" "capability_version"
 
 assert_execute() {
   local request="$1"
@@ -53,7 +53,7 @@ assert_execute() {
   out="$("${cli[@]}" capability-package execute "$pkg/manifest.json" "$request")"
   printf '%s\n' "$out"
   require_match "$out" "status: completed" "$label status"
-  require_match "$out" "capability_version: 1.0.0" "$label capability_version"
+  require_match "$out" "capability_version: 1.1.0" "$label capability_version"
   require_match "$out" "\"decision\": \"$decision\"" "$label decision"
   require_match "$out" "\"reason_code\": \"$code\"" "$label reason_code"
   if [[ -n "$extra" ]]; then
@@ -71,4 +71,4 @@ assert_execute "$pkg/runtime-requests/uc07-empty-policy-deny.json" "deny" "empty
 assert_execute "$pkg/runtime-requests/uc08-break-glass-allow.json" "allow" "break_glass_override" "UC-08" '"break_glass_used": true'
 assert_execute "$pkg/runtime-requests/uc09-invalid-principal-deny.json" "deny" "invalid_principal" "UC-09" '"policy_hash": null'
 
-echo "OK: core.authorize 1.0.0 E2E smoke passed"
+echo "OK: core.authorize 1.1.0 E2E smoke passed"
