@@ -1,0 +1,68 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.assign-ownership",
+  "name": "assign-ownership",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.assign-ownership as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "suggested_owner",
+        "workspace_members",
+        "ownership_config"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "reason_code"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "assign",
+      "capability_id": "core.assign-ownership",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "suggested_owner",
+          "creator_id",
+          "workspace_members",
+          "ownership_config"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "owner_id",
+          "resolution_method",
+          "reason_code",
+          "evaluation_trace"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "assign",
+  "terminal_nodes": [
+    "assign"
+  ],
+  "tags": [
+    "loop",
+    "action-items",
+    "ownership",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}
