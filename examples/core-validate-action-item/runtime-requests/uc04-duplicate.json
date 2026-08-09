@@ -1,0 +1,40 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-validate-action-item-04",
+  "intent": {
+    "capability_id": "core.validate-action-item",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "action_item": {
+      "title": "Send proposal",
+      "owner_id": "user-ada",
+      "due_date": "2026-08-12"
+    },
+    "existing_open_items": [
+      {
+        "title": "Send proposal",
+        "owner_id": "user-ada",
+        "due_date": "2026-08-09"
+      }
+    ],
+    "validation_config": {
+      "version": "1.0",
+      "require_owner": true,
+      "require_due_date": false,
+      "allow_past_due": false,
+      "duplicate_check": "title_and_owner"
+    },
+    "reference_date": "2026-08-07"
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-validate-action-item-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
