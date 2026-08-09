@@ -1,0 +1,40 @@
+syntax = "proto3";
+
+package traverse.runtime.v1;
+
+// CloudEvents fields plus the Traverse governance metadata carried by every
+// EventBroker-delivered TraverseEvent.
+message GovernanceMetadata {
+  string owner = 1;
+  string version = 2;
+  string lifecycle_status = 3;
+  optional string deduplication_id = 4;
+  optional string ordering_scope = 5;
+  optional string correlation_id = 6;
+  optional string causation_id = 7;
+  optional string subject_id = 8;
+  optional string actor_id = 9;
+}
+
+message Event {
+  string specversion = 1;
+  string id = 2;
+  string source = 3;
+  string type = 4;
+  string time = 5;
+  string data_json = 6;
+  string datacontenttype = 7;
+  GovernanceMetadata governance = 8;
+  string cursor = 9;
+}
+
+message StreamEventsRequest {
+  string workspace_id = 1;
+  string app_id = 2;
+  repeated string event_types = 3;
+  optional string cursor = 4;
+}
+
+service EventService {
+  rpc StreamEvents(StreamEventsRequest) returns (stream Event);
+}

@@ -2616,7 +2616,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-cli-rs"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "chrono",
  "ed25519-dalek",
@@ -2643,7 +2643,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-contracts"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "semver",
  "serde",
@@ -2652,7 +2652,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-embedder"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "semver",
  "serde",
@@ -2666,7 +2666,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-expedition-wasm"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2674,7 +2674,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-mcp"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "serde",
  "serde_json",
@@ -2685,7 +2685,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-native-bridge"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "sha2 0.11.0",
  "wat",
@@ -2706,7 +2706,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-runtime"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "aes-gcm",
  "chrono",
@@ -2728,7 +2728,7 @@ dependencies = [
 
 [[package]]
 name = "traverse-swift-host"
-version = "0.9.0"
+version = "0.9.1"
 dependencies = [
  "serde_json",
  "sha2 0.11.0",

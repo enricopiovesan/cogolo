@@ -6,6 +6,7 @@ license.workspace = true
 repository.workspace = true
 rust-version.workspace = true
 description = "Command-line interface for Traverse — register, list, validate, and run governed capabilities"
+include = ["src/**", "templates/**", "proto/**", "build.rs", "Cargo.toml"]
 
 [[bin]]
 name = "traverse-cli"
