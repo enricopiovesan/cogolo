@@ -1,0 +1,72 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.transition-action-status",
+  "name": "transition-action-status",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.transition-action-status as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "current_status",
+        "requested_status",
+        "actor_id",
+        "transition_config"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "allowed",
+        "new_status",
+        "reason_code"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "transition",
+      "capability_id": "core.transition-action-status",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "current_status",
+          "requested_status",
+          "actor_id",
+          "owner_id",
+          "transition_config"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "allowed",
+          "new_status",
+          "reason_code",
+          "evaluation_trace"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "transition",
+  "terminal_nodes": [
+    "transition"
+  ],
+  "tags": [
+    "loop",
+    "action-items",
+    "state-machine",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}

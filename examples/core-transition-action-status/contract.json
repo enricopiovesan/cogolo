@@ -1,0 +1,311 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.transition-action-status",
+  "namespace": "core",
+  "name": "transition-action-status",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Deterministic state machine for action item status transitions (open → in_progress → blocked → snoozed → done / cancelled).",
+  "description": "Pure state-machine capability for Loop action items. Validates that a requested status change is legal given the current status and a caller-supplied transition policy, then returns the new status plus audit metadata.\n\nConfiguration defines allowed transitions and whether only the owner may perform them. The capability never mutates external state — callers apply the returned decision.\n\nCouncil/product alignment note: workflows declare a `snoozed` status for follow-through; this contract includes `snoozed` in the status enum and default transition examples so WF3/WF4 compose without a silent schema gap.",
+  "use_cases": [
+    {
+      "scenario": "As an owner, I want to move an item from open to in_progress.",
+      "input_example": {
+        "current_status": "open",
+        "requested_status": "in_progress",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": ["in_progress", "cancelled", "snoozed"],
+            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
+            "blocked": ["in_progress", "cancelled"],
+            "snoozed": ["open", "in_progress", "cancelled"],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "in_progress",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "open → in_progress is allowed",
+          "actor is owner"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As the system, I want an illegal transition (done → open) to be rejected.",
+      "input_example": {
+        "current_status": "done",
+        "requested_status": "open",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": ["in_progress", "cancelled", "snoozed"],
+            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
+            "blocked": ["in_progress", "cancelled"],
+            "snoozed": ["open", "in_progress", "cancelled"],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": false,
+        "new_status": "done",
+        "reason_code": "illegal_transition",
+        "evaluation_trace": [
+          "done has no allowed transition to open"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As an owner, I want to snooze an open item so follow-up respects snoozed_until.",
+      "input_example": {
+        "current_status": "open",
+        "requested_status": "snoozed",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": ["in_progress", "cancelled", "snoozed"],
+            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
+            "blocked": ["in_progress", "cancelled"],
+            "snoozed": ["open", "in_progress", "cancelled"],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "snoozed",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "open → snoozed is allowed",
+          "actor is owner"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As the system, I want a non-owner blocked when owner_only is true.",
+      "input_example": {
+        "current_status": "open",
+        "requested_status": "in_progress",
+        "actor_id": "user-bob",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": ["in_progress", "cancelled", "snoozed"],
+            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
+            "blocked": ["in_progress", "cancelled"],
+            "snoozed": ["open", "in_progress", "cancelled"],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": false,
+        "new_status": "open",
+        "reason_code": "not_owner",
+        "evaluation_trace": [
+          "owner_only=true and actor is not owner"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "current_status",
+        "requested_status",
+        "actor_id",
+        "transition_config"
+      ],
+      "properties": {
+        "current_status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "in_progress",
+            "blocked",
+            "snoozed",
+            "done",
+            "cancelled"
+          ]
+        },
+        "requested_status": {
+          "type": "string",
+          "enum": [
+            "open",
+            "in_progress",
+            "blocked",
+            "snoozed",
+            "done",
+            "cancelled"
+          ]
+        },
+        "actor_id": {
+          "type": "string"
+        },
+        "owner_id": {
+          "type": "string"
+        },
+        "transition_config": {
+          "type": "object",
+          "required": [
+            "version",
+            "allowed_transitions"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "allowed_transitions": {
+              "type": "object"
+            },
+            "owner_only": {
+              "type": "boolean",
+              "default": true
+            }
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "allowed",
+        "new_status",
+        "reason_code"
+      ],
+      "properties": {
+        "allowed": {
+          "type": "boolean"
+        },
+        "new_status": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "illegal_transition",
+            "not_owner",
+            "invalid_status"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      },
+      "additionalProperties": false
+    }
+  },
+  "preconditions": [
+    {
+      "id": "statuses-valid",
+      "description": "current and requested status must be known values"
+    }
+  ],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure state machine evaluation"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.transition-action-status"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "fail-closed"
+    }
+  ],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.transition-action-status@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-transition-action-status-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

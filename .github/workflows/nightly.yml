@@ -28,6 +28,9 @@ jobs:
       - name: Run core.process-comment example smoke
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_process_comment_example_smoke.sh
 
+      - name: Run core.transition-action-status example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_transition_action_status_example_smoke.sh
+
       - name: Run capability new E2E smoke
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/capability_new_e2e_smoke.sh
 
