@@ -36,7 +36,8 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use trace::TraceStore;
 use traverse_contracts::{
-    EventReference, ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess, ViolationRecord,
+    EventReference, ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess, ServiceType,
+    ViolationRecord,
 };
 use traverse_registry::{
     CapabilityRegistration, CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope,
@@ -318,7 +319,16 @@ pub trait LocalExecutor: Send + Sync {
         &self,
         capability: &ResolvedCapability,
         input: &Value,
-    ) -> Result<Value, LocalExecutionFailure>;
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure>;
+}
+
+/// A [`LocalExecutor`]'s output: the capability's JSON value plus any events
+/// it emitted (spec 101-local-executor-event-emission FR-001). Mirrors
+/// [`crate::executor::ExecutorOutput`] for the WASM `CapabilityExecutor` path.
+#[derive(Debug, Clone, PartialEq)]
+pub struct LocalExecutionOutput {
+    pub value: Value,
+    pub emitted_events: Vec<TraverseEvent>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1636,13 +1646,19 @@ where
                     );
                 }
 
-                // `BoundLocalExecutor` always returns an empty
-                // `emitted_events` (the WASM-only `traverse_host::emit_event`
-                // ABI has no equivalent for a host-provided `LocalExecutor`
-                // closure), so `response.emitted_events` is structurally
-                // always empty here regardless of what the caller's executor
-                // does internally.
-                let emitted_events: Vec<EventReference> = Vec::new();
+                // `BoundLocalExecutor` now threads a `LocalExecutor`'s real
+                // `emitted_events` into `ExecutorOutput` (spec
+                // 101-local-executor-event-emission FR-002), already
+                // validated and published by `PlacementRouter` Step 5, so
+                // `response.emitted_events` carries the real events here.
+                let emitted_events: Vec<EventReference> = response
+                    .emitted_events
+                    .iter()
+                    .map(|event| EventReference {
+                        event_id: event.event_type.clone(),
+                        version: event.version.clone(),
+                    })
+                    .collect();
                 successful_execution_outcome(
                     context,
                     selected,
@@ -1686,14 +1702,54 @@ where
         _capability: &ExecutorCapability,
         input: &Value,
     ) -> Result<ExecutorOutput, ExecutorError> {
-        self.executor
+        let output = self
+            .executor
             .execute(&self.selected, input)
-            .map(|value| ExecutorOutput {
-                value,
-                emitted_events: Vec::new(),
-            })
-            .map_err(|failure| ExecutorError::ExecutionFailed(failure.message))
+            .map_err(|failure| ExecutorError::ExecutionFailed(failure.message))?;
+        validate_natively_emitted_events(&self.selected.contract, &output.emitted_events)
+            .map_err(ExecutorError::ExecutionFailed)?;
+        Ok(ExecutorOutput {
+            value: output.value,
+            emitted_events: output.emitted_events,
+        })
     }
+}
+
+/// Validates events a native [`LocalExecutor`] implementor populated
+/// directly (not via the WASM `traverse_host::emit_event` ABI, which
+/// validates synchronously at call time) against the executing capability
+/// contract's `emits` list and `service_type`, mirroring spec
+/// `098-capability-event-host-abi`'s WASM-boundary checks (spec
+/// `101-local-executor-event-emission` FR-007/FR-008). Runs after the
+/// native closure has already returned — there is no host-function call
+/// boundary to reject mid-call the way WASM has — but always before any
+/// publish to [`EventBroker`].
+fn validate_natively_emitted_events(
+    contract: &traverse_contracts::CapabilityContract,
+    emitted_events: &[TraverseEvent],
+) -> Result<(), String> {
+    if emitted_events.is_empty() {
+        return Ok(());
+    }
+    if contract.service_type != ServiceType::Subscribable {
+        return Err(format!(
+            "capability '{}' emitted events but its service_type is not Subscribable",
+            contract.id
+        ));
+    }
+    for event in emitted_events {
+        let declared = contract
+            .emits
+            .iter()
+            .any(|decl| decl.event_id == event.event_type && decl.version == event.version);
+        if !declared {
+            return Err(format!(
+                "capability '{}' emitted an undeclared event {}@{}",
+                contract.id, event.event_type, event.version
+            ));
+        }
+    }
+    Ok(())
 }
 
 /// Best-effort broker used only when the default in-process broker cannot be constructed.
@@ -3580,16 +3636,19 @@ mod tests {
         assert!(discard.cancel("missing").is_err());
     }
 
-    #[test]
-    fn bound_local_executor_never_publishes_events_through_placement_router() {
-        // `BoundLocalExecutor` bridges a host-provided `LocalExecutor` (a
-        // native Rust closure) into `CapabilityExecutor`. Spec
-        // 098-capability-event-host-abi's `traverse_host::emit_event` is a
-        // WASM-only mechanism (FR-001) — a native closure has no ABI to call
-        // and the output-JSON `emitted_events` convention it used to rely on
-        // is removed (FR-004), so `BoundLocalExecutor::execute` always
-        // returns an empty `emitted_events` list. This test documents that
-        // intentional gap rather than asserting an event reaches the broker.
+    /// Shared harness for the `bound_local_executor_*` publish tests: builds a
+    /// broker with one registered/subscribed event type, a `Subscribable`
+    /// resolved capability declaring that event in its `emits` list, and runs
+    /// the given `LocalExecutor` through `PlacementRouter` exactly as the live
+    /// `Runtime::execute()` path does. Returns the router response and the
+    /// broker (so callers can poll it) plus the subscription id.
+    fn run_native_executor_through_placement_router<E: super::LocalExecutor + 'static>(
+        executor: E,
+    ) -> (
+        Result<super::router::RouterResponse, super::router::RouterError>,
+        Arc<super::events::InProcessBroker>,
+        String,
+    ) {
         use super::events::{
             EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
         };
@@ -3597,19 +3656,6 @@ mod tests {
         use super::placement::PlacementConstraintEvaluator;
         use super::router::{CapabilityExecutorRegistry, PlacementRouter, RouterRequest};
         use super::trace::TraceStore;
-        use super::{LocalExecutionFailure, LocalExecutor};
-        use serde_json::Value;
-
-        struct NativeEmitExecutor;
-        impl LocalExecutor for NativeEmitExecutor {
-            fn execute(
-                &self,
-                _capability: &ResolvedCapability,
-                _input: &Value,
-            ) -> Result<Value, LocalExecutionFailure> {
-                Ok(json!({ "draft_id": "native-1" }))
-            }
-        }
 
         let event_type = "dev.traverse.native.live-emitted";
         let catalog = Arc::new(EventCatalog::new());
@@ -3641,7 +3687,7 @@ mod tests {
         registry.insert(
             ArtifactType::Native,
             Box::new(super::BoundLocalExecutor {
-                executor: Arc::new(NativeEmitExecutor),
+                executor: Arc::new(executor),
                 selected: selected.clone(),
             }),
         );
@@ -3652,34 +3698,195 @@ mod tests {
             broker.clone(),
         );
 
-        let response = router
-            .execute(RouterRequest {
-                capability_id: selected.record.id.clone(),
-                artifact_type: ArtifactType::Native,
-                contract: selected.contract.clone(),
-                target_hint: Some(ExecutionTarget::Local),
-                runtime_snapshot: super::idle_runtime_snapshot(),
-                input: json!({}),
-                executor_capability: super::executor_capability_for(
-                    &selected,
-                    ArtifactType::Native,
-                ),
-                trace_id_override: Some("trace_native_live".to_string()),
-            })
-            .expect("native placement router execution should succeed");
+        let response = router.execute(RouterRequest {
+            capability_id: selected.record.id.clone(),
+            artifact_type: ArtifactType::Native,
+            contract: selected.contract.clone(),
+            target_hint: Some(ExecutionTarget::Local),
+            runtime_snapshot: super::idle_runtime_snapshot(),
+            input: json!({}),
+            executor_capability: super::executor_capability_for(&selected, ArtifactType::Native),
+            trace_id_override: Some("trace_native_live".to_string()),
+        });
+
+        (response, broker, subscription.subscription_id)
+    }
+
+    fn native_traverse_event(event_type: &str) -> super::events::TraverseEvent {
+        super::events::TraverseEvent {
+            id: "native-event-1".to_string(),
+            source: "traverse-runtime/test.native".to_string(),
+            event_type: event_type.to_string(),
+            datacontenttype: "application/json".to_string(),
+            time: "2026-01-01T00:00:00Z".to_string(),
+            data: json!({}),
+            owner: "test.native".to_string(),
+            version: "1.0.0".to_string(),
+            lifecycle_status: super::events::LifecycleStatus::Active,
+            deduplication_id: Some("native-event-1".to_string()),
+            ordering_scope: Some("test.native".to_string()),
+            correlation_id: None,
+            causation_id: None,
+            subject_id: None,
+            actor_id: None,
+        }
+    }
+
+    #[test]
+    fn bound_local_executor_publishes_declared_native_events_through_placement_router() {
+        use super::events::EventBroker;
+        use serde_json::Value;
+        // Spec 101-local-executor-event-emission FR-002: `BoundLocalExecutor`
+        // now threads a native `LocalExecutor`'s real `emitted_events` into
+        // `ExecutorOutput`, so `PlacementRouter` Step 5 publishes them for
+        // `Subscribable` capabilities exactly as it already does for the WASM
+        // `CapabilityExecutor` path. This replaces the old test documenting
+        // that gap as expected behavior.
+        struct NativeEmitExecutor;
+        impl super::LocalExecutor for NativeEmitExecutor {
+            fn execute(
+                &self,
+                _capability: &ResolvedCapability,
+                _input: &Value,
+            ) -> Result<super::LocalExecutionOutput, super::LocalExecutionFailure> {
+                Ok(super::LocalExecutionOutput {
+                    value: json!({ "draft_id": "native-1" }),
+                    emitted_events: vec![native_traverse_event("dev.traverse.native.live-emitted")],
+                })
+            }
+        }
+
+        let (response, broker, subscription_id) =
+            run_native_executor_through_placement_router(NativeEmitExecutor);
+        let response = response.expect("native placement router execution should succeed");
 
         assert_eq!(response.trace_id, "trace_native_live");
+        assert_eq!(response.emitted_events.len(), 1);
+        let poll = broker
+            .poll(&subscription_id, 10)
+            .expect("poll should succeed");
+        assert_eq!(poll.events.len(), 1);
+        assert_eq!(
+            poll.events[0].event.event_type,
+            "dev.traverse.native.live-emitted"
+        );
+    }
+
+    #[test]
+    fn bound_local_executor_rejects_undeclared_native_event() {
+        use super::events::EventBroker;
+        use serde_json::Value;
+        // Spec 101-local-executor-event-emission FR-007/FR-008: an event a
+        // native `LocalExecutor` populates that is not in the capability
+        // contract's `emits` list must fail the whole execution, not be
+        // silently dropped or published.
+        struct UndeclaredEmitExecutor;
+        impl super::LocalExecutor for UndeclaredEmitExecutor {
+            fn execute(
+                &self,
+                _capability: &ResolvedCapability,
+                _input: &Value,
+            ) -> Result<super::LocalExecutionOutput, super::LocalExecutionFailure> {
+                Ok(super::LocalExecutionOutput {
+                    value: json!({ "draft_id": "native-1" }),
+                    emitted_events: vec![native_traverse_event("dev.traverse.native.undeclared")],
+                })
+            }
+        }
+
+        let (response, broker, subscription_id) =
+            run_native_executor_through_placement_router(UndeclaredEmitExecutor);
+        assert!(response.is_err());
+        let poll = broker
+            .poll(&subscription_id, 10)
+            .expect("poll should succeed");
+        assert!(poll.events.is_empty());
+    }
+
+    #[test]
+    fn bound_local_executor_rejects_native_event_from_non_subscribable_capability() {
+        use serde_json::Value;
+        // Spec 101-local-executor-event-emission FR-007/FR-008: a
+        // non-`Subscribable` capability that populates `emitted_events` must
+        // fail the whole execution, mirroring the WASM ABI's FR-003 gate.
+        struct NonSubscribableEmitExecutor;
+        impl super::LocalExecutor for NonSubscribableEmitExecutor {
+            fn execute(
+                &self,
+                _capability: &ResolvedCapability,
+                _input: &Value,
+            ) -> Result<super::LocalExecutionOutput, super::LocalExecutionFailure> {
+                Ok(super::LocalExecutionOutput {
+                    value: json!({ "draft_id": "native-1" }),
+                    emitted_events: vec![native_traverse_event("dev.traverse.native.live-emitted")],
+                })
+            }
+        }
+
+        use super::events::{
+            EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
+        };
+        use super::executor::ArtifactType;
+        use super::placement::PlacementConstraintEvaluator;
+        use super::router::{CapabilityExecutorRegistry, PlacementRouter, RouterRequest};
+        use super::trace::TraceStore;
+
+        let event_type = "dev.traverse.native.live-emitted";
+        let catalog = Arc::new(EventCatalog::new());
+        catalog
+            .register(EventCatalogEntry {
+                event_type: event_type.to_string(),
+                owner: "native.live".to_string(),
+                version: "1.0.0".to_string(),
+                lifecycle_status: LifecycleStatus::Active,
+                consumer_count: 0,
+            })
+            .expect("catalog entry should register");
+        let broker = Arc::new(InProcessBroker::new(catalog).expect("broker should construct"));
+        let subscription = broker
+            .subscribe(event_type, "0")
+            .expect("subscribe should succeed");
+        let trace_store = Arc::new(Mutex::new(TraceStore::new()));
+
+        let mut selected = resolved_capability(None, Lifecycle::Active);
+        selected.contract.service_type = ServiceType::Stateless;
+        selected.contract.emits = vec![traverse_contracts::EventReference {
+            event_id: event_type.to_string(),
+            version: "1.0.0".to_string(),
+        }];
+        selected.contract.permitted_targets = vec![ExecutionTarget::Local, ExecutionTarget::Cloud];
+
+        let mut registry = CapabilityExecutorRegistry::new();
+        registry.insert(
+            ArtifactType::Native,
+            Box::new(super::BoundLocalExecutor {
+                executor: Arc::new(NonSubscribableEmitExecutor),
+                selected: selected.clone(),
+            }),
+        );
+        let router = PlacementRouter::new(
+            PlacementConstraintEvaluator,
+            registry,
+            Arc::clone(&trace_store),
+            broker.clone(),
+        );
+
+        let response = router.execute(RouterRequest {
+            capability_id: selected.record.id.clone(),
+            artifact_type: ArtifactType::Native,
+            contract: selected.contract.clone(),
+            target_hint: Some(ExecutionTarget::Local),
+            runtime_snapshot: super::idle_runtime_snapshot(),
+            input: json!({}),
+            executor_capability: super::executor_capability_for(&selected, ArtifactType::Native),
+            trace_id_override: Some("trace_native_live_non_subscribable".to_string()),
+        });
+
+        assert!(response.is_err());
         let poll = broker
             .poll(&subscription.subscription_id, 10)
             .expect("poll should succeed");
         assert!(poll.events.is_empty());
-        assert!(
-            trace_store
-                .lock()
-                .expect("trace lock")
-                .get("trace_native_live")
-                .is_some()
-        );
     }
 
     #[test]
@@ -4964,7 +5171,13 @@ mod tests {
 
         let result = executor.execute(&capability, &json!({}));
 
-        assert_eq!(result, Ok(json!({"draft_id": "draft"})));
+        assert_eq!(
+            result,
+            Ok(super::LocalExecutionOutput {
+                value: json!({"draft_id": "draft"}),
+                emitted_events: Vec::new(),
+            })
+        );
     }
 
     #[test]
@@ -5520,8 +5733,11 @@ mod tests {
             &self,
             _capability: &ResolvedCapability,
             _input: &serde_json::Value,
-        ) -> Result<serde_json::Value, super::LocalExecutionFailure> {
-            Ok(json!({"draft_id": "draft"}))
+        ) -> Result<super::LocalExecutionOutput, super::LocalExecutionFailure> {
+            Ok(super::LocalExecutionOutput {
+                value: json!({"draft_id": "draft"}),
+                emitted_events: Vec::new(),
+            })
         }
     }
 
@@ -5532,7 +5748,7 @@ mod tests {
             &self,
             _capability: &ResolvedCapability,
             _input: &serde_json::Value,
-        ) -> Result<serde_json::Value, super::LocalExecutionFailure> {
+        ) -> Result<super::LocalExecutionOutput, super::LocalExecutionFailure> {
             Err(super::LocalExecutionFailure {
                 code: super::LocalExecutionFailureCode::ExecutionFailed,
                 message: "forced failure".to_string(),

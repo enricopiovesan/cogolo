@@ -7289,7 +7289,9 @@ mod tests {
         RegistryProvenance, RegistryScope, SourceKind, SourceReference, WorkflowEdge, WorkflowNode,
         WorkflowNodeInput, WorkflowNodeOutput,
     };
-    use traverse_runtime::{LocalExecutionFailure, LocalExecutionFailureCode};
+    use traverse_runtime::{
+        LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutionOutput,
+    };
 
     #[test]
     fn serve_error_display_keeps_bind_and_accept_context() {
@@ -7323,11 +7325,17 @@ mod tests {
             &self,
             _capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
-            self.result.clone().map_err(|msg| LocalExecutionFailure {
-                code: LocalExecutionFailureCode::ExecutionFailed,
-                message: msg,
-            })
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            self.result
+                .clone()
+                .map(|value| LocalExecutionOutput {
+                    value,
+                    emitted_events: Vec::new(),
+                })
+                .map_err(|msg| LocalExecutionFailure {
+                    code: LocalExecutionFailureCode::ExecutionFailed,
+                    message: msg,
+                })
         }
     }
 
