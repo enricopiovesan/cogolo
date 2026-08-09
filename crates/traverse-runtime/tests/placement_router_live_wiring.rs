@@ -24,9 +24,9 @@ use traverse_runtime::events::{
 use traverse_runtime::security::RuntimeSecurityConfig;
 use traverse_runtime::trace::{TraceOutcome, TraceStore};
 use traverse_runtime::{
-    ExecutionFailureReason, LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor,
-    Runtime, RuntimeContext, RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
-    RuntimeResultStatus, RuntimeState,
+    ExecutionFailureReason, LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutionOutput,
+    LocalExecutor, Runtime, RuntimeContext, RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope,
+    RuntimeRequest, RuntimeResultStatus, RuntimeState,
 };
 
 #[derive(Debug, Default)]
@@ -53,10 +53,38 @@ struct EmittingNativeExecutor;
 impl LocalExecutor for EmittingNativeExecutor {
     fn execute(
         &self,
-        _capability: &traverse_registry::ResolvedCapability,
+        capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({ "draft_id": "draft-live-001" }))
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+        // Spec 101-local-executor-event-emission FR-001/FR-002: emit every
+        // event this capability's contract declares, so tests exercising the
+        // live `Runtime::execute()` path can assert it reaches `EventBroker`.
+        let emitted_events = capability
+            .contract
+            .emits
+            .iter()
+            .map(|declared| TraverseEvent {
+                id: format!("{}-event", capability.contract.id),
+                source: format!("traverse-runtime/{}", capability.contract.id),
+                event_type: declared.event_id.clone(),
+                datacontenttype: "application/json".to_string(),
+                time: "2026-08-06T00:00:00Z".to_string(),
+                data: json!({}),
+                owner: capability.contract.id.clone(),
+                version: declared.version.clone(),
+                lifecycle_status: LifecycleStatus::Active,
+                deduplication_id: Some(format!("{}-event", capability.contract.id)),
+                ordering_scope: Some(capability.contract.id.clone()),
+                correlation_id: None,
+                causation_id: None,
+                subject_id: None,
+                actor_id: None,
+            })
+            .collect();
+        Ok(LocalExecutionOutput {
+            value: json!({ "draft_id": "draft-live-001" }),
+            emitted_events,
+        })
     }
 }
 
@@ -67,7 +95,7 @@ impl LocalExecutor for FailingLiveExecutor {
         &self,
         _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
         Err(LocalExecutionFailure {
             code: LocalExecutionFailureCode::ExecutionFailed,
             message: "live executor failed".to_string(),
@@ -284,16 +312,14 @@ fn exact_request(capability_id: &str) -> RuntimeRequest {
 }
 
 #[test]
-fn live_native_execution_completes_and_writes_trace_without_publishing_events() {
+fn live_native_execution_publishes_declared_events_and_writes_trace() {
     // `Runtime::execute`'s live path bridges the host-provided `LocalExecutor`
     // through `BoundLocalExecutor` into `PlacementRouter`. Spec
-    // 098-capability-event-host-abi's `traverse_host::emit_event` is a
-    // WASM-only mechanism (FR-001) that a native `LocalExecutor` closure has
-    // no way to call, and the output-JSON `emitted_events` convention it
-    // used to rely on is removed (FR-004) — so a native capability can no
-    // longer emit events at all through this path. This test documents that
-    // intentional gap: execution and trace recording still succeed, but no
-    // event reaches `EventBroker` or the trace's `emitted_events`.
+    // 101-local-executor-event-emission FR-002 threads a native
+    // `LocalExecutor`'s real `emitted_events` into `ExecutorOutput`, so
+    // `PlacementRouter` Step 5 publishes them for `Subscribable` capabilities
+    // exactly as it already does for the WASM `CapabilityExecutor` path.
+    // This replaces the old test documenting that gap as expected behavior.
     let event_type = "dev.traverse.live.draft-created";
     let broker = broker_with_event(event_type);
     let subscription = broker
@@ -313,12 +339,14 @@ fn live_native_execution_completes_and_writes_trace_without_publishing_events() 
 
     let outcome = runtime.execute(exact_request("live.wiring.native-subject"));
     assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
-    assert!(outcome.trace.emitted_events.is_empty());
+    assert_eq!(outcome.trace.emitted_events.len(), 1);
+    assert_eq!(outcome.trace.emitted_events[0].event_id, event_type);
 
     let poll = broker
         .poll(&subscription.subscription_id, 10)
         .expect("poll should succeed");
-    assert!(poll.events.is_empty());
+    assert_eq!(poll.events.len(), 1);
+    assert_eq!(poll.events[0].event.event_type, event_type);
 
     let store = trace_store.lock().expect("trace store lock");
     let entries = store.list_public(Some("live.wiring.native-subject"));

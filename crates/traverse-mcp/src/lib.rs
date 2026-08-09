@@ -566,8 +566,8 @@ mod tests {
         WorkflowRegistration,
     };
     use traverse_runtime::{
-        LocalExecutionFailure, RuntimeContext, RuntimeIntent, RuntimeLookup, RuntimeLookupScope,
-        RuntimeResultStatus,
+        LocalExecutionFailure, LocalExecutionOutput, RuntimeContext, RuntimeIntent, RuntimeLookup,
+        RuntimeLookupScope, RuntimeResultStatus,
     };
 
     #[test]
@@ -1318,8 +1318,11 @@ mod tests {
             &self,
             _capability: &ResolvedCapability,
             _input: &Value,
-        ) -> Result<Value, LocalExecutionFailure> {
-            Ok(json!({"draft_id": "draft-001"}))
+        ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+            Ok(LocalExecutionOutput {
+                value: json!({"draft_id": "draft-001"}),
+                emitted_events: Vec::new(),
+            })
         }
     }
 

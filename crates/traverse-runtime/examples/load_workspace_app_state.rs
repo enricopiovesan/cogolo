@@ -4,7 +4,7 @@ use std::path::Path;
 use traverse_registry::{
     DiscoveryQuery, LookupScope, ResolvedCapability, WorkspaceAppStateErrorCode,
 };
-use traverse_runtime::{LocalExecutionFailure, LocalExecutor, Runtime};
+use traverse_runtime::{LocalExecutionFailure, LocalExecutionOutput, LocalExecutor, Runtime};
 
 #[derive(Debug)]
 struct ConformanceExecutor;
@@ -14,8 +14,11 @@ impl LocalExecutor for ConformanceExecutor {
         &self,
         _capability: &ResolvedCapability,
         _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({"status": "not_executed"}))
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+        Ok(LocalExecutionOutput {
+            value: json!({"status": "not_executed"}),
+            emitted_events: Vec::new(),
+        })
     }
 }
 

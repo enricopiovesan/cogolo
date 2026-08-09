@@ -15,9 +15,9 @@ use traverse_runtime::security::RuntimeSecurityConfig;
 use traverse_runtime::{
     BrowserRuntimeSubscriptionLifecycleStatus, BrowserRuntimeSubscriptionMessage,
     BrowserRuntimeSubscriptionRequest, CandidateReason, ExecutionFailureReason, ExecutionStatus,
-    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, PlacementTarget, Runtime,
-    RuntimeContext, RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope, RuntimeRequest,
-    RuntimeResultStatus, RuntimeState, SelectionFailureReason, SelectionStatus,
+    LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutionOutput, LocalExecutor,
+    PlacementTarget, Runtime, RuntimeContext, RuntimeErrorCode, RuntimeLookup, RuntimeLookupScope,
+    RuntimeRequest, RuntimeResultStatus, RuntimeState, SelectionFailureReason, SelectionStatus,
     browser_subscription_messages, parse_runtime_request,
 };
 
@@ -1142,8 +1142,11 @@ impl LocalExecutor for EchoExecutor {
         &self,
         _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({"draft_id": "draft-001"}))
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+        Ok(LocalExecutionOutput {
+            value: json!({"draft_id": "draft-001"}),
+            emitted_events: Vec::new(),
+        })
     }
 }
 
@@ -1154,7 +1157,7 @@ impl LocalExecutor for FailingExecutor {
         &self,
         _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
         Err(LocalExecutionFailure {
             code: LocalExecutionFailureCode::ExecutionFailed,
             message: "executor failed".to_string(),
@@ -1169,8 +1172,11 @@ impl LocalExecutor for WrongOutputExecutor {
         &self,
         _capability: &traverse_registry::ResolvedCapability,
         _input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        Ok(json!({"missing": "draft_id"}))
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+        Ok(LocalExecutionOutput {
+            value: json!({"missing": "draft_id"}),
+            emitted_events: Vec::new(),
+        })
     }
 }
 

@@ -42,9 +42,9 @@ use traverse_registry::{
 };
 use traverse_runtime::executor::{SUPPORTED_HOST_ABI_VERSION, verify_wasm_host_abi_bytes};
 use traverse_runtime::{
-    ArtifactRouter, LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutor, Runtime,
-    RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus, RuntimeTrace,
-    parse_runtime_request,
+    ArtifactRouter, LocalExecutionFailure, LocalExecutionFailureCode, LocalExecutionOutput,
+    LocalExecutor, Runtime, RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus,
+    RuntimeTrace, parse_runtime_request,
 };
 
 #[derive(Debug)]
@@ -5068,8 +5068,8 @@ impl LocalExecutor for ExpeditionExampleExecutor {
         &self,
         capability: &traverse_registry::ResolvedCapability,
         input: &Value,
-    ) -> Result<Value, LocalExecutionFailure> {
-        match capability.contract.id.as_str() {
+    ) -> Result<LocalExecutionOutput, LocalExecutionFailure> {
+        let value = match capability.contract.id.as_str() {
             "expedition.planning.capture-expedition-objective" => {
                 execute_capture_expedition_objective(input)
             }
@@ -5090,7 +5090,11 @@ impl LocalExecutor for ExpeditionExampleExecutor {
             other => Err(executor_failure(&format!(
                 "unsupported expedition example capability: {other}"
             ))),
-        }
+        }?;
+        Ok(LocalExecutionOutput {
+            value,
+            emitted_events: Vec::new(),
+        })
     }
 }
 
