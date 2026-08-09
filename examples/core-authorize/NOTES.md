@@ -1,8 +1,12 @@
 # core.authorize
 
-Governed example for `core.authorize@1.0.0` — deterministic hybrid authorization evaluator.
+Governed example for `core.authorize@1.1.0` — deterministic hybrid authorization evaluator.
 
 Policy is supplied at invocation (RBAC / ABAC / hybrid). Guest implements the nine published use cases: allow/deny match, tenant isolation, ownership, suspended override, obligations, fail-closed default, empty policy, break-glass, and invalid principal.
+
+`policy_hash` is an honest `fnv1a64:` content fingerprint of the supplied
+policy. It is for deterministic correlation in evaluation evidence, not a
+cryptographic SHA-256 digest.
 
 ## Run
 
@@ -24,4 +28,4 @@ bash scripts/ci/core_authorize_example_smoke.sh
 | UC-08 | `uc08-break-glass-allow.json` | `break_glass_override` |
 | UC-09 | `uc09-invalid-principal-deny.json` | `invalid_principal` |
 
-Registry: publish `capabilities/core/core.authorize/1.0.0/` with a real artifact release after this package lands.
+Registry: publish `capabilities/core/core.authorize/1.1.0/` with a real artifact release after this package lands.
