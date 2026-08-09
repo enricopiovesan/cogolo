@@ -1,0 +1,70 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.validate-action-item",
+  "name": "validate-action-item",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.validate-action-item as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "action_item",
+        "validation_config",
+        "reference_date"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "valid",
+        "reason_code"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "validate",
+      "capability_id": "core.validate-action-item",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "action_item",
+          "existing_open_items",
+          "validation_config",
+          "reference_date"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "valid",
+          "errors",
+          "normalized",
+          "reason_code",
+          "evaluation_trace"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "validate",
+  "terminal_nodes": [
+    "validate"
+  ],
+  "tags": [
+    "loop",
+    "action-items",
+    "validation",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}
