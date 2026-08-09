@@ -1,0 +1,39 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-assign-ownership-01",
+  "intent": {
+    "capability_id": "core.assign-ownership",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "suggested_owner": "Ada Lovelace",
+    "creator_id": "user-carol",
+    "workspace_members": [
+      {
+        "id": "user-ada",
+        "name": "Ada Lovelace",
+        "email": "ada@loop.dev"
+      },
+      {
+        "id": "user-bob",
+        "name": "Bob Smith",
+        "email": "bob@loop.dev"
+      }
+    ],
+    "ownership_config": {
+      "version": "1.0",
+      "fallback": "creator",
+      "require_active_member": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-assign-ownership-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
