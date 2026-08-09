@@ -6666,7 +6666,7 @@ mod tests {
         )
         .expect_err("uncovered enum must fail");
         assert_eq!(err.0, "capability_publish_surface_coverage_failed");
-        assert!(err.1.contains("b"));
+        assert!(err.1.contains('b'));
     }
 
     #[test]
