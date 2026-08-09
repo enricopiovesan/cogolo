@@ -1325,6 +1325,21 @@
         "specs/995-local-executor-event-emission/",
         "docs/decision-log.md"
       ]
+    },
+    {
+      "id": "102-contract-surface-coverage",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/102-contract-surface-coverage/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "docs/capability-contract-authoring-guide.md",
+        "docs/adr/0038-contract-surface-coverage.md",
+        "specs/102-contract-surface-coverage/",
+        "docs/decision-log.md",
+        "scripts/ci/"
+      ]
     }
   ]
 }

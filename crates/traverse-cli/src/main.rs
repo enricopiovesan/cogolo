@@ -3002,6 +3002,8 @@ fn capability_publish_plan(
         )
     })?;
     reject_private_contract_scope(&contract_text)?;
+    // Spec 102: check raw JSON so use_cases (not on CapabilityContract) are visible.
+    enforce_contract_surface_coverage(&contract_text)?;
 
     let contract = parse_contract(&contract_text).map_err(|failure| {
         (
@@ -3077,6 +3079,70 @@ fn reject_private_contract_scope(contract_text: &str) -> Result<(), (&'static st
         ));
     }
     Ok(())
+}
+
+/// Spec `102-contract-surface-coverage` FR-001/FR-002: every `action` enum value
+/// must appear in at least one `use_cases[].input_example.action`.
+fn enforce_contract_surface_coverage(contract_text: &str) -> Result<(), (&'static str, String)> {
+    let value: Value = serde_json::from_str(contract_text).map_err(|error| {
+        (
+            "capability_publish_contract_parse_failed",
+            format!("failed to parse capability contract JSON: {error}"),
+        )
+    })?;
+    match uncovered_action_enum_values(&value) {
+        Ok(uncovered) if uncovered.is_empty() => Ok(()),
+        Ok(uncovered) => Err((
+            "capability_publish_surface_coverage_failed",
+            format!(
+                "inputs.schema.properties.action.enum values lack covering use_cases: {}. Every enum value must appear as use_cases[].input_example.action (spec 102-contract-surface-coverage FR-001)",
+                uncovered.join(", ")
+            ),
+        )),
+        Err(message) => Err(("capability_publish_surface_coverage_failed", message)),
+    }
+}
+
+fn uncovered_action_enum_values(contract: &Value) -> Result<Vec<String>, String> {
+    let Some(action_schema) = contract.pointer("/inputs/schema/properties/action") else {
+        return Ok(Vec::new());
+    };
+    let Some(enum_values) = action_schema.get("enum").and_then(Value::as_array) else {
+        return Ok(Vec::new());
+    };
+    let mut declared = Vec::new();
+    for value in enum_values {
+        let Some(as_str) = value.as_str() else {
+            return Err(
+                "inputs.schema.properties.action.enum must contain only strings (spec 102 FR-001)"
+                    .to_string(),
+            );
+        };
+        declared.push(as_str.to_string());
+    }
+    if declared.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let use_cases = contract
+        .get("use_cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let mut covered = std::collections::BTreeSet::new();
+    for use_case in &use_cases {
+        if let Some(action) = use_case
+            .pointer("/input_example/action")
+            .and_then(Value::as_str)
+        {
+            covered.insert(action.to_string());
+        }
+    }
+
+    Ok(declared
+        .into_iter()
+        .filter(|action| !covered.contains(action))
+        .collect())
 }
 
 fn validate_registry_path_segment(
@@ -3232,7 +3298,7 @@ fn run_publish_command(
 
 fn capability_publish_pr_body(plan: &CapabilityPublishPlan) -> String {
     format!(
-        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Specs\n\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n\n## Validation\n\n- local capability contract validation passed\n- artifact digest computed: `{}`\n",
+        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `056-capability-publish`\n- `054-public-scope-registry-ref`\n- `102-contract-surface-coverage`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- artifact digest computed: `{}`\n",
         plan.capability_id,
         plan.version,
         plan.registry_relative_path.display(),
@@ -5897,17 +5963,17 @@ mod tests {
         RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION, app_new_at,
         app_register_at, app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_text, ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
-        execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, format_capability_package_execution_summary,
-        help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
-        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_capability_package, load_registered_bundle,
+        curl_text, enforce_contract_surface_coverage, ensure_clean_registry_checkout,
+        execute_capability_package, execute_expedition, execute_traverse_starter_process,
+        execute_traverse_starter_summarize, execute_traverse_starter_validate,
+        format_capability_package_execution_summary, help_expedition_execute, help_serve,
+        inspect_bundle, inspect_capability, inspect_capability_package, inspect_event,
+        inspect_trace, latest_index_release_asset, load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
         registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
-        telemetry, validate_registry_path_segment,
+        telemetry, uncovered_action_enum_values, validate_registry_path_segment,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
@@ -6501,6 +6567,106 @@ mod tests {
             "capability_publish_contract_validation_failed"
         );
         assert!(runner.commands.borrow().is_empty());
+    }
+
+    #[test]
+    fn capability_publish_surface_coverage_failure_runs_no_commands() {
+        let fixture = capability_publish_fixture();
+        let mut contract: Value = serde_json::from_str(
+            &fs::read_to_string(&fixture.contract).expect("contract fixture should read"),
+        )
+        .expect("contract fixture should parse");
+        contract["inputs"]["schema"]["properties"]["action"] = serde_json::json!({
+            "type": "string",
+            "enum": ["create", "resolve"]
+        });
+        contract["use_cases"] = serde_json::json!([
+            {
+                "name": "create only",
+                "description": "covers create",
+                "input_example": { "action": "create" },
+                "expected_output_example": { "ok": true }
+            }
+        ]);
+        fs::write(
+            &fixture.contract,
+            serde_json::to_string_pretty(&contract).expect("contract fixture should serialize"),
+        )
+        .expect("uncovered-action contract should write");
+        let runner = RecordingPublishRunner::default();
+
+        let output = capability_publish_at(&fixture.request(false), &runner)
+            .expect("surface coverage failure should return JSON evidence");
+        let json: Value = serde_json::from_str(&output).expect("publish output must be JSON");
+
+        assert_eq!(json["status"], "failed");
+        assert_eq!(
+            json["errors"][0]["code"],
+            "capability_publish_surface_coverage_failed"
+        );
+        assert!(
+            json["errors"][0]["message"]
+                .as_str()
+                .expect("message")
+                .contains("resolve"),
+            "failure should name uncovered action"
+        );
+        assert!(runner.commands.borrow().is_empty());
+    }
+
+    #[test]
+    fn uncovered_action_enum_values_reports_gaps_and_skips_when_absent() {
+        let covered = serde_json::json!({
+            "inputs": {
+                "schema": {
+                    "properties": {
+                        "action": { "type": "string", "enum": ["create", "edit"] }
+                    }
+                }
+            },
+            "use_cases": [
+                { "input_example": { "action": "create" } },
+                { "input_example": { "action": "edit" } }
+            ]
+        });
+        assert!(
+            uncovered_action_enum_values(&covered)
+                .expect("covered contract")
+                .is_empty()
+        );
+
+        let gap = serde_json::json!({
+            "inputs": {
+                "schema": {
+                    "properties": {
+                        "action": { "type": "string", "enum": ["create", "pin"] }
+                    }
+                }
+            },
+            "use_cases": [
+                { "input_example": { "action": "create" } }
+            ]
+        });
+        assert_eq!(
+            uncovered_action_enum_values(&gap).expect("gap contract"),
+            vec!["pin".to_string()]
+        );
+
+        let no_action = serde_json::json!({ "inputs": { "schema": { "properties": {} } } });
+        assert!(
+            uncovered_action_enum_values(&no_action)
+                .expect("no action enum")
+                .is_empty()
+        );
+
+        enforce_contract_surface_coverage(r#"{"inputs":{"schema":{"properties":{}}}}"#)
+            .expect("contracts without action enum must pass");
+        let err = enforce_contract_surface_coverage(
+            r#"{"inputs":{"schema":{"properties":{"action":{"enum":["a","b"]}}}},"use_cases":[{"input_example":{"action":"a"}}]}"#,
+        )
+        .expect_err("uncovered enum must fail");
+        assert_eq!(err.0, "capability_publish_surface_coverage_failed");
+        assert!(err.1.contains('b'));
     }
 
     #[test]
