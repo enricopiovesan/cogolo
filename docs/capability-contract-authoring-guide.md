@@ -204,6 +204,7 @@ before opening a registry PR (issue #1011).
 - Declaring side effects implicitly but forgetting to declare `side_effects` and event edges (`emits` / `consumes`).
 - Using `host_api_access: exception_required` without adding an exception reference in `provenance.exception_refs`.
 - Treating `preconditions` / `postconditions` as executable policy. They are documentation, not runtime code.
+- Putting a guest-denied field in JSON Schema `required`, then wondering why smoke never sees the guest `reason_code` (see Guest-enforced fields above).
 
 ## Validation
 
@@ -333,6 +334,32 @@ These fields hold assertions about the state of the world before and after capab
 ```
 
 **These are not enforced by the runtime in v0.x.** The runtime does not evaluate preconditions before execution or postconditions after. They are purely documentation — useful for human review, spec coverage, and future tooling. State this explicitly to consumers of your contract.
+
+### Guest-enforced fields (host schema vs guest denials)
+
+Host JSON Schema validation runs before the WASM guest. If a field is listed in
+JSON Schema `required`, unhappy-path use cases that omit it never reach the
+guest — the host rejects them first — so the guest cannot return a structured
+`reason_code` for that precondition.
+
+When a denial must be guest-authored (for example `reason_code:
+invalid_principal`), keep that field **schema-optional** and enforce it in the
+guest instead. Document the choice so it is not mistaken for accidental
+weakening:
+
+1. Omit the field from the nearest JSON Schema `required` array.
+2. State in the property (or parent object) `description` that the guest
+   enforces the field and name the covering use case / `reason_code`.
+3. Cover the omission with an explicit `use_cases[]` entry and a package smoke
+   fixture that reaches the guest.
+
+Default host validation for normal requests stays fail-closed: other required
+fields remain required, and guests must still reject empty/invalid optional
+values they claim to enforce. Do not use a global “skip input schema” escape
+hatch for production execute paths.
+
+Working example: `examples/core-authorize` UC-09 — `principal.id` is
+guest-enforced and schema-optional; the guest returns `invalid_principal`.
 
 ---
 

@@ -27,9 +27,26 @@ This generates `capabilities/acme.ml.my-classifier/` with a real, loadable `kind
 2. **`src/agent.rs`** — replace the static placeholder output with your computation. Read JSON from stdin, write JSON to stdout.
 3. **Build and verify** — `bash capabilities/acme.ml.my-classifier/build-fixture.sh` compiles to WASM; `traverse-cli capability-package inspect <manifest>` reports the real digest to paste into `manifest.json`'s `binary.expected_digest` if it doesn't match yet, then `traverse-cli capability-package execute <manifest> <request>` runs it.
 
+### Hand-rolled JSON parsing
+
+The no-std stub includes `find_key_at_depth` for guests that parse JSON bytes
+directly. Use it for root fields that can also appear in nested objects:
+serde does not promise object-key order, so an unscoped search for
+`"principal"` can accidentally select `policy.rules[].principal` before the
+top-level field. Root object fields are depth `1`; once a containing object is
+selected, parse nested fields only within that scoped slice. See
+`examples/core-authorize/src/agent.rs` for the complete pattern.
+
 ### Common mistake
 
 Do not skip the contract edit. The runtime validates inputs and outputs against the schema before executing. A permissive schema (`additionalProperties: true`) will pass validation but defeat governance.
+
+If a use case must return a structured guest denial for a missing field, keep
+that field schema-optional and enforce it in the guest — host `required` will
+otherwise reject the request before the guest runs. Document the field as
+guest-enforced and cover it with a use case (see
+[`docs/capability-contract-authoring-guide.md`](capability-contract-authoring-guide.md)
+“Guest-enforced fields”; example: `examples/core-authorize` UC-09).
 
 ## Start From a Governed Package
 

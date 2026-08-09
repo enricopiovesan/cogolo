@@ -613,11 +613,12 @@
       "properties": {
         "principal": {
           "type": "object",
-          "description": "Caller identity. Missing or empty id is not schema-rejected so the guest can return reason_code invalid_principal (UC-09).",
+          "description": "Caller identity. principal.id is guest-enforced (schema-optional) so UC-09 can return reason_code invalid_principal; see docs/capability-contract-authoring-guide.md Guest-enforced fields.",
           "properties": {
             "id": {
               "type": "string",
-              "minLength": 1
+              "minLength": 1,
+              "description": "Guest-enforced non-empty principal id. Omitted from principal.required so missing/empty id reaches the guest (UC-09 → invalid_principal)."
             },
             "roles": {
               "type": "array",
