@@ -185,9 +185,8 @@ set. Do not list actions the artifact only rejects with a generic
 Description prose that mentions behavior beyond the use-case matrix MUST either
 be removed or called out under an explicit **Known limitations** section.
 
-Governed by Draft Spec `102-contract-surface-coverage` / ADR-0038 (Proposed).
-Publish tooling will enforce enum ⊆ use_cases after that spec is Approved
-(issue #1016).
+Governed by Spec `102-contract-surface-coverage` / ADR-0038.
+`capability publish` / `--dry-run` enforce enum ⊆ use_cases (issue #1016).
 
 ## Common Mistakes
 

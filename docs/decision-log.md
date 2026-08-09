@@ -2107,8 +2107,8 @@ or ADR required.
 ## Decision 57: Contract Surface Coverage — Schema ⊆ Use Cases ⊆ Smoke
 
 - **Date**: 2026-08-08
-- **Status**: Accepted (honesty path); Spec 102 remains Draft until owner registers it
-- **Governing spec**: `102-contract-surface-coverage` (Draft), ADR-0038 (Proposed)
+- **Status**: Accepted; Spec 102 Approved and registered 2026-08-08
+- **Governing spec**: `102-contract-surface-coverage`, ADR-0038
 - **Related issues**: `#1014`, `#1015`, `#1016`; registry `#192`, `#193`
 - **Origin**: Post-ship review of `core.process-comment@1.0.0` overclaim (enum/description beyond use-case matrix).
 

@@ -1,6 +1,6 @@
 # Feature Specification: Contract Surface Coverage
 
-**Status**: Draft (awaits owner approval before `approved-specs.json` registration)
+**Status**: Approved
 **Canonical governing ID**: `102-contract-surface-coverage`
 **Version**: 1.0.0
 **Extends**: `002-capability-contracts`, `100-capability-package-authoring`, `056-capability-publish`, `516-agent-artifact-execution`
@@ -49,4 +49,4 @@ Out of scope:
 
 ## Approval Note
 
-This file is **Draft**. Do not treat FRs as binding in CI until the owner moves Status to Approved and registers the spec in `specs/governance/approved-specs.json`. Implementation issue #1016 remains `needs-spec` until then.
+Approved 2026-08-08 (owner direction). Registered in `specs/governance/approved-specs.json`. Implementation: #1016 / registry#192.
