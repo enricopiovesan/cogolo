@@ -498,7 +498,7 @@ fn write_result(
     i = copy(out, i, trace);
     i = copy(out, i, br#","policy_hash":"#);
     if let Some(h) = policy_hash {
-        i = copy(out, i, br#""sha256:"#);
+        i = copy(out, i, br#""fnv1a64:"#);
         i = copy(out, i, h);
         i = copy(out, i, br#"""#);
     } else {

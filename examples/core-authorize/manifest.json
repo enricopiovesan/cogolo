@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.authorize-agent",
-  "version": "1.0.0",
-  "summary": "Capability package for core.authorize@1.0.0 (hybrid policy evaluator, 9 use cases).",
+  "version": "1.1.0",
+  "summary": "Capability package for core.authorize@1.1.0 (hybrid policy evaluator, 9 use cases).",
   "capability_ref": {
     "id": "core.authorize",
-    "version": "1.0.0",
+    "version": "1.1.0",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.authorize",
-      "workflow_version": "1.0.0"
+      "workflow_version": "1.1.0"
     }
   ],
   "source": {
@@ -23,7 +23,7 @@
   "binary": {
     "path": "./artifacts/core-authorize.wasm",
     "format": "wasm",
-    "expected_digest": "fnv1a64:998b13a890596acb",
+    "expected_digest": "fnv1a64:203481bdbf668866",
     "abi_version": "1.0.0"
   },
   "constraints": {
