@@ -3276,22 +3276,7 @@ fn prepare_and_open_registry_pr(
         "capability_publish_branch_failed",
         plan,
     )?;
-    if let Some(parent) = plan.registry_path.parent() {
-        fs::create_dir_all(parent).map_err(|error| {
-            (
-                "capability_publish_write_failed",
-                format!("failed to create registry target directory: {error}"),
-                Some(partial_state(plan)),
-            )
-        })?;
-    }
-    fs::write(&plan.registry_path, format!("{}\n", plan.contract_json)).map_err(|error| {
-        (
-            "capability_publish_write_failed",
-            format!("failed to write registry contract: {error}"),
-            Some(partial_state(plan)),
-        )
-    })?;
+    write_registry_contract(plan)?;
     run_publish_command(
         runner,
         &request.registry_repo_path,
@@ -3351,6 +3336,27 @@ fn prepare_and_open_registry_pr(
         plan,
     )?;
     Ok(output.stdout)
+}
+
+fn write_registry_contract(
+    plan: &CapabilityPublishPlan,
+) -> Result<(), (&'static str, String, Option<String>)> {
+    if let Some(parent) = plan.registry_path.parent() {
+        fs::create_dir_all(parent).map_err(|error| {
+            (
+                "capability_publish_write_failed",
+                format!("failed to create registry target directory: {error}"),
+                Some(partial_state(plan)),
+            )
+        })?;
+    }
+    fs::write(&plan.registry_path, format!("{}\n", plan.contract_json)).map_err(|error| {
+        (
+            "capability_publish_write_failed",
+            format!("failed to write registry contract: {error}"),
+            Some(partial_state(plan)),
+        )
+    })
 }
 
 fn run_publish_command(
