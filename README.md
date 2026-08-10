@@ -7,7 +7,7 @@
 [![Coverage](https://img.shields.io/badge/coverage-100%25-brightgreen)](https://github.com/traverse-framework/traverse/actions/workflows/ci.yml)
 [![License](https://img.shields.io/badge/license-Apache--2.0-blue)](LICENSE)
 [![Rust](https://img.shields.io/badge/rust-1.94%2B-orange)](https://www.rust-lang.org/)
-[![Version](https://img.shields.io/badge/version-v0.8.1-blue)](https://github.com/traverse-framework/traverse/releases)
+[![Version](https://img.shields.io/badge/version-v0.9.1-blue)](https://github.com/traverse-framework/traverse/releases)
 [![Registry](https://img.shields.io/badge/registry-live%20catalog-6f42c1)](https://registry.traverse-framework.com/)
 
 Your business logic runs in the browser, on your server, and in a cloud function.
@@ -20,10 +20,10 @@ Traverse is the working implementation of [Universal Microservices Architecture]
 
 ## Current State & Roadmap
 
-Traverse is pre-1.0 (`v0.8.1`) and evolving under spec-driven governance — every capability below is real, running code, not a plan.
+Traverse is pre-1.0 (`v0.9.1`) and evolving under spec-driven governance — every capability below is real, running code, not a plan.
 
 - **8 crates in this repo** plus the capability registry (now its own repo, see below) — 7 of these 9 are [published on crates.io](https://crates.io/search?q=traverse-): runtime, contracts, registry, CLI, MCP server, embedder SDK, and the expedition WASM example. `traverse-native-bridge` and `traverse-swift-host` are newer, not yet published.
-- **87 approved, immutable specs** govern the runtime, contracts, registry, MCP surface, WASM execution, native embedding, and durable local storage. Full list: `jq -r '.specs[].id' specs/governance/approved-specs.json` (or see [Governance](#governance) below).
+- **105 approved, immutable specs** govern the runtime, contracts, registry, MCP surface, WASM execution, native embedding, event delivery, and durable local storage. Full list: `jq -r '.specs[].id' specs/governance/approved-specs.json` (or see [Governance](#governance) below).
 - **100% coverage enforced on core logic**, spec-alignment and supply-chain gates on every PR, 5-platform CI matrix (Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64).
 - **Capability registry** was extracted into its own repo, [`traverse-framework/registry`](https://github.com/traverse-framework/registry), so capabilities can be published, versioned, and consumed independently of the runtime. Browse what's actually published at the live catalog: **[registry.traverse-framework.com](https://registry.traverse-framework.com/)**.
 - **Reference apps** for multiple platforms (web, iOS, macOS, Android, Windows, Linux, CLI) live in [`traverse-framework/reference-apps`](https://github.com/traverse-framework/reference-apps).
@@ -97,6 +97,12 @@ deterministically and produces a structured trace you can inspect and audit.
 
 → [docs/workflow-composition-guide.md](docs/workflow-composition-guide.md) · [docs/getting-started.md](docs/getting-started.md)
 
+### Publish a reusable capability
+
+Author, validate, and publish an executable WASM capability through the governed registry flow. Publishing validates the contract, use-case coverage, artifact digest, and referenced personas before creating the reviewable registry change.
+
+→ [docs/capability-publish.md](docs/capability-publish.md) · [docs/capability-contract-authoring-guide.md](docs/capability-contract-authoring-guide.md)
+
 ### Your own app bundle
 
 ```bash
@@ -125,7 +131,7 @@ Scaffolds a governed app bundle. Add your capability contracts, workflows, and W
 
 ### Consumer and release surfaces
 
-- [docs/releases/v0.8.1.md](docs/releases/v0.8.1.md) — current release notes
+- [docs/releases/v0.9.1.md](docs/releases/v0.9.1.md) — current release notes
 - [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
 - [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
 - [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) — packaged runtime artifact
@@ -225,7 +231,7 @@ Traverse is spec-driven. Code must align with an approved, immutable spec or it 
 
 ### Approved Specs
 
-87 approved specs currently govern this repo, spanning the runtime, contracts, registry integration, CLI, MCP surface, WASM execution, native embedding, and durable local storage. The list changes as specs are approved — query it instead of reading a snapshot:
+105 approved specs currently govern this repo, spanning the runtime, contracts, registry integration, CLI, MCP surface, WASM execution, native embedding, event delivery, and durable local storage. The list changes as specs are approved — query it instead of reading a snapshot:
 
 ```bash
 jq -r '.specs[].id' specs/governance/approved-specs.json
