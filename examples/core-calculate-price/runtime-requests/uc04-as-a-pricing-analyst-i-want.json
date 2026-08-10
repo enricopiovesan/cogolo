@@ -1,0 +1,55 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-calculate-price-04",
+  "intent": {
+    "capability_id": "core.calculate-price",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "currency": "USD",
+    "lines": [
+      {
+        "id": "line-1",
+        "sku": "SKU-200",
+        "quantity": 1,
+        "unit_price": 200.0,
+        "tax_code": "STANDARD"
+      }
+    ],
+    "customer": {
+      "id": "cust-7"
+    },
+    "context": {},
+    "pricing_config": {
+      "version": "1.0",
+      "currency": "USD",
+      "rounding": "half_up",
+      "decimal_places": 2,
+      "discount_rules": [
+        {
+          "id": "vip-15",
+          "priority": 200,
+          "type": "percentage",
+          "value": 15,
+          "stackable": true
+        },
+        {
+          "id": "coupon-5",
+          "priority": 100,
+          "type": "percentage",
+          "value": 5,
+          "stackable": true
+        }
+      ],
+      "tax_rules": [
+        {
+          "id": "us-standard",
+          "tax_code": "STANDARD",
+          "rate": 0.08,
+          "inclusive": false
+        }
+      ]
+    }
+  }
+}

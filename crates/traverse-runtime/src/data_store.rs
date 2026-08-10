@@ -2384,6 +2384,7 @@ mod tests {
             event_trigger: None,
             connector_requirements: Vec::new(),
             state_schema,
+            use_cases: Vec::new(),
         }
     }
 }

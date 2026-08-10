@@ -539,4 +539,7 @@ TRAVERSE_REPO_ROOT="$(pwd)" bash "$(pwd)/scripts/ci/wasi_host_abi_imports.sh"
 echo "Running app ownership boundary verification..."
 TRAVERSE_REPO_ROOT="$(pwd)" bash "$(pwd)/scripts/ci/app_ownership_boundary_smoke.sh"
 
+echo "Running use_case ↔ smoke coverage verification (spec 102 FR-007)..."
+TRAVERSE_REPO_ROOT="$(pwd)" bash "$(pwd)/scripts/ci/use_case_smoke_coverage_check.sh"
+
 echo "Repository checks passed."

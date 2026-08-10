@@ -1106,6 +1106,7 @@ fn capability_contract(
         event_trigger: None,
         connector_requirements: Vec::new(),
         state_schema: None,
+        use_cases: Vec::new(),
     }
 }
 
@@ -1437,6 +1438,7 @@ fn simple_registration(scope: RegistryScope, id: &str, version: &str) -> Capabil
         event_trigger: None,
         connector_requirements: Vec::new(),
         state_schema: None,
+        use_cases: Vec::new(),
     };
     CapabilityRegistration {
         scope,
