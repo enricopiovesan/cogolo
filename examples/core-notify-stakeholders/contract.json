@@ -4,14 +4,14 @@
   "id": "core.notify-stakeholders",
   "namespace": "core",
   "name": "notify-stakeholders",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
-  "summary": "Prepares notification intents for stakeholders when an action item changes status. Pure \u2014 does not send.",
-  "description": "Pure WF4 capability. Builds recipient/channel/subject/body intents from item + stakeholder list + event_type. Delivery is host-owned; this capability only prepares intents.",
+  "summary": "Prepares notification intents for stakeholders when an action item changes status. Pure — does not send.",
+  "description": "Pure WF4 capability. Builds recipient/channel/subject/body intents from item + stakeholder list + event_type. Delivery is caller-owned.\n\nImplemented and smoke-tested matrix (use_cases):\n- completed event with multiple stakeholders\n- nothing_to_notify when stakeholders is empty\n- status_changed event intents\n- blocked event intents\n\nKnown limitations (intentional in 1.0.1):\n- reason_code invalid_event_type and invalid_input removed; event_type is a schema enum and host-required fields make those guest denial paths unreachable without schema weakening\n- No actual notification delivery",
   "use_cases": [
     {
       "scenario": "As the completion path, I want requester and manager notified that an item is done.",
@@ -94,6 +94,90 @@
       },
       "happy": false,
       "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As WF4, I want status_changed notification intents for stakeholders.",
+      "input_example": {
+        "item": {
+          "id": "ai-1",
+          "title": "Send the revised proposal",
+          "owner_id": "user-ada",
+          "owner_name": "Ada",
+          "status": "in_progress"
+        },
+        "stakeholders": [
+          {
+            "user_id": "user-carol",
+            "role": "requester",
+            "channel": "in_app"
+          }
+        ],
+        "event_type": "status_changed",
+        "notify_config": {
+          "version": "1.0",
+          "include_manager_on_complete": true
+        }
+      },
+      "output_example": {
+        "intents": [
+          {
+            "recipient_id": "user-carol",
+            "channel": "in_app",
+            "subject": "Action updated: Send the revised proposal",
+            "body": "Ada updated \"Send the revised proposal\"."
+          }
+        ],
+        "intent_count": 1,
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "event_type=status_changed",
+          "prepared 1 intents"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    },
+    {
+      "scenario": "As WF4, I want blocked notification intents for stakeholders.",
+      "input_example": {
+        "item": {
+          "id": "ai-1",
+          "title": "Send the revised proposal",
+          "owner_id": "user-ada",
+          "owner_name": "Ada",
+          "status": "blocked"
+        },
+        "stakeholders": [
+          {
+            "user_id": "user-carol",
+            "role": "requester",
+            "channel": "in_app"
+          }
+        ],
+        "event_type": "blocked",
+        "notify_config": {
+          "version": "1.0",
+          "include_manager_on_complete": true
+        }
+      },
+      "output_example": {
+        "intents": [
+          {
+            "recipient_id": "user-carol",
+            "channel": "in_app",
+            "subject": "Action blocked: Send the revised proposal",
+            "body": "Ada blocked \"Send the revised proposal\"."
+          }
+        ],
+        "intent_count": 1,
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "event_type=blocked",
+          "prepared 1 intents"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
     }
   ],
   "inputs": {
@@ -217,9 +301,7 @@
           "type": "string",
           "enum": [
             "ok",
-            "nothing_to_notify",
-            "invalid_event_type",
-            "invalid_input"
+            "nothing_to_notify"
           ]
         },
         "evaluation_trace": {
@@ -274,7 +356,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.notify-stakeholders@1.0.0",
+    "spec_ref": "core.notify-stakeholders@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -282,7 +364,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-notify-stakeholders-1.0.0-contract-validation",
+      "evidence_id": "core-notify-stakeholders-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

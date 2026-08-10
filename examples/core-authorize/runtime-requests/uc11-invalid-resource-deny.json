@@ -1,0 +1,52 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-authorize-11",
+  "intent": {
+    "capability_id": "core.authorize",
+    "capability_version": "1.1.1"
+  },
+  "input": {
+    "principal": {
+      "id": "user-1",
+      "roles": [
+        "admin"
+      ]
+    },
+    "action": "read",
+    "resource": {
+      "type": "",
+      "id": "doc-1"
+    },
+    "context": {},
+    "policy": {
+      "version": "1.0",
+      "mode": "rbac",
+      "default_effect": "deny",
+      "rules": [
+        {
+          "id": "r1",
+          "effect": "allow",
+          "priority": 1,
+          "principal": {
+            "roles": [
+              "admin"
+            ]
+          },
+          "action": [
+            "read"
+          ]
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-authorize-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

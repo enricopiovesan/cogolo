@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.record-nudge-event-agent",
-  "version": "1.0.0",
-  "summary": "Capability package for core.record-nudge-event@1.0.0.",
+  "version": "1.0.1",
+  "summary": "Capability package for core.record-nudge-event@1.0.1.",
   "capability_ref": {
     "id": "core.record-nudge-event",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.record-nudge-event",
-      "workflow_version": "1.0.0"
+      "workflow_version": "1.0.1"
     }
   ],
   "source": {

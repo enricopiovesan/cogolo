@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.generate-nudge-message-agent",
-  "version": "1.0.0",
-  "summary": "Capability package for core.generate-nudge-message@1.0.0.",
+  "version": "1.0.1",
+  "summary": "Capability package for core.generate-nudge-message@1.0.1.",
   "capability_ref": {
     "id": "core.generate-nudge-message",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.generate-nudge-message",
-      "workflow_version": "1.0.0"
+      "workflow_version": "1.0.1"
     }
   ],
   "source": {

@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "core.notify-stakeholders",
   "name": "notify-stakeholders",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
@@ -26,7 +26,7 @@
     {
       "node_id": "run",
       "capability_id": "core.notify-stakeholders",
-      "capability_version": "1.0.0",
+      "capability_version": "1.0.1",
       "input": {
         "from_workflow_input": []
       },

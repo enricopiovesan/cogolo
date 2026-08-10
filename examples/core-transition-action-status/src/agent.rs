@@ -192,10 +192,16 @@ fn object_after_key<'a>(hay: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
 }
 
 fn array_after_key<'a>(hay: &'a [u8], key: &[u8]) -> Option<&'a [u8]> {
-    let pos = find(hay, key)?;
-    let after = &hay[pos + key.len()..];
-    let colon = after.iter().position(|b| *b == b':')?;
-    let mut rest = &after[colon + 1..];
+    // Match `"name":` so value occurrences of the same string are not treated as keys.
+    let mut keyed = [0u8; 96];
+    if key.len() + 1 > keyed.len() {
+        return None;
+    }
+    let mut k = 0usize;
+    k = copy(&mut keyed, k, key);
+    k = copy(&mut keyed, k, b":");
+    let pos = find(hay, &keyed[..k])?;
+    let mut rest = &hay[pos + k..];
     while rest.first() == Some(&b' ')
         || rest.first() == Some(&b'\n')
         || rest.first() == Some(&b'\t')

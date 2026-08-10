@@ -4,7 +4,7 @@
   "request_id": "core-calculate-price-05",
   "intent": {
     "capability_id": "core.calculate-price",
-    "capability_version": "1.0.0"
+    "capability_version": "1.0.1"
   },
   "input": {
     "currency": "USD",
@@ -28,5 +28,14 @@
       "discount_rules": [],
       "tax_rules": []
     }
-  }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-calculate-price-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
 }

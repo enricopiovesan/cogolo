@@ -4,7 +4,7 @@
   "request_id": "core-record-nudge-event-01",
   "intent": {
     "capability_id": "core.record-nudge-event",
-    "capability_version": "1.0.0"
+    "capability_version": "1.0.1"
   },
   "input": {
     "item_id": "ai-1",

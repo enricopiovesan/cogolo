@@ -28,7 +28,7 @@ echo "==> capability inspect"
 contract_out="$("${cli[@]}" capability inspect "$pkg/contract.json")"
 printf '%s\n' "$contract_out"
 require_match "$contract_out" "id: core.aggregate-team-action-health" "contract inspect id"
-require_match "$contract_out" "version: 1.0.0" "contract inspect version"
+require_match "$contract_out" "version: 1.0.1" "contract inspect version"
 
 echo "==> wasm abi verify"
 abi_out="$("${cli[@]}" wasm abi verify "$pkg/artifacts/core-aggregate-team-action-health.wasm")"
@@ -39,27 +39,28 @@ echo "==> capability-package inspect"
 pkg_out="$("${cli[@]}" capability-package inspect "$pkg/manifest.json")"
 printf '%s\n' "$pkg_out"
 require_match "$pkg_out" "package_id: core.aggregate-team-action-health-agent" "package_id"
-require_match "$pkg_out" "capability_version: 1.0.0" "capability_version"
+require_match "$pkg_out" "capability_version: 1.0.1" "capability_version"
 
 assert_execute() {
   local request="$1"
-  local label="$2"
-  shift 2
+  local code="$2"
+  local label="$3"
+  shift 3
 
   echo "==> execute $label"
   local out
   out="$("${cli[@]}" capability-package execute "$pkg/manifest.json" "$request")"
   printf '%s\n' "$out"
   require_match "$out" "status: completed" "$label status"
-  require_match "$out" "capability_version: 1.0.0" "$label capability_version"
-  require_match "$out" "\"reason_code\": \"ok\"" "$label reason_code"
+  require_match "$out" "capability_version: 1.0.1" "$label capability_version"
+  require_match "$out" "\"reason_code\": \"$code\"" "$label reason_code"
   while [[ $# -gt 0 ]]; do
     require_match "$out" "$1" "$label extra"
     shift
   done
 }
 
-assert_execute "$pkg/runtime-requests/uc01-team-pulse.json" "UC-01" \
+assert_execute "$pkg/runtime-requests/uc01-team-pulse.json" "ok" "UC-01" \
   '"total_open": 3' \
   '"overdue_count": 1' \
   '"on_track_pct": 66.6' \
@@ -67,5 +68,6 @@ assert_execute "$pkg/runtime-requests/uc01-team-pulse.json" "UC-01" \
   '"open_count": 2' \
   '"ai-3"' \
   '"ai-1"'
+assert_execute "$pkg/runtime-requests/uc02-invalid-input.json" "invalid_input" "UC-02"
 
-echo "OK: core.aggregate-team-action-health 1.0.0 E2E smoke passed"
+echo "OK: core.aggregate-team-action-health 1.0.1 E2E smoke passed"

@@ -34,4 +34,6 @@ assert_execute "$pkg/runtime-requests/uc01-completed.json" "ok" "UC-01" \
   'user-carol'
 assert_execute "$pkg/runtime-requests/uc02-empty.json" "nothing_to_notify" "UC-02" \
   '"intent_count": 0'
-echo "OK: core.notify-stakeholders 1.0.0 E2E smoke passed"
+assert_execute "$pkg/runtime-requests/uc03-status-changed.json" "ok" "UC-03"   'Action updated'   '"intent_count": 1'
+assert_execute "$pkg/runtime-requests/uc04-blocked.json" "ok" "UC-04"   'Action blocked'   '"intent_count": 1'
+echo "OK: core.notify-stakeholders 1.0.1 E2E smoke passed"

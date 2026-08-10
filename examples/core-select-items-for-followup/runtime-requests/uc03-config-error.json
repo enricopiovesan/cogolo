@@ -1,0 +1,31 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-select-items-for-followup-03",
+  "intent": {
+    "capability_id": "core.select-items-for-followup",
+    "capability_version": "1.1.1"
+  },
+  "input": {
+    "open_items": [],
+    "user_preferences": {},
+    "reference_datetime": "",
+    "followup_config": {
+      "version": "1.1",
+      "soft_days_before_due": 2,
+      "direct_days_overdue": 1,
+      "escalate_after_nudges": 3,
+      "min_pressure_for_soft": 0.4,
+      "respect_quiet_hours": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-select-items-for-followup-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

@@ -4,7 +4,7 @@
   "request_id": "core-transition-action-status-04",
   "intent": {
     "capability_id": "core.transition-action-status",
-    "capability_version": "1.0.0"
+    "capability_version": "1.0.1"
   },
   "input": {
     "current_status": "open",
@@ -14,10 +14,26 @@
     "transition_config": {
       "version": "1.0",
       "allowed_transitions": {
-        "open": ["in_progress", "cancelled", "snoozed"],
-        "in_progress": ["blocked", "done", "cancelled", "snoozed"],
-        "blocked": ["in_progress", "cancelled"],
-        "snoozed": ["open", "in_progress", "cancelled"],
+        "open": [
+          "in_progress",
+          "cancelled",
+          "snoozed"
+        ],
+        "in_progress": [
+          "blocked",
+          "done",
+          "cancelled",
+          "snoozed"
+        ],
+        "blocked": [
+          "in_progress",
+          "cancelled"
+        ],
+        "snoozed": [
+          "open",
+          "in_progress",
+          "cancelled"
+        ],
         "done": [],
         "cancelled": []
       },

@@ -4,14 +4,14 @@
   "id": "core.select-items-for-followup",
   "namespace": "core",
   "name": "select-items-for-followup",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Decides which open action items need attention now. Council-revised with quiet hours, snooze support, per-user nudge budgets and higher escalation bar.",
-  "description": "Hero capability of Loop (council-revised). Key improvements from 1.0.0:\n- Respects per-user quiet hours and snooze until timestamps\n- Enforces max nudges per user per day\n- Escalation only after repeated ignored nudges + high pressure\n- Explicit skip reasons (quiet_hours, snoozed, budget_exceeded, recently_active, low_pressure)\n- Still pure and deterministic \u2014 no messages are sent, only the selection decision is produced.",
+  "description": "Hero capability of Loop (council-revised). Key improvements from 1.0.0:\n- Respects per-user quiet hours and snooze until timestamps\n- Enforces max nudges per user per day\n- Escalation only after repeated ignored nudges + high pressure\n- Explicit skip reasons (quiet_hours, snoozed, budget_exceeded, recently_active, low_pressure)\n- Still pure and deterministic — no messages are sent, only the selection decision is produced.\n\nImplemented and smoke-tested matrix (use_cases):\n- quiet-hours skip\n- escalate selection for overdue high-pressure items\n- config_error when reference_datetime is empty\n\nKnown limitations (intentional in 1.1.1):\n- No message delivery; selection decision only",
   "use_cases": [
     {
       "scenario": "As the scheduled job, I want to respect quiet hours and snooze so that we never annoy people at the wrong time.",
@@ -115,6 +115,32 @@
         ]
       },
       "happy": true,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the scheduled job, I want config_error when reference_datetime is empty so the run fails closed.",
+      "input_example": {
+        "open_items": [],
+        "user_preferences": {},
+        "reference_datetime": "",
+        "followup_config": {
+          "version": "1.1",
+          "soft_days_before_due": 2,
+          "direct_days_overdue": 1,
+          "escalate_after_nudges": 3,
+          "min_pressure_for_soft": 0.4,
+          "respect_quiet_hours": true
+        }
+      },
+      "output_example": {
+        "selected": [],
+        "skipped": [],
+        "reason_code": "config_error",
+        "evaluation_trace": [
+          "required fields missing"
+        ]
+      },
+      "happy": false,
       "persona_ref": "runtime-engineer"
     }
   ],
@@ -226,7 +252,11 @@
           }
         },
         "reason_code": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ok",
+            "config_error"
+          ]
         },
         "evaluation_trace": {
           "type": "array",
@@ -284,7 +314,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:20:00Z",
-    "spec_ref": "core.select-items-for-followup@1.1.0",
+    "spec_ref": "core.select-items-for-followup@1.1.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -292,7 +322,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-select-items-for-followup-1.1.0-contract-validation",
+      "evidence_id": "core-select-items-for-followup-1.1.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

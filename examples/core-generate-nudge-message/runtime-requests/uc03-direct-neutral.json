@@ -1,0 +1,35 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-generate-nudge-message-03",
+  "intent": {
+    "capability_id": "core.generate-nudge-message",
+    "capability_version": "1.0.1"
+  },
+  "input": {
+    "item": {
+      "id": "ai-2",
+      "title": "Ship docs",
+      "owner_name": "Ada",
+      "due_date": "2026-08-12",
+      "status": "open",
+      "nudge_count": 1
+    },
+    "intensity": "direct",
+    "message_config": {
+      "version": "1.0",
+      "tone": "neutral",
+      "include_due_date": true,
+      "language": "en"
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-generate-nudge-message-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

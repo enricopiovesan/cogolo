@@ -4,14 +4,14 @@
   "id": "core.authorize",
   "namespace": "core",
   "name": "authorize",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "capability-authors@traverse-framework.com"
   },
   "summary": "Pure authorization evaluator: allow/deny for principal+action+resource under a caller-supplied versioned policy.",
-  "description": "core.authorize is a pure, side-effect-free authorization capability designed for maximum reusability across web, mobile, desktop, edge, and AI-agent runtimes.\n\nIt deliberately separates policy definition from policy evaluation. The caller supplies a complete, versioned policy configuration at invocation time (or a compact reference in future extensions). The same WASM binary can therefore enforce RBAC, ABAC, ReBAC-lite, hybrid, or explicit allow/deny rules without recompilation.\n\nKey design principles (Persona-Council reviewed):\n- Fail-closed by default (default_effect = deny).\n- Fully deterministic: identical inputs always produce identical outputs.\n- No host, network, or filesystem access.\n- Structured, machine-readable output suitable for audit logs, UI enforcement, and downstream agents.\n- Explicit support for multi-tenant isolation, hierarchical roles, time/context conditions, ownership, relationships, high-priority denies, and break-glass overrides.\n- Obligations are first-class structured objects (not free-form strings) so callers know exactly what additional steps are required.\n\nThe capability never mutates state and never contacts external systems. All decision logic lives inside the supplied policy + the deterministic evaluator.\n\nKnown intentional limitations (disclosed):\n- The evaluator implements a practical subset of common authorization patterns; it is not a full XACML or Cedar engine.\n- Complex boolean expressions inside conditions are limited to a small, safe DSL to keep the WASM footprint and attack surface small.\n- Policy size should be kept modest when inlined; very large policy sets should be versioned and referenced externally in future iterations.",
+  "description": "Pure authorization evaluator: allow/deny for principal+action+resource under a caller-supplied versioned policy (RBAC/hybrid rule matching, tenant/status conditions, break-glass, obligations).\n\nImplemented and smoke-tested matrix (use_cases):\n- admin role allow (matched_allow_rule)\n- tenant isolation deny (matched_deny_rule)\n- owner update allow (matched_allow_rule)\n- suspended principal deny (matched_deny_rule)\n- allow with obligations (matched_allow_rule)\n- no matching rule → deny (no_matching_rule)\n- empty policy rules → empty_or_invalid_policy\n- break-glass override (break_glass_override)\n- missing principal.id → invalid_principal\n- missing action → invalid_action\n- missing resource.type → invalid_resource\n\nKnown limitations (intentional in 1.1.1):\n- policy.mode values abac/explicit removed from schema (not distinct evaluator modes in this binary)\n- default_effect narrowed to deny (fail-closed); allow-default not published\n- obligation severity narrowed to required\n- condition_failed / policy_evaluation_error are not emitted as distinct reason_codes\n- Condition DSL is a practical subset (eq/neq on selected attribute paths), not full XACML/Cedar",
   "use_cases": [
     {
       "scenario": "As a platform security engineer, I want an admin user with the correct role to be allowed to delete a document so that privileged operations succeed when policy permits them.",
@@ -77,7 +77,7 @@
         "evaluation_trace": [
           "policy_version=1.0 mode=hybrid default=deny",
           "evaluated 1 rule(s)",
-          "rule admin-delete matched on role+action+resource.type \u2192 allow"
+          "rule admin-delete matched on role+action+resource.type → allow"
         ],
         "policy_hash": "fnv1a64:3a7f...",
         "confidence": "high",
@@ -155,7 +155,7 @@
         "obligations": [],
         "evaluation_trace": [
           "policy_version=1.0 mode=hybrid default=deny",
-          "rule tenant-isolation condition matched \u2192 deny (priority 200 wins)"
+          "rule tenant-isolation condition matched → deny (priority 200 wins)"
         ],
         "policy_hash": "fnv1a64:9c2e...",
         "confidence": "high",
@@ -214,7 +214,7 @@
         ],
         "obligations": [],
         "evaluation_trace": [
-          "rule owner-update condition principal.id == resource.owner_id \u2192 allow"
+          "rule owner-update condition principal.id == resource.owner_id → allow"
         ],
         "policy_hash": "fnv1a64:1b4d...",
         "confidence": "high",
@@ -285,7 +285,7 @@
         ],
         "obligations": [],
         "evaluation_trace": [
-          "rule suspended-deny matched on principal.attributes.status \u2192 deny (priority 300)"
+          "rule suspended-deny matched on principal.attributes.status → deny (priority 300)"
         ],
         "policy_hash": "fnv1a64:7e8a...",
         "confidence": "high",
@@ -376,7 +376,7 @@
           }
         ],
         "evaluation_trace": [
-          "rule high-value-transfer matched \u2192 allow + 2 obligations"
+          "rule high-value-transfer matched → allow + 2 obligations"
         ],
         "policy_hash": "fnv1a64:4f2c...",
         "confidence": "high",
@@ -555,7 +555,7 @@
         ],
         "evaluation_trace": [
           "break_glass attribute present and enabled in policy",
-          "rule break-glass-allow matched \u2192 allow + obligations"
+          "rule break-glass-allow matched → allow + obligations"
         ],
         "policy_hash": "fnv1a64:bg01...",
         "confidence": "high",
@@ -599,6 +599,110 @@
       },
       "happy": false,
       "persona_ref": "client-developer"
+    },
+    {
+      "scenario": "As a client developer, I want missing action rejected with invalid_action.",
+      "input_example": {
+        "principal": {
+          "id": "user-1",
+          "roles": [
+            "admin"
+          ]
+        },
+        "action": "",
+        "resource": {
+          "type": "document",
+          "id": "doc-1"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "rbac",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "r1",
+              "effect": "allow",
+              "priority": 1,
+              "principal": {
+                "roles": [
+                  "admin"
+                ]
+              },
+              "action": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "action is required but missing",
+        "reason_code": "invalid_action",
+        "matched_rules": [],
+        "obligations": [],
+        "evaluation_trace": [
+          "precondition failed: action missing"
+        ],
+        "policy_hash": null,
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As a client developer, I want missing resource.type rejected with invalid_resource.",
+      "input_example": {
+        "principal": {
+          "id": "user-1",
+          "roles": [
+            "admin"
+          ]
+        },
+        "action": "read",
+        "resource": {
+          "type": "",
+          "id": "doc-1"
+        },
+        "context": {},
+        "policy": {
+          "version": "1.0",
+          "mode": "rbac",
+          "default_effect": "deny",
+          "rules": [
+            {
+              "id": "r1",
+              "effect": "allow",
+              "priority": 1,
+              "principal": {
+                "roles": [
+                  "admin"
+                ]
+              },
+              "action": [
+                "read"
+              ]
+            }
+          ]
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "resource.type is required but missing",
+        "reason_code": "invalid_resource",
+        "matched_rules": [],
+        "obligations": [],
+        "evaluation_trace": [
+          "precondition failed: resource.type missing"
+        ],
+        "policy_hash": null,
+        "confidence": "high",
+        "break_glass_used": false
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
     }
   ],
   "inputs": {
@@ -711,15 +815,12 @@
               "type": "string",
               "enum": [
                 "rbac",
-                "abac",
-                "hybrid",
-                "explicit"
+                "hybrid"
               ]
             },
             "default_effect": {
               "type": "string",
               "enum": [
-                "allow",
                 "deny"
               ],
               "default": "deny"
@@ -792,9 +893,7 @@
                         "severity": {
                           "type": "string",
                           "enum": [
-                            "required",
-                            "recommended",
-                            "optional"
+                            "required"
                           ]
                         },
                         "metadata": {
@@ -849,9 +948,7 @@
             "invalid_principal",
             "invalid_resource",
             "invalid_action",
-            "break_glass_override",
-            "condition_failed",
-            "policy_evaluation_error"
+            "break_glass_override"
           ]
         },
         "matched_rules": {
@@ -891,9 +988,7 @@
               "severity": {
                 "type": "string",
                 "enum": [
-                  "required",
-                  "recommended",
-                  "optional"
+                  "required"
                 ]
               },
               "metadata": {
@@ -1007,9 +1102,9 @@
   "dependencies": [],
   "provenance": {
     "source": "ai-assisted",
-    "author": "traverse-capability-author + persona-council",
+    "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T05:36:00Z",
-    "spec_ref": "core.authorize@1.1.0",
+    "spec_ref": "core.authorize@1.1.1",
     "adr_refs": [
       "0001-rust-wasm-foundation",
       "persona-council-review-2026-08-08"
@@ -1018,7 +1113,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-authorize-1.1.0-contract-validation",
+      "evidence_id": "core-authorize-1.1.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

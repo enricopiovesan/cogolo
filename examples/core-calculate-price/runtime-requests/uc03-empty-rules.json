@@ -1,10 +1,10 @@
 {
   "kind": "runtime_request",
   "schema_version": "1.0.0",
-  "request_id": "core-calculate-price-06",
+  "request_id": "core-calculate-price-03",
   "intent": {
     "capability_id": "core.calculate-price",
-    "capability_version": "1.0.0"
+    "capability_version": "1.0.1"
   },
   "input": {
     "currency": "USD",
@@ -13,30 +13,29 @@
         "id": "line-1",
         "sku": "SKU-100",
         "quantity": 1,
-        "unit_price": 100.0,
-        "tax_code": "STANDARD"
+        "unit_price": 50.0
       }
     ],
     "customer": {
       "id": "cust-1"
     },
-    "context": {
-      "quote_id": "Q-2026-001"
-    },
+    "context": {},
     "pricing_config": {
-      "version": "2026.08.01",
+      "version": "1.0",
       "currency": "USD",
       "rounding": "half_up",
       "decimal_places": 2,
       "discount_rules": [],
-      "tax_rules": [
-        {
-          "id": "us-standard",
-          "tax_code": "STANDARD",
-          "rate": 0.08,
-          "inclusive": false
-        }
-      ]
+      "tax_rules": []
     }
-  }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-calculate-price-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
 }
