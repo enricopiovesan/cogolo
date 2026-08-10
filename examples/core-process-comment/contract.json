@@ -4,14 +4,14 @@
   "id": "core.process-comment",
   "namespace": "core",
   "name": "process-comment",
-  "version": "1.0.2",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "capability-authors@traverse-framework.com"
   },
   "summary": "Policy-driven comment processor for create/edit/reply/delete/react with mentions, quarantine, soft-delete, and tenant isolation.",
-  "description": "Policy-driven comment processor for create/edit/reply/delete/react with mentions, quarantine, soft-delete, and tenant isolation.\n\nImplemented and smoke-tested matrix (use_cases):\n- create with @mention and https link + notify obligations\n- edit denied when own_only and actor is not creator\n- reply denied when parent_depth+1 >= max_thread_depth\n- create allowed with quarantine when body matches moderation.blocklist\n- react add normalized to a reaction set\n- soft-delete retains body and records deleted_by\n- create denied on tenant mismatch\n- create/edit/reply denied for empty/whitespace body\n- body_too_long when body exceeds max_body_length\n- invalid_reaction when react lacks emoji\n- insufficient_role when actor role not permitted\n\nKnown limitations (intentional in 1.0.2):\n- resolve / unresolve / pin / unpin are not part of the schema surface\n- mention_resolution narrowed to strict; permissive/disabled removed\n- visibility_model narrowed to resource-acl|channel\n- reaction.op narrowed to add (remove not published)\n- invalid_action / invalid_parent / policy_error / not_authorized removed from published reason_code vocabulary\n- hard_delete_unsupported and invalid_input/invalid_actor fail-closed paths exist but are not published reason_codes\n- allowed_markups is accepted but body markup is not sanitized\n- The capability never persists data or sends notifications; callers must honor obligations",
+  "description": "Policy-driven comment processor for create/edit/reply/delete/react with mentions, quarantine, soft-delete, and tenant isolation.\n\nImplemented and smoke-tested matrix (use_cases):\n- create with @mention and https link + notify obligations\n- edit denied when own_only and actor is not creator\n- reply denied when parent_depth+1 >= max_thread_depth\n- create allowed with quarantine when body matches moderation.blocklist\n- react add normalized to a reaction set\n- soft-delete retains body and records deleted_by\n- create denied on tenant mismatch\n- create/edit/reply denied for empty/whitespace body\n- body_too_long when body exceeds max_body_length\n- invalid_reaction when react lacks emoji\n- insufficient_role when actor role not permitted\n\nKnown limitations (intentional in 1.1.0):\n- resolve / unresolve / pin / unpin are not part of the schema surface\n- mention_resolution narrowed to strict; permissive/disabled removed\n- visibility_model narrowed to resource-acl|channel\n- reaction.op narrowed to add (remove not published)\n- invalid_action / invalid_parent / policy_error / not_authorized removed from published reason_code vocabulary\n- hard_delete_unsupported and invalid_input/invalid_actor fail-closed paths exist but are not published reason_codes\n- allowed_markups is accepted but body markup is not sanitized\n- The capability never persists data or sends notifications; callers must honor obligations",
   "use_cases": [
     {
       "scenario": "As a collaboration platform engineer, I want a user to create a top-level comment with mentions so that the system receives a fully validated, sanitized comment object ready for persistence and notification.",
@@ -158,7 +158,7 @@
         ],
         "evaluation_trace": [
           "action=create",
-          "actor roles include member → create allowed",
+          "actor roles include member \u2192 create allowed",
           "body length 78 <= 10000",
           "extracted 2 mentions, both valid under strict resolution",
           "extracted 1 link",
@@ -243,7 +243,7 @@
         "evaluation_trace": [
           "action=edit",
           "policy own_only=true",
-          "comment.created_by=user-42, actor.id=user-99 → mismatch",
+          "comment.created_by=user-42, actor.id=user-99 \u2192 mismatch",
           "deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
@@ -316,8 +316,8 @@
         ],
         "evaluation_trace": [
           "action=reply",
-          "parent_depth=7 → proposed depth=8",
-          "max_thread_depth=8 → deny"
+          "parent_depth=7 \u2192 proposed depth=8",
+          "max_thread_depth=8 \u2192 deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
         "confidence": "high"
@@ -381,7 +381,7 @@
       },
       "output_example": {
         "decision": "allow",
-        "reason": "Body matched moderation blocklist – allowed with quarantine obligation",
+        "reason": "Body matched moderation blocklist \u2013 allowed with quarantine obligation",
         "reason_code": "moderation_quarantine",
         "normalized_comment": {
           "id": null,
@@ -603,7 +603,7 @@
         "evaluation_trace": [
           "action=delete",
           "soft_delete=true in policy",
-          "actor is creator → allow",
+          "actor is creator \u2192 allow",
           "body retained for audit"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
@@ -676,7 +676,7 @@
         ],
         "evaluation_trace": [
           "enforce_tenant_isolation=true",
-          "actor.tenant_id=t-100, resource.tenant_id=t-200 → deny"
+          "actor.tenant_id=t-100, resource.tenant_id=t-200 \u2192 deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
         "confidence": "high"
@@ -738,7 +738,7 @@
         "obligations": [],
         "evaluation_trace": [
           "action=create",
-          "body trimmed length = 0 → deny"
+          "body trimmed length = 0 \u2192 deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
         "confidence": "high"
@@ -747,7 +747,7 @@
       "persona_ref": "client-developer"
     },
     {
-      "scenario": "As a client developer, I want a body exceeding max_body_length rejected with body_too_long.",
+      "scenario": "As a client developer, I want a body exceeding max_body_length rejected with body_too_long, so that oversized comments fail with a precise code.",
       "input_example": {
         "action": "create",
         "actor": {
@@ -813,7 +813,7 @@
       "persona_ref": "client-developer"
     },
     {
-      "scenario": "As a client developer, I want a react without emoji rejected with invalid_reaction.",
+      "scenario": "As a client developer, I want a react without emoji rejected with invalid_reaction, so that malformed reactions never update the set.",
       "input_example": {
         "action": "react",
         "actor": {
@@ -881,7 +881,7 @@
       "persona_ref": "client-developer"
     },
     {
-      "scenario": "As a security architect, I want create denied with insufficient_role when the actor role is not permitted.",
+      "scenario": "As a security architect, I want create denied with insufficient_role when the actor role is not permitted, so that role gates stay enforceable.",
       "input_example": {
         "action": "create",
         "actor": {
@@ -1350,7 +1350,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-process-comment-1.0.2-contract-validation",
+      "evidence_id": "core-process-comment-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

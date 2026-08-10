@@ -4,17 +4,17 @@
   "id": "core.transition-action-status",
   "namespace": "core",
   "name": "transition-action-status",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
-  "summary": "Deterministic state machine for action item status transitions (open → in_progress → blocked → snoozed → done / cancelled).",
-  "description": "Pure state-machine for action-item status transitions under a caller-supplied transition_config (allowed_transitions + owner_only).\n\nImplemented and smoke-tested matrix (use_cases):\n- open → in_progress (ok)\n- done → open illegal (illegal_transition)\n- open → snoozed (ok)\n- non-owner denied (not_owner)\n- in_progress → blocked (ok)\n- in_progress → done (ok)\n- blocked → in_progress (ok)\n- snoozed → open (ok)\n- open → cancelled (ok)\n- cancelled → open illegal (covers current_status=cancelled)\n- missing current_status → invalid_status\n\nKnown limitations (intentional in 1.0.1):\n- Transition graph is entirely caller-supplied; no built-in default policy\n- Does not persist status changes",
+  "summary": "Deterministic state machine for action item status transitions (open \u2192 in_progress \u2192 blocked \u2192 snoozed \u2192 done / cancelled).",
+  "description": "Pure state-machine for action-item status transitions under a caller-supplied transition_config (allowed_transitions + owner_only).\n\nImplemented and smoke-tested matrix (use_cases):\n- open \u2192 in_progress (ok)\n- done \u2192 open illegal (illegal_transition)\n- open \u2192 snoozed (ok)\n- non-owner denied (not_owner)\n- in_progress \u2192 blocked (ok)\n- in_progress \u2192 done (ok)\n- blocked \u2192 in_progress (ok)\n- snoozed \u2192 open (ok)\n- open \u2192 cancelled (ok)\n- cancelled \u2192 open illegal (covers current_status=cancelled)\n- missing current_status \u2192 invalid_status\n\nKnown limitations (intentional in 1.1.0):\n- Transition graph is entirely caller-supplied; no built-in default policy\n- Does not persist status changes",
   "use_cases": [
     {
-      "scenario": "As an owner, I want to move an item from open to in_progress.",
+      "scenario": "As an owner, I want to move an item from open to in_progress, so that active work is reflected accurately.",
       "input_example": {
         "current_status": "open",
         "requested_status": "in_progress",
@@ -54,7 +54,7 @@
         "new_status": "in_progress",
         "reason_code": "ok",
         "evaluation_trace": [
-          "open → in_progress is allowed",
+          "open \u2192 in_progress is allowed",
           "actor is owner"
         ]
       },
@@ -62,7 +62,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want an illegal transition (done → open) rejected.",
+      "scenario": "As a system, I want an illegal transition (done \u2192 open) rejected, so that completed work cannot silently reopen.",
       "input_example": {
         "current_status": "done",
         "requested_status": "open",
@@ -109,7 +109,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As an owner, I want to snooze an open item.",
+      "scenario": "As an owner, I want to snooze an open item, so that I can pause follow-up without losing the item.",
       "input_example": {
         "current_status": "open",
         "requested_status": "snoozed",
@@ -149,7 +149,7 @@
         "new_status": "snoozed",
         "reason_code": "ok",
         "evaluation_trace": [
-          "open → snoozed is allowed",
+          "open \u2192 snoozed is allowed",
           "actor is owner"
         ]
       },
@@ -157,7 +157,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want a non-owner blocked when owner_only is true.",
+      "scenario": "As a system, I want a non-owner blocked when owner_only is true, so that only the owner can change status.",
       "input_example": {
         "current_status": "open",
         "requested_status": "in_progress",
@@ -204,7 +204,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As an owner, I want in_progress → blocked.",
+      "scenario": "As an owner, I want in_progress \u2192 blocked, so that blockers are an explicit status, not tribal knowledge.",
       "input_example": {
         "current_status": "in_progress",
         "requested_status": "blocked",
@@ -244,14 +244,14 @@
         "new_status": "blocked",
         "reason_code": "ok",
         "evaluation_trace": [
-          "in_progress → blocked is allowed"
+          "in_progress \u2192 blocked is allowed"
         ]
       },
       "happy": true,
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As an owner, I want in_progress → done.",
+      "scenario": "As an owner, I want in_progress \u2192 done, so that finished work can leave the active queue.",
       "input_example": {
         "current_status": "in_progress",
         "requested_status": "done",
@@ -291,14 +291,14 @@
         "new_status": "done",
         "reason_code": "ok",
         "evaluation_trace": [
-          "in_progress → done is allowed"
+          "in_progress \u2192 done is allowed"
         ]
       },
       "happy": true,
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As an owner, I want blocked → in_progress.",
+      "scenario": "As an owner, I want blocked \u2192 in_progress, so that cleared blockers resume cleanly.",
       "input_example": {
         "current_status": "blocked",
         "requested_status": "in_progress",
@@ -338,14 +338,14 @@
         "new_status": "in_progress",
         "reason_code": "ok",
         "evaluation_trace": [
-          "blocked → in_progress is allowed"
+          "blocked \u2192 in_progress is allowed"
         ]
       },
       "happy": true,
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As an owner, I want snoozed → open.",
+      "scenario": "As an owner, I want snoozed \u2192 open, so that snoozed items re-enter the follow-up pool.",
       "input_example": {
         "current_status": "snoozed",
         "requested_status": "open",
@@ -385,14 +385,14 @@
         "new_status": "open",
         "reason_code": "ok",
         "evaluation_trace": [
-          "snoozed → open is allowed"
+          "snoozed \u2192 open is allowed"
         ]
       },
       "happy": true,
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As an owner, I want open → cancelled.",
+      "scenario": "As an owner, I want open \u2192 cancelled, so that abandoned work can exit without fake completion.",
       "input_example": {
         "current_status": "open",
         "requested_status": "cancelled",
@@ -432,14 +432,14 @@
         "new_status": "cancelled",
         "reason_code": "ok",
         "evaluation_trace": [
-          "open → cancelled is allowed"
+          "open \u2192 cancelled is allowed"
         ]
       },
       "happy": true,
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want cancelled items to reject further transitions.",
+      "scenario": "As a system, I want cancelled items to reject further transitions, so that cancelled work stays terminal.",
       "input_example": {
         "current_status": "cancelled",
         "requested_status": "open",
@@ -486,7 +486,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want missing current_status rejected with invalid_status.",
+      "scenario": "As a system, I want missing current_status rejected with invalid_status, so that incomplete transition requests fail closed.",
       "input_example": {
         "current_status": "",
         "requested_status": "open",
@@ -680,7 +680,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.transition-action-status@1.0.1",
+    "spec_ref": "core.transition-action-status@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -688,7 +688,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-transition-action-status-1.0.1-contract-validation",
+      "evidence_id": "core-transition-action-status-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

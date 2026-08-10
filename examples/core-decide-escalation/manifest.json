@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.decide-escalation-agent",
-  "version": "1.0.1",
-  "summary": "Capability package for core.decide-escalation@1.0.1.",
+  "version": "1.1.0",
+  "summary": "Capability package for core.decide-escalation@1.1.0.",
   "capability_ref": {
     "id": "core.decide-escalation",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.decide-escalation",
-      "workflow_version": "1.0.1"
+      "workflow_version": "1.1.0"
     }
   ],
   "source": {

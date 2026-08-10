@@ -4,17 +4,17 @@
   "id": "core.calculate-deadline-pressure",
   "namespace": "core",
   "name": "calculate-deadline-pressure",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Computes a deterministic deadline pressure score from due date versus a reference date.",
-  "description": "Pure WF2 capability used after ownership assignment. Maps days-until-due into a 0.0-1.0 pressure_score and a band (low|medium|high|overdue).\n\nImplemented and smoke-tested matrix (use_cases):\n- due-soon medium pressure\n- overdue max pressure\n- missing_due_date when due_date is empty\n- invalid_date for unparseable dates\n- config_error when reference_date is empty\n\nKnown limitations (intentional in 1.0.1):\n- Band thresholds are fixed heuristic cutovers; no calendar/holiday awareness",
+  "description": "Pure WF2 capability used after ownership assignment. Maps days-until-due into a 0.0-1.0 pressure_score and a band (low|medium|high|overdue).\n\nImplemented and smoke-tested matrix (use_cases):\n- due-soon medium pressure\n- overdue max pressure\n- missing_due_date when due_date is empty\n- invalid_date for unparseable dates\n- config_error when reference_date is empty\n\nKnown limitations (intentional in 1.1.0):\n- Band thresholds are fixed heuristic cutovers; no calendar/holiday awareness",
   "use_cases": [
     {
-      "scenario": "As the commit pipeline, I want pressure for an item due in three days.",
+      "scenario": "As a commit pipeline, I want pressure for an item due in three days, so that due-soon work surfaces at the right urgency band.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -43,7 +43,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want overdue items to receive maximum pressure.",
+      "scenario": "As a system, I want overdue items to receive maximum pressure, so that late work is ranked above merely approaching deadlines.",
       "input_example": {
         "item": {
           "id": "ai-2",
@@ -72,7 +72,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As WF2, I want missing_due_date when due_date is empty so undated items fail closed.",
+      "scenario": "As a WF2 workflow author, I want missing_due_date when due_date is empty, so that undated items fail closed.",
       "input_example": {
         "item": {
           "id": "ai-m",
@@ -97,7 +97,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF2, I want invalid_date when due_date cannot be parsed.",
+      "scenario": "As a WF2 workflow author, I want invalid_date when due_date cannot be parsed, so that bad date strings never invent pressure.",
       "input_example": {
         "item": {
           "id": "ai-i",
@@ -122,7 +122,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF2, I want config_error when reference_date is empty.",
+      "scenario": "As a WF2 workflow author, I want config_error when reference_date is empty, so that pressure is never computed without an anchor.",
       "input_example": {
         "item": {
           "id": "ai-c",
@@ -284,7 +284,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.calculate-deadline-pressure@1.0.1",
+    "spec_ref": "core.calculate-deadline-pressure@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -292,7 +292,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-calculate-deadline-pressure-1.0.1-contract-validation",
+      "evidence_id": "core-calculate-deadline-pressure-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

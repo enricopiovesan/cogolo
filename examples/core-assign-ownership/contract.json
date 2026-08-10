@@ -4,17 +4,17 @@
   "id": "core.assign-ownership",
   "namespace": "core",
   "name": "assign-ownership",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Resolves and records clear ownership for an action item (single accountable person).",
-  "description": "Resolves a suggested owner against workspace members (id, email, name) and applies ownership_config.fallback when unresolved. Pure and deterministic.\n\nImplemented and smoke-tested matrix (use_cases):\n- name_match → ok\n- email_match → ok\n- null suggestion with fallback=creator → ok\n- unknown suggestion with fallback=fail → unresolved\n- inactive member with require_active_member → inactive_member\n- invalid fallback value → config_error\n- unknown suggestion with fallback=unassigned → ok (owner_id null)\n\nKnown limitations (intentional in 1.0.1):\n- Does not mutate storage or notify members; callers persist the decision",
+  "description": "Resolves a suggested owner against workspace members (id, email, name) and applies ownership_config.fallback when unresolved. Pure and deterministic.\n\nImplemented and smoke-tested matrix (use_cases):\n- name_match \u2192 ok\n- email_match \u2192 ok\n- null suggestion with fallback=creator \u2192 ok\n- unknown suggestion with fallback=fail \u2192 unresolved\n- inactive member with require_active_member \u2192 inactive_member\n- invalid fallback value \u2192 config_error\n- unknown suggestion with fallback=unassigned \u2192 ok (owner_id null)\n\nKnown limitations (intentional in 1.1.0):\n- Does not mutate storage or notify members; callers persist the decision",
   "use_cases": [
     {
-      "scenario": "As the system, I want a name match to resolve to a canonical user id.",
+      "scenario": "As a system, I want a name match to resolve to a canonical user id, so that ownership is unambiguous downstream.",
       "input_example": {
         "suggested_owner": "Ada Lovelace",
         "creator_id": "user-carol",
@@ -48,7 +48,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want an email suggestion to resolve by email.",
+      "scenario": "As a system, I want an email suggestion to resolve by email, so that directory matches stay deterministic.",
       "input_example": {
         "suggested_owner": "bob@loop.dev",
         "creator_id": "user-carol",
@@ -82,7 +82,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want a null suggestion to fall back to the creator.",
+      "scenario": "As a system, I want a null suggestion to fall back to the creator, so that every item still has an owner path.",
       "input_example": {
         "suggested_owner": null,
         "creator_id": "user-carol",
@@ -112,7 +112,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want an unknown suggestion to fail closed when fallback is fail.",
+      "scenario": "As a system, I want an unknown suggestion to fail closed when fallback is fail, so that unresolved owners never silently pass.",
       "input_example": {
         "suggested_owner": "Unknown Person",
         "creator_id": "user-carol",
@@ -142,7 +142,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want an inactive member match rejected with inactive_member when require_active_member is true.",
+      "scenario": "As a system, I want an inactive member match rejected with inactive_member when require_active_member is true, so that inactive accounts cannot own work.",
       "input_example": {
         "suggested_owner": "user-ada",
         "creator_id": "user-carol",
@@ -172,7 +172,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want an invalid fallback value rejected with config_error.",
+      "scenario": "As a system, I want an invalid fallback value rejected with config_error, so that misconfiguration is visible immediately.",
       "input_example": {
         "suggested_owner": "Ada Lovelace",
         "creator_id": "user-carol",
@@ -206,7 +206,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want unknown suggestions to resolve as unassigned when fallback is unassigned.",
+      "scenario": "As a system, I want unknown suggestions to resolve as unassigned when fallback is unassigned, so that callers can prompt for an owner later.",
       "input_example": {
         "suggested_owner": "Unknown Person",
         "creator_id": "user-carol",
@@ -378,7 +378,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.assign-ownership@1.0.1",
+    "spec_ref": "core.assign-ownership@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -386,7 +386,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-assign-ownership-1.0.1-contract-validation",
+      "evidence_id": "core-assign-ownership-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

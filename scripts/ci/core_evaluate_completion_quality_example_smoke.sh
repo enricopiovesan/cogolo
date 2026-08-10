@@ -36,4 +36,4 @@ assert_execute "$pkg/runtime-requests/uc02-needs-evidence.json" "ok" "UC-02" \
   'missing_evidence'
 assert_execute "$pkg/runtime-requests/uc03-invalid-status.json" "invalid_status" "UC-03"
 assert_execute "$pkg/runtime-requests/uc04-invalid-input.json" "invalid_input" "UC-04"
-echo "OK: core.evaluate-completion-quality 1.0.1 E2E smoke passed"
+echo "OK: core.evaluate-completion-quality 1.1.0 E2E smoke passed"

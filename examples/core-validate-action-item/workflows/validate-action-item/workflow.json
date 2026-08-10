@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "core.validate-action-item",
   "name": "validate-action-item",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
@@ -35,7 +35,7 @@
     {
       "node_id": "validate",
       "capability_id": "core.validate-action-item",
-      "capability_version": "1.0.1",
+      "capability_version": "1.1.0",
       "input": {
         "from_workflow_input": [
           "action_item",

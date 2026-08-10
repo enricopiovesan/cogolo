@@ -29,4 +29,4 @@ assert_execute "$pkg/runtime-requests/uc01-soft-friendly.json" "ok" "UC-01" 'Sen
 assert_execute "$pkg/runtime-requests/uc02-escalate.json" "ok" "UC-02" 'Escalation'
 assert_execute "$pkg/runtime-requests/uc03-direct-neutral.json" "ok" "UC-03" 'Please complete'
 assert_execute "$pkg/runtime-requests/uc04-config-error.json" "config_error" "UC-04"
-echo "OK: core.generate-nudge-message 1.0.1 E2E smoke passed"
+echo "OK: core.generate-nudge-message 1.1.0 E2E smoke passed"

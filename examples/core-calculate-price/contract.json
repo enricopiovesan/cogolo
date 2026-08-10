@@ -4,17 +4,17 @@
   "id": "core.calculate-price",
   "namespace": "core",
   "name": "calculate-price",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "capability-authors@traverse-framework.com"
   },
   "summary": "Deterministic price/quote engine. Given line items, quantities, customer context and a versioned pricing configuration, returns unit prices, discounts, taxes and totals with an audit trail.",
-  "description": "Pure pricing capability: line quantity × unit_price, optional first matching percentage/fixed discount, optional exclusive tax, deterministic config_hash.\n\nImplemented and smoke-tested matrix (use_cases):\n- percentage discount + exclusive tax (ok)\n- fixed discount without tax (ok)\n- empty discount/tax rules returns base price (ok)\n- invalid_quantity when quantity <= 0\n- invalid_unit_price when unit_price < 0\n- invalid_config when currency is empty\n- currency_mismatch when top-level currency ≠ pricing_config.currency\n- empty_cart when lines is empty\n\nKnown limitations (intentional in 1.0.1):\n- Only the first matching discount rule is applied (no multi-rule stacking)\n- Discount rule `conditions` (e.g. customer segment) are ignored\n- Rounding modes other than half_up are not implemented; schema narrowed to half_up\n- Tax-inclusive extraction is not implemented (exclusive tax only)\n- calculation_error is not part of the published reason_code vocabulary",
+  "description": "Pure pricing capability: line quantity \u00d7 unit_price, optional first matching percentage/fixed discount, optional exclusive tax, deterministic config_hash.\n\nImplemented and smoke-tested matrix (use_cases):\n- percentage discount + exclusive tax (ok)\n- fixed discount without tax (ok)\n- empty discount/tax rules returns base price (ok)\n- invalid_quantity when quantity <= 0\n- invalid_unit_price when unit_price < 0\n- invalid_config when currency is empty\n- currency_mismatch when top-level currency \u2260 pricing_config.currency\n- empty_cart when lines is empty\n\nKnown limitations (intentional in 1.1.0):\n- Only the first matching discount rule is applied (no multi-rule stacking)\n- Discount rule `conditions` (e.g. customer segment) are ignored\n- Rounding modes other than half_up are not implemented; schema narrowed to half_up\n- Tax-inclusive extraction is not implemented (exclusive tax only)\n- calculation_error is not part of the published reason_code vocabulary",
   "use_cases": [
     {
-      "scenario": "As a checkout-flow developer, I want percentage discount + exclusive tax so the UI can show a clear total.",
+      "scenario": "As a checkout-flow developer, I want percentage discount + exclusive tax, so that the UI can show a clear total.",
       "input_example": {
         "currency": "USD",
         "lines": [
@@ -111,7 +111,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As a billing engineer, I want a fixed discount without tax to reduce the line net deterministically.",
+      "scenario": "As a billing engineer, I want a fixed discount without tax to reduce the line net deterministically, so that invoices stay reproducible.",
       "input_example": {
         "currency": "USD",
         "lines": [
@@ -187,7 +187,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As a client developer, I want empty discount/tax rules to return the base price with reason_code ok.",
+      "scenario": "As a client developer, I want empty discount/tax rules to return the base price with reason_code ok, so that simple carts still price correctly.",
       "input_example": {
         "currency": "USD",
         "lines": [
@@ -247,7 +247,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As a checkout-flow developer, I want quantity <= 0 rejected with invalid_quantity.",
+      "scenario": "As a checkout-flow developer, I want quantity <= 0 rejected with invalid_quantity, so that bogus line quantities never reach totals.",
       "input_example": {
         "currency": "USD",
         "lines": [
@@ -293,7 +293,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As a platform engineer, I want a negative unit_price rejected with invalid_unit_price.",
+      "scenario": "As a platform engineer, I want a negative unit_price rejected with invalid_unit_price, so that underflows cannot produce fake discounts.",
       "input_example": {
         "currency": "USD",
         "lines": [
@@ -339,7 +339,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As a runtime, I want empty currency rejected with invalid_config.",
+      "scenario": "As a runtime, I want empty currency rejected with invalid_config, so that pricing never runs without a currency.",
       "input_example": {
         "currency": "",
         "lines": [
@@ -385,7 +385,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As a multi-currency engineer, I want currency_mismatch when request currency differs from pricing_config.currency.",
+      "scenario": "As a multi-currency engineer, I want currency_mismatch when request currency differs from pricing_config.currency, so that mixed-currency carts fail closed.",
       "input_example": {
         "currency": "EUR",
         "lines": [
@@ -431,7 +431,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As a checkout-flow developer, I want an empty cart rejected with empty_cart.",
+      "scenario": "As a checkout-flow developer, I want an empty cart rejected with empty_cart, so that checkout cannot quote zero lines as a price.",
       "input_example": {
         "currency": "USD",
         "lines": [],
@@ -894,7 +894,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T05:50:00Z",
-    "spec_ref": "core.calculate-price@1.0.1",
+    "spec_ref": "core.calculate-price@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -902,7 +902,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-calculate-price-1.0.1-contract-validation",
+      "evidence_id": "core-calculate-price-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

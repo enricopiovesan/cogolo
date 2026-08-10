@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "core.select-items-for-followup",
   "name": "select-items-for-followup",
-  "version": "1.1.1",
+  "version": "1.2.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
@@ -36,7 +36,7 @@
     {
       "node_id": "run",
       "capability_id": "core.select-items-for-followup",
-      "capability_version": "1.1.1",
+      "capability_version": "1.2.0",
       "input": {
         "from_workflow_input": [
           "open_items",

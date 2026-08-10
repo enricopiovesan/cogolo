@@ -4,17 +4,17 @@
   "id": "core.record-nudge-event",
   "namespace": "core",
   "name": "record-nudge-event",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Constructs a pure audit/event payload for a nudge that was selected and messaged.",
-  "description": "Pure WF3 capability. Builds a deterministic nudge event record (event_id, ordinal, channel, intensity, preview) for downstream persistence.\n\nImplemented and smoke-tested matrix (use_cases):\n- soft intensity first nudge\n- escalate intensity with ordinal from prior count\n- direct intensity mid-sequence nudge\n- invalid_input when item_id is empty\n\nKnown limitations (intentional in 1.0.1):\n- reason_code invalid_intensity removed; intensity is a schema enum so host validation rejects unknown values before the guest runs\n- Event is constructed only; persistence is caller-owned",
+  "description": "Pure WF3 capability. Builds a deterministic nudge event record (event_id, ordinal, channel, intensity, preview) for downstream persistence.\n\nImplemented and smoke-tested matrix (use_cases):\n- soft intensity first nudge\n- escalate intensity with ordinal from prior count\n- direct intensity mid-sequence nudge\n- invalid_input when item_id is empty\n\nKnown limitations (intentional in 1.1.0):\n- reason_code invalid_intensity removed; intensity is a schema enum so host validation rejects unknown values before the guest runs\n- Event is constructed only; persistence is caller-owned",
   "use_cases": [
     {
-      "scenario": "As the follow-up engine, I want an audit record after generating a soft nudge.",
+      "scenario": "As a follow-up engine, I want an audit record after generating a soft nudge, so that later escalations can see prior outreach.",
       "input_example": {
         "item_id": "ai-1",
         "owner_id": "user-ada",
@@ -45,7 +45,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want escalate intensity recorded with a higher ordinal.",
+      "scenario": "As a system, I want escalate intensity recorded with a higher ordinal, so that nudge history reflects increasing pressure.",
       "input_example": {
         "item_id": "ai-9",
         "owner_id": "user-bob",
@@ -76,7 +76,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As WF3, I want a direct-intensity nudge event with ordinal prior+1.",
+      "scenario": "As a WF3 workflow author, I want a direct-intensity nudge event with ordinal prior+1, so that mid-sequence nudges stay ordered.",
       "input_example": {
         "item_id": "ai-2",
         "owner_id": "user-ada",
@@ -107,7 +107,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF3, I want invalid_input when item_id is empty.",
+      "scenario": "As a WF3 workflow author, I want invalid_input when item_id is empty, so that orphan nudge events cannot be recorded.",
       "input_example": {
         "item_id": "",
         "owner_id": "user-ada",
@@ -275,7 +275,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.record-nudge-event@1.0.1",
+    "spec_ref": "core.record-nudge-event@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -283,7 +283,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-record-nudge-event-1.0.1-contract-validation",
+      "evidence_id": "core-record-nudge-event-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

@@ -4,17 +4,17 @@
   "id": "core.notify-stakeholders",
   "namespace": "core",
   "name": "notify-stakeholders",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
-  "summary": "Prepares notification intents for stakeholders when an action item changes status. Pure — does not send.",
-  "description": "Pure WF4 capability. Builds recipient/channel/subject/body intents from item + stakeholder list + event_type. Delivery is caller-owned.\n\nImplemented and smoke-tested matrix (use_cases):\n- completed event with multiple stakeholders\n- nothing_to_notify when stakeholders is empty\n- status_changed event intents\n- blocked event intents\n\nKnown limitations (intentional in 1.0.1):\n- reason_code invalid_event_type and invalid_input removed; event_type is a schema enum and host-required fields make those guest denial paths unreachable without schema weakening\n- No actual notification delivery",
+  "summary": "Prepares notification intents for stakeholders when an action item changes status. Pure \u2014 does not send.",
+  "description": "Pure WF4 capability. Builds recipient/channel/subject/body intents from item + stakeholder list + event_type. Delivery is caller-owned.\n\nImplemented and smoke-tested matrix (use_cases):\n- completed event with multiple stakeholders\n- nothing_to_notify when stakeholders is empty\n- status_changed event intents\n- blocked event intents\n\nKnown limitations (intentional in 1.1.0):\n- reason_code invalid_event_type and invalid_input removed; event_type is a schema enum and host-required fields make those guest denial paths unreachable without schema weakening\n- No actual notification delivery",
   "use_cases": [
     {
-      "scenario": "As the completion path, I want requester and manager notified that an item is done.",
+      "scenario": "As a completion path, I want requester and manager notified that an item is done, so that stakeholders learn without polling.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -67,7 +67,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want zero intents when there are no stakeholders.",
+      "scenario": "As a system, I want zero intents when there are no stakeholders, so that empty recipient lists do not fabricate notifications.",
       "input_example": {
         "item": {
           "id": "ai-3",
@@ -96,7 +96,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF4, I want status_changed notification intents for stakeholders.",
+      "scenario": "As a WF4 workflow author, I want status_changed notification intents for stakeholders, so that status flips can be announced consistently.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -138,7 +138,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As WF4, I want blocked notification intents for stakeholders.",
+      "scenario": "As a WF4 workflow author, I want blocked notification intents for stakeholders, so that blockers surface to the right people.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -356,7 +356,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.notify-stakeholders@1.0.1",
+    "spec_ref": "core.notify-stakeholders@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -364,7 +364,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-notify-stakeholders-1.0.1-contract-validation",
+      "evidence_id": "core-notify-stakeholders-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

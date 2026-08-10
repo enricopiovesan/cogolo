@@ -4,7 +4,7 @@
   "request_id": "core-extract-action-items-02",
   "intent": {
     "capability_id": "core.extract-action-items",
-    "capability_version": "1.1.1"
+    "capability_version": "1.2.0"
   },
   "input": {
     "text": "We had a good discussion and aligned on the direction. No specific next steps today.",
