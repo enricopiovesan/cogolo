@@ -4,14 +4,14 @@
   "id": "core.normalize-participants",
   "namespace": "core",
   "name": "normalize-participants",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Normalizes raw participant names/emails into canonical participant records for action-item ownership.",
-  "description": "Pure WF1 capability. Lowercases emails, trims whitespace, and matches against workspace members by email then name. Unmatched participants are retained with match_method=none so humans can resolve them.",
+  "description": "Pure WF1 capability. Lowercases emails, trims whitespace, and matches against workspace members by email then name. Unmatched participants are retained with match_method=none.\n\nImplemented and smoke-tested matrix (use_cases):\n- mixed email match with one unmatched stranger\n- name-only match when email is null\n\nKnown limitations (intentional in 1.0.1):\n- reason_code narrowed to ok; invalid_input/config_error removed because host-required fields make those guest paths unreachable without schema weakening, and config_error is not implemented by the guest",
   "use_cases": [
     {
       "scenario": "As the ingest pipeline, I want extracted names and emails resolved to workspace members.",
@@ -231,9 +231,7 @@
         "reason_code": {
           "type": "string",
           "enum": [
-            "ok",
-            "invalid_input",
-            "config_error"
+            "ok"
           ]
         },
         "evaluation_trace": {
@@ -288,7 +286,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.normalize-participants@1.0.0",
+    "spec_ref": "core.normalize-participants@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -296,7 +294,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-normalize-participants-1.0.0-contract-validation",
+      "evidence_id": "core-normalize-participants-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

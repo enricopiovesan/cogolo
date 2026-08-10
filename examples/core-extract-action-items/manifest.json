@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.extract-action-items-agent",
-  "version": "1.1.0",
-  "summary": "Capability package for core.extract-action-items@1.1.0.",
+  "version": "1.1.1",
+  "summary": "Capability package for core.extract-action-items@1.1.1.",
   "capability_ref": {
     "id": "core.extract-action-items",
-    "version": "1.1.0",
+    "version": "1.1.1",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.extract-action-items",
-      "workflow_version": "1.1.0"
+      "workflow_version": "1.1.1"
     }
   ],
   "source": {

@@ -1,0 +1,27 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-record-nudge-event-03",
+  "intent": {
+    "capability_id": "core.record-nudge-event",
+    "capability_version": "1.0.1"
+  },
+  "input": {
+    "item_id": "ai-2",
+    "owner_id": "user-ada",
+    "intensity": "direct",
+    "channel": "in_app",
+    "message_preview": "Please complete",
+    "event_at": "2026-08-07T12:00:00Z",
+    "prior_nudge_count": 1
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-record-nudge-event-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

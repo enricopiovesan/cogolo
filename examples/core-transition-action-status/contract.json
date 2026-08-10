@@ -4,14 +4,14 @@
   "id": "core.transition-action-status",
   "namespace": "core",
   "name": "transition-action-status",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Deterministic state machine for action item status transitions (open → in_progress → blocked → snoozed → done / cancelled).",
-  "description": "Pure state-machine capability for Loop action items. Validates that a requested status change is legal given the current status and a caller-supplied transition policy, then returns the new status plus audit metadata.\n\nConfiguration defines allowed transitions and whether only the owner may perform them. The capability never mutates external state — callers apply the returned decision.\n\nCouncil/product alignment note: workflows declare a `snoozed` status for follow-through; this contract includes `snoozed` in the status enum and default transition examples so WF3/WF4 compose without a silent schema gap.",
+  "description": "Pure state-machine for action-item status transitions under a caller-supplied transition_config (allowed_transitions + owner_only).\n\nImplemented and smoke-tested matrix (use_cases):\n- open → in_progress (ok)\n- done → open illegal (illegal_transition)\n- open → snoozed (ok)\n- non-owner denied (not_owner)\n- in_progress → blocked (ok)\n- in_progress → done (ok)\n- blocked → in_progress (ok)\n- snoozed → open (ok)\n- open → cancelled (ok)\n- cancelled → open illegal (covers current_status=cancelled)\n- missing current_status → invalid_status\n\nKnown limitations (intentional in 1.0.1):\n- Transition graph is entirely caller-supplied; no built-in default policy\n- Does not persist status changes",
   "use_cases": [
     {
       "scenario": "As an owner, I want to move an item from open to in_progress.",
@@ -23,10 +23,26 @@
         "transition_config": {
           "version": "1.0",
           "allowed_transitions": {
-            "open": ["in_progress", "cancelled", "snoozed"],
-            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
-            "blocked": ["in_progress", "cancelled"],
-            "snoozed": ["open", "in_progress", "cancelled"],
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
             "done": [],
             "cancelled": []
           },
@@ -46,7 +62,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want an illegal transition (done → open) to be rejected.",
+      "scenario": "As the system, I want an illegal transition (done → open) rejected.",
       "input_example": {
         "current_status": "done",
         "requested_status": "open",
@@ -55,10 +71,26 @@
         "transition_config": {
           "version": "1.0",
           "allowed_transitions": {
-            "open": ["in_progress", "cancelled", "snoozed"],
-            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
-            "blocked": ["in_progress", "cancelled"],
-            "snoozed": ["open", "in_progress", "cancelled"],
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
             "done": [],
             "cancelled": []
           },
@@ -77,7 +109,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As an owner, I want to snooze an open item so follow-up respects snoozed_until.",
+      "scenario": "As an owner, I want to snooze an open item.",
       "input_example": {
         "current_status": "open",
         "requested_status": "snoozed",
@@ -86,10 +118,26 @@
         "transition_config": {
           "version": "1.0",
           "allowed_transitions": {
-            "open": ["in_progress", "cancelled", "snoozed"],
-            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
-            "blocked": ["in_progress", "cancelled"],
-            "snoozed": ["open", "in_progress", "cancelled"],
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
             "done": [],
             "cancelled": []
           },
@@ -118,10 +166,26 @@
         "transition_config": {
           "version": "1.0",
           "allowed_transitions": {
-            "open": ["in_progress", "cancelled", "snoozed"],
-            "in_progress": ["blocked", "done", "cancelled", "snoozed"],
-            "blocked": ["in_progress", "cancelled"],
-            "snoozed": ["open", "in_progress", "cancelled"],
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
             "done": [],
             "cancelled": []
           },
@@ -134,6 +198,335 @@
         "reason_code": "not_owner",
         "evaluation_trace": [
           "owner_only=true and actor is not owner"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As an owner, I want in_progress → blocked.",
+      "input_example": {
+        "current_status": "in_progress",
+        "requested_status": "blocked",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "blocked",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "in_progress → blocked is allowed"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As an owner, I want in_progress → done.",
+      "input_example": {
+        "current_status": "in_progress",
+        "requested_status": "done",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "done",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "in_progress → done is allowed"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As an owner, I want blocked → in_progress.",
+      "input_example": {
+        "current_status": "blocked",
+        "requested_status": "in_progress",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "in_progress",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "blocked → in_progress is allowed"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As an owner, I want snoozed → open.",
+      "input_example": {
+        "current_status": "snoozed",
+        "requested_status": "open",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "open",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "snoozed → open is allowed"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As an owner, I want open → cancelled.",
+      "input_example": {
+        "current_status": "open",
+        "requested_status": "cancelled",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": true,
+        "new_status": "cancelled",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "open → cancelled is allowed"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As the system, I want cancelled items to reject further transitions.",
+      "input_example": {
+        "current_status": "cancelled",
+        "requested_status": "open",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": false,
+        "new_status": "cancelled",
+        "reason_code": "illegal_transition",
+        "evaluation_trace": [
+          "cancelled has no allowed transition to open"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want missing current_status rejected with invalid_status.",
+      "input_example": {
+        "current_status": "",
+        "requested_status": "open",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+          "version": "1.0",
+          "allowed_transitions": {
+            "open": [
+              "in_progress",
+              "cancelled",
+              "snoozed"
+            ],
+            "in_progress": [
+              "blocked",
+              "done",
+              "cancelled",
+              "snoozed"
+            ],
+            "blocked": [
+              "in_progress",
+              "cancelled"
+            ],
+            "snoozed": [
+              "open",
+              "in_progress",
+              "cancelled"
+            ],
+            "done": [],
+            "cancelled": []
+          },
+          "owner_only": true
+        }
+      },
+      "output_example": {
+        "allowed": false,
+        "new_status": "",
+        "reason_code": "invalid_status",
+        "evaluation_trace": [
+          "precondition failed: required fields missing"
         ]
       },
       "happy": false,
@@ -287,7 +680,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.transition-action-status@1.0.0",
+    "spec_ref": "core.transition-action-status@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -295,7 +688,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-transition-action-status-1.0.0-contract-validation",
+      "evidence_id": "core-transition-action-status-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

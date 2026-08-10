@@ -4,20 +4,20 @@
   "request_id": "core-calculate-price-02",
   "intent": {
     "capability_id": "core.calculate-price",
-    "capability_version": "1.0.0"
+    "capability_version": "1.0.1"
   },
   "input": {
     "currency": "USD",
     "lines": [
       {
-        "id": "line-1",
-        "sku": "SKU-100",
-        "quantity": 0,
-        "unit_price": 50.00
+        "id": "sub-1",
+        "sku": "PLAN-PRO",
+        "quantity": 1,
+        "unit_price": 99.0
       }
     ],
     "customer": {
-      "id": "cust-1"
+      "id": "cust-99"
     },
     "context": {},
     "pricing_config": {
@@ -25,7 +25,15 @@
       "currency": "USD",
       "rounding": "half_up",
       "decimal_places": 2,
-      "discount_rules": [],
+      "discount_rules": [
+        {
+          "id": "loyalty-5",
+          "priority": 50,
+          "type": "fixed",
+          "value": 5.0,
+          "stackable": true
+        }
+      ],
       "tax_rules": []
     }
   },

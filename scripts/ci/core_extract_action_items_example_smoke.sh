@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke for examples/core-extract-action-items (core.extract-action-items@1.1.0).
+# End-to-end smoke for examples/core-extract-action-items (core.extract-action-items@1.1.1).
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ echo "==> capability inspect"
 contract_out="$("${cli[@]}" capability inspect "$pkg/contract.json")"
 printf '%s\n' "$contract_out"
 require_match "$contract_out" "id: core.extract-action-items" "contract inspect id"
-require_match "$contract_out" "version: 1.1.0" "contract inspect version"
+require_match "$contract_out" "version: 1.1.1" "contract inspect version"
 
 echo "==> wasm abi verify"
 abi_out="$("${cli[@]}" wasm abi verify "$pkg/artifacts/core-extract-action-items.wasm")"
@@ -39,7 +39,7 @@ echo "==> capability-package inspect"
 pkg_out="$("${cli[@]}" capability-package inspect "$pkg/manifest.json")"
 printf '%s\n' "$pkg_out"
 require_match "$pkg_out" "package_id: core.extract-action-items-agent" "package_id"
-require_match "$pkg_out" "capability_version: 1.1.0" "capability_version"
+require_match "$pkg_out" "capability_version: 1.1.1" "capability_version"
 
 assert_execute() {
   local request="$1"
@@ -52,7 +52,7 @@ assert_execute() {
   out="$("${cli[@]}" capability-package execute "$pkg/manifest.json" "$request")"
   printf '%s\n' "$out"
   require_match "$out" "status: completed" "$label status"
-  require_match "$out" "capability_version: 1.1.0" "$label capability_version"
+  require_match "$out" "capability_version: 1.1.1" "$label capability_version"
   require_match "$out" "\"reason_code\": \"$code\"" "$label reason_code"
   if [[ -n "$extra" ]]; then
     require_match "$out" "$extra" "$label extra"
@@ -63,7 +63,7 @@ echo "==> execute UC-01"
 uc01_out="$("${cli[@]}" capability-package execute "$pkg/manifest.json" "$pkg/runtime-requests/uc01-extract-mixed.json")"
 printf '%s\n' "$uc01_out"
 require_match "$uc01_out" "status: completed" "UC-01 status"
-require_match "$uc01_out" "capability_version: 1.1.0" "UC-01 capability_version"
+require_match "$uc01_out" "capability_version: 1.1.1" "UC-01 capability_version"
 require_match "$uc01_out" "\"reason_code\": \"ok\"" "UC-01 reason_code"
 require_match "$uc01_out" '"title": "Send the revised proposal"' "UC-01 ada title"
 require_match "$uc01_out" '"suggested_owner": "Ada Lovelace"' "UC-01 ada owner"
@@ -78,4 +78,4 @@ require_match "$uc01_out" '"confidence": 0.58' "UC-01 vague confidence"
 
 assert_execute "$pkg/runtime-requests/uc02-no-actions.json" "no_action_items_found" "UC-02" '"needs_human_review": \[\]'
 
-echo "OK: core.extract-action-items 1.1.0 E2E smoke passed"
+echo "OK: core.extract-action-items 1.1.1 E2E smoke passed"

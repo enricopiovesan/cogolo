@@ -4,14 +4,14 @@
   "id": "core.process-comment",
   "namespace": "core",
   "name": "process-comment",
-  "version": "1.0.1",
+  "version": "1.0.2",
   "lifecycle": "active",
   "owner": {
     "team": "traverse-core",
     "contact": "capability-authors@traverse-framework.com"
   },
   "summary": "Policy-driven comment processor for create/edit/reply/delete/react with mentions, quarantine, soft-delete, and tenant isolation.",
-  "description": "core.process-comment evaluates create, edit, reply, delete, and react actions against a caller-supplied comment_policy and returns allow/deny with a normalized comment object, obligations, and an evaluation trace.\n\nImplemented and smoke-tested matrix (use_cases):\n- create with @mention and https link extraction + notify obligations\n- edit denied when policy own_only and actor is not creator\n- reply denied when parent_depth+1 >= max_thread_depth\n- create allowed with quarantine when body matches moderation.blocklist\n- react add normalized to a reaction set\n- soft-delete retains body and records deleted_by when soft_delete=true\n- create denied on tenant mismatch when enforce_tenant_isolation=true\n- create/edit/reply denied for empty/whitespace body\n\nKnown limitations (intentional in 1.0.1):\n- resolve / unresolve / pin / unpin are not part of the schema surface (removed from action.enum vs overclaiming 1.0.0)\n- allowed_markups is accepted in policy but body markup is not sanitized (pass-through)\n- mention_resolution \"strict\" extracts @ids and marks them valid; it does not validate against an allow-list of principals\n- The capability never persists data or sends notifications; callers must honor obligations\n\nIdentical inputs produce identical outputs. No host, network, or filesystem access.",
+  "description": "Policy-driven comment processor for create/edit/reply/delete/react with mentions, quarantine, soft-delete, and tenant isolation.\n\nImplemented and smoke-tested matrix (use_cases):\n- create with @mention and https link + notify obligations\n- edit denied when own_only and actor is not creator\n- reply denied when parent_depth+1 >= max_thread_depth\n- create allowed with quarantine when body matches moderation.blocklist\n- react add normalized to a reaction set\n- soft-delete retains body and records deleted_by\n- create denied on tenant mismatch\n- create/edit/reply denied for empty/whitespace body\n- body_too_long when body exceeds max_body_length\n- invalid_reaction when react lacks emoji\n- insufficient_role when actor role not permitted\n\nKnown limitations (intentional in 1.0.2):\n- resolve / unresolve / pin / unpin are not part of the schema surface\n- mention_resolution narrowed to strict; permissive/disabled removed\n- visibility_model narrowed to resource-acl|channel\n- reaction.op narrowed to add (remove not published)\n- invalid_action / invalid_parent / policy_error / not_authorized removed from published reason_code vocabulary\n- hard_delete_unsupported and invalid_input/invalid_actor fail-closed paths exist but are not published reason_codes\n- allowed_markups is accepted but body markup is not sanitized\n- The capability never persists data or sends notifications; callers must honor obligations",
   "use_cases": [
     {
       "scenario": "As a collaboration platform engineer, I want a user to create a top-level comment with mentions so that the system receives a fully validated, sanitized comment object ready for persistence and notification.",
@@ -158,7 +158,7 @@
         ],
         "evaluation_trace": [
           "action=create",
-          "actor roles include member \u2192 create allowed",
+          "actor roles include member → create allowed",
           "body length 78 <= 10000",
           "extracted 2 mentions, both valid under strict resolution",
           "extracted 1 link",
@@ -243,7 +243,7 @@
         "evaluation_trace": [
           "action=edit",
           "policy own_only=true",
-          "comment.created_by=user-42, actor.id=user-99 \u2192 mismatch",
+          "comment.created_by=user-42, actor.id=user-99 → mismatch",
           "deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
@@ -316,8 +316,8 @@
         ],
         "evaluation_trace": [
           "action=reply",
-          "parent_depth=7 \u2192 proposed depth=8",
-          "max_thread_depth=8 \u2192 deny"
+          "parent_depth=7 → proposed depth=8",
+          "max_thread_depth=8 → deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
         "confidence": "high"
@@ -381,7 +381,7 @@
       },
       "output_example": {
         "decision": "allow",
-        "reason": "Body matched moderation blocklist \u2013 allowed with quarantine obligation",
+        "reason": "Body matched moderation blocklist – allowed with quarantine obligation",
         "reason_code": "moderation_quarantine",
         "normalized_comment": {
           "id": null,
@@ -603,7 +603,7 @@
         "evaluation_trace": [
           "action=delete",
           "soft_delete=true in policy",
-          "actor is creator \u2192 allow",
+          "actor is creator → allow",
           "body retained for audit"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
@@ -676,7 +676,7 @@
         ],
         "evaluation_trace": [
           "enforce_tenant_isolation=true",
-          "actor.tenant_id=t-100, resource.tenant_id=t-200 \u2192 deny"
+          "actor.tenant_id=t-100, resource.tenant_id=t-200 → deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
         "confidence": "high"
@@ -738,13 +738,214 @@
         "obligations": [],
         "evaluation_trace": [
           "action=create",
-          "body trimmed length = 0 \u2192 deny"
+          "body trimmed length = 0 → deny"
         ],
         "policy_hash": "sha256:c0mm3nt-2026.08.1",
         "confidence": "high"
       },
       "happy": false,
       "persona_ref": "client-developer"
+    },
+    {
+      "scenario": "As a client developer, I want a body exceeding max_body_length rejected with body_too_long.",
+      "input_example": {
+        "action": "create",
+        "actor": {
+          "id": "user-42",
+          "roles": [
+            "member"
+          ],
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "resource": {
+          "type": "document",
+          "id": "doc-99",
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "comment": {
+          "body": "xxxxxxxxxxxxxxxxxxxxx",
+          "parent_id": null
+        },
+        "context": {},
+        "comment_policy": {
+          "version": "2026.08.1",
+          "max_body_length": 20,
+          "max_thread_depth": 8,
+          "allowed_markups": [],
+          "mention_resolution": "strict",
+          "visibility_model": "resource-acl",
+          "soft_delete": true,
+          "actions": {
+            "create": {
+              "roles": [
+                "member"
+              ]
+            }
+          },
+          "moderation": {
+            "blocklist": [],
+            "require_approval_roles": []
+          }
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "body exceeds max_body_length",
+        "reason_code": "body_too_long",
+        "normalized_comment": null,
+        "obligations": [
+          {
+            "type": "audit_log",
+            "severity": "required"
+          }
+        ],
+        "evaluation_trace": [
+          "body length check failed"
+        ],
+        "policy_hash": "sha256:c0mm3nt-2026.08.1",
+        "confidence": "high"
+      },
+      "happy": false,
+      "persona_ref": "client-developer"
+    },
+    {
+      "scenario": "As a client developer, I want a react without emoji rejected with invalid_reaction.",
+      "input_example": {
+        "action": "react",
+        "actor": {
+          "id": "user-42",
+          "roles": [
+            "member"
+          ],
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "resource": {
+          "type": "document",
+          "id": "doc-99",
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "comment": {
+          "id": "cmt-55",
+          "reaction": {
+            "op": "add"
+          }
+        },
+        "context": {},
+        "comment_policy": {
+          "version": "2026.08.1",
+          "max_body_length": 10000,
+          "max_thread_depth": 8,
+          "allowed_markups": [],
+          "mention_resolution": "strict",
+          "visibility_model": "resource-acl",
+          "soft_delete": true,
+          "actions": {
+            "react": {
+              "roles": [
+                "member"
+              ]
+            }
+          },
+          "moderation": {
+            "blocklist": [],
+            "require_approval_roles": []
+          }
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "reaction.emoji required",
+        "reason_code": "invalid_reaction",
+        "normalized_comment": null,
+        "obligations": [
+          {
+            "type": "audit_log",
+            "severity": "required"
+          }
+        ],
+        "evaluation_trace": [
+          "missing reaction.emoji"
+        ],
+        "policy_hash": "sha256:c0mm3nt-2026.08.1",
+        "confidence": "high"
+      },
+      "happy": false,
+      "persona_ref": "client-developer"
+    },
+    {
+      "scenario": "As a security architect, I want create denied with insufficient_role when the actor role is not permitted.",
+      "input_example": {
+        "action": "create",
+        "actor": {
+          "id": "user-42",
+          "roles": [
+            "guest"
+          ],
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "resource": {
+          "type": "document",
+          "id": "doc-99",
+          "attributes": {
+            "tenant_id": "t-100"
+          }
+        },
+        "comment": {
+          "body": "Hello",
+          "parent_id": null
+        },
+        "context": {},
+        "comment_policy": {
+          "version": "2026.08.1",
+          "max_body_length": 10000,
+          "max_thread_depth": 8,
+          "allowed_markups": [],
+          "mention_resolution": "strict",
+          "visibility_model": "resource-acl",
+          "soft_delete": true,
+          "actions": {
+            "create": {
+              "roles": [
+                "member",
+                "admin"
+              ]
+            }
+          },
+          "moderation": {
+            "blocklist": [],
+            "require_approval_roles": []
+          }
+        }
+      },
+      "output_example": {
+        "decision": "deny",
+        "reason": "actor role not permitted for action",
+        "reason_code": "insufficient_role",
+        "normalized_comment": null,
+        "obligations": [
+          {
+            "type": "audit_log",
+            "severity": "required"
+          }
+        ],
+        "evaluation_trace": [
+          "action role check failed"
+        ],
+        "policy_hash": "sha256:c0mm3nt-2026.08.1",
+        "confidence": "high"
+      },
+      "happy": false,
+      "persona_ref": "security-architect"
     }
   ],
   "inputs": {
@@ -844,8 +1045,7 @@
                 "op": {
                   "type": "string",
                   "enum": [
-                    "add",
-                    "remove"
+                    "add"
                   ]
                 }
               }
@@ -891,17 +1091,12 @@
             "mention_resolution": {
               "type": "string",
               "enum": [
-                "strict",
-                "permissive",
-                "disabled"
+                "strict"
               ]
             },
             "visibility_model": {
               "type": "string",
               "enum": [
-                "public",
-                "private",
-                "restricted",
                 "resource-acl",
                 "channel"
               ]
@@ -981,17 +1176,14 @@
           "type": "string",
           "enum": [
             "ok",
-            "not_authorized",
+            "insufficient_role",
             "not_owner",
             "empty_body",
             "body_too_long",
             "max_thread_depth_exceeded",
-            "invalid_parent",
             "tenant_isolation_violation",
             "moderation_quarantine",
-            "invalid_action",
-            "invalid_reaction",
-            "policy_error"
+            "invalid_reaction"
           ]
         },
         "normalized_comment": {
@@ -1158,7 +1350,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-process-comment-1.0.1-contract-validation",
+      "evidence_id": "core-process-comment-1.0.2-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

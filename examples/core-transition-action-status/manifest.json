@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.transition-action-status-agent",
-  "version": "1.0.0",
-  "summary": "Capability package for core.transition-action-status@1.0.0 (Loop action-item status state machine).",
+  "version": "1.0.1",
+  "summary": "Capability package for core.transition-action-status@1.0.1.",
   "capability_ref": {
     "id": "core.transition-action-status",
-    "version": "1.0.0",
+    "version": "1.0.1",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.transition-action-status",
-      "workflow_version": "1.0.0"
+      "workflow_version": "1.0.1"
     }
   ],
   "source": {
@@ -23,7 +23,7 @@
   "binary": {
     "path": "./artifacts/core-transition-action-status.wasm",
     "format": "wasm",
-    "expected_digest": "fnv1a64:ff545835afb57b78",
+    "expected_digest": "fnv1a64:f392f46763fdd2af",
     "abi_version": "1.0.0"
   },
   "constraints": {

@@ -4,7 +4,7 @@
   "request_id": "core-validate-action-item-04",
   "intent": {
     "capability_id": "core.validate-action-item",
-    "capability_version": "1.0.0"
+    "capability_version": "1.0.1"
   },
   "input": {
     "action_item": {

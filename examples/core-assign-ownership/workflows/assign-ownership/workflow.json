@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "core.assign-ownership",
   "name": "assign-ownership",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
@@ -34,7 +34,7 @@
     {
       "node_id": "assign",
       "capability_id": "core.assign-ownership",
-      "capability_version": "1.0.0",
+      "capability_version": "1.0.1",
       "input": {
         "from_workflow_input": [
           "suggested_owner",

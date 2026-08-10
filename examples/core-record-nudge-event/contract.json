@@ -4,14 +4,14 @@
   "id": "core.record-nudge-event",
   "namespace": "core",
   "name": "record-nudge-event",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Constructs a pure audit/event payload for a nudge that was selected and messaged.",
-  "description": "Pure WF3 capability. Builds a deterministic nudge event record (event_id, ordinal, channel, intensity, preview) for downstream persistence by the host. memory_only \u2014 no I/O.",
+  "description": "Pure WF3 capability. Builds a deterministic nudge event record (event_id, ordinal, channel, intensity, preview) for downstream persistence.\n\nImplemented and smoke-tested matrix (use_cases):\n- soft intensity first nudge\n- escalate intensity with ordinal from prior count\n- direct intensity mid-sequence nudge\n- invalid_input when item_id is empty\n\nKnown limitations (intentional in 1.0.1):\n- reason_code invalid_intensity removed; intensity is a schema enum so host validation rejects unknown values before the guest runs\n- Event is constructed only; persistence is caller-owned",
   "use_cases": [
     {
       "scenario": "As the follow-up engine, I want an audit record after generating a soft nudge.",
@@ -74,6 +74,62 @@
       },
       "happy": true,
       "persona_ref": "collaboration-product-owner"
+    },
+    {
+      "scenario": "As WF3, I want a direct-intensity nudge event with ordinal prior+1.",
+      "input_example": {
+        "item_id": "ai-2",
+        "owner_id": "user-ada",
+        "intensity": "direct",
+        "channel": "in_app",
+        "message_preview": "Please complete",
+        "event_at": "2026-08-07T12:00:00Z",
+        "prior_nudge_count": 1
+      },
+      "output_example": {
+        "event": {
+          "event_id": "nudge-ai-2-2",
+          "item_id": "ai-2",
+          "owner_id": "user-ada",
+          "intensity": "direct",
+          "channel": "in_app",
+          "message_preview": "Please complete",
+          "event_at": "2026-08-07T12:00:00Z",
+          "nudge_ordinal": 2
+        },
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "constructed nudge event",
+          "ordinal=2"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As WF3, I want invalid_input when item_id is empty.",
+      "input_example": {
+        "item_id": "",
+        "owner_id": "user-ada",
+        "intensity": "soft",
+        "channel": "in_app",
+        "message_preview": "x",
+        "event_at": "2026-08-07T10:00:00Z",
+        "prior_nudge_count": 0
+      },
+      "output_example": {
+        "event": {
+          "event_id": "",
+          "item_id": "",
+          "intensity": "",
+          "event_at": "",
+          "nudge_ordinal": 0
+        },
+        "reason_code": "invalid_input",
+        "evaluation_trace": []
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
     }
   ],
   "inputs": {
@@ -164,7 +220,6 @@
           "type": "string",
           "enum": [
             "ok",
-            "invalid_intensity",
             "invalid_input"
           ]
         },
@@ -220,7 +275,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.record-nudge-event@1.0.0",
+    "spec_ref": "core.record-nudge-event@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -228,7 +283,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-record-nudge-event-1.0.0-contract-validation",
+      "evidence_id": "core-record-nudge-event-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

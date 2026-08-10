@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke for examples/core-transition-action-status.
+# End-to-end smoke for examples/core-transition-action-status (core.transition-action-status@1.0.1).
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ echo "==> capability inspect"
 contract_out="$("${cli[@]}" capability inspect "$pkg/contract.json")"
 printf '%s\n' "$contract_out"
 require_match "$contract_out" "id: core.transition-action-status" "contract inspect id"
-require_match "$contract_out" "version: 1.0.0" "contract inspect version"
+require_match "$contract_out" "version: 1.0.1" "contract inspect version"
 
 echo "==> wasm abi verify"
 abi_out="$("${cli[@]}" wasm abi verify "$pkg/artifacts/core-transition-action-status.wasm")"
@@ -39,7 +39,7 @@ echo "==> capability-package inspect"
 pkg_out="$("${cli[@]}" capability-package inspect "$pkg/manifest.json")"
 printf '%s\n' "$pkg_out"
 require_match "$pkg_out" "package_id: core.transition-action-status-agent" "package_id"
-require_match "$pkg_out" "capability_version: 1.0.0" "capability_version"
+require_match "$pkg_out" "capability_version: 1.0.1" "capability_version"
 
 assert_execute() {
   local request="$1"
@@ -53,7 +53,7 @@ assert_execute() {
   out="$("${cli[@]}" capability-package execute "$pkg/manifest.json" "$request")"
   printf '%s\n' "$out"
   require_match "$out" "status: completed" "$label status"
-  require_match "$out" "capability_version: 1.0.0" "$label capability_version"
+  require_match "$out" "capability_version: 1.0.1" "$label capability_version"
   require_match "$out" "\"allowed\": $allowed" "$label allowed"
   require_match "$out" "\"reason_code\": \"$code\"" "$label reason_code"
   if [[ -n "$extra" ]]; then
@@ -65,5 +65,12 @@ assert_execute "$pkg/runtime-requests/uc01-open-to-in-progress.json" "true" "ok"
 assert_execute "$pkg/runtime-requests/uc02-done-to-open-illegal.json" "false" "illegal_transition" "UC-02" '"new_status": "done"'
 assert_execute "$pkg/runtime-requests/uc03-open-to-snoozed.json" "true" "ok" "UC-03" '"new_status": "snoozed"'
 assert_execute "$pkg/runtime-requests/uc04-non-owner-denied.json" "false" "not_owner" "UC-04" '"new_status": "open"'
+assert_execute "$pkg/runtime-requests/uc05-in-progress-to-blocked.json" "true" "ok" "UC-05" '"new_status": "blocked"'
+assert_execute "$pkg/runtime-requests/uc06-in-progress-to-done.json" "true" "ok" "UC-06" '"new_status": "done"'
+assert_execute "$pkg/runtime-requests/uc07-blocked-to-in-progress.json" "true" "ok" "UC-07" '"new_status": "in_progress"'
+assert_execute "$pkg/runtime-requests/uc08-snoozed-to-open.json" "true" "ok" "UC-08" '"new_status": "open"'
+assert_execute "$pkg/runtime-requests/uc09-open-to-cancelled.json" "true" "ok" "UC-09" '"new_status": "cancelled"'
+assert_execute "$pkg/runtime-requests/uc10-cancelled-to-open-illegal.json" "false" "illegal_transition" "UC-10" '"new_status": "cancelled"'
+assert_execute "$pkg/runtime-requests/uc11-invalid-status.json" "false" "invalid_status" "UC-11"
 
-echo "OK: core.transition-action-status 1.0.0 E2E smoke passed"
+echo "OK: core.transition-action-status 1.0.1 E2E smoke passed"

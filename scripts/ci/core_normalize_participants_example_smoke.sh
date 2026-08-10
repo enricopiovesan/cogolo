@@ -36,4 +36,4 @@ assert_execute "$pkg/runtime-requests/uc01-mixed-match.json" "ok" "UC-01" \
 assert_execute "$pkg/runtime-requests/uc02-name-match.json" "ok" "UC-02" \
   '"match_method": "name"' \
   '"matched_count": 1'
-echo "OK: core.normalize-participants 1.0.0 E2E smoke passed"
+echo "OK: core.normalize-participants 1.0.1 E2E smoke passed"

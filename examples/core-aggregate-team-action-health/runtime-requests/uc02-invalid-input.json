@@ -1,0 +1,26 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-aggregate-team-action-health-02",
+  "intent": {
+    "capability_id": "core.aggregate-team-action-health",
+    "capability_version": "1.0.1"
+  },
+  "input": {
+    "items": [],
+    "reference_date": "",
+    "aggregation_config": {
+      "version": "1.0",
+      "overdue_threshold_days": 0
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-aggregate-team-action-health-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
