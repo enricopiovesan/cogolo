@@ -1,0 +1,33 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-notify-stakeholders-02",
+  "intent": {
+    "capability_id": "core.notify-stakeholders",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "item": {
+      "id": "ai-3",
+      "title": "Draft agenda",
+      "owner_id": "user-bob",
+      "owner_name": "Bob",
+      "status": "done"
+    },
+    "stakeholders": [],
+    "event_type": "completed",
+    "notify_config": {
+      "version": "1.0",
+      "include_manager_on_complete": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-notify-stakeholders-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

@@ -1,0 +1,35 @@
+{
+  "kind": "capability_package",
+  "schema_version": "1.0.0",
+  "package_id": "core.notify-stakeholders-agent",
+  "version": "1.0.0",
+  "summary": "Capability package for core.notify-stakeholders@1.0.0.",
+  "capability_ref": {
+    "id": "core.notify-stakeholders",
+    "version": "1.0.0",
+    "contract_path": "./contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "core.notify-stakeholders",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/core-notify-stakeholders.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:4818219efc03f3ec",
+    "abi_version": "1.0.0"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": []
+}

@@ -1,0 +1,49 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-normalize-participants-01",
+  "intent": {
+    "capability_id": "core.normalize-participants",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "raw_participants": [
+      {
+        "name": "Ada Lovelace",
+        "email": "Ada@Loop.Dev"
+      },
+      {
+        "name": "bob smith",
+        "email": "bob@loop.dev"
+      },
+      {
+        "name": "Unknown Person",
+        "email": "stranger@example.com"
+      }
+    ],
+    "workspace_members": [
+      {
+        "id": "user-ada",
+        "name": "Ada Lovelace",
+        "email": "ada@loop.dev"
+      },
+      {
+        "id": "user-bob",
+        "name": "Bob Smith",
+        "email": "bob@loop.dev"
+      }
+    ],
+    "normalize_config": {
+      "version": "1.0"
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-normalize-participants-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

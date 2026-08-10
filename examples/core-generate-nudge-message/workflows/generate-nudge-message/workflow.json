@@ -1,0 +1,57 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.generate-nudge-message",
+  "name": "generate-nudge-message",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.generate-nudge-message as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "run",
+      "capability_id": "core.generate-nudge-message",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "item",
+          "intensity",
+          "message_config"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "message",
+          "preview",
+          "reason_code",
+          "evaluation_trace"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "run",
+  "terminal_nodes": [
+    "run"
+  ],
+  "tags": [
+    "loop",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}

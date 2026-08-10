@@ -1,0 +1,48 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.decide-escalation",
+  "name": "decide-escalation",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.decide-escalation as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "run",
+      "capability_id": "core.decide-escalation",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": []
+      },
+      "output": {
+        "to_workflow_state": []
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "run",
+  "terminal_nodes": [
+    "run"
+  ],
+  "tags": [
+    "loop",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}

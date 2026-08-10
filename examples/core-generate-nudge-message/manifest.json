@@ -1,0 +1,35 @@
+{
+  "kind": "capability_package",
+  "schema_version": "1.0.0",
+  "package_id": "core.generate-nudge-message-agent",
+  "version": "1.0.0",
+  "summary": "Capability package for core.generate-nudge-message@1.0.0.",
+  "capability_ref": {
+    "id": "core.generate-nudge-message",
+    "version": "1.0.0",
+    "contract_path": "./contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "core.generate-nudge-message",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/core-generate-nudge-message.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:e2119865c0f74810",
+    "abi_version": "1.0.0"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": []
+}

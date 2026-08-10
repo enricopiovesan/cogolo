@@ -1,0 +1,200 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.aggregate-team-action-health",
+  "namespace": "core",
+  "name": "aggregate-team-action-health",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Aggregates open action items of a team into a health summary for managers (on-track %, overdue, overloaded owners, top pressure items).",
+  "description": "Pure aggregation capability used by the Manager Visibility workflow. Returns a compact health snapshot that can be rendered in a dashboard or weekly digest.",
+  "use_cases": [
+    {
+      "scenario": "As a manager, I want a quick pulse of my team's action items.",
+      "input_example": {
+        "items": [
+          {
+            "id": "ai-1",
+            "owner_id": "user-ada",
+            "status": "open",
+            "due_date": "2026-08-08",
+            "pressure_score": 0.9
+          },
+          {
+            "id": "ai-2",
+            "owner_id": "user-ada",
+            "status": "in_progress",
+            "due_date": "2026-08-15",
+            "pressure_score": 0.3
+          },
+          {
+            "id": "ai-3",
+            "owner_id": "user-bob",
+            "status": "open",
+            "due_date": "2026-08-01",
+            "pressure_score": 0.95
+          }
+        ],
+        "reference_date": "2026-08-07",
+        "aggregation_config": {
+          "version": "1.0",
+          "overdue_threshold_days": 0
+        }
+      },
+      "output_example": {
+        "total_open": 3,
+        "on_track_pct": 33.3,
+        "overdue_count": 1,
+        "overloaded_owners": [
+          {
+            "owner_id": "user-ada",
+            "open_count": 2
+          }
+        ],
+        "top_pressure_items": [
+          "ai-3",
+          "ai-1"
+        ],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "aggregated 3 items"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "items",
+        "reference_date",
+        "aggregation_config"
+      ],
+      "properties": {
+        "items": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "reference_date": {
+          "type": "string"
+        },
+        "aggregation_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ]
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "total_open",
+        "reason_code"
+      ],
+      "properties": {
+        "total_open": {
+          "type": "integer"
+        },
+        "on_track_pct": {
+          "type": "number"
+        },
+        "overdue_count": {
+          "type": "integer"
+        },
+        "overloaded_owners": {
+          "type": "array"
+        },
+        "top_pressure_items": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure aggregation"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.aggregate-team-action-health"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.aggregate-team-action-health@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-aggregate-team-action-health-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

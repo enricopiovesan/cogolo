@@ -1,0 +1,35 @@
+{
+  "kind": "capability_package",
+  "schema_version": "1.0.0",
+  "package_id": "core.calculate-deadline-pressure-agent",
+  "version": "1.0.0",
+  "summary": "Capability package for core.calculate-deadline-pressure@1.0.0.",
+  "capability_ref": {
+    "id": "core.calculate-deadline-pressure",
+    "version": "1.0.0",
+    "contract_path": "./contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "core.calculate-deadline-pressure",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/core-calculate-deadline-pressure.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:4c0f09d1774e7f6c",
+    "abi_version": "1.0.0"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": []
+}
