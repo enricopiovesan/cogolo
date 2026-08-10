@@ -4,17 +4,17 @@
   "id": "core.generate-nudge-message",
   "namespace": "core",
   "name": "generate-nudge-message",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Generates a short, human, context-aware nudge message for an action item at a given intensity.",
-  "description": "Pure message generation. Takes item details + intensity + tone configuration and returns a ready-to-send message body plus subject/preview. No delivery occurs inside the capability.\n\nImplemented and smoke-tested matrix (use_cases):\n- soft + friendly tone reminder\n- escalate + direct tone escalation message\n- direct + neutral tone request\n- config_error when item.title is empty\n\nKnown limitations (intentional in 1.0.1):\n- reason_code invalid_intensity removed from the declared surface; intensity is a schema enum so host validation rejects unknown values before the guest runs\n- Delivery / sending is out of scope; callers must send the returned message",
+  "description": "Pure message generation. Takes item details + intensity + tone configuration and returns a ready-to-send message body plus subject/preview. No delivery occurs inside the capability.\n\nImplemented and smoke-tested matrix (use_cases):\n- soft + friendly tone reminder\n- escalate + direct tone escalation message\n- direct + neutral tone request\n- config_error when item.title is empty\n\nKnown limitations (intentional in 1.1.0):\n- reason_code invalid_intensity removed from the declared surface; intensity is a schema enum so host validation rejects unknown values before the guest runs\n- Delivery / sending is out of scope; callers must send the returned message",
   "use_cases": [
     {
-      "scenario": "As the follow-up engine, I want a soft reminder that feels helpful rather than nagging.",
+      "scenario": "As a follow-up engine, I want a soft reminder that feels helpful rather than nagging, so that owners stay engaged without friction.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -33,7 +33,7 @@
         }
       },
       "output_example": {
-        "message": "Hey Ada — friendly reminder that “Send the revised proposal” is due tomorrow. Let us know if you need anything!",
+        "message": "Hey Ada \u2014 friendly reminder that \u201cSend the revised proposal\u201d is due tomorrow. Let us know if you need anything!",
         "preview": "Reminder: Send the revised proposal",
         "reason_code": "ok",
         "evaluation_trace": [
@@ -45,7 +45,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the follow-up engine, I want an escalate-intensity message when an item has been ignored repeatedly.",
+      "scenario": "As a follow-up engine, I want an escalate-intensity message when an item has been ignored repeatedly, so that neglect gets a clearer ask.",
       "input_example": {
         "item": {
           "id": "ai-9",
@@ -76,7 +76,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As the follow-up engine, I want a direct, neutral reminder when soft nudges are insufficient.",
+      "scenario": "As a follow-up engine, I want a direct, neutral reminder when soft nudges are insufficient, so that the ask is unambiguous.",
       "input_example": {
         "item": {
           "id": "ai-2",
@@ -107,7 +107,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the follow-up engine, I want a config_error when the item title is missing so I can skip generation.",
+      "scenario": "As a follow-up engine, I want a config_error when the item title is missing, so that I can skip generation instead of sending a blank nudge.",
       "input_example": {
         "item": {
           "id": "ai-x",
@@ -258,7 +258,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.generate-nudge-message@1.0.1",
+    "spec_ref": "core.generate-nudge-message@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -266,7 +266,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-generate-nudge-message-1.0.1-contract-validation",
+      "evidence_id": "core-generate-nudge-message-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

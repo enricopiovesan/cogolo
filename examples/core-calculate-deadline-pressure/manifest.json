@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.calculate-deadline-pressure-agent",
-  "version": "1.0.1",
-  "summary": "Capability package for core.calculate-deadline-pressure@1.0.1.",
+  "version": "1.1.0",
+  "summary": "Capability package for core.calculate-deadline-pressure@1.1.0.",
   "capability_ref": {
     "id": "core.calculate-deadline-pressure",
-    "version": "1.0.1",
+    "version": "1.1.0",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.calculate-deadline-pressure",
-      "workflow_version": "1.0.1"
+      "workflow_version": "1.1.0"
     }
   ],
   "source": {

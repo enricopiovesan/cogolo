@@ -4,7 +4,7 @@
   "request_id": "core-process-comment-10",
   "intent": {
     "capability_id": "core.process-comment",
-    "capability_version": "1.0.2"
+    "capability_version": "1.1.0"
   },
   "input": {
     "action": "react",

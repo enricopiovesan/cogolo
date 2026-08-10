@@ -4,17 +4,17 @@
   "id": "core.decide-escalation",
   "namespace": "core",
   "name": "decide-escalation",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Decides escalate vs weekly digest from team action health, with a deliberately high bar.",
-  "description": "Pure WF5 capability. Consumes a health snapshot (from core.aggregate-team-action-health) and applies multi-signal thresholds to decide digest vs escalate.\n\nImplemented and smoke-tested matrix (use_cases):\n- digest when only one signal is met\n- escalate when multiple signals are met\n- invalid_input when overdue_count is negative\n\nKnown limitations (intentional in 1.0.1):\n- reason_code config_error removed; the guest does not emit that code\n- Decision only; no notification delivery",
+  "description": "Pure WF5 capability. Consumes a health snapshot (from core.aggregate-team-action-health) and applies multi-signal thresholds to decide digest vs escalate.\n\nImplemented and smoke-tested matrix (use_cases):\n- digest when only one signal is met\n- escalate when multiple signals are met\n- invalid_input when overdue_count is negative\n\nKnown limitations (intentional in 1.1.0):\n- reason_code config_error removed; the guest does not emit that code\n- Decision only; no notification delivery",
   "use_cases": [
     {
-      "scenario": "As a manager experience, I want a single overdue item to stay in digest when other signals are calm.",
+      "scenario": "As a manager experience owner, I want a single overdue item to stay in digest when other signals are calm, so that quiet noise does not trigger real-time alarms.",
       "input_example": {
         "health": {
           "total_open": 3,
@@ -57,7 +57,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As the system, I want real-time escalation only when multiple health signals fire.",
+      "scenario": "As a system, I want real-time escalation only when multiple health signals fire, so that managers are interrupted only for compound risk.",
       "input_example": {
         "health": {
           "total_open": 5,
@@ -109,7 +109,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF5, I want invalid_input when overdue_count is negative.",
+      "scenario": "As a WF5 workflow author, I want invalid_input when overdue_count is negative, so that corrupt health snapshots fail closed.",
       "input_example": {
         "health": {
           "total_open": 3,
@@ -287,7 +287,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.decide-escalation@1.0.1",
+    "spec_ref": "core.decide-escalation@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -295,7 +295,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-decide-escalation-1.0.1-contract-validation",
+      "evidence_id": "core-decide-escalation-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

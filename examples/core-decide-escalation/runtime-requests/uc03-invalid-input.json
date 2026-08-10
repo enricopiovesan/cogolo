@@ -4,7 +4,7 @@
   "request_id": "core-decide-escalation-03",
   "intent": {
     "capability_id": "core.decide-escalation",
-    "capability_version": "1.0.1"
+    "capability_version": "1.1.0"
   },
   "input": {
     "health": {

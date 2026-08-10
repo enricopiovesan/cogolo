@@ -4,17 +4,17 @@
   "id": "core.validate-action-item",
   "namespace": "core",
   "name": "validate-action-item",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Validates a single action item for required fields, owner existence, due-date sanity and duplicate detection before it becomes a commitment.",
-  "description": "Gatekeeper for action-item commitments: title/owner/due-date rules and duplicate detection under validation_config. Pure and deterministic.\n\nImplemented and smoke-tested matrix (use_cases):\n- complete item validates (ok)\n- past due rejected when allow_past_due=false (validation_failed)\n- missing owner when require_owner=true (validation_failed)\n- duplicate title+owner (duplicate)\n- duplicate title-only check mode (duplicate)\n- invalid duplicate_check config (invalid_config)\n\nKnown limitations (intentional in 1.0.1):\n- Does not verify owner_id exists in a directory; only presence/absence\n- Date parsing is YYYY-MM-DD lexical compare only",
+  "description": "Gatekeeper for action-item commitments: title/owner/due-date rules and duplicate detection under validation_config. Pure and deterministic.\n\nImplemented and smoke-tested matrix (use_cases):\n- complete item validates (ok)\n- past due rejected when allow_past_due=false (validation_failed)\n- missing owner when require_owner=true (validation_failed)\n- duplicate title+owner (duplicate)\n- duplicate title-only check mode (duplicate)\n- invalid duplicate_check config (invalid_config)\n\nKnown limitations (intentional in 1.1.0):\n- Does not verify owner_id exists in a directory; only presence/absence\n- Date parsing is YYYY-MM-DD lexical compare only",
   "use_cases": [
     {
-      "scenario": "As a meeting organizer confirming extracted items, I want a complete item to validate cleanly.",
+      "scenario": "As a meeting organizer confirming extracted items, I want a complete item to validate cleanly, so that good commitments can be committed without friction.",
       "input_example": {
         "action_item": {
           "title": "Send proposal",
@@ -49,7 +49,7 @@
       "persona_ref": "meeting-organizer"
     },
     {
-      "scenario": "As the system, I want an item with a past due date rejected when allow_past_due is false.",
+      "scenario": "As a system, I want an item with a past due date rejected when allow_past_due is false, so that stale due dates cannot sneak through.",
       "input_example": {
         "action_item": {
           "title": "Old task",
@@ -85,7 +85,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want a missing owner rejected when require_owner is true.",
+      "scenario": "As a system, I want a missing owner rejected when require_owner is true, so that ownerless commitments never enter the board.",
       "input_example": {
         "action_item": {
           "title": "Draft agenda",
@@ -120,7 +120,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want a duplicate title+owner against open items rejected.",
+      "scenario": "As a system, I want a duplicate title+owner against open items rejected, so that the same commitment is not tracked twice.",
       "input_example": {
         "action_item": {
           "title": "Send proposal",
@@ -162,7 +162,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want duplicate_check=title to reject matching titles regardless of owner.",
+      "scenario": "As a system, I want duplicate_check=title to reject matching titles regardless of owner, so that title-only uniqueness can be enforced.",
       "input_example": {
         "action_item": {
           "title": "Send proposal",
@@ -204,7 +204,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As the system, I want an unknown duplicate_check value rejected with invalid_config.",
+      "scenario": "As a system, I want an unknown duplicate_check value rejected with invalid_config, so that bad validation config fails closed.",
       "input_example": {
         "action_item": {
           "title": "Send proposal",
@@ -420,7 +420,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.validate-action-item@1.0.1",
+    "spec_ref": "core.validate-action-item@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -428,7 +428,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-validate-action-item-1.0.1-contract-validation",
+      "evidence_id": "core-validate-action-item-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

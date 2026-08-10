@@ -36,4 +36,4 @@ assert_execute "$pkg/runtime-requests/uc02-escalate.json" "ok" "UC-02" \
   '"intensity": "escalate"'
 assert_execute "$pkg/runtime-requests/uc03-direct.json" "ok" "UC-03"   '"intensity": "direct"'   '"nudge_ordinal": 2'
 assert_execute "$pkg/runtime-requests/uc04-invalid-input.json" "invalid_input" "UC-04"
-echo "OK: core.record-nudge-event 1.0.1 E2E smoke passed"
+echo "OK: core.record-nudge-event 1.1.0 E2E smoke passed"

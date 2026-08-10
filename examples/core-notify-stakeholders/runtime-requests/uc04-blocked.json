@@ -4,7 +4,7 @@
   "request_id": "core-notify-stakeholders-04",
   "intent": {
     "capability_id": "core.notify-stakeholders",
-    "capability_version": "1.0.1"
+    "capability_version": "1.1.0"
   },
   "input": {
     "item": {

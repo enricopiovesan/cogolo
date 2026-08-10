@@ -4,7 +4,7 @@
   "request_id": "core-extract-action-items-01",
   "intent": {
     "capability_id": "core.extract-action-items",
-    "capability_version": "1.1.1"
+    "capability_version": "1.2.0"
   },
   "input": {
     "text": "Ada will send the revised proposal by Friday. We should probably look at the API at some point. Bob to review security notes next week.",

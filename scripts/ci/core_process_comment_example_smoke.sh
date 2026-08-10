@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# End-to-end smoke for examples/core-process-comment (core.process-comment@1.0.2).
+# End-to-end smoke for examples/core-process-comment (core.process-comment@1.1.0).
 
 set -euo pipefail
 
@@ -28,7 +28,7 @@ echo "==> capability inspect"
 contract_out="$("${cli[@]}" capability inspect "$pkg/contract.json")"
 printf '%s\n' "$contract_out"
 require_match "$contract_out" "id: core.process-comment" "contract inspect id"
-require_match "$contract_out" "version: 1.0.2" "contract inspect version"
+require_match "$contract_out" "version: 1.1.0" "contract inspect version"
 
 echo "==> wasm abi verify"
 abi_out="$("${cli[@]}" wasm abi verify "$pkg/artifacts/core-process-comment.wasm")"
@@ -39,7 +39,7 @@ echo "==> capability-package inspect"
 pkg_out="$("${cli[@]}" capability-package inspect "$pkg/manifest.json")"
 printf '%s\n' "$pkg_out"
 require_match "$pkg_out" "package_id: core.process-comment-agent" "package_id"
-require_match "$pkg_out" "capability_version: 1.0.2" "capability_version"
+require_match "$pkg_out" "capability_version: 1.1.0" "capability_version"
 
 assert_execute() {
   local request="$1"
@@ -53,7 +53,7 @@ assert_execute() {
   out="$("${cli[@]}" capability-package execute "$pkg/manifest.json" "$request")"
   printf '%s\n' "$out"
   require_match "$out" "status: completed" "$label status"
-  require_match "$out" "capability_version: 1.0.2" "$label capability_version"
+  require_match "$out" "capability_version: 1.1.0" "$label capability_version"
   require_match "$out" "\"decision\": \"$decision\"" "$label decision"
   require_match "$out" "\"reason_code\": \"$code\"" "$label reason_code"
   if [[ -n "$extra" ]]; then
@@ -73,4 +73,4 @@ assert_execute "$pkg/runtime-requests/uc09-body-too-long-deny.json" "deny" "body
 assert_execute "$pkg/runtime-requests/uc10-invalid-reaction-deny.json" "deny" "invalid_reaction" "UC-10"
 assert_execute "$pkg/runtime-requests/uc11-insufficient-role-deny.json" "deny" "insufficient_role" "UC-11"
 
-echo "OK: core.process-comment 1.0.2 E2E smoke passed"
+echo "OK: core.process-comment 1.1.0 E2E smoke passed"

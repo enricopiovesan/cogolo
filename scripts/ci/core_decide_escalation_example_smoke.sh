@@ -36,4 +36,4 @@ assert_execute "$pkg/runtime-requests/uc02-escalate.json" "ok" "UC-02" \
   'ai-9' \
   '"signals_met": 3'
 assert_execute "$pkg/runtime-requests/uc03-invalid-input.json" "invalid_input" "UC-03"
-echo "OK: core.decide-escalation 1.0.1 E2E smoke passed"
+echo "OK: core.decide-escalation 1.1.0 E2E smoke passed"

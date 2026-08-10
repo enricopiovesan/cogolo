@@ -4,17 +4,17 @@
   "id": "core.aggregate-team-action-health",
   "namespace": "core",
   "name": "aggregate-team-action-health",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Aggregates open action items of a team into a health summary for managers (on-track %, overdue, overloaded owners, top pressure items).",
-  "description": "Pure aggregation capability used by the Manager Visibility workflow. Returns a compact health snapshot that can be rendered in a dashboard or weekly digest.\n\nImplemented and smoke-tested matrix (use_cases):\n- team pulse aggregation with overloaded owners and top pressure items\n- invalid_input when reference_date is empty\n\nKnown limitations (intentional in 1.0.1):\n- Aggregation is memory-only; no persistence or notification side effects",
+  "description": "Pure aggregation capability used by the Manager Visibility workflow. Returns a compact health snapshot that can be rendered in a dashboard or weekly digest.\n\nImplemented and smoke-tested matrix (use_cases):\n- team pulse aggregation with overloaded owners and top pressure items\n- invalid_input when reference_date is empty\n\nKnown limitations (intentional in 1.1.0):\n- Aggregation is memory-only; no persistence or notification side effects",
   "use_cases": [
     {
-      "scenario": "As a manager, I want a quick pulse of my team's action items.",
+      "scenario": "As a manager, I want a quick pulse of my team's action items, so that I can spot overload without reading every thread.",
       "input_example": {
         "items": [
           {
@@ -68,7 +68,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As a workflow author, I want invalid_input when reference_date is empty so bad schedules fail closed.",
+      "scenario": "As a workflow author, I want invalid_input when reference_date is empty, so that bad schedules fail closed.",
       "input_example": {
         "items": [],
         "reference_date": "",
@@ -202,7 +202,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.aggregate-team-action-health@1.0.1",
+    "spec_ref": "core.aggregate-team-action-health@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -210,7 +210,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-aggregate-team-action-health-1.0.1-contract-validation",
+      "evidence_id": "core-aggregate-team-action-health-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

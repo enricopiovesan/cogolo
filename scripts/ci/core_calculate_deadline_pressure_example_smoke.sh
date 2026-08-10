@@ -38,4 +38,4 @@ assert_execute "$pkg/runtime-requests/uc02-overdue.json" "ok" "UC-02" \
 assert_execute "$pkg/runtime-requests/uc03-missing-due-date.json" "missing_due_date" "UC-03"
 assert_execute "$pkg/runtime-requests/uc04-invalid-date.json" "invalid_date" "UC-04"
 assert_execute "$pkg/runtime-requests/uc05-config-error.json" "config_error" "UC-05"
-echo "OK: core.calculate-deadline-pressure 1.0.1 E2E smoke passed"
+echo "OK: core.calculate-deadline-pressure 1.1.0 E2E smoke passed"

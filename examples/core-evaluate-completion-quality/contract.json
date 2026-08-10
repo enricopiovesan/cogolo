@@ -4,17 +4,17 @@
   "id": "core.evaluate-completion-quality",
   "namespace": "core",
   "name": "evaluate-completion-quality",
-  "version": "1.0.1",
+  "version": "1.1.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Scores completion quality for a done action item, with a stronger evidence bar under high pressure.",
-  "description": "Pure WF4 capability. Evaluates completion_note length and evidence_refs against pressure_score and config. High-pressure completions without evidence return needs_evidence.\n\nImplemented and smoke-tested matrix (use_cases):\n- pass with evidence under high pressure\n- needs_evidence verdict when evidence is missing under high pressure\n- invalid_status when status is not done/completed\n- invalid_input when item.id is empty\n\nKnown limitations (intentional in 1.0.1):\n- reason_code config_error removed; the guest does not emit that code\n- Evidence quality is presence-only; content is not validated",
+  "description": "Pure WF4 capability. Evaluates completion_note length and evidence_refs against pressure_score and config. High-pressure completions without evidence return needs_evidence.\n\nImplemented and smoke-tested matrix (use_cases):\n- pass with evidence under high pressure\n- needs_evidence verdict when evidence is missing under high pressure\n- invalid_status when status is not done/completed\n- invalid_input when item.id is empty\n\nKnown limitations (intentional in 1.1.0):\n- reason_code config_error removed; the guest does not emit that code\n- Evidence quality is presence-only; content is not validated",
   "use_cases": [
     {
-      "scenario": "As the completion path, I want a high-pressure item with evidence to pass.",
+      "scenario": "As a completion path, I want a high-pressure item with evidence to pass, so that well-documented finishes clear the gate.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -49,7 +49,7 @@
       "persona_ref": "collaboration-product-owner"
     },
     {
-      "scenario": "As the system, I want high-pressure completions without evidence to fail closed.",
+      "scenario": "As a system, I want high-pressure completions without evidence to fail closed, so that rushed closes cannot skip proof.",
       "input_example": {
         "item": {
           "id": "ai-2",
@@ -85,7 +85,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF4, I want invalid_status when the item is not marked done/completed.",
+      "scenario": "As a WF4 workflow author, I want invalid_status when the item is not marked done/completed, so that quality checks only run on completion attempts.",
       "input_example": {
         "item": {
           "id": "ai-1",
@@ -114,7 +114,7 @@
       "persona_ref": "runtime-engineer"
     },
     {
-      "scenario": "As WF4, I want invalid_input when item.id is empty.",
+      "scenario": "As a WF4 workflow author, I want invalid_input when item.id is empty, so that anonymous completions cannot be evaluated.",
       "input_example": {
         "item": {
           "id": "",
@@ -293,7 +293,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.evaluate-completion-quality@1.0.1",
+    "spec_ref": "core.evaluate-completion-quality@1.1.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -301,7 +301,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-evaluate-completion-quality-1.0.1-contract-validation",
+      "evidence_id": "core-evaluate-completion-quality-1.1.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }
