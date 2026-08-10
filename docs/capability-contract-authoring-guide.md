@@ -176,17 +176,30 @@ cargo run -p traverse-cli-rs -- bundle register <path-to-manifest.json>
 
 ## Contract surface coverage (honesty)
 
-Treat `use_cases` as the executable promise. If `inputs.schema` declares a
-discriminator enum (especially `action`), every enum value MUST appear in at
-least one `use_cases[].input_example`, and package smoke SHOULD exercise that
-set. Do not list actions the artifact only rejects with a generic
-`unsupported_action` unless that failure is itself a documented use case.
+Treat `use_cases` as the executable promise for the **entire declared schema
+surface** (Spec `102` v1.1.0 / Decision 58) — not a minimum example count:
 
-Description prose that mentions behavior beyond the use-case matrix MUST either
-be removed or called out under an explicit **Known limitations** section.
+- Every string `enum` under `inputs.schema` MUST appear in ≥1
+  `use_cases[].input_example` at the same path.
+- Every top-level `inputs.schema.required` property MUST appear in ≥1
+  `use_cases[].input_example`.
+- `outputs.schema.properties.reason_code` and `status`, when used for
+  checkable outcomes, MUST be enums; every enum value MUST appear in ≥1
+  `use_cases[].output_example`.
+- `use_cases` MUST be non-empty; `capability publish` preserves them into the
+  registry record.
+- Each use case MUST have a matching package smoke fixture
+  (`runtime-requests/ucNN-*.json`) that asserts its `reason_code` / key outputs.
+
+Do not list enum values the artifact only rejects with a generic
+`unsupported_*` stub unless that failure is itself a documented use case.
+Description prose beyond the use-case matrix MUST be removed or called out
+under **Known limitations**. Narrowing an overclaimed surface via an honesty
+patch-bump is a valid fix.
 
 Governed by Spec `102-contract-surface-coverage` / ADR-0038.
-`capability publish` / `--dry-run` enforce enum ⊆ use_cases (issue #1016).
+`capability publish` / `--dry-run` and registry CI enforce the gate
+(issues #1040 / registry#215).
 
 ## Persona references
 
