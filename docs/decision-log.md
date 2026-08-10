@@ -2134,8 +2134,8 @@ Tickets filed on Project 1 (`#1014`–`#1016`) and Project 3 (`#192`–`#193`). 
 ## Decision 58: Full Capability Surface Coverage via Use Cases (Not Minimum Counts)
 
 - **Date**: 2026-08-10
-- **Status**: Accepted (brainstorm); Spec 102 v1.1.0 Draft pending standalone owner approval of FR text
-- **Governing spec**: `102-contract-surface-coverage` (v1.1.0 amendment), ADR-0038 (amended), registry `001` FR-011
+- **Status**: Accepted; Spec 102 v1.1.0 Approved 2026-08-10
+- **Governing spec**: `102-contract-surface-coverage` (v1.1.0), ADR-0038 (amended), registry `001` FR-011
 - **Related issues**: traverse `#1040`; registry `#215`
 - **Origin**: Post-Loop-batch audit — most registry `core.*` contracts had `use_cases` stripped by publish; owner directed that use cases must cover the entire capability, as a non-negotiable gate.
 

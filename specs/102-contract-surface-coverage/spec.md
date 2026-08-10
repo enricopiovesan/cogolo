@@ -1,6 +1,6 @@
 # Feature Specification: Contract Surface Coverage
 
-**Status**: Draft (v1.1.0 amendment — Decision 58; pending owner approval)
+**Status**: Approved
 **Canonical governing ID**: `102-contract-surface-coverage`
 **Version**: 1.1.0
 **Extends**: `002-capability-contracts`, `100-capability-package-authoring`, `056-capability-publish`, `516-agent-artifact-execution`
@@ -61,4 +61,4 @@ Out of scope:
 
 ## Approval Note
 
-v1.0.0 Approved 2026-08-08 (owner direction). v1.1.0 drafted 2026-08-10 from Decision 58 brainstorm; pending standalone owner approval of this amendment text before `approved-specs.json` is bumped.
+v1.0.0 Approved 2026-08-08 (owner direction). v1.1.0 Approved 2026-08-10 (owner direction on Decision 58 brainstorm closeout — full schema ⊆ use_cases ⊆ smoke gate).
