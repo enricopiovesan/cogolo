@@ -1,0 +1,244 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.record-nudge-event",
+  "namespace": "core",
+  "name": "record-nudge-event",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Constructs a pure audit/event payload for a nudge that was selected and messaged.",
+  "description": "Pure WF3 capability. Builds a deterministic nudge event record (event_id, ordinal, channel, intensity, preview) for downstream persistence by the host. memory_only \u2014 no I/O.",
+  "use_cases": [
+    {
+      "scenario": "As the follow-up engine, I want an audit record after generating a soft nudge.",
+      "input_example": {
+        "item_id": "ai-1",
+        "owner_id": "user-ada",
+        "intensity": "soft",
+        "channel": "in_app",
+        "message_preview": "Reminder: Send the revised proposal",
+        "event_at": "2026-08-07T10:00:00Z",
+        "prior_nudge_count": 0
+      },
+      "output_example": {
+        "event": {
+          "event_id": "nudge-ai-1-1",
+          "item_id": "ai-1",
+          "owner_id": "user-ada",
+          "intensity": "soft",
+          "channel": "in_app",
+          "message_preview": "Reminder: Send the revised proposal",
+          "event_at": "2026-08-07T10:00:00Z",
+          "nudge_ordinal": 1
+        },
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "constructed nudge event",
+          "ordinal=1"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want escalate intensity recorded with a higher ordinal.",
+      "input_example": {
+        "item_id": "ai-9",
+        "owner_id": "user-bob",
+        "intensity": "escalate",
+        "channel": "manager",
+        "message_preview": "Escalation: overdue item",
+        "event_at": "2026-08-07T11:00:00Z",
+        "prior_nudge_count": 3
+      },
+      "output_example": {
+        "event": {
+          "event_id": "nudge-ai-9-4",
+          "item_id": "ai-9",
+          "owner_id": "user-bob",
+          "intensity": "escalate",
+          "channel": "manager",
+          "message_preview": "Escalation: overdue item",
+          "event_at": "2026-08-07T11:00:00Z",
+          "nudge_ordinal": 4
+        },
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "constructed nudge event",
+          "ordinal=4"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "item_id",
+        "intensity",
+        "event_at",
+        "prior_nudge_count"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "owner_id": {
+          "type": "string"
+        },
+        "intensity": {
+          "type": "string",
+          "enum": [
+            "soft",
+            "direct",
+            "escalate"
+          ]
+        },
+        "channel": {
+          "type": "string"
+        },
+        "message_preview": {
+          "type": "string"
+        },
+        "event_at": {
+          "type": "string"
+        },
+        "prior_nudge_count": {
+          "type": "integer",
+          "minimum": 0
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "event",
+        "reason_code"
+      ],
+      "properties": {
+        "event": {
+          "type": "object",
+          "required": [
+            "event_id",
+            "item_id",
+            "intensity",
+            "event_at",
+            "nudge_ordinal"
+          ],
+          "properties": {
+            "event_id": {
+              "type": "string"
+            },
+            "item_id": {
+              "type": "string"
+            },
+            "owner_id": {
+              "type": "string"
+            },
+            "intensity": {
+              "type": "string"
+            },
+            "channel": {
+              "type": "string"
+            },
+            "message_preview": {
+              "type": "string"
+            },
+            "event_at": {
+              "type": "string"
+            },
+            "nudge_ordinal": {
+              "type": "integer"
+            }
+          }
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "invalid_intensity",
+            "invalid_input"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure event payload construction; no persistence I/O"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.record-nudge-event"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.record-nudge-event@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-record-nudge-event-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

@@ -1,0 +1,41 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-calculate-price-02",
+  "intent": {
+    "capability_id": "core.calculate-price",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "currency": "USD",
+    "lines": [
+      {
+        "id": "line-1",
+        "sku": "SKU-100",
+        "quantity": 0,
+        "unit_price": 50.00
+      }
+    ],
+    "customer": {
+      "id": "cust-1"
+    },
+    "context": {},
+    "pricing_config": {
+      "version": "1.0",
+      "currency": "USD",
+      "rounding": "half_up",
+      "decimal_places": 2,
+      "discount_rules": [],
+      "tax_rules": []
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-calculate-price-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

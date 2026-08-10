@@ -1,0 +1,233 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.calculate-deadline-pressure",
+  "namespace": "core",
+  "name": "calculate-deadline-pressure",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Computes a deterministic deadline pressure score from due date versus a reference date.",
+  "description": "Pure WF2 capability used after ownership assignment. Maps days-until-due into a 0.0-1.0 pressure_score and a band (low|medium|high|overdue) using a configurable horizon.",
+  "use_cases": [
+    {
+      "scenario": "As the commit pipeline, I want pressure for an item due in three days.",
+      "input_example": {
+        "item": {
+          "id": "ai-1",
+          "due_date": "2026-08-10",
+          "status": "open"
+        },
+        "reference_date": "2026-08-07",
+        "pressure_config": {
+          "version": "1.0",
+          "horizon_days": 14
+        }
+      },
+      "output_example": {
+        "item_id": "ai-1",
+        "pressure_score": 0.786,
+        "days_until_due": 3,
+        "pressure_band": "medium",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "days_until_due=3",
+          "horizon=14",
+          "band=medium"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want overdue items to receive maximum pressure.",
+      "input_example": {
+        "item": {
+          "id": "ai-2",
+          "due_date": "2026-08-01",
+          "status": "open"
+        },
+        "reference_date": "2026-08-07",
+        "pressure_config": {
+          "version": "1.0",
+          "horizon_days": 14
+        }
+      },
+      "output_example": {
+        "item_id": "ai-2",
+        "pressure_score": 1.0,
+        "days_until_due": -6,
+        "pressure_band": "overdue",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "days_until_due=-6",
+          "horizon=14",
+          "band=overdue"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "item",
+        "reference_date",
+        "pressure_config"
+      ],
+      "properties": {
+        "item": {
+          "type": "object",
+          "required": [
+            "id",
+            "due_date"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "due_date": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "reference_date": {
+          "type": "string"
+        },
+        "pressure_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "horizon_days": {
+              "type": "integer",
+              "minimum": 1
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "pressure_score",
+        "pressure_band",
+        "reason_code"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "pressure_score": {
+          "type": "number"
+        },
+        "days_until_due": {
+          "type": "integer"
+        },
+        "pressure_band": {
+          "type": "string",
+          "enum": [
+            "low",
+            "medium",
+            "high",
+            "overdue",
+            "unknown"
+          ]
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "missing_due_date",
+            "invalid_date",
+            "config_error"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure pressure calculation"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.calculate-deadline-pressure"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.calculate-deadline-pressure@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-calculate-deadline-pressure-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

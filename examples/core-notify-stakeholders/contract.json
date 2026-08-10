@@ -1,0 +1,298 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.notify-stakeholders",
+  "namespace": "core",
+  "name": "notify-stakeholders",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Prepares notification intents for stakeholders when an action item changes status. Pure \u2014 does not send.",
+  "description": "Pure WF4 capability. Builds recipient/channel/subject/body intents from item + stakeholder list + event_type. Delivery is host-owned; this capability only prepares intents.",
+  "use_cases": [
+    {
+      "scenario": "As the completion path, I want requester and manager notified that an item is done.",
+      "input_example": {
+        "item": {
+          "id": "ai-1",
+          "title": "Send the revised proposal",
+          "owner_id": "user-ada",
+          "owner_name": "Ada",
+          "status": "done"
+        },
+        "stakeholders": [
+          {
+            "user_id": "user-carol",
+            "role": "requester",
+            "channel": "in_app"
+          },
+          {
+            "user_id": "user-mgr",
+            "role": "manager",
+            "channel": "email"
+          }
+        ],
+        "event_type": "completed",
+        "notify_config": {
+          "version": "1.0",
+          "include_manager_on_complete": true
+        }
+      },
+      "output_example": {
+        "intents": [
+          {
+            "recipient_id": "user-carol",
+            "channel": "in_app",
+            "subject": "Action completed: Send the revised proposal",
+            "body": "Ada marked \"Send the revised proposal\" as done."
+          },
+          {
+            "recipient_id": "user-mgr",
+            "channel": "email",
+            "subject": "Action completed: Send the revised proposal",
+            "body": "Ada marked \"Send the revised proposal\" as done."
+          }
+        ],
+        "intent_count": 2,
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "event_type=completed",
+          "prepared 2 intents"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As the system, I want zero intents when there are no stakeholders.",
+      "input_example": {
+        "item": {
+          "id": "ai-3",
+          "title": "Draft agenda",
+          "owner_id": "user-bob",
+          "owner_name": "Bob",
+          "status": "done"
+        },
+        "stakeholders": [],
+        "event_type": "completed",
+        "notify_config": {
+          "version": "1.0",
+          "include_manager_on_complete": true
+        }
+      },
+      "output_example": {
+        "intents": [],
+        "intent_count": 0,
+        "reason_code": "nothing_to_notify",
+        "evaluation_trace": [
+          "event_type=completed",
+          "prepared 0 intents"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "item",
+        "stakeholders",
+        "event_type",
+        "notify_config"
+      ],
+      "properties": {
+        "item": {
+          "type": "object",
+          "required": [
+            "id",
+            "title",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "owner_id": {
+              "type": "string"
+            },
+            "owner_name": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            }
+          }
+        },
+        "stakeholders": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "user_id"
+            ],
+            "properties": {
+              "user_id": {
+                "type": "string"
+              },
+              "role": {
+                "type": "string"
+              },
+              "channel": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "event_type": {
+          "type": "string",
+          "enum": [
+            "completed",
+            "status_changed",
+            "blocked"
+          ]
+        },
+        "notify_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "include_manager_on_complete": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "intents",
+        "reason_code"
+      ],
+      "properties": {
+        "intents": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "recipient_id",
+              "channel",
+              "subject",
+              "body"
+            ],
+            "properties": {
+              "recipient_id": {
+                "type": "string"
+              },
+              "channel": {
+                "type": "string"
+              },
+              "subject": {
+                "type": "string"
+              },
+              "body": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "intent_count": {
+          "type": "integer"
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "nothing_to_notify",
+            "invalid_event_type",
+            "invalid_input"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure intent preparation; does not send notifications"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.notify-stakeholders"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.notify-stakeholders@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-notify-stakeholders-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

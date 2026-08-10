@@ -1,0 +1,308 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.select-items-for-followup",
+  "namespace": "core",
+  "name": "select-items-for-followup",
+  "version": "1.1.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Decides which open action items need attention now. Council-revised with quiet hours, snooze support, per-user nudge budgets and higher escalation bar.",
+  "description": "Hero capability of Loop (council-revised). Key improvements from 1.0.0:\n- Respects per-user quiet hours and snooze until timestamps\n- Enforces max nudges per user per day\n- Escalation only after repeated ignored nudges + high pressure\n- Explicit skip reasons (quiet_hours, snoozed, budget_exceeded, recently_active, low_pressure)\n- Still pure and deterministic \u2014 no messages are sent, only the selection decision is produced.",
+  "use_cases": [
+    {
+      "scenario": "As the scheduled job, I want to respect quiet hours and snooze so that we never annoy people at the wrong time.",
+      "input_example": {
+        "open_items": [
+          {
+            "id": "ai-1",
+            "owner_id": "user-ada",
+            "due_date": "2026-08-08",
+            "status": "open",
+            "last_activity_at": "2026-08-05T10:00:00Z",
+            "nudge_count": 0,
+            "pressure_score": 0.85,
+            "snoozed_until": null
+          }
+        ],
+        "user_preferences": {
+          "user-ada": {
+            "quiet_hours": {
+              "start": "20:00",
+              "end": "08:00",
+              "timezone": "America/Los_Angeles"
+            },
+            "max_nudges_per_day": 2,
+            "nudges_sent_today": 0
+          }
+        },
+        "reference_datetime": "2026-08-07T22:30:00Z",
+        "followup_config": {
+          "version": "1.1",
+          "soft_days_before_due": 2,
+          "direct_days_overdue": 1,
+          "escalate_after_nudges": 3,
+          "min_pressure_for_soft": 0.4,
+          "respect_quiet_hours": true
+        }
+      },
+      "output_example": {
+        "selected": [],
+        "skipped": [
+          {
+            "item_id": "ai-1",
+            "reason": "quiet_hours",
+            "detail": "owner is inside quiet hours 20:00-08:00"
+          }
+        ],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "1 item evaluated",
+          "skipped due to quiet_hours"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want escalation only after clear neglect signals.",
+      "input_example": {
+        "open_items": [
+          {
+            "id": "ai-9",
+            "owner_id": "user-bob",
+            "due_date": "2026-08-01",
+            "status": "open",
+            "last_activity_at": "2026-07-28T09:00:00Z",
+            "nudge_count": 3,
+            "pressure_score": 0.95,
+            "snoozed_until": null
+          }
+        ],
+        "user_preferences": {
+          "user-bob": {
+            "quiet_hours": null,
+            "max_nudges_per_day": 3,
+            "nudges_sent_today": 0
+          }
+        },
+        "reference_datetime": "2026-08-07T10:00:00Z",
+        "followup_config": {
+          "version": "1.1",
+          "soft_days_before_due": 2,
+          "direct_days_overdue": 1,
+          "escalate_after_nudges": 3,
+          "min_pressure_for_soft": 0.4,
+          "respect_quiet_hours": true
+        }
+      },
+      "output_example": {
+        "selected": [
+          {
+            "item_id": "ai-9",
+            "intensity": "escalate",
+            "reason": "3 prior nudges ignored + overdue + high pressure",
+            "recommended_channel": "manager"
+          }
+        ],
+        "skipped": [],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "escalation threshold met"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "open_items",
+        "reference_datetime",
+        "followup_config"
+      ],
+      "properties": {
+        "open_items": {
+          "type": "array",
+          "items": {
+            "type": "object"
+          }
+        },
+        "user_preferences": {
+          "type": "object",
+          "additionalProperties": true
+        },
+        "reference_datetime": {
+          "type": "string"
+        },
+        "followup_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "soft_days_before_due": {
+              "type": "integer"
+            },
+            "direct_days_overdue": {
+              "type": "integer"
+            },
+            "escalate_after_nudges": {
+              "type": "integer"
+            },
+            "min_pressure_for_soft": {
+              "type": "number"
+            },
+            "respect_quiet_hours": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "selected",
+        "skipped",
+        "reason_code"
+      ],
+      "properties": {
+        "selected": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "item_id",
+              "intensity",
+              "reason"
+            ],
+            "properties": {
+              "item_id": {
+                "type": "string"
+              },
+              "intensity": {
+                "type": "string",
+                "enum": [
+                  "soft",
+                  "direct",
+                  "escalate"
+                ]
+              },
+              "reason": {
+                "type": "string"
+              },
+              "recommended_channel": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "skipped": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "item_id": {
+                "type": "string"
+              },
+              "reason": {
+                "type": "string"
+              },
+              "detail": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "reason_code": {
+          "type": "string"
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure selection decision"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.select-items-for-followup"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [
+    {
+      "id": "anti-spam-by-design"
+    }
+  ],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:20:00Z",
+    "spec_ref": "core.select-items-for-followup@1.1.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-select-items-for-followup-1.1.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

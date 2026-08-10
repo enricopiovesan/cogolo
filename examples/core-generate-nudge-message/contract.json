@@ -1,0 +1,191 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.generate-nudge-message",
+  "namespace": "core",
+  "name": "generate-nudge-message",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Generates a short, human, context-aware nudge message for an action item at a given intensity.",
+  "description": "Pure message generation. Takes item details + intensity + tone configuration and returns a ready-to-send message body plus subject/preview. No delivery occurs inside the capability.",
+  "use_cases": [
+    {
+      "scenario": "As the follow-up engine, I want a soft reminder that feels helpful rather than nagging.",
+      "input_example": {
+        "item": {
+          "id": "ai-1",
+          "title": "Send the revised proposal",
+          "owner_name": "Ada",
+          "due_date": "2026-08-09",
+          "status": "open",
+          "nudge_count": 0
+        },
+        "intensity": "soft",
+        "message_config": {
+          "version": "1.0",
+          "tone": "friendly",
+          "include_due_date": true,
+          "language": "en"
+        }
+      },
+      "output_example": {
+        "message": "Hey Ada \u2014 friendly reminder that \u201cSend the revised proposal\u201d is due tomorrow. Let us know if you need anything!",
+        "preview": "Reminder: Send the revised proposal",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "intensity=soft",
+          "tone=friendly"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "item",
+        "intensity",
+        "message_config"
+      ],
+      "properties": {
+        "item": {
+          "type": "object"
+        },
+        "intensity": {
+          "type": "string",
+          "enum": [
+            "soft",
+            "direct",
+            "escalate"
+          ]
+        },
+        "message_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "tone": {
+              "type": "string",
+              "enum": [
+                "friendly",
+                "neutral",
+                "direct"
+              ]
+            },
+            "include_due_date": {
+              "type": "boolean"
+            },
+            "language": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "message",
+        "reason_code"
+      ],
+      "properties": {
+        "message": {
+          "type": "string"
+        },
+        "preview": {
+          "type": "string"
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "invalid_intensity",
+            "config_error"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure generation"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.generate-nudge-message"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.generate-nudge-message@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-generate-nudge-message-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

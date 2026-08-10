@@ -37,6 +37,39 @@ jobs:
       - name: Run core.validate-action-item example smoke
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_validate_action_item_example_smoke.sh
 
+      - name: Run core.aggregate-team-action-health example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_aggregate_team_action_health_example_smoke.sh
+
+      - name: Run core.extract-action-items example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_extract_action_items_example_smoke.sh
+
+      - name: Run core.generate-nudge-message example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_generate_nudge_message_example_smoke.sh
+
+      - name: Run core.calculate-price example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_calculate_price_example_smoke.sh
+
+      - name: Run core.select-items-for-followup example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_select_items_for_followup_example_smoke.sh
+
+      - name: Run core.normalize-participants example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_normalize_participants_example_smoke.sh
+
+      - name: Run core.calculate-deadline-pressure example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_calculate_deadline_pressure_example_smoke.sh
+
+      - name: Run core.record-nudge-event example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_record_nudge_event_example_smoke.sh
+
+      - name: Run core.evaluate-completion-quality example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_evaluate_completion_quality_example_smoke.sh
+
+      - name: Run core.notify-stakeholders example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_notify_stakeholders_example_smoke.sh
+
+      - name: Run core.decide-escalation example smoke
+        run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/core_decide_escalation_example_smoke.sh
+
       - name: Run capability new E2E smoke
         run: TRAVERSE_REPO_ROOT="$PWD" bash scripts/ci/capability_new_e2e_smoke.sh
 

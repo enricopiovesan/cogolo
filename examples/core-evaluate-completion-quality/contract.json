@@ -1,0 +1,260 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.evaluate-completion-quality",
+  "namespace": "core",
+  "name": "evaluate-completion-quality",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Scores completion quality for a done action item, with a stronger evidence bar under high pressure.",
+  "description": "Pure WF4 capability. Evaluates completion_note length and evidence_refs against pressure_score and config. High-pressure items require evidence; thin completions get needs_evidence or fail.",
+  "use_cases": [
+    {
+      "scenario": "As the completion path, I want a high-pressure item with evidence to pass.",
+      "input_example": {
+        "item": {
+          "id": "ai-1",
+          "title": "Send the revised proposal",
+          "status": "done",
+          "pressure_score": 0.9,
+          "completion_note": "Sent revised proposal to stakeholders",
+          "evidence_refs": [
+            "doc-123"
+          ]
+        },
+        "quality_config": {
+          "version": "1.0",
+          "high_pressure_threshold": 0.7,
+          "require_evidence_when_high_pressure": true,
+          "min_note_length": 8
+        }
+      },
+      "output_example": {
+        "item_id": "ai-1",
+        "quality_score": 1.0,
+        "verdict": "pass",
+        "gaps": [],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "high_pressure=true",
+          "evidence=1",
+          "note_len=37"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    },
+    {
+      "scenario": "As the system, I want high-pressure completions without evidence to fail closed.",
+      "input_example": {
+        "item": {
+          "id": "ai-2",
+          "title": "Fix production bug",
+          "status": "done",
+          "pressure_score": 0.95,
+          "completion_note": "done",
+          "evidence_refs": []
+        },
+        "quality_config": {
+          "version": "1.0",
+          "high_pressure_threshold": 0.7,
+          "require_evidence_when_high_pressure": true,
+          "min_note_length": 8
+        }
+      },
+      "output_example": {
+        "item_id": "ai-2",
+        "quality_score": 0.0,
+        "verdict": "needs_evidence",
+        "gaps": [
+          "short_note",
+          "missing_evidence"
+        ],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "high_pressure=true",
+          "evidence=0",
+          "note_len=4"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "item",
+        "quality_config"
+      ],
+      "properties": {
+        "item": {
+          "type": "object",
+          "required": [
+            "id",
+            "status"
+          ],
+          "properties": {
+            "id": {
+              "type": "string"
+            },
+            "title": {
+              "type": "string"
+            },
+            "status": {
+              "type": "string"
+            },
+            "pressure_score": {
+              "type": "number"
+            },
+            "completion_note": {
+              "type": "string"
+            },
+            "evidence_refs": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "quality_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "high_pressure_threshold": {
+              "type": "number"
+            },
+            "require_evidence_when_high_pressure": {
+              "type": "boolean"
+            },
+            "min_note_length": {
+              "type": "integer"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "quality_score",
+        "verdict",
+        "reason_code"
+      ],
+      "properties": {
+        "item_id": {
+          "type": "string"
+        },
+        "quality_score": {
+          "type": "number"
+        },
+        "verdict": {
+          "type": "string",
+          "enum": [
+            "pass",
+            "needs_evidence",
+            "fail"
+          ]
+        },
+        "gaps": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "invalid_status",
+            "invalid_input",
+            "config_error"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure quality evaluation"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.evaluate-completion-quality"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.evaluate-completion-quality@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-evaluate-completion-quality-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

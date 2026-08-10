@@ -1,0 +1,63 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-calculate-price-01",
+  "intent": {
+    "capability_id": "core.calculate-price",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "currency": "USD",
+    "lines": [
+      {
+        "id": "line-1",
+        "sku": "SKU-100",
+        "quantity": 2,
+        "unit_price": 50.00,
+        "tax_code": "STANDARD"
+      }
+    ],
+    "customer": {
+      "id": "cust-42",
+      "attributes": {
+        "segment": "retail"
+      }
+    },
+    "context": {},
+    "pricing_config": {
+      "version": "1.0",
+      "currency": "USD",
+      "rounding": "half_up",
+      "decimal_places": 2,
+      "discount_rules": [
+        {
+          "id": "summer-10",
+          "priority": 100,
+          "type": "percentage",
+          "value": 10,
+          "stackable": false,
+          "applies_to": [
+            "SKU-100"
+          ]
+        }
+      ],
+      "tax_rules": [
+        {
+          "id": "us-standard",
+          "tax_code": "STANDARD",
+          "rate": 0.08,
+          "inclusive": false
+        }
+      ]
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-calculate-price-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}
