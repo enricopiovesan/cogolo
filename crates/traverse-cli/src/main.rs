@@ -3099,7 +3099,10 @@ fn capability_publish_plan(
 
 /// Spec 102 FR-005: preserve author `use_cases` and `evidence` into registry-bound JSON.
 /// `validate_contract` clears evidence on normalize; merge both from the raw author JSON.
-fn merge_author_fields_into_publish_contract(contract_value: &mut Value, raw_contract_value: &Value) {
+fn merge_author_fields_into_publish_contract(
+    contract_value: &mut Value,
+    raw_contract_value: &Value,
+) {
     if let Some(use_cases) = raw_contract_value.get("use_cases") {
         contract_value["use_cases"] = use_cases.clone();
     }
@@ -7266,10 +7269,9 @@ mod tests {
                 .is_empty()
         );
 
-        let empty_err = enforce_contract_surface_coverage(
-            r#"{"inputs":{"schema":{"properties":{}}}}"#,
-        )
-        .expect_err("contracts without use_cases must fail");
+        let empty_err =
+            enforce_contract_surface_coverage(r#"{"inputs":{"schema":{"properties":{}}}}"#)
+                .expect_err("contracts without use_cases must fail");
         assert_eq!(empty_err.0, "capability_publish_surface_coverage_failed");
         assert!(empty_err.1.contains("use_cases"));
 
@@ -7423,21 +7425,20 @@ mod tests {
 
     #[test]
     fn use_case_smoke_coverage_gaps_require_ucnn_fixtures() {
-        assert!(use_case_smoke_coverage_gaps(
-            2,
-            &[
-                "uc01-happy.json".to_string(),
-                "uc02-sad.json".to_string(),
-                "extra.json".to_string()
-            ]
-        )
-        .is_empty());
+        assert!(
+            use_case_smoke_coverage_gaps(
+                2,
+                &[
+                    "uc01-happy.json".to_string(),
+                    "uc02-sad.json".to_string(),
+                    "extra.json".to_string()
+                ]
+            )
+            .is_empty()
+        );
         assert_eq!(
             use_case_smoke_coverage_gaps(2, &["uc01-happy.json".to_string()]),
-            vec![
-                "use_cases[1] lacks runtime-requests/uc02-*.json (spec 102 FR-007)"
-                    .to_string()
-            ]
+            vec!["use_cases[1] lacks runtime-requests/uc02-*.json (spec 102 FR-007)".to_string()]
         );
 
         let temp_dir = unique_temp_dir();
@@ -7449,11 +7450,8 @@ mod tests {
             r#"{"use_cases":[{"scenario":"a"},{"scenario":"b"}]}"#,
         )
         .expect("contract should write");
-        fs::write(
-            package_dir.join("runtime-requests/uc01-a.json"),
-            "{}",
-        )
-        .expect("uc01 should write");
+        fs::write(package_dir.join("runtime-requests/uc01-a.json"), "{}")
+            .expect("uc01 should write");
         let gaps = use_case_smoke_coverage_gaps_for_package(&package_dir)
             .expect("package gaps should compute");
         assert_eq!(gaps.len(), 1);
