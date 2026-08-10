@@ -2,6 +2,21 @@
 
 ## Unreleased
 
+## v0.9.1 — 2026-08-09
+
+- Capability packages can be scaffolded, inspected, validated, and published through
+  the CLI. Publishing now records executable artifacts with registry records and
+  rejects unresolved persona references, including during dry runs.
+- The runtime now carries real events emitted by executable capabilities through the
+  `LocalExecutor`; the retired output-JSON convention is no longer the execution path.
+- Added governed, end-to-end-smoked examples for `core.authorize`,
+  `core.process-comment`, `core.transition-action-status`,
+  `core.assign-ownership`, and `core.validate-action-item`.
+- Added contract-surface coverage enforcement and corrected the
+  `core.process-comment` published surface with an honesty bump.
+- Fixed the CLI release package so its generated protobuf source is included in the
+  v0.9.1 crate artifact.
+
 - Kotlin and Swift embedder SDKs: marshal native bridge requests and map
   typed runtime bridge results, with a CI-enforced embedder conformance
   suite for both platforms (specs 071, 072).
