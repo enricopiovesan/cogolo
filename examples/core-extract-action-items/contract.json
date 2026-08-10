@@ -4,14 +4,14 @@
   "id": "core.extract-action-items",
   "namespace": "core",
   "name": "extract-action-items",
-  "version": "1.1.0",
+  "version": "1.1.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Extracts clean action items from meeting notes with strict confidence gating, separate 'needs review' bucket, and improved relative-date handling. Council-revised.",
-  "description": "Council-improved extraction capability. Key changes from 1.0.0:\n- Higher default confidence threshold\n- Explicit 'needs_human_review' list for borderline items\n- Better rejection of vague or decision-only sentences\n- Clearer relative date resolution anchored to meeting_date\n- Returns source sentence + confidence for every candidate so the UI can show provenance\n\nStill pure and deterministic. No external model calls.",
+  "description": "Council-improved extraction capability. Key changes from 1.0.0:\n- Higher default confidence threshold\n- Explicit 'needs_human_review' list for borderline items\n- Better rejection of vague or decision-only sentences\n- Clearer relative date resolution anchored to meeting_date\n- Returns source sentence + confidence for every candidate so the UI can show provenance\n\nStill pure and deterministic. No external model calls.\n\nImplemented and smoke-tested matrix (use_cases):\n- mixed extraction with high-confidence items and vague rejection\n- no_action_items_found for discussion-only notes\n\nKnown limitations (intentional in 1.1.1):\n- Deterministic heuristic extractor only; no external model calls",
   "use_cases": [
     {
       "scenario": "As a team lead, I want only high-confidence action items auto-suggested and borderline ones flagged for my review.",
@@ -167,7 +167,11 @@
           "type": "array"
         },
         "reason_code": {
-          "type": "string"
+          "type": "string",
+          "enum": [
+            "ok",
+            "no_action_items_found"
+          ]
         },
         "evaluation_trace": {
           "type": "array",
@@ -237,7 +241,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:20:00Z",
-    "spec_ref": "core.extract-action-items@1.1.0",
+    "spec_ref": "core.extract-action-items@1.1.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -245,7 +249,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-extract-action-items-1.1.0-contract-validation",
+      "evidence_id": "core-extract-action-items-1.1.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

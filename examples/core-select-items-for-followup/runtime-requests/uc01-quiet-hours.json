@@ -4,7 +4,7 @@
   "request_id": "core-select-items-for-followup-01",
   "intent": {
     "capability_id": "core.select-items-for-followup",
-    "capability_version": "1.1.0"
+    "capability_version": "1.1.1"
   },
   "input": {
     "open_items": [

@@ -1,0 +1,30 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-calculate-deadline-pressure-05",
+  "intent": {
+    "capability_id": "core.calculate-deadline-pressure",
+    "capability_version": "1.0.1"
+  },
+  "input": {
+    "item": {
+      "id": "ai-c",
+      "due_date": "2026-08-10",
+      "status": "open"
+    },
+    "reference_date": "",
+    "pressure_config": {
+      "version": "1.0",
+      "horizon_days": 14
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-calculate-deadline-pressure-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

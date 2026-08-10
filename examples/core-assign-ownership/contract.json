@@ -4,14 +4,14 @@
   "id": "core.assign-ownership",
   "namespace": "core",
   "name": "assign-ownership",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Resolves and records clear ownership for an action item (single accountable person).",
-  "description": "Takes a suggested owner (name, email, or id) plus a workspace member list and returns a canonical owner_id or a structured failure. Supports fallback strategies (creator, unassigned, fail). Pure and deterministic — never mutates storage.\n\nResolution order for a non-null suggestion:\n1. exact member id match\n2. case-insensitive email match\n3. case-insensitive name match\nThen apply `ownership_config.fallback` when unresolved.",
+  "description": "Resolves a suggested owner against workspace members (id, email, name) and applies ownership_config.fallback when unresolved. Pure and deterministic.\n\nImplemented and smoke-tested matrix (use_cases):\n- name_match → ok\n- email_match → ok\n- null suggestion with fallback=creator → ok\n- unknown suggestion with fallback=fail → unresolved\n- inactive member with require_active_member → inactive_member\n- invalid fallback value → config_error\n- unknown suggestion with fallback=unassigned → ok (owner_id null)\n\nKnown limitations (intentional in 1.0.1):\n- Does not mutate storage or notify members; callers persist the decision",
   "use_cases": [
     {
       "scenario": "As the system, I want a name match to resolve to a canonical user id.",
@@ -105,7 +105,7 @@
         "reason_code": "ok",
         "evaluation_trace": [
           "suggested_owner null",
-          "fallback=creator → user-carol"
+          "fallback=creator"
         ]
       },
       "happy": true,
@@ -134,12 +134,106 @@
         "resolution_method": "unresolved",
         "reason_code": "unresolved",
         "evaluation_trace": [
-          "no member match for Unknown Person",
+          "no member match for suggestion",
           "fallback=fail"
         ]
       },
       "happy": false,
       "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want an inactive member match rejected with inactive_member when require_active_member is true.",
+      "input_example": {
+        "suggested_owner": "user-ada",
+        "creator_id": "user-carol",
+        "workspace_members": [
+          {
+            "id": "user-ada",
+            "name": "Ada Lovelace",
+            "email": "ada@loop.dev",
+            "active": false
+          }
+        ],
+        "ownership_config": {
+          "version": "1.0",
+          "fallback": "fail",
+          "require_active_member": true
+        }
+      },
+      "output_example": {
+        "owner_id": null,
+        "resolution_method": "unresolved",
+        "reason_code": "inactive_member",
+        "evaluation_trace": [
+          "matched inactive member"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want an invalid fallback value rejected with config_error.",
+      "input_example": {
+        "suggested_owner": "Ada Lovelace",
+        "creator_id": "user-carol",
+        "workspace_members": [
+          {
+            "id": "user-ada",
+            "name": "Ada Lovelace",
+            "email": "ada@loop.dev"
+          },
+          {
+            "id": "user-bob",
+            "name": "Bob Smith",
+            "email": "bob@loop.dev"
+          }
+        ],
+        "ownership_config": {
+          "version": "1.0",
+          "fallback": "bogus",
+          "require_active_member": true
+        }
+      },
+      "output_example": {
+        "owner_id": null,
+        "resolution_method": "config_error",
+        "reason_code": "config_error",
+        "evaluation_trace": [
+          "invalid fallback"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want unknown suggestions to resolve as unassigned when fallback is unassigned.",
+      "input_example": {
+        "suggested_owner": "Unknown Person",
+        "creator_id": "user-carol",
+        "workspace_members": [
+          {
+            "id": "user-ada",
+            "name": "Ada Lovelace",
+            "email": "ada@loop.dev"
+          }
+        ],
+        "ownership_config": {
+          "version": "1.0",
+          "fallback": "unassigned",
+          "require_active_member": true
+        }
+      },
+      "output_example": {
+        "owner_id": null,
+        "resolution_method": "fallback_unassigned",
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "no member match for suggestion",
+          "fallback=unassigned"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
     }
   ],
   "inputs": {
@@ -284,7 +378,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.assign-ownership@1.0.0",
+    "spec_ref": "core.assign-ownership@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -292,7 +386,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-assign-ownership-1.0.0-contract-validation",
+      "evidence_id": "core-assign-ownership-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

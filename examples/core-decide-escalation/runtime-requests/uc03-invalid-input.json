@@ -1,0 +1,33 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-decide-escalation-03",
+  "intent": {
+    "capability_id": "core.decide-escalation",
+    "capability_version": "1.0.1"
+  },
+  "input": {
+    "health": {
+      "total_open": 3,
+      "overdue_count": -1,
+      "on_track_pct": 66.6,
+      "overloaded_owners": [],
+      "top_pressure_items": []
+    },
+    "escalation_config": {
+      "version": "1.0",
+      "min_overdue_for_escalate": 2,
+      "min_overloaded_owners": 1,
+      "require_multiple_signals": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-decide-escalation-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

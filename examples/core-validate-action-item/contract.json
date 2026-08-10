@@ -4,14 +4,14 @@
   "id": "core.validate-action-item",
   "namespace": "core",
   "name": "validate-action-item",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Validates a single action item for required fields, owner existence, due-date sanity and duplicate detection before it becomes a commitment.",
-  "description": "Gatekeeper capability used when turning extracted candidates into real tracked items (Loop WF2). Enforces data quality rules that are configurable per workspace via `validation_config`. Pure and deterministic — never mutates storage.\n\nChecks covered by this guest:\n- non-empty title\n- optional required owner / due date\n- past-due rejection when `allow_past_due` is false\n- duplicate detection (`none` | `title` | `title_and_owner`) against `existing_open_items`",
+  "description": "Gatekeeper for action-item commitments: title/owner/due-date rules and duplicate detection under validation_config. Pure and deterministic.\n\nImplemented and smoke-tested matrix (use_cases):\n- complete item validates (ok)\n- past due rejected when allow_past_due=false (validation_failed)\n- missing owner when require_owner=true (validation_failed)\n- duplicate title+owner (duplicate)\n- duplicate title-only check mode (duplicate)\n- invalid duplicate_check config (invalid_config)\n\nKnown limitations (intentional in 1.0.1):\n- Does not verify owner_id exists in a directory; only presence/absence\n- Date parsing is YYYY-MM-DD lexical compare only",
   "use_cases": [
     {
       "scenario": "As a meeting organizer confirming extracted items, I want a complete item to validate cleanly.",
@@ -41,7 +41,9 @@
           "due_date": "2026-08-09"
         },
         "reason_code": "ok",
-        "evaluation_trace": ["all checks passed"]
+        "evaluation_trace": [
+          "all checks passed"
+        ]
       },
       "happy": true,
       "persona_ref": "meeting-organizer"
@@ -75,7 +77,9 @@
         ],
         "normalized": null,
         "reason_code": "validation_failed",
-        "evaluation_trace": ["due_date 2026-08-01 < reference 2026-08-07"]
+        "evaluation_trace": [
+          "due_date 2026-08-01 < reference 2026-08-07"
+        ]
       },
       "happy": false,
       "persona_ref": "runtime-engineer"
@@ -108,7 +112,9 @@
         ],
         "normalized": null,
         "reason_code": "validation_failed",
-        "evaluation_trace": ["require_owner=true and owner_id missing"]
+        "evaluation_trace": [
+          "require_owner=true and owner_id missing"
+        ]
       },
       "happy": false,
       "persona_ref": "runtime-engineer"
@@ -148,7 +154,81 @@
         ],
         "normalized": null,
         "reason_code": "duplicate",
-        "evaluation_trace": ["duplicate_check=title_and_owner matched existing open item"]
+        "evaluation_trace": [
+          "duplicate_check=title_and_owner matched existing open item"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want duplicate_check=title to reject matching titles regardless of owner.",
+      "input_example": {
+        "action_item": {
+          "title": "Send proposal",
+          "owner_id": "user-bob",
+          "due_date": "2026-08-12"
+        },
+        "existing_open_items": [
+          {
+            "title": "Send proposal",
+            "owner_id": "user-ada",
+            "due_date": "2026-08-09"
+          }
+        ],
+        "validation_config": {
+          "version": "1.0",
+          "require_owner": true,
+          "require_due_date": false,
+          "allow_past_due": false,
+          "duplicate_check": "title"
+        },
+        "reference_date": "2026-08-07"
+      },
+      "output_example": {
+        "valid": false,
+        "errors": [
+          {
+            "field": "title",
+            "code": "duplicate",
+            "message": "matching open item already exists"
+          }
+        ],
+        "normalized": null,
+        "reason_code": "duplicate",
+        "evaluation_trace": [
+          "duplicate_check=title matched existing open item"
+        ]
+      },
+      "happy": false,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As the system, I want an unknown duplicate_check value rejected with invalid_config.",
+      "input_example": {
+        "action_item": {
+          "title": "Send proposal",
+          "owner_id": "user-ada",
+          "due_date": "2026-08-12"
+        },
+        "existing_open_items": [],
+        "validation_config": {
+          "version": "1.0",
+          "require_owner": true,
+          "require_due_date": false,
+          "allow_past_due": false,
+          "duplicate_check": "bogus"
+        },
+        "reference_date": "2026-08-07"
+      },
+      "output_example": {
+        "valid": false,
+        "errors": [],
+        "normalized": null,
+        "reason_code": "invalid_config",
+        "evaluation_trace": [
+          "invalid_config: duplicate_check"
+        ]
       },
       "happy": false,
       "persona_ref": "runtime-engineer"
@@ -340,7 +420,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.validate-action-item@1.0.0",
+    "spec_ref": "core.validate-action-item@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -348,7 +428,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-validate-action-item-1.0.0-contract-validation",
+      "evidence_id": "core-validate-action-item-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

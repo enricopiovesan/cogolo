@@ -4,14 +4,14 @@
   "id": "core.decide-escalation",
   "namespace": "core",
   "name": "decide-escalation",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Decides escalate vs weekly digest from team action health, with a deliberately high bar.",
-  "description": "Pure WF5 capability. Consumes a health snapshot (from core.aggregate-team-action-health) and applies multi-signal thresholds so managers only get real-time exceptions; otherwise digest.",
+  "description": "Pure WF5 capability. Consumes a health snapshot (from core.aggregate-team-action-health) and applies multi-signal thresholds to decide digest vs escalate.\n\nImplemented and smoke-tested matrix (use_cases):\n- digest when only one signal is met\n- escalate when multiple signals are met\n- invalid_input when overdue_count is negative\n\nKnown limitations (intentional in 1.0.1):\n- reason_code config_error removed; the guest does not emit that code\n- Decision only; no notification delivery",
   "use_cases": [
     {
       "scenario": "As a manager experience, I want a single overdue item to stay in digest when other signals are calm.",
@@ -106,6 +106,34 @@
         ]
       },
       "happy": true,
+      "persona_ref": "runtime-engineer"
+    },
+    {
+      "scenario": "As WF5, I want invalid_input when overdue_count is negative.",
+      "input_example": {
+        "health": {
+          "total_open": 3,
+          "overdue_count": -1,
+          "on_track_pct": 66.6,
+          "overloaded_owners": [],
+          "top_pressure_items": []
+        },
+        "escalation_config": {
+          "version": "1.0",
+          "min_overdue_for_escalate": 2,
+          "min_overloaded_owners": 1,
+          "require_multiple_signals": true
+        }
+      },
+      "output_example": {
+        "decision": "digest",
+        "signals_met": 0,
+        "signals": [],
+        "escalate_item_ids": [],
+        "reason_code": "invalid_input",
+        "evaluation_trace": []
+      },
+      "happy": false,
       "persona_ref": "runtime-engineer"
     }
   ],
@@ -204,8 +232,7 @@
           "type": "string",
           "enum": [
             "ok",
-            "invalid_input",
-            "config_error"
+            "invalid_input"
           ]
         },
         "evaluation_trace": {
@@ -260,7 +287,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.decide-escalation@1.0.0",
+    "spec_ref": "core.decide-escalation@1.0.1",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -268,7 +295,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-decide-escalation-1.0.0-contract-validation",
+      "evidence_id": "core-decide-escalation-1.0.1-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }

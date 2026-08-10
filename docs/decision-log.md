@@ -2130,3 +2130,39 @@ Publish and registry validation treated `description` and broad `action` enums a
 
 Tickets filed on Project 1 (`#1014`–`#1016`) and Project 3 (`#192`–`#193`). Spec/ADR drafted. Honesty bump proceeds under existing `516` while Spec 102 awaits approval.
 
+
+## Decision 58: Full Capability Surface Coverage via Use Cases (Not Minimum Counts)
+
+- **Date**: 2026-08-10
+- **Status**: Accepted; Spec 102 v1.1.0 Approved 2026-08-10
+- **Governing spec**: `102-contract-surface-coverage` (v1.1.0), ADR-0038 (amended), registry `001` FR-011
+- **Related issues**: traverse `#1040`; registry `#215`
+- **Origin**: Post-Loop-batch audit — most registry `core.*` contracts had `use_cases` stripped by publish; owner directed that use cases must cover the entire capability, as a non-negotiable gate.
+
+### Context
+
+Decision 57 / Spec 102 v1.0.0 gated only `inputs.schema.properties.action.enum`. Loop capability publish validated use cases from raw JSON, then serialized `CapabilityContract` (which has no `use_cases` field), so registry copies lost them. Registry CI explicitly allowed missing use cases (`test_contract_without_use_cases_is_not_flagged`). Local examples often had use cases and smokes, but the catalog of record did not.
+
+### Decision
+
+1. **Coverage target**: the declared schema surface — every input schema string enum value; every `inputs.schema.required` property at least once; every `outputs.schema.properties.reason_code` / `status` enum value. Not a minimum use-case count. No cartesian product of required fields.
+2. **Enums for checkable outcomes**: `reason_code` / `status` MUST be schema enums when authors need those outcomes covered; free-string fields are not coverage-checkable.
+3. **Smoke linkage**: every `use_cases[]` entry MUST have a matching executable smoke fixture that asserts its `reason_code` / key outputs.
+4. **Enforcement**: fail closed in both `capability publish` / `--dry-run` and registry CI for newly ADDED or CHANGED contracts. Publish MUST preserve `use_cases` (and author evidence) into the registry-bound JSON.
+5. **History**: do not edit immutable stripped versions in place; honesty patch-bump them under FR-010.
+6. **Governance vehicle**: amend Spec 102 (and registry `001` FR-011 from MAY→MUST for new/changed contracts); do not create a parallel coverage law.
+
+### Alternatives Considered
+
+- Minimum happy+unhappy counts only — rejected; owner clarified coverage of the whole capability matters, not N.
+- Cartesian required-field matrices — rejected as an impractical publish gate.
+- NLP description coverage as a blocking gate — deferred; Known limitations remain the honesty path for prose.
+- Forward-only gate without republishing stripped caps — rejected; catalog would stay dishonest.
+- CLI-only or registry-only enforcement — rejected; both are required.
+
+### Outcome
+
+- Spec 102 drafted at v1.1.0 (Draft) and ADR-0038 amended.
+- Implementation tracked by traverse `#1040` and registry `#215`.
+- Honesty patch-bumps for stripped Loop caps follow once the gate lands.
+

@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "core.transition-action-status",
   "name": "transition-action-status",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
@@ -37,7 +37,7 @@
     {
       "node_id": "transition",
       "capability_id": "core.transition-action-status",
-      "capability_version": "1.0.0",
+      "capability_version": "1.0.1",
       "input": {
         "from_workflow_input": [
           "current_status",

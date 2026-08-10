@@ -1,0 +1,52 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-transition-action-status-06",
+  "intent": {
+    "capability_id": "core.transition-action-status",
+    "capability_version": "1.0.1"
+  },
+  "input": {
+    "current_status": "in_progress",
+    "requested_status": "done",
+    "actor_id": "user-ada",
+    "owner_id": "user-ada",
+    "transition_config": {
+      "version": "1.0",
+      "allowed_transitions": {
+        "open": [
+          "in_progress",
+          "cancelled",
+          "snoozed"
+        ],
+        "in_progress": [
+          "blocked",
+          "done",
+          "cancelled",
+          "snoozed"
+        ],
+        "blocked": [
+          "in_progress",
+          "cancelled"
+        ],
+        "snoozed": [
+          "open",
+          "in_progress",
+          "cancelled"
+        ],
+        "done": [],
+        "cancelled": []
+      },
+      "owner_only": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-transition-action-status-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

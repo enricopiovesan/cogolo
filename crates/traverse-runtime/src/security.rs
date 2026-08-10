@@ -534,6 +534,7 @@ mod tests {
             event_trigger: None,
             connector_requirements: Vec::new(),
             state_schema: None,
+            use_cases: Vec::new(),
         };
         let record = CapabilityRegistryRecord {
             scope: RegistryScope::Private,

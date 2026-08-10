@@ -2,17 +2,17 @@
   "kind": "capability_package",
   "schema_version": "1.0.0",
   "package_id": "core.process-comment-agent",
-  "version": "1.0.1",
-  "summary": "Capability package for core.process-comment@1.0.1 (honesty-aligned tested matrix).",
+  "version": "1.0.2",
+  "summary": "Capability package for core.process-comment@1.0.2.",
   "capability_ref": {
     "id": "core.process-comment",
-    "version": "1.0.1",
+    "version": "1.0.2",
     "contract_path": "./contract.json"
   },
   "workflow_refs": [
     {
       "workflow_id": "core.process-comment",
-      "workflow_version": "1.0.1"
+      "workflow_version": "1.0.2"
     }
   ],
   "source": {

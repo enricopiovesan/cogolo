@@ -3008,11 +3008,17 @@ fn capability_publish_plan(
         )
     })?;
     reject_private_contract_scope(&contract_text)?;
-    // Spec 102: check raw JSON so use_cases (not on CapabilityContract) are visible.
+    // Spec 102: fail closed on schema ⊆ use_cases before normalization.
     enforce_contract_surface_coverage(&contract_text)?;
     // Fail fast on persona_ref gaps before opening a registry PR.
     enforce_persona_refs_resolve(&contract_text, &request.registry_repo_path)?;
 
+    let raw_contract_value: Value = serde_json::from_str(&contract_text).map_err(|error| {
+        (
+            "capability_publish_contract_parse_failed",
+            format!("failed to parse capability contract JSON: {error}"),
+        )
+    })?;
     let contract = parse_contract(&contract_text).map_err(|failure| {
         (
             "capability_publish_contract_parse_failed",
@@ -3063,6 +3069,7 @@ fn capability_publish_plan(
             format!("failed to serialize normalized capability contract: {error}"),
         )
     })?;
+    merge_author_fields_into_publish_contract(&mut contract_value, &raw_contract_value);
     contract_value["artifact"] = serde_json::json!({
         "digest": artifact_digest,
         "url": artifact_url,
@@ -3090,6 +3097,20 @@ fn capability_publish_plan(
     })
 }
 
+/// Spec 102 FR-005: preserve author `use_cases` and `evidence` into registry-bound JSON.
+/// `validate_contract` clears evidence on normalize; merge both from the raw author JSON.
+fn merge_author_fields_into_publish_contract(
+    contract_value: &mut Value,
+    raw_contract_value: &Value,
+) {
+    if let Some(use_cases) = raw_contract_value.get("use_cases") {
+        contract_value["use_cases"] = use_cases.clone();
+    }
+    if let Some(evidence) = raw_contract_value.get("evidence") {
+        contract_value["evidence"] = evidence.clone();
+    }
+}
+
 fn reject_private_contract_scope(contract_text: &str) -> Result<(), (&'static str, String)> {
     let value: Value = serde_json::from_str(contract_text).map_err(|error| {
         (
@@ -3107,8 +3128,8 @@ fn reject_private_contract_scope(contract_text: &str) -> Result<(), (&'static st
     Ok(())
 }
 
-/// Spec `102-contract-surface-coverage` FR-001/FR-002: every `action` enum value
-/// must appear in at least one `use_cases[].input_example.action`.
+/// Spec `102-contract-surface-coverage` (Decision 58): fail closed when use_cases
+/// do not cover declared input enums, required props, or output reason_code/status enums.
 fn enforce_contract_surface_coverage(contract_text: &str) -> Result<(), (&'static str, String)> {
     let value: Value = serde_json::from_str(contract_text).map_err(|error| {
         (
@@ -3116,59 +3137,294 @@ fn enforce_contract_surface_coverage(contract_text: &str) -> Result<(), (&'stati
             format!("failed to parse capability contract JSON: {error}"),
         )
     })?;
-    match uncovered_action_enum_values(&value) {
-        Ok(uncovered) if uncovered.is_empty() => Ok(()),
-        Ok(uncovered) => Err((
+    match surface_coverage_gap_messages(&value) {
+        Ok(gaps) if gaps.is_empty() => Ok(()),
+        Ok(gaps) => Err((
             "capability_publish_surface_coverage_failed",
             format!(
-                "inputs.schema.properties.action.enum values lack covering use_cases: {}. Every enum value must appear as use_cases[].input_example.action (spec 102-contract-surface-coverage FR-001)",
-                uncovered.join(", ")
+                "{}. (spec 102-contract-surface-coverage Decision 58 / FR-001–FR-004)",
+                gaps.join("; ")
             ),
         )),
         Err(message) => Err(("capability_publish_surface_coverage_failed", message)),
     }
 }
 
-fn uncovered_action_enum_values(contract: &Value) -> Result<Vec<String>, String> {
-    let Some(action_schema) = contract.pointer("/inputs/schema/properties/action") else {
-        return Ok(Vec::new());
-    };
-    let Some(enum_values) = action_schema.get("enum").and_then(Value::as_array) else {
-        return Ok(Vec::new());
-    };
-    let mut declared = Vec::new();
-    for value in enum_values {
-        let Some(as_str) = value.as_str() else {
-            return Err(
-                "inputs.schema.properties.action.enum must contain only strings (spec 102 FR-001)"
-                    .to_string(),
-            );
-        };
-        declared.push(as_str.to_string());
-    }
-    if declared.is_empty() {
-        return Ok(Vec::new());
-    }
-
+fn surface_coverage_gap_messages(contract: &Value) -> Result<Vec<String>, String> {
     let use_cases = contract
         .get("use_cases")
         .and_then(Value::as_array)
         .cloned()
         .unwrap_or_default();
-    let mut covered = std::collections::BTreeSet::new();
-    for use_case in &use_cases {
-        if let Some(action) = use_case
-            .pointer("/input_example/action")
-            .and_then(Value::as_str)
-        {
-            covered.insert(action.to_string());
-        }
+    if use_cases.is_empty() {
+        return Ok(vec![
+            "use_cases is missing or empty; every capability contract must declare at least one use case (FR-004)"
+                .to_string(),
+        ]);
     }
 
-    Ok(declared
+    let mut gaps = Vec::new();
+
+    let uncovered_enums = uncovered_input_schema_enum_values(contract, &use_cases)?;
+    if !uncovered_enums.is_empty() {
+        gaps.push(format!(
+            "inputs.schema string enum values lack covering use_cases[].input_example at the same path: {}",
+            uncovered_enums.join(", ")
+        ));
+    }
+
+    let uncovered_required = uncovered_required_input_properties(contract, &use_cases);
+    if !uncovered_required.is_empty() {
+        gaps.push(format!(
+            "inputs.schema.required properties missing from every use_cases[].input_example: {}",
+            uncovered_required.join(", ")
+        ));
+    }
+
+    let uncovered_outputs = uncovered_output_enum_values(contract, &use_cases)?;
+    if !uncovered_outputs.is_empty() {
+        gaps.push(format!(
+            "outputs.schema enum values lack covering use_cases[].output_example: {}",
+            uncovered_outputs.join(", ")
+        ));
+    }
+
+    Ok(gaps)
+}
+
+/// Legacy helper retained for action-focused unit tests: uncovered `action` enum values only.
+#[cfg(test)]
+fn uncovered_action_enum_values(contract: &Value) -> Result<Vec<String>, String> {
+    let use_cases = contract
+        .get("use_cases")
+        .and_then(Value::as_array)
+        .cloned()
+        .unwrap_or_default();
+    let all = uncovered_input_schema_enum_values(contract, &use_cases)?;
+    Ok(all
         .into_iter()
-        .filter(|action| !covered.contains(action))
+        .filter_map(|entry| match entry.split_once('=') {
+            Some(("action", value)) => Some(value.to_string()),
+            _ => None,
+        })
         .collect())
+}
+
+fn uncovered_input_schema_enum_values(
+    contract: &Value,
+    use_cases: &[Value],
+) -> Result<Vec<String>, String> {
+    let Some(schema) = contract.pointer("/inputs/schema") else {
+        return Ok(Vec::new());
+    };
+    let mut declared: Vec<(String, String)> = Vec::new();
+    collect_string_enums_under_properties(schema, "", &mut declared)?;
+    let mut uncovered = Vec::new();
+    for (path, enum_value) in declared {
+        let covered = use_cases.iter().any(|use_case| {
+            use_case
+                .get("input_example")
+                .is_some_and(|example| example_covers_path_string(example, &path, &enum_value))
+        });
+        if !covered {
+            uncovered.push(format!("{path}={enum_value}"));
+        }
+    }
+    Ok(uncovered)
+}
+
+fn uncovered_required_input_properties(contract: &Value, use_cases: &[Value]) -> Vec<String> {
+    let Some(required) = contract
+        .pointer("/inputs/schema/required")
+        .and_then(Value::as_array)
+    else {
+        return Vec::new();
+    };
+    let mut uncovered = Vec::new();
+    for item in required {
+        let Some(name) = item.as_str() else {
+            continue;
+        };
+        let covered = use_cases.iter().any(|use_case| {
+            use_case
+                .get("input_example")
+                .and_then(Value::as_object)
+                .is_some_and(|obj| obj.contains_key(name))
+        });
+        if !covered {
+            uncovered.push(name.to_string());
+        }
+    }
+    uncovered
+}
+
+fn uncovered_output_enum_values(
+    contract: &Value,
+    use_cases: &[Value],
+) -> Result<Vec<String>, String> {
+    let mut uncovered = Vec::new();
+    for field in ["reason_code", "status"] {
+        let Some(field_schema) = contract.pointer(&format!("/outputs/schema/properties/{field}"))
+        else {
+            continue;
+        };
+        let Some(enum_values) = field_schema.get("enum").and_then(Value::as_array) else {
+            continue;
+        };
+        for value in enum_values {
+            let Some(as_str) = value.as_str() else {
+                return Err(format!(
+                    "outputs.schema.properties.{field}.enum must contain only strings (spec 102 FR-003)"
+                ));
+            };
+            let covered = use_cases.iter().any(|use_case| {
+                use_case
+                    .pointer(&format!("/output_example/{field}"))
+                    .and_then(Value::as_str)
+                    == Some(as_str)
+            });
+            if !covered {
+                uncovered.push(format!("{field}={as_str}"));
+            }
+        }
+    }
+    Ok(uncovered)
+}
+
+/// Walk `properties` recursively (and array `items`), collecting string enums.
+/// Skips schemas under `additionalProperties`.
+fn collect_string_enums_under_properties(
+    schema: &Value,
+    path_prefix: &str,
+    out: &mut Vec<(String, String)>,
+) -> Result<(), String> {
+    let Some(properties) = schema.get("properties").and_then(Value::as_object) else {
+        return Ok(());
+    };
+    for (name, child) in properties {
+        let path = if path_prefix.is_empty() {
+            name.clone()
+        } else {
+            format!("{path_prefix}.{name}")
+        };
+        if let Some(enum_values) = child.get("enum").and_then(Value::as_array) {
+            let mut strings = Vec::new();
+            for value in enum_values {
+                let Some(as_str) = value.as_str() else {
+                    return Err(format!(
+                        "inputs.schema property '{path}' enum must contain only strings (spec 102 FR-001)"
+                    ));
+                };
+                strings.push(as_str.to_string());
+            }
+            if !strings.is_empty() {
+                for value in strings {
+                    out.push((path.clone(), value));
+                }
+            }
+        }
+        collect_string_enums_under_properties(child, &path, out)?;
+        if let Some(items) = child.get("items") {
+            collect_string_enums_under_properties(items, &path, out)?;
+        }
+    }
+    Ok(())
+}
+
+fn example_covers_path_string(example: &Value, path: &str, expected: &str) -> bool {
+    let parts: Vec<&str> = path.split('.').filter(|part| !part.is_empty()).collect();
+    example_covers_path_parts(example, &parts, expected)
+}
+
+fn example_covers_path_parts(node: &Value, parts: &[&str], expected: &str) -> bool {
+    if parts.is_empty() {
+        return node.as_str() == Some(expected);
+    }
+    match node {
+        Value::Array(items) => items
+            .iter()
+            .any(|item| example_covers_path_parts(item, parts, expected)),
+        Value::Object(map) => {
+            let Some(child) = map.get(parts[0]) else {
+                return false;
+            };
+            example_covers_path_parts(child, &parts[1..], expected)
+        }
+        _ => false,
+    }
+}
+
+/// Spec 102 FR-007: each `use_cases[i]` must have a matching `runtime-requests/ucNN-*.json`
+/// fixture (1-based index, zero-padded to two digits).
+#[cfg(test)]
+fn use_case_smoke_coverage_gaps(
+    use_case_count: usize,
+    runtime_request_filenames: &[String],
+) -> Vec<String> {
+    let mut gaps = Vec::new();
+    for index in 1..=use_case_count {
+        let prefix = format!("uc{index:02}-");
+        let found = runtime_request_filenames.iter().any(|name| {
+            name.starts_with(&prefix)
+                && Path::new(name)
+                    .extension()
+                    .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+                && !name.contains('/')
+        });
+        if !found {
+            gaps.push(format!(
+                "use_cases[{}] lacks runtime-requests/{prefix}*.json (spec 102 FR-007)",
+                index.saturating_sub(1)
+            ));
+        }
+    }
+    gaps
+}
+
+#[cfg(test)]
+fn use_case_smoke_coverage_gaps_for_package(package_dir: &Path) -> Result<Vec<String>, String> {
+    let contract_path = package_dir.join("contract.json");
+    let contract_text = fs::read_to_string(&contract_path)
+        .map_err(|error| format!("failed to read {}: {error}", contract_path.display()))?;
+    let contract: Value = serde_json::from_str(&contract_text)
+        .map_err(|error| format!("failed to parse {}: {error}", contract_path.display()))?;
+    let use_case_count = contract
+        .get("use_cases")
+        .and_then(Value::as_array)
+        .map_or(0, Vec::len);
+    if use_case_count == 0 {
+        return Ok(vec![
+            "use_cases is missing or empty; cannot verify smoke coverage (spec 102 FR-004/FR-007)"
+                .to_string(),
+        ]);
+    }
+    let requests_dir = package_dir.join("runtime-requests");
+    if !requests_dir.is_dir() {
+        return Ok(vec![format!(
+            "runtime-requests/ directory missing under {} (spec 102 FR-007)",
+            package_dir.display()
+        )]);
+    }
+    let mut filenames = Vec::new();
+    for entry in fs::read_dir(&requests_dir)
+        .map_err(|error| format!("failed to read {}: {error}", requests_dir.display()))?
+    {
+        let entry = entry.map_err(|error| {
+            format!(
+                "failed to read entry under {}: {error}",
+                requests_dir.display()
+            )
+        })?;
+        let name = entry.file_name().to_string_lossy().into_owned();
+        if Path::new(&name)
+            .extension()
+            .is_some_and(|ext| ext.eq_ignore_ascii_case("json"))
+        {
+            filenames.push(name);
+        }
+    }
+    filenames.sort();
+    Ok(use_case_smoke_coverage_gaps(use_case_count, &filenames))
 }
 
 /// Resolve each `use_cases[].persona_ref` against `personas/<id>/<version>/persona.json`
@@ -3466,7 +3722,7 @@ fn capability_publish_pr_body(plan: &CapabilityPublishPlan) -> String {
     // Governing specs must be from the *registry* approved-spec set, not Traverse's.
     // Declaring Traverse-only IDs (056/054/102) fails registry `spec-alignment`.
     format!(
-        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `005-yank-deprecation`\n- `006-public-scope-and-identity`\n- `007-artifact-hosting`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (action enum ⊆ use_cases) passed\n- use_cases persona_ref resolution against registry personas passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
+        "## Summary\n\n- publish `{}` version `{}` to the public capability registry\n- add `{}`\n\n## Governing Spec\n\n- `001-registry-foundation`\n- `002-capability-validation`\n- `005-yank-deprecation`\n- `006-public-scope-and-identity`\n- `007-artifact-hosting`\n\n## Project Item\n\n- Capability publish via traverse-cli\n\n## Validation\n\n- local capability contract validation passed\n- contract surface coverage (schema ⊆ use_cases) passed\n- use_cases persona_ref resolution against registry personas passed\n- artifact digest computed: `{}`\n- release artifact: `{}`\n",
         plan.capability_id,
         plan.version,
         plan.registry_relative_path.display(),
@@ -6151,8 +6407,9 @@ mod tests {
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
         registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
-        telemetry, uncovered_action_enum_values, unresolved_persona_refs,
-        validate_registry_path_segment,
+        surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
+        unresolved_persona_refs, use_case_smoke_coverage_gaps,
+        use_case_smoke_coverage_gaps_for_package, validate_registry_path_segment,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
@@ -6685,6 +6942,23 @@ mod tests {
         .expect("published registry contract should parse");
         assert_eq!(contract["artifact"]["digest"], json["artifact_digest"]);
         assert_eq!(contract["artifact"]["url"], json["artifact_url"]);
+        assert_eq!(
+            contract["use_cases"].as_array().map_or(0, Vec::len),
+            1,
+            "publish must preserve author use_cases (spec 102 FR-005)"
+        );
+        assert!(
+            contract["use_cases"][0]["input_example"]["note"]
+                .as_str()
+                .is_some(),
+            "preserved use_cases must keep input_example"
+        );
+        assert!(
+            contract["evidence"]
+                .as_array()
+                .is_some_and(|items| !items.is_empty()),
+            "publish must preserve author evidence (spec 102 FR-005)"
+        );
         assert!(commands.contains("gh release create artifacts/traverse-starter.process-1.0.0"));
         assert!(commands.contains("git checkout -B publish/traverse-starter.process-1.0.0"));
         assert!(commands.contains("gh pr create"));
@@ -6780,10 +7054,10 @@ mod tests {
         });
         contract["use_cases"] = serde_json::json!([
             {
-                "name": "create only",
-                "description": "covers create",
-                "input_example": { "action": "create" },
-                "expected_output_example": { "ok": true }
+                "scenario": "create only",
+                "input_example": { "note": "hello", "action": "create" },
+                "output_example": { "status": "ok" },
+                "happy": true
             }
         ]);
         fs::write(
@@ -6821,11 +7095,11 @@ mod tests {
         .expect("contract fixture should parse");
         contract["use_cases"] = serde_json::json!([
             {
-                "name": "missing persona",
-                "description": "references a persona that is not in the registry checkout",
+                "scenario": "missing persona",
                 "persona_ref": "missing-persona-for-publish",
-                "input_example": { "action": "create" },
-                "expected_output_example": { "ok": true }
+                "input_example": { "note": "hello" },
+                "output_example": { "status": "ok" },
+                "happy": true
             }
         ]);
         fs::write(
@@ -6879,11 +7153,11 @@ mod tests {
         .expect("contract fixture should parse");
         contract["use_cases"] = serde_json::json!([
             {
-                "name": "present persona",
-                "description": "references a persona that exists in the registry checkout",
+                "scenario": "present persona",
                 "persona_ref": "platform-security-engineer",
-                "input_example": { "action": "create" },
-                "expected_output_example": { "ok": true }
+                "input_example": { "note": "hello" },
+                "output_example": { "status": "ok" },
+                "happy": true
             }
         ]);
         fs::write(
@@ -6985,21 +7259,203 @@ mod tests {
             vec!["pin".to_string()]
         );
 
-        let no_action = serde_json::json!({ "inputs": { "schema": { "properties": {} } } });
+        let no_action = serde_json::json!({
+            "inputs": { "schema": { "properties": {} } },
+            "use_cases": [{ "input_example": {} }]
+        });
         assert!(
             uncovered_action_enum_values(&no_action)
                 .expect("no action enum")
                 .is_empty()
         );
 
-        enforce_contract_surface_coverage(r#"{"inputs":{"schema":{"properties":{}}}}"#)
-            .expect("contracts without action enum must pass");
+        let empty_err =
+            enforce_contract_surface_coverage(r#"{"inputs":{"schema":{"properties":{}}}}"#)
+                .expect_err("contracts without use_cases must fail");
+        assert_eq!(empty_err.0, "capability_publish_surface_coverage_failed");
+        assert!(empty_err.1.contains("use_cases"));
+
         let err = enforce_contract_surface_coverage(
             r#"{"inputs":{"schema":{"properties":{"action":{"enum":["a","b"]}}}},"use_cases":[{"input_example":{"action":"a"}}]}"#,
         )
         .expect_err("uncovered enum must fail");
         assert_eq!(err.0, "capability_publish_surface_coverage_failed");
         assert!(err.1.contains('b'));
+    }
+
+    #[test]
+    fn surface_coverage_pass_covers_required_nested_enums_and_outputs() {
+        let pass = serde_json::json!({
+            "inputs": {
+                "schema": {
+                    "required": ["note", "mode"],
+                    "properties": {
+                        "note": { "type": "string" },
+                        "mode": { "type": "string", "enum": ["fast", "careful"] },
+                        "config": {
+                            "type": "object",
+                            "properties": {
+                                "tone": { "type": "string", "enum": ["soft", "direct"] }
+                            }
+                        },
+                        "extra": {
+                            "additionalProperties": {
+                                "type": "string",
+                                "enum": ["ignored-by-walker"]
+                            }
+                        }
+                    }
+                }
+            },
+            "outputs": {
+                "schema": {
+                    "properties": {
+                        "reason_code": {
+                            "type": "string",
+                            "enum": ["ok", "bad_input"]
+                        },
+                        "status": {
+                            "type": "string",
+                            "enum": ["allow", "deny"]
+                        }
+                    }
+                }
+            },
+            "use_cases": [
+                {
+                    "input_example": {
+                        "note": "n1",
+                        "mode": "fast",
+                        "config": { "tone": "soft" }
+                    },
+                    "output_example": { "reason_code": "ok", "status": "allow" }
+                },
+                {
+                    "input_example": {
+                        "note": "n2",
+                        "mode": "careful",
+                        "config": { "tone": "direct" }
+                    },
+                    "output_example": { "reason_code": "bad_input", "status": "deny" }
+                }
+            ]
+        });
+        assert!(
+            surface_coverage_gap_messages(&pass)
+                .expect("pass fixture")
+                .is_empty()
+        );
+        enforce_contract_surface_coverage(&pass.to_string()).expect("full coverage must pass");
+    }
+
+    #[test]
+    fn surface_coverage_reports_missing_required_input_properties() {
+        let required_gap = serde_json::json!({
+            "inputs": {
+                "schema": {
+                    "required": ["note", "mode"],
+                    "properties": {
+                        "note": { "type": "string" },
+                        "mode": { "type": "string", "enum": ["fast"] }
+                    }
+                }
+            },
+            "use_cases": [
+                { "input_example": { "mode": "fast" }, "output_example": {} }
+            ]
+        });
+        let required_msgs =
+            surface_coverage_gap_messages(&required_gap).expect("required gap fixture");
+        assert!(
+            required_msgs.iter().any(|msg| msg.contains("note")),
+            "expected missing required note, got {required_msgs:?}"
+        );
+    }
+
+    #[test]
+    fn surface_coverage_reports_nested_input_enum_gaps() {
+        let nested_gap = serde_json::json!({
+            "inputs": {
+                "schema": {
+                    "properties": {
+                        "config": {
+                            "properties": {
+                                "tone": { "enum": ["soft", "direct"] }
+                            }
+                        }
+                    }
+                }
+            },
+            "use_cases": [
+                { "input_example": { "config": { "tone": "soft" } }, "output_example": {} }
+            ]
+        });
+        let nested_msgs = surface_coverage_gap_messages(&nested_gap).expect("nested gap fixture");
+        assert!(
+            nested_msgs
+                .iter()
+                .any(|msg| msg.contains("config.tone=direct")),
+            "expected nested enum gap, got {nested_msgs:?}"
+        );
+    }
+
+    #[test]
+    fn surface_coverage_reports_output_reason_code_enum_gaps() {
+        let output_gap = serde_json::json!({
+            "inputs": { "schema": { "properties": {} } },
+            "outputs": {
+                "schema": {
+                    "properties": {
+                        "reason_code": { "enum": ["ok", "bad_input"] }
+                    }
+                }
+            },
+            "use_cases": [
+                { "input_example": {}, "output_example": { "reason_code": "ok" } }
+            ]
+        });
+        let output_msgs = surface_coverage_gap_messages(&output_gap).expect("output gap fixture");
+        assert!(
+            output_msgs
+                .iter()
+                .any(|msg| msg.contains("reason_code=bad_input")),
+            "expected reason_code gap, got {output_msgs:?}"
+        );
+    }
+
+    #[test]
+    fn use_case_smoke_coverage_gaps_require_ucnn_fixtures() {
+        assert!(
+            use_case_smoke_coverage_gaps(
+                2,
+                &[
+                    "uc01-happy.json".to_string(),
+                    "uc02-sad.json".to_string(),
+                    "extra.json".to_string()
+                ]
+            )
+            .is_empty()
+        );
+        assert_eq!(
+            use_case_smoke_coverage_gaps(2, &["uc01-happy.json".to_string()]),
+            vec!["use_cases[1] lacks runtime-requests/uc02-*.json (spec 102 FR-007)".to_string()]
+        );
+
+        let temp_dir = unique_temp_dir();
+        let package_dir = temp_dir.join("pkg");
+        fs::create_dir_all(package_dir.join("runtime-requests"))
+            .expect("package dirs should create");
+        fs::write(
+            package_dir.join("contract.json"),
+            r#"{"use_cases":[{"scenario":"a"},{"scenario":"b"}]}"#,
+        )
+        .expect("contract should write");
+        fs::write(package_dir.join("runtime-requests/uc01-a.json"), "{}")
+            .expect("uc01 should write");
+        let gaps = use_case_smoke_coverage_gaps_for_package(&package_dir)
+            .expect("package gaps should compute");
+        assert_eq!(gaps.len(), 1);
+        assert!(gaps[0].contains("uc02-"));
     }
 
     #[test]
@@ -9120,6 +9576,38 @@ mod tests {
             &contract_path,
         )
         .expect("capability contract fixture should copy");
+        // Spec 102 FR-004: publish fixtures need a non-empty use_cases surface.
+        let mut contract: Value = serde_json::from_str(
+            &fs::read_to_string(&contract_path).expect("copied contract should read"),
+        )
+        .expect("copied contract should parse");
+        contract["use_cases"] = serde_json::json!([
+            {
+                "scenario": "Process a starter note into structured metadata.",
+                "input_example": { "note": "Ship the starter app path" },
+                "output_example": {
+                    "title": "Ship the starter app path",
+                    "tags": ["starter"],
+                    "noteType": "task",
+                    "suggestedNextAction": "review",
+                    "status": "ok"
+                },
+                "happy": true
+            }
+        ]);
+        // Author evidence must survive normalize (validate_contract clears it).
+        contract["evidence"] = serde_json::json!([
+            {
+                "evidence_id": "fixture-evd-1",
+                "type": "contract_validation",
+                "status": "passed"
+            }
+        ]);
+        fs::write(
+            &contract_path,
+            serde_json::to_string_pretty(&contract).expect("fixture contract should serialize"),
+        )
+        .expect("fixture contract should write");
         fs::write(&artifact_path, b"fixture wasm bytes").expect("artifact fixture should write");
         fs::create_dir_all(&registry_repo_path).expect("registry fixture should create");
 
