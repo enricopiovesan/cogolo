@@ -3550,6 +3550,7 @@ mod tests {
             },
             connector_requirements: Vec::new(),
             state_schema: None,
+            use_cases: Vec::new(),
         }
     }
 

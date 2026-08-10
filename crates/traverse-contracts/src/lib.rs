@@ -56,6 +56,20 @@ pub struct CapabilityContract {
     /// Typed JSON schema for capability state values written through the runtime `DataStore`.
     #[serde(default)]
     pub state_schema: Option<Value>,
+    /// Executable surface examples (spec 102). Preserved through publish; not cleared by validate.
+    #[serde(default)]
+    pub use_cases: Vec<UseCase>,
+}
+
+/// One authored use case that demonstrates a concrete input/output path for a capability.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct UseCase {
+    pub scenario: String,
+    pub input_example: Value,
+    pub output_example: Value,
+    pub happy: bool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub persona_ref: Option<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

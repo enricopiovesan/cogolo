@@ -1,39 +1,47 @@
 # ADR-0038: Contract Surface Must Be Covered by Use Cases
 
-- Status: Accepted
-- Governing spec: `102-contract-surface-coverage`
-- Related issues: traverse#1014, #1015, #1016; registry#192, #193
+- Status: Accepted (amended 2026-08-10 for Decision 58)
+- Governing spec: `102-contract-surface-coverage` (v1.1.0 Draft amendment)
+- Related issues: traverse#1014, #1015, #1016, #1040; registry#192, #193, #215
 
 ## Context
 
 Capability contracts combine:
 
 1. Free-text `summary` / `description`
-2. JSON Schema input surface (including discriminator enums such as `action`)
+2. JSON Schema input/output surface (enums and required properties)
 3. `use_cases[]` with concrete input/output examples
 4. An executable WASM artifact verified by package smoke
 
-Only (3) and (4) are mechanically exercised today. `core.process-comment@1.0.0` demonstrated the failure mode: the schema enum and description advertised `resolve` / `pin` / markup sanitisation / allow-list “strict” mentions, while the artifact and eight use cases implemented a narrower matrix. Registry and traverse publish gates accepted the overclaim.
+Only (3) and (4) are mechanically exercised. Two failure modes appeared:
+
+- `core.process-comment@1.0.0` overclaimed `action` enum values beyond its use-case/smoke matrix.
+- Loop batch publish validated use cases from raw JSON, then wrote a normalized `CapabilityContract` **without** a `use_cases` field, so registry copies lost them while CI still allowed missing use cases.
 
 ## Decision
 
-Adopt **schema ⊆ use_cases ⊆ smoke** as a governed rule for discriminator enums (starting with `action`):
+Adopt **schema ⊆ use_cases ⊆ smoke** for the full checkable schema surface (Decision 58):
 
-- Every enum value retained in the contract MUST have at least one use case.
-- Publish dry-run MUST fail on gaps once Spec 102 is Approved.
+- Every input schema string enum value MUST appear in at least one use case input example.
+- Every `inputs.schema.required` property MUST appear in at least one use case input example (no cartesian product).
+- Every `reason_code` / `status` output enum value MUST appear in at least one use case output example; those fields MUST be enums when coverage is required.
+- `use_cases` MUST be non-empty and MUST survive `capability publish` into the registry record.
+- Each use case MUST have a matching smoke fixture asserting its `reason_code` / key outputs.
 - Description claims beyond use cases MUST be called out under **Known limitations** or removed.
 - An enum value MUST NOT be “implemented” solely as an undocumented generic unsupported stub.
 
-For already-published overclaims: do not edit immutable versions; publish an honesty bump (e.g. `core.process-comment@1.0.1`) and deprecate the overclaiming version with an explicit reason.
+For already-published gaps: do not edit immutable versions; publish an honesty bump and deprecate the dishonest version with an explicit reason.
 
 ## Alternatives Considered
 
+- **Minimum use-case counts** — rejected: owner requires coverage of the declared capability surface, not N examples.
+- **Cartesian required-field matrices** — rejected as an impractical publish gate.
 - **Description-only linting (NLP)** — rejected for v1: high false-positive risk; use cases are the executable contract.
-- **Require implementing every marketing claim immediately** — rejected as the default honesty path: narrowing the declared surface is a valid fix; full feature completion is a separate product ticket.
-- **Gate only in registry** — rejected as sole control: authors need fail-fast in `capability publish --dry-run` before opening a registry PR. Registry SHOULD mirror the check for newly ADDED contracts.
+- **CLI-only or registry-only enforcement** — rejected: authors need fail-fast publish dry-run; registry must still reject bypasses.
+- **Parallel new coverage spec** — rejected: amend Spec 102 / registry FR-011 instead.
 
 ## Consequences
 
-- Traverse gains Spec 102 + publish coverage checker (#1016) after approval.
-- Registry gains a diff-based mirror check (registry#192) after the traverse spec is Approved (or a thin registry FR that references it).
-- `core.process-comment` honesty bump (#1015 / registry#193) can land under existing `516` without waiting for Spec 102 approval, because it reduces claimed surface to already-tested behavior.
+- Traverse Spec 102 v1.1.0 + expanded publish coverage checker (#1040).
+- Registry FR-011 becomes MUST for new/changed contracts; CI mirror (#215).
+- Honesty patch-bumps for stripped Loop capabilities follow under FR-010.

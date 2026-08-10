@@ -276,6 +276,7 @@ fn base_contract(
         event_trigger: None,
         connector_requirements: Vec::new(),
         state_schema: None,
+        use_cases: Vec::new(),
     }
 }
 
