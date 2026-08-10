@@ -1,0 +1,35 @@
+{
+  "kind": "capability_package",
+  "schema_version": "1.0.0",
+  "package_id": "core.record-nudge-event-agent",
+  "version": "1.0.0",
+  "summary": "Capability package for core.record-nudge-event@1.0.0.",
+  "capability_ref": {
+    "id": "core.record-nudge-event",
+    "version": "1.0.0",
+    "contract_path": "./contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "core.record-nudge-event",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/core-record-nudge-event.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:5915f5a66d5fb0d7",
+    "abi_version": "1.0.0"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": []
+}

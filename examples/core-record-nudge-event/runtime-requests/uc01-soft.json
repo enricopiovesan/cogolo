@@ -1,0 +1,27 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-record-nudge-event-01",
+  "intent": {
+    "capability_id": "core.record-nudge-event",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "item_id": "ai-1",
+    "owner_id": "user-ada",
+    "intensity": "soft",
+    "channel": "in_app",
+    "message_preview": "Reminder: Send the revised proposal",
+    "event_at": "2026-08-07T10:00:00Z",
+    "prior_nudge_count": 0
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-record-nudge-event-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

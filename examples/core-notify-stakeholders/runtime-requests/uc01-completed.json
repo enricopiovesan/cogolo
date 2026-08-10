@@ -1,0 +1,44 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-notify-stakeholders-01",
+  "intent": {
+    "capability_id": "core.notify-stakeholders",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "item": {
+      "id": "ai-1",
+      "title": "Send the revised proposal",
+      "owner_id": "user-ada",
+      "owner_name": "Ada",
+      "status": "done"
+    },
+    "stakeholders": [
+      {
+        "user_id": "user-carol",
+        "role": "requester",
+        "channel": "in_app"
+      },
+      {
+        "user_id": "user-mgr",
+        "role": "manager",
+        "channel": "email"
+      }
+    ],
+    "event_type": "completed",
+    "notify_config": {
+      "version": "1.0",
+      "include_manager_on_complete": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-notify-stakeholders-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

@@ -1,0 +1,48 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-select-items-for-followup-02",
+  "intent": {
+    "capability_id": "core.select-items-for-followup",
+    "capability_version": "1.1.0"
+  },
+  "input": {
+    "open_items": [
+      {
+        "id": "ai-9",
+        "owner_id": "user-bob",
+        "due_date": "2026-08-01",
+        "status": "open",
+        "last_activity_at": "2026-07-28T09:00:00Z",
+        "nudge_count": 3,
+        "pressure_score": 0.95,
+        "snoozed_until": null
+      }
+    ],
+    "user_preferences": {
+      "user-bob": {
+        "quiet_hours": null,
+        "max_nudges_per_day": 3,
+        "nudges_sent_today": 0
+      }
+    },
+    "reference_datetime": "2026-08-07T10:00:00Z",
+    "followup_config": {
+      "version": "1.1",
+      "soft_days_before_due": 2,
+      "direct_days_overdue": 1,
+      "escalate_after_nudges": 3,
+      "min_pressure_for_soft": 0.4,
+      "respect_quiet_hours": true
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-select-items-for-followup-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

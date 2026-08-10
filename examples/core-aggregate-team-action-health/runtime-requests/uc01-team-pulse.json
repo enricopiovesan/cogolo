@@ -1,0 +1,48 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-aggregate-team-action-health-01",
+  "intent": {
+    "capability_id": "core.aggregate-team-action-health",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "items": [
+      {
+        "id": "ai-1",
+        "owner_id": "user-ada",
+        "status": "open",
+        "due_date": "2026-08-08",
+        "pressure_score": 0.9
+      },
+      {
+        "id": "ai-2",
+        "owner_id": "user-ada",
+        "status": "in_progress",
+        "due_date": "2026-08-15",
+        "pressure_score": 0.3
+      },
+      {
+        "id": "ai-3",
+        "owner_id": "user-bob",
+        "status": "open",
+        "due_date": "2026-08-01",
+        "pressure_score": 0.95
+      }
+    ],
+    "reference_date": "2026-08-07",
+    "aggregation_config": {
+      "version": "1.0",
+      "overdue_threshold_days": 0
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-aggregate-team-action-health-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

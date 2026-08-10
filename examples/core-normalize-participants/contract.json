@@ -1,0 +1,312 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.normalize-participants",
+  "namespace": "core",
+  "name": "normalize-participants",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Normalizes raw participant names/emails into canonical participant records for action-item ownership.",
+  "description": "Pure WF1 capability. Lowercases emails, trims whitespace, and matches against workspace members by email then name. Unmatched participants are retained with match_method=none so humans can resolve them.",
+  "use_cases": [
+    {
+      "scenario": "As the ingest pipeline, I want extracted names and emails resolved to workspace members.",
+      "input_example": {
+        "raw_participants": [
+          {
+            "name": "Ada Lovelace",
+            "email": "Ada@Loop.Dev"
+          },
+          {
+            "name": "bob smith",
+            "email": "bob@loop.dev"
+          },
+          {
+            "name": "Unknown Person",
+            "email": "stranger@example.com"
+          }
+        ],
+        "workspace_members": [
+          {
+            "id": "user-ada",
+            "name": "Ada Lovelace",
+            "email": "ada@loop.dev"
+          },
+          {
+            "id": "user-bob",
+            "name": "Bob Smith",
+            "email": "bob@loop.dev"
+          }
+        ],
+        "normalize_config": {
+          "version": "1.0"
+        }
+      },
+      "output_example": {
+        "participants": [
+          {
+            "participant_id": "user-ada",
+            "display_name": "Ada Lovelace",
+            "email": "ada@loop.dev",
+            "match_method": "email"
+          },
+          {
+            "participant_id": "user-bob",
+            "display_name": "Bob Smith",
+            "email": "bob@loop.dev",
+            "match_method": "email"
+          },
+          {
+            "participant_id": "unmatched-1",
+            "display_name": "Unknown Person",
+            "email": "stranger@example.com",
+            "match_method": "none"
+          }
+        ],
+        "matched_count": 2,
+        "unmatched_count": 1,
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "normalized 3 participants",
+          "matched 2"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "meeting-organizer"
+    },
+    {
+      "scenario": "As the system, I want a name-only match when email is absent.",
+      "input_example": {
+        "raw_participants": [
+          {
+            "name": "Ada Lovelace",
+            "email": null
+          }
+        ],
+        "workspace_members": [
+          {
+            "id": "user-ada",
+            "name": "Ada Lovelace",
+            "email": "ada@loop.dev"
+          }
+        ],
+        "normalize_config": {
+          "version": "1.0"
+        }
+      },
+      "output_example": {
+        "participants": [
+          {
+            "participant_id": "user-ada",
+            "display_name": "Ada Lovelace",
+            "email": "ada@loop.dev",
+            "match_method": "name"
+          }
+        ],
+        "matched_count": 1,
+        "unmatched_count": 0,
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "normalized 1 participants",
+          "matched 1"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "raw_participants",
+        "workspace_members",
+        "normalize_config"
+      ],
+      "properties": {
+        "raw_participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "properties": {
+              "name": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              }
+            }
+          }
+        },
+        "workspace_members": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "id"
+            ],
+            "properties": {
+              "id": {
+                "type": "string"
+              },
+              "name": {
+                "type": "string"
+              },
+              "email": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "normalize_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "participants",
+        "reason_code"
+      ],
+      "properties": {
+        "participants": {
+          "type": "array",
+          "items": {
+            "type": "object",
+            "required": [
+              "participant_id",
+              "match_method"
+            ],
+            "properties": {
+              "participant_id": {
+                "type": "string"
+              },
+              "display_name": {
+                "type": "string"
+              },
+              "email": {
+                "type": [
+                  "string",
+                  "null"
+                ]
+              },
+              "match_method": {
+                "type": "string",
+                "enum": [
+                  "email",
+                  "name",
+                  "none"
+                ]
+              }
+            }
+          }
+        },
+        "matched_count": {
+          "type": "integer"
+        },
+        "unmatched_count": {
+          "type": "integer"
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "invalid_input",
+            "config_error"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure normalization"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.normalize-participants"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.normalize-participants@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-normalize-participants-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

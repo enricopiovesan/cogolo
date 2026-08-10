@@ -1,0 +1,69 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.aggregate-team-action-health",
+  "name": "aggregate-team-action-health",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.aggregate-team-action-health as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "items",
+        "reference_date",
+        "aggregation_config"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "total_open",
+        "reason_code"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "run",
+      "capability_id": "core.aggregate-team-action-health",
+      "capability_version": "1.0.0",
+      "input": {
+        "from_workflow_input": [
+          "items",
+          "reference_date",
+          "aggregation_config"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "total_open",
+          "on_track_pct",
+          "overdue_count",
+          "overloaded_owners",
+          "top_pressure_items",
+          "reason_code",
+          "evaluation_trace"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "run",
+  "terminal_nodes": [
+    "run"
+  ],
+  "tags": [
+    "loop",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}

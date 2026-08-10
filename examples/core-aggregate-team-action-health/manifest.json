@@ -1,0 +1,35 @@
+{
+  "kind": "capability_package",
+  "schema_version": "1.0.0",
+  "package_id": "core.aggregate-team-action-health-agent",
+  "version": "1.0.0",
+  "summary": "Capability package for core.aggregate-team-action-health@1.0.0.",
+  "capability_ref": {
+    "id": "core.aggregate-team-action-health",
+    "version": "1.0.0",
+    "contract_path": "./contract.json"
+  },
+  "workflow_refs": [
+    {
+      "workflow_id": "core.aggregate-team-action-health",
+      "workflow_version": "1.0.0"
+    }
+  ],
+  "source": {
+    "path": "./src/agent.rs",
+    "language": "rust",
+    "entry": "run"
+  },
+  "binary": {
+    "path": "./artifacts/core-aggregate-team-action-health.wasm",
+    "format": "wasm",
+    "expected_digest": "fnv1a64:a7a40031f821ab0a",
+    "abi_version": "1.0.0"
+  },
+  "constraints": {
+    "host_api_access": "none",
+    "network_access": "forbidden",
+    "filesystem_access": "none"
+  },
+  "model_dependencies": []
+}

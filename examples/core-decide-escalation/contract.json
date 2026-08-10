@@ -1,0 +1,284 @@
+{
+  "kind": "capability_contract",
+  "schema_version": "1.0.0",
+  "id": "core.decide-escalation",
+  "namespace": "core",
+  "name": "decide-escalation",
+  "version": "1.0.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Decides escalate vs weekly digest from team action health, with a deliberately high bar.",
+  "description": "Pure WF5 capability. Consumes a health snapshot (from core.aggregate-team-action-health) and applies multi-signal thresholds so managers only get real-time exceptions; otherwise digest.",
+  "use_cases": [
+    {
+      "scenario": "As a manager experience, I want a single overdue item to stay in digest when other signals are calm.",
+      "input_example": {
+        "health": {
+          "total_open": 3,
+          "overdue_count": 1,
+          "on_track_pct": 66.6,
+          "overloaded_owners": [
+            {
+              "owner_id": "user-ada",
+              "open_count": 2
+            }
+          ],
+          "top_pressure_items": [
+            "ai-3",
+            "ai-1"
+          ]
+        },
+        "escalation_config": {
+          "version": "1.0",
+          "min_overdue_for_escalate": 2,
+          "min_overloaded_owners": 1,
+          "max_on_track_pct_for_escalate": 50.0,
+          "require_multiple_signals": true
+        }
+      },
+      "output_example": {
+        "decision": "digest",
+        "signals_met": 1,
+        "signals": [
+          "overloaded_owners"
+        ],
+        "escalate_item_ids": [],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "signals_met=1",
+          "require_multiple=true",
+          "decision=digest"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "collaboration-product-owner"
+    },
+    {
+      "scenario": "As the system, I want real-time escalation only when multiple health signals fire.",
+      "input_example": {
+        "health": {
+          "total_open": 5,
+          "overdue_count": 3,
+          "on_track_pct": 40.0,
+          "overloaded_owners": [
+            {
+              "owner_id": "user-ada",
+              "open_count": 3
+            },
+            {
+              "owner_id": "user-bob",
+              "open_count": 2
+            }
+          ],
+          "top_pressure_items": [
+            "ai-9",
+            "ai-7"
+          ]
+        },
+        "escalation_config": {
+          "version": "1.0",
+          "min_overdue_for_escalate": 2,
+          "min_overloaded_owners": 2,
+          "max_on_track_pct_for_escalate": 50.0,
+          "require_multiple_signals": true
+        }
+      },
+      "output_example": {
+        "decision": "escalate",
+        "signals_met": 3,
+        "signals": [
+          "overdue_count",
+          "overloaded_owners",
+          "on_track_pct"
+        ],
+        "escalate_item_ids": [
+          "ai-9",
+          "ai-7"
+        ],
+        "reason_code": "ok",
+        "evaluation_trace": [
+          "signals_met=3",
+          "require_multiple=true",
+          "decision=escalate"
+        ]
+      },
+      "happy": true,
+      "persona_ref": "runtime-engineer"
+    }
+  ],
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "health",
+        "escalation_config"
+      ],
+      "properties": {
+        "health": {
+          "type": "object",
+          "required": [
+            "total_open",
+            "overdue_count"
+          ],
+          "properties": {
+            "total_open": {
+              "type": "integer"
+            },
+            "overdue_count": {
+              "type": "integer"
+            },
+            "on_track_pct": {
+              "type": "number"
+            },
+            "overloaded_owners": {
+              "type": "array"
+            },
+            "top_pressure_items": {
+              "type": "array",
+              "items": {
+                "type": "string"
+              }
+            }
+          }
+        },
+        "escalation_config": {
+          "type": "object",
+          "required": [
+            "version"
+          ],
+          "properties": {
+            "version": {
+              "type": "string"
+            },
+            "min_overdue_for_escalate": {
+              "type": "integer"
+            },
+            "min_overloaded_owners": {
+              "type": "integer"
+            },
+            "max_on_track_pct_for_escalate": {
+              "type": "number"
+            },
+            "require_multiple_signals": {
+              "type": "boolean"
+            }
+          }
+        }
+      }
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "decision",
+        "reason_code"
+      ],
+      "properties": {
+        "decision": {
+          "type": "string",
+          "enum": [
+            "escalate",
+            "digest"
+          ]
+        },
+        "signals_met": {
+          "type": "integer"
+        },
+        "signals": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "escalate_item_ids": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        },
+        "reason_code": {
+          "type": "string",
+          "enum": [
+            "ok",
+            "invalid_input",
+            "config_error"
+          ]
+        },
+        "evaluation_trace": {
+          "type": "array",
+          "items": {
+            "type": "string"
+          }
+        }
+      }
+    }
+  },
+  "preconditions": [],
+  "postconditions": [
+    {
+      "id": "deterministic",
+      "description": "Identical inputs produce identical outputs"
+    }
+  ],
+  "side_effects": [
+    {
+      "kind": "memory_only",
+      "description": "Pure escalation decision"
+    }
+  ],
+  "emits": [],
+  "consumes": [],
+  "permissions": [
+    {
+      "id": "core.decide-escalation"
+    }
+  ],
+  "execution": {
+    "binary_format": "wasm",
+    "entrypoint": {
+      "kind": "wasi-command",
+      "command": "run"
+    },
+    "preferred_targets": [
+      "local",
+      "edge",
+      "browser"
+    ],
+    "constraints": {
+      "host_api_access": "none",
+      "network_access": "forbidden",
+      "filesystem_access": "none"
+    }
+  },
+  "policies": [],
+  "dependencies": [],
+  "provenance": {
+    "source": "ai-assisted",
+    "author": "loop-founders + traverse-capability-author",
+    "created_at": "2026-08-08T06:00:00Z",
+    "spec_ref": "core.decide-escalation@1.0.0",
+    "adr_refs": [
+      "persona-council-review-2026-08-08"
+    ],
+    "exception_refs": []
+  },
+  "evidence": [
+    {
+      "evidence_id": "core-decide-escalation-1.0.0-contract-validation",
+      "type": "contract_validation",
+      "status": "passed"
+    }
+  ],
+  "service_type": "stateless",
+  "permitted_targets": [
+    "local",
+    "edge",
+    "browser",
+    "cloud"
+  ],
+  "artifact_type": "native"
+}

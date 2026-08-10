@@ -1,0 +1,36 @@
+{
+  "kind": "runtime_request",
+  "schema_version": "1.0.0",
+  "request_id": "core-evaluate-completion-quality-01",
+  "intent": {
+    "capability_id": "core.evaluate-completion-quality",
+    "capability_version": "1.0.0"
+  },
+  "input": {
+    "item": {
+      "id": "ai-1",
+      "title": "Send the revised proposal",
+      "status": "done",
+      "pressure_score": 0.9,
+      "completion_note": "Sent revised proposal to stakeholders",
+      "evidence_refs": [
+        "doc-123"
+      ]
+    },
+    "quality_config": {
+      "version": "1.0",
+      "high_pressure_threshold": 0.7,
+      "require_evidence_when_high_pressure": true,
+      "min_note_length": 8
+    }
+  },
+  "lookup": {
+    "scope": "prefer_private",
+    "allow_ambiguity": false
+  },
+  "context": {
+    "requested_target": "local",
+    "caller": "core-evaluate-completion-quality-smoke"
+  },
+  "governing_spec": "006-runtime-request-execution"
+}

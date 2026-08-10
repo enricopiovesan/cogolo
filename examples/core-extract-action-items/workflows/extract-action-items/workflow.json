@@ -1,0 +1,68 @@
+{
+  "kind": "workflow_definition",
+  "schema_version": "1.0.0",
+  "id": "core.extract-action-items",
+  "name": "extract-action-items",
+  "version": "1.1.0",
+  "lifecycle": "active",
+  "owner": {
+    "team": "loop",
+    "contact": "founders@loop.dev"
+  },
+  "summary": "Run core.extract-action-items as one governed workflow.",
+  "inputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "text",
+        "extraction_config"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "outputs": {
+    "schema": {
+      "type": "object",
+      "required": [
+        "action_items",
+        "needs_human_review",
+        "reason_code"
+      ],
+      "additionalProperties": true
+    }
+  },
+  "nodes": [
+    {
+      "node_id": "run",
+      "capability_id": "core.extract-action-items",
+      "capability_version": "1.1.0",
+      "input": {
+        "from_workflow_input": [
+          "text",
+          "participants",
+          "meeting_date",
+          "extraction_config"
+        ]
+      },
+      "output": {
+        "to_workflow_state": [
+          "action_items",
+          "needs_human_review",
+          "rejected_candidates",
+          "reason_code",
+          "evaluation_trace"
+        ]
+      }
+    }
+  ],
+  "edges": [],
+  "start_node": "run",
+  "terminal_nodes": [
+    "run"
+  ],
+  "tags": [
+    "loop",
+    "core"
+  ],
+  "governing_spec": "007-workflow-registry-traversal"
+}
