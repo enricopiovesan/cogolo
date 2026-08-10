@@ -132,6 +132,7 @@ Scaffolds a governed app bundle. Add your capability contracts, workflows, and W
 ### Consumer and release surfaces
 
 - [docs/releases/v0.9.1.md](docs/releases/v0.9.1.md) — current release notes
+- [docs/releases/v0.8.1.md](docs/releases/v0.8.1.md) — prior release notes
 - [docs/app-consumable-consumer-bundle.md](docs/app-consumable-consumer-bundle.md) — versioned consumer bundle
 - [docs/app-consumable-package-release-pointer.md](docs/app-consumable-package-release-pointer.md) — package release pointer
 - [docs/packaged-traverse-runtime-artifact.md](docs/packaged-traverse-runtime-artifact.md) — packaged runtime artifact
