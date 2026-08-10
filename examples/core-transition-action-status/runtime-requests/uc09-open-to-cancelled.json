@@ -4,7 +4,7 @@
   "request_id": "core-transition-action-status-09",
   "intent": {
     "capability_id": "core.transition-action-status",
-    "capability_version": "1.1.0"
+    "capability_version": "1.2.0"
   },
   "input": {
     "current_status": "open",

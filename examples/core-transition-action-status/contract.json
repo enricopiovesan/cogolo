@@ -4,14 +4,14 @@
   "id": "core.transition-action-status",
   "namespace": "core",
   "name": "transition-action-status",
-  "version": "1.1.0",
+  "version": "1.2.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
     "contact": "founders@loop.dev"
   },
   "summary": "Deterministic state machine for action item status transitions (open \u2192 in_progress \u2192 blocked \u2192 snoozed \u2192 done / cancelled).",
-  "description": "Pure state-machine for action-item status transitions under a caller-supplied transition_config (allowed_transitions + owner_only).\n\nImplemented and smoke-tested matrix (use_cases):\n- open \u2192 in_progress (ok)\n- done \u2192 open illegal (illegal_transition)\n- open \u2192 snoozed (ok)\n- non-owner denied (not_owner)\n- in_progress \u2192 blocked (ok)\n- in_progress \u2192 done (ok)\n- blocked \u2192 in_progress (ok)\n- snoozed \u2192 open (ok)\n- open \u2192 cancelled (ok)\n- cancelled \u2192 open illegal (covers current_status=cancelled)\n- missing current_status \u2192 invalid_status\n\nKnown limitations (intentional in 1.1.0):\n- Transition graph is entirely caller-supplied; no built-in default policy\n- Does not persist status changes",
+  "description": "Pure state-machine for action-item status transitions under a caller-supplied transition_config (allowed_transitions + owner_only).\n\nImplemented and smoke-tested matrix (use_cases):\n- open \u2192 in_progress (ok)\n- done \u2192 open illegal (illegal_transition)\n- open \u2192 snoozed (ok)\n- non-owner denied (not_owner)\n- in_progress \u2192 blocked (ok)\n- in_progress \u2192 done (ok)\n- blocked \u2192 in_progress (ok)\n- snoozed \u2192 open (ok)\n- open \u2192 cancelled (ok)\n- cancelled \u2192 open illegal (covers current_status=cancelled)\n- missing current_status \u2192 invalid_status\n\nKnown limitations (intentional in 1.2.0):\n- Transition graph is entirely caller-supplied; no built-in default policy\n- Does not persist status changes\n- Declares governed event core.action-item.status-transitioned@1.0.0 on accepted transitions; the WASM guest does not call the host emit ABI (declaration-only honesty with the published event product)",
   "use_cases": [
     {
       "scenario": "As an owner, I want to move an item from open to in_progress, so that active work is reflected accurately.",
@@ -644,9 +644,18 @@
     {
       "kind": "memory_only",
       "description": "Pure state machine evaluation"
+    },
+    {
+      "kind": "event_emission",
+      "description": "Declares domain fact core.action-item.status-transitioned when a transition is accepted (ok)"
     }
   ],
-  "emits": [],
+  "emits": [
+    {
+      "event_id": "core.action-item.status-transitioned",
+      "version": "1.0.0"
+    }
+  ],
   "consumes": [],
   "permissions": [
     {
@@ -680,7 +689,7 @@
     "source": "ai-assisted",
     "author": "loop-founders + traverse-capability-author",
     "created_at": "2026-08-08T06:00:00Z",
-    "spec_ref": "core.transition-action-status@1.1.0",
+    "spec_ref": "core.transition-action-status@1.2.0",
     "adr_refs": [
       "persona-council-review-2026-08-08"
     ],
@@ -688,7 +697,7 @@
   },
   "evidence": [
     {
-      "evidence_id": "core-transition-action-status-1.1.0-contract-validation",
+      "evidence_id": "core-transition-action-status-1.2.0-contract-validation",
       "type": "contract_validation",
       "status": "passed"
     }
