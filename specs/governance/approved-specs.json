@@ -1340,6 +1340,33 @@
         "docs/decision-log.md",
         "scripts/ci/"
       ]
+    },
+    {
+      "id": "103-application-connector-binding",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/103-application-connector-binding/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "crates/traverse-cli/",
+        "crates/traverse-runtime/",
+        "docs/adr/0039-connector-binding-and-mediated-host-integration.md",
+        "specs/103-application-connector-binding/"
+      ]
+    },
+    {
+      "id": "104-mediated-connector-invocation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/104-mediated-connector-invocation/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "crates/traverse-runtime/",
+        "docs/adr/0039-connector-binding-and-mediated-host-integration.md",
+        "specs/104-mediated-connector-invocation/"
+      ]
     }
   ]
 }
