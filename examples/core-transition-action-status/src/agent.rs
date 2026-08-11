@@ -1,8 +1,9 @@
-//! core.transition-action-status — pure action-item status state machine.
+//! core.transition-action-status — action-item status state machine with governed emit.
 //!
 //! Evaluates whether `current_status → requested_status` is allowed under a
 //! caller-supplied `transition_config`, optionally requiring the actor to be
-//! the owner. Covers open/in_progress/blocked/snoozed/done/cancelled.
+//! the owner. On accepted transitions, emits
+//! `core.action-item.status-transitioned@1.0.0` via `traverse_host::emit_event`.
 #![no_std]
 #![no_main]
 
@@ -23,8 +24,14 @@ unsafe extern "C" {
     fn fd_write(fd: u32, vectors: *const IoVec, count: usize, written: *mut usize) -> u32;
 }
 
+#[link(wasm_import_module = "traverse_host")]
+unsafe extern "C" {
+    fn emit_event(ptr: i32, len: i32) -> i32;
+}
+
 static mut INPUT_BUF: [u8; 8192] = [0; 8192];
 static mut OUTPUT_BUF: [u8; 4096] = [0; 4096];
+static mut EVENT_BUF: [u8; 1024] = [0; 1024];
 
 #[unsafe(no_mangle)]
 pub extern "C" fn _start() {
@@ -55,13 +62,19 @@ pub extern "C" fn _start() {
 }
 
 unsafe fn evaluate(input: &[u8], out: &mut [u8]) -> usize {
+    let action_item_id = extract_string_at_depth(input, b"\"action_item_id\"", 1);
     let current = extract_string_at_depth(input, b"\"current_status\"", 1);
     let requested = extract_string_at_depth(input, b"\"requested_status\"", 1);
     let actor = extract_string_at_depth(input, b"\"actor_id\"", 1);
     let owner = extract_string_at_depth(input, b"\"owner_id\"", 1);
     let config = object_after_key(input, b"\"transition_config\"").unwrap_or(b"");
 
-    if current.is_empty() || requested.is_empty() || actor.is_empty() || config.is_empty() {
+    if action_item_id.is_empty()
+        || current.is_empty()
+        || requested.is_empty()
+        || actor.is_empty()
+        || config.is_empty()
+    {
         return write_result(
             out,
             false,
@@ -143,7 +156,35 @@ unsafe fn evaluate(input: &[u8], out: &mut [u8]) -> usize {
         t = copy(&mut trace, t, b", \"actor is owner\"");
     }
     t = copy(&mut trace, t, b"]");
+
+    emit_status_transitioned(action_item_id, current, requested, actor);
+
     write_result(out, true, requested, b"ok", &trace[..t])
+}
+
+/// Build and emit the governed status-transitioned event. Best-effort: a
+/// non-zero host status does not change the capability's own evaluation result.
+unsafe fn emit_status_transitioned(
+    action_item_id: &[u8],
+    from_status: &[u8],
+    to_status: &[u8],
+    actor_id: &[u8],
+) {
+    let buf = &mut EVENT_BUF;
+    let mut i = 0usize;
+    i = copy(buf, i, br#"{"event_id":"core.action-item.status-transitioned","version":"1.0.0","payload":{"action_item_id":""#);
+    i = copy(buf, i, action_item_id);
+    i = copy(buf, i, br#"","from_status":""#);
+    i = copy(buf, i, from_status);
+    i = copy(buf, i, br#"","to_status":""#);
+    i = copy(buf, i, to_status);
+    i = copy(buf, i, br#"","actor_id":""#);
+    i = copy(buf, i, actor_id);
+    i = copy(buf, i, br#""}}"#);
+    if i == 0 || i > buf.len() {
+        return;
+    }
+    let _ = emit_event(buf.as_ptr() as i32, i as i32);
 }
 
 fn is_known_status(s: &[u8]) -> bool {

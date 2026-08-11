@@ -3,7 +3,7 @@
   "schema_version": "1.0.0",
   "id": "core.transition-action-status",
   "name": "transition-action-status",
-  "version": "1.2.0",
+  "version": "1.3.0",
   "lifecycle": "active",
   "owner": {
     "team": "loop",
@@ -14,6 +14,7 @@
     "schema": {
       "type": "object",
       "required": [
+        "action_item_id",
         "current_status",
         "requested_status",
         "actor_id",
@@ -37,9 +38,10 @@
     {
       "node_id": "transition",
       "capability_id": "core.transition-action-status",
-      "capability_version": "1.2.0",
+      "capability_version": "1.3.0",
       "input": {
         "from_workflow_input": [
+          "action_item_id",
           "current_status",
           "requested_status",
           "actor_id",

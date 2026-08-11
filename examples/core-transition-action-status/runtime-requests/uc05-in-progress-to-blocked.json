@@ -4,9 +4,10 @@
   "request_id": "core-transition-action-status-05",
   "intent": {
     "capability_id": "core.transition-action-status",
-    "capability_version": "1.2.0"
+    "capability_version": "1.3.0"
   },
   "input": {
+    "action_item_id": "item-05",
     "current_status": "in_progress",
     "requested_status": "blocked",
     "actor_id": "user-ada",
