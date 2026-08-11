@@ -4,9 +4,10 @@
   "request_id": "core-transition-action-status-08",
   "intent": {
     "capability_id": "core.transition-action-status",
-    "capability_version": "1.2.0"
+    "capability_version": "1.3.0"
   },
   "input": {
+    "action_item_id": "item-08",
     "current_status": "snoozed",
     "requested_status": "open",
     "actor_id": "user-ada",

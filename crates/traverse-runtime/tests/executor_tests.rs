@@ -1127,6 +1127,126 @@ fn wasm_executor_emit_event_handles_module_without_memory_export() -> Result<(),
     Ok(())
 }
 
+#[test]
+fn core_transition_action_status_emits_status_transitioned_on_accepted_transition()
+-> Result<(), String> {
+    let wasm_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../../examples/core-transition-action-status/artifacts/core-transition-action-status.wasm",
+    );
+    let wasm_bytes = std::fs::read(&wasm_path).map_err(|e| {
+        format!(
+            "failed to read {}: {e} (run examples/core-transition-action-status/build-fixture.sh first)",
+            wasm_path.display()
+        )
+    })?;
+
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let input = json!({
+        "action_item_id": "item-emit-001",
+        "current_status": "open",
+        "requested_status": "in_progress",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+            "version": "1.0",
+            "allowed_transitions": {
+                "open": ["in_progress", "cancelled", "snoozed"],
+                "in_progress": ["blocked", "done", "cancelled", "snoozed"],
+                "blocked": ["in_progress", "cancelled"],
+                "snoozed": ["open", "in_progress", "cancelled"],
+                "done": [],
+                "cancelled": []
+            },
+            "owner_only": true
+        }
+    });
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &input,
+            "core.transition-action-status",
+            &[EventReference {
+                event_id: "core.action-item.status-transitioned".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert_eq!(output.value["allowed"], json!(true));
+    assert_eq!(output.value["reason_code"], json!("ok"));
+    assert_eq!(output.value["new_status"], json!("in_progress"));
+    assert_eq!(
+        output.emitted_events.len(),
+        1,
+        "accepted transition must emit exactly one governed event"
+    );
+    let event = &output.emitted_events[0];
+    assert_eq!(event.event_type, "core.action-item.status-transitioned");
+    assert_eq!(event.version, "1.0.0");
+    assert_eq!(event.data["action_item_id"], json!("item-emit-001"));
+    assert_eq!(event.data["from_status"], json!("open"));
+    assert_eq!(event.data["to_status"], json!("in_progress"));
+    assert_eq!(event.data["actor_id"], json!("user-ada"));
+    Ok(())
+}
+
+#[test]
+fn core_transition_action_status_does_not_emit_on_rejected_transition() -> Result<(), String> {
+    let wasm_path = std::path::PathBuf::from(env!("CARGO_MANIFEST_DIR")).join(
+        "../../examples/core-transition-action-status/artifacts/core-transition-action-status.wasm",
+    );
+    let wasm_bytes = std::fs::read(&wasm_path).map_err(|e| {
+        format!(
+            "failed to read {}: {e} (run examples/core-transition-action-status/build-fixture.sh first)",
+            wasm_path.display()
+        )
+    })?;
+
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let input = json!({
+        "action_item_id": "item-emit-002",
+        "current_status": "done",
+        "requested_status": "open",
+        "actor_id": "user-ada",
+        "owner_id": "user-ada",
+        "transition_config": {
+            "version": "1.0",
+            "allowed_transitions": {
+                "open": ["in_progress", "cancelled", "snoozed"],
+                "in_progress": ["blocked", "done", "cancelled", "snoozed"],
+                "blocked": ["in_progress", "cancelled"],
+                "snoozed": ["open", "in_progress", "cancelled"],
+                "done": [],
+                "cancelled": []
+            },
+            "owner_only": true
+        }
+    });
+
+    let output = executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &input,
+            "core.transition-action-status",
+            &[EventReference {
+                event_id: "core.action-item.status-transitioned".to_string(),
+                version: "1.0.0".to_string(),
+            }],
+            ServiceType::Subscribable,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert_eq!(output.value["allowed"], json!(false));
+    assert_eq!(output.value["reason_code"], json!("illegal_transition"));
+    assert!(
+        output.emitted_events.is_empty(),
+        "rejected transition must not emit"
+    );
+    Ok(())
+}
+
 // --- helpers ---
 
 fn native_capability(id: &str) -> ExecutorCapability {
