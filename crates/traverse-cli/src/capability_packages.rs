@@ -343,10 +343,9 @@ fn validate_manifest_shape(
     }
     if let (Some(known_compositions), Some(workflow_refs)) =
         (&manifest.known_compositions, &manifest.workflow_refs)
+        && known_compositions != workflow_refs
     {
-        if known_compositions != workflow_refs {
-            return Err("conflicting_composition_metadata: known_compositions and deprecated workflow_refs must match when both are present".to_string());
-        }
+        return Err("conflicting_composition_metadata: known_compositions and deprecated workflow_refs must match when both are present".to_string());
     }
     Ok(())
 }
