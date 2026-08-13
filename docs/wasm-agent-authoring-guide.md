@@ -68,7 +68,8 @@ A new agent package should make these fields obvious:
 - `version`
 - `summary`
 - `capability_ref`
-- `workflow_refs`
+- `known_compositions` (optional advisory metadata; legacy `workflow_refs` is
+  accepted only during the schema-v1 migration window)
 - `source`
 - `binary`
 - `constraints`
@@ -82,7 +83,8 @@ Its execution boundary is the governed stdin/stdout JSON contract documented in
 ## Authoring Steps
 
 1. Copy the template manifest into a new agent directory.
-2. Replace the placeholder capability and workflow references with approved Traverse ids.
+2. Replace the placeholder capability reference; add known compositions only
+   when they are real tested compositions, never as an execution prerequisite.
 3. Point `source.path` at the agent implementation file.
 4. Build the deterministic local fixture for the agent package.
 5. Update the expected digest after the fixture is built.
@@ -105,7 +107,7 @@ That smoke path confirms the guide points at the governed template, the approved
 - skipping the governed manifest and improvising a package shape
 - declaring host access that is broader than the approved capability contract allows
 - treating the example as a general microservice instead of a governed agent package
-- forgetting to link the agent package to a workflow reference
+- inventing a workflow reference so an independently useful package can execute
 - changing the binary digest without rebuilding the fixture
 
 ---

@@ -35,7 +35,9 @@ pub struct CapabilityPackageManifest {
     pub summary: String,
     pub capability_ref: CapabilityPackageReference,
     #[serde(default)]
-    pub workflow_refs: Vec<PackageWorkflowReference>,
+    pub known_compositions: Option<Vec<PackageWorkflowReference>>,
+    #[serde(default)]
+    pub workflow_refs: Option<Vec<PackageWorkflowReference>>,
     pub source: PackageSourceReference,
     pub binary: PackageBinaryReference,
     pub constraints: PackageConstraintDeclaration,
@@ -85,6 +87,21 @@ pub struct PackageModelDependency {
     pub purpose: String,
 }
 
+impl CapabilityPackageManifest {
+    #[must_use]
+    pub fn known_compositions(&self) -> &[PackageWorkflowReference] {
+        self.known_compositions
+            .as_deref()
+            .or(self.workflow_refs.as_deref())
+            .unwrap_or_default()
+    }
+
+    #[must_use]
+    pub fn uses_legacy_workflow_refs(&self) -> bool {
+        self.known_compositions.is_none() && self.workflow_refs.is_some()
+    }
+}
+
 impl LoadedCapabilityPackage {
     #[must_use]
     pub fn render_summary(&self) -> String {
@@ -111,11 +128,11 @@ impl LoadedCapabilityPackage {
             ),
         ];
 
-        if !self.manifest.workflow_refs.is_empty() {
+        if !self.manifest.known_compositions().is_empty() {
             lines.push(format!(
-                "workflow_refs: {}",
+                "known_compositions: {}",
                 self.manifest
-                    .workflow_refs
+                    .known_compositions()
                     .iter()
                     .map(|workflow| {
                         format!("{}@{}", workflow.workflow_id, workflow.workflow_version)
@@ -123,6 +140,10 @@ impl LoadedCapabilityPackage {
                     .collect::<Vec<_>>()
                     .join(", ")
             ));
+        }
+
+        if self.manifest.uses_legacy_workflow_refs() {
+            lines.push("composition_metadata: legacy workflow_refs alias (migrate to known_compositions before schema v2)".to_string());
         }
 
         lines.join("\n")
@@ -181,12 +202,7 @@ impl LoadedCapabilityPackage {
                 kind: CompositionKind::Atomic,
                 patterns: vec![CompositionPattern::Sequential],
                 provides: vec![self.manifest.capability_ref.id.clone()],
-                requires: self
-                    .manifest
-                    .workflow_refs
-                    .iter()
-                    .map(|workflow| workflow.workflow_id.clone())
-                    .collect(),
+                requires: Vec::new(),
             },
             governing_spec: AGENT_GOVERNING_SPEC.to_string(),
             validator_version: env!("CARGO_PKG_VERSION").to_string(),
@@ -325,10 +341,11 @@ fn validate_manifest_shape(
     if manifest.binary.format != "wasm" {
         return Err("capability package binary.format must equal wasm".to_string());
     }
-    if manifest.workflow_refs.is_empty() {
-        return Err(
-            "capability package must declare at least one approved workflow reference".to_string(),
-        );
+    if let (Some(known_compositions), Some(workflow_refs)) =
+        (&manifest.known_compositions, &manifest.workflow_refs)
+        && known_compositions != workflow_refs
+    {
+        return Err("conflicting_composition_metadata: known_compositions and deprecated workflow_refs must match when both are present".to_string());
     }
     Ok(())
 }
@@ -615,37 +632,31 @@ mod tests {
     }
 
     #[test]
-    fn render_summary_includes_workflow_refs_when_present() {
+    fn render_summary_normalizes_legacy_workflow_refs_when_present() {
         let dir = unique_temp_dir();
         let manifest_path = valid_fixture(&dir);
         let loaded = load_capability_package(&manifest_path).expect("package should load");
         let summary = loaded.render_summary();
         assert!(summary.contains("package_id: test.agent-pkg"));
         assert!(summary.contains("model_interfaces: test-model-v1"));
-        assert!(summary.contains("workflow_refs: test.agent-pkg.workflow@1.0.0"));
+        assert!(summary.contains("known_compositions: test.agent-pkg.workflow@1.0.0"));
+        assert!(summary.contains("legacy workflow_refs alias"));
     }
 
     #[test]
-    fn render_summary_omits_workflow_refs_section_when_empty() {
+    fn standalone_package_with_empty_compositions_loads_and_omits_summary_section() {
         let dir = unique_temp_dir();
         let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
-        manifest["workflow_refs"] = json!([]);
-        // An empty workflow_refs fails validate_manifest_shape, so this test constructs the
-        // loaded package directly rather than through load_capability_package.
-        write_fixture(&dir, &manifest, &base_contract_value());
-        let contract = parse_contract(&base_contract_value().to_string())
-            .expect("contract should parse")
-            .clone();
-        let loaded = LoadedCapabilityPackage {
-            manifest_path: dir.join("manifest.json"),
-            manifest: serde_json::from_value(manifest).expect("manifest should deserialize"),
-            contract,
-            source_path: dir.join("src/agent.rs"),
-            binary_path: dir.join("artifacts/agent.wasm"),
-            binary_digest: fnv1a64(BINARY_BYTES),
-        };
+        manifest["known_compositions"] = json!([]);
+        manifest
+            .as_object_mut()
+            .expect("manifest should be an object")
+            .remove("workflow_refs");
+        let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
+        let loaded =
+            load_capability_package(&manifest_path).expect("standalone package should load");
         let summary = loaded.render_summary();
-        assert!(!summary.contains("workflow_refs"));
+        assert!(!summary.contains("known_compositions"));
     }
 
     #[test]
@@ -670,6 +681,7 @@ mod tests {
             Some(fnv1a64(BINARY_BYTES))
         );
         assert_eq!(registration.governing_spec, "017-ai-agent-packaging");
+        assert!(registration.composability.requires.is_empty());
     }
 
     #[test]
@@ -792,9 +804,24 @@ mod tests {
     }
 
     #[test]
-    fn rejects_empty_workflow_refs() {
-        let error = shape_rejection(|manifest| manifest["workflow_refs"] = json!([]));
-        assert!(error.contains("must declare at least one approved workflow reference"));
+    fn rejects_conflicting_composition_metadata() {
+        let error = shape_rejection(|manifest| {
+            manifest["known_compositions"] = json!([
+                {"workflow_id": "test.agent-pkg.other", "workflow_version": "1.0.0"}
+            ]);
+        });
+        assert!(error.contains("conflicting_composition_metadata"));
+    }
+
+    #[test]
+    fn accepts_equal_canonical_and_legacy_composition_metadata() {
+        let dir = unique_temp_dir();
+        let mut manifest = base_manifest_value(&fnv1a64(BINARY_BYTES));
+        manifest["known_compositions"] = manifest["workflow_refs"].clone();
+        let manifest_path = write_fixture(&dir, &manifest, &base_contract_value());
+        let loaded =
+            load_capability_package(&manifest_path).expect("matching metadata should load");
+        assert!(!loaded.manifest.uses_legacy_workflow_refs());
     }
 
     #[test]
