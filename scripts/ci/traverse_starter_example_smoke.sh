@@ -16,7 +16,7 @@ printf '%s\n' "$inspect_output"
 
 grep -q "package_id: traverse-starter.process-agent" <<<"$inspect_output"
 grep -q "capability_id: traverse-starter.process" <<<"$inspect_output"
-grep -q "workflow_refs: traverse-starter.process@1.0.0" <<<"$inspect_output"
+grep -q "known_compositions: traverse-starter.process@1.0.0" <<<"$inspect_output"
 
 execute_output="$(cargo run -q -p traverse-cli-rs -- capability-package execute "$agent_manifest" "$agent_request")"
 printf '%s\n' "$execute_output"

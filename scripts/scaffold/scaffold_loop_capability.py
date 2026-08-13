@@ -131,7 +131,7 @@ def main() -> None:
             "version": version,
             "contract_path": "./contract.json",
         },
-        "workflow_refs": [{"workflow_id": cap_id, "workflow_version": version}],
+        "known_compositions": [],
         "source": {"path": "./src/agent.rs", "language": "rust", "entry": "run"},
         "binary": {
             "path": f"./artifacts/{wasm}",

@@ -15,7 +15,7 @@ printf '%s\n' "$inspect_output"
 
 grep -q "package_id: hello.world.say-hello-agent" <<<"$inspect_output"
 grep -q "capability_id: hello.world.say-hello" <<<"$inspect_output"
-grep -q "workflow_refs: hello.world.say-hello@1.0.0" <<<"$inspect_output"
+grep -q "known_compositions: hello.world.say-hello@1.0.0" <<<"$inspect_output"
 
 execute_output="$(cargo run -q -p traverse-cli-rs -- capability-package execute "$agent_manifest" "$agent_request")"
 printf '%s\n' "$execute_output"

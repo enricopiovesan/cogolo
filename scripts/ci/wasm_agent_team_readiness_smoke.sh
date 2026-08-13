@@ -13,7 +13,7 @@ bash "$agent_dir/build-fixture.sh" >/dev/null
 inspect_output="$(cargo run -p traverse-cli-rs -- capability-package inspect "$manifest_path")"
 printf '%s\n' "$inspect_output" | grep -q "package_id: expedition.planning.validate-team-readiness"
 printf '%s\n' "$inspect_output" | grep -q "capability_id: expedition.planning.validate-team-readiness"
-printf '%s\n' "$inspect_output" | grep -q "workflow_refs: expedition.planning.plan-expedition@1.0.0"
+printf '%s\n' "$inspect_output" | grep -q "known_compositions: expedition.planning.plan-expedition@1.0.0"
 
 execute_output="$(cargo run -p traverse-cli-rs -- capability-package execute "$manifest_path" "$request_path")"
 printf '%s\n' "$execute_output" | grep -q "package_id: expedition.planning.validate-team-readiness"

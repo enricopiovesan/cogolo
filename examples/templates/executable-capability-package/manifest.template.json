@@ -9,7 +9,7 @@
     "version": "1.0.0",
     "contract_path": "../../../contracts/examples/replace-me/contract.json"
   },
-  "workflow_refs": [
+  "known_compositions": [
     {
       "workflow_id": "example.domain.replace-me-workflow",
       "workflow_version": "1.0.0"

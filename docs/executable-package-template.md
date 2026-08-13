@@ -36,7 +36,8 @@ The manifest template follows this pattern:
 - `version`
 - `summary`
 - `capability_ref`
-- `workflow_refs`
+- `known_compositions` (optional advisory metadata; legacy `workflow_refs` is
+  accepted only during the schema-v1 migration window)
 - `source`
 - `binary`
 - `constraints`

@@ -96,7 +96,8 @@ sed -n '1,120p' examples/templates/executable-capability-package/src/implementat
 That template shows the execution-side fields a real packaged capability must make explicit:
 
 - `capability_ref`
-- `workflow_refs`
+- `known_compositions` (optional advisory metadata; legacy `workflow_refs` is
+  accepted only during the schema-v1 migration window)
 - `source`
 - `binary`
 - `constraints`

@@ -2039,7 +2039,7 @@ fn capability_package_manifest_json(capability_id: &str, wasm_name: &str) -> Val
             "version": "1.0.0",
             "contract_path": "contract.json"
         },
-        "workflow_refs": [
+        "known_compositions": [
             {
                 "workflow_id": capability_id,
                 "workflow_version": "1.0.0"
@@ -8081,10 +8081,11 @@ mod tests {
             SUPPORTED_HOST_ABI_VERSION
         );
         assert!(
-            manifest["workflow_refs"]
+            manifest["known_compositions"]
                 .as_array()
                 .is_some_and(|refs| !refs.is_empty())
         );
+        assert!(manifest.get("workflow_refs").is_none());
 
         let contract_contents =
             fs::read_to_string(capability_dir.join("contract.json")).expect("contract should read");
@@ -8887,7 +8888,7 @@ mod tests {
         assert!(output.contains("package_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("capability_id: expedition.planning.interpret-expedition-intent"));
         assert!(output.contains("binary_digest: fnv1a64:"));
-        assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
+        assert!(output.contains("known_compositions: expedition.planning.plan-expedition@1.0.0"));
     }
 
     #[test]
@@ -9020,7 +9021,7 @@ mod tests {
         assert!(output.contains("package_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("capability_id: expedition.planning.validate-team-readiness"));
         assert!(output.contains("binary_digest: fnv1a64:"));
-        assert!(output.contains("workflow_refs: expedition.planning.plan-expedition@1.0.0"));
+        assert!(output.contains("known_compositions: expedition.planning.plan-expedition@1.0.0"));
     }
 
     #[test]
@@ -9051,7 +9052,7 @@ mod tests {
         assert!(output.contains("package_id: hello.world.say-hello-agent"));
         assert!(output.contains("capability_id: hello.world.say-hello"));
         assert!(output.contains("binary_digest: fnv1a64:"));
-        assert!(output.contains("workflow_refs: hello.world.say-hello@1.0.0"));
+        assert!(output.contains("known_compositions: hello.world.say-hello@1.0.0"));
     }
 
     #[test]
@@ -9977,7 +9978,7 @@ mod tests {
     "version": "1.0.0",
     "contract_path": "{}"
   }},
-  "workflow_refs": [
+  "known_compositions": [
     {{
       "workflow_id": "{}",
       "workflow_version": "1.0.0"
