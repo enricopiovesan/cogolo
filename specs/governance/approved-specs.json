@@ -1367,6 +1367,35 @@
         "docs/adr/0039-connector-binding-and-mediated-host-integration.md",
         "specs/104-mediated-connector-invocation/"
       ]
+    },
+    {
+      "id": "105-standalone-capability-packages",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/105-standalone-capability-packages/spec.md",
+      "governs": [
+        "crates/traverse-cli/src/capability_packages.rs",
+        "crates/traverse-cli/src/main.rs",
+        "crates/traverse-runtime/",
+        "docs/adr/0040-standalone-capability-packages-and-activation-resolution.md",
+        "specs/105-standalone-capability-packages/"
+      ]
+    },
+    {
+      "id": "106-activation-artifact-resolution",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/106-activation-artifact-resolution/spec.md",
+      "governs": [
+        "crates/traverse-registry/",
+        "crates/traverse-runtime/",
+        "crates/traverse-cli/",
+        "crates/traverse-mcp/",
+        "docs/adr/0040-standalone-capability-packages-and-activation-resolution.md",
+        "specs/106-activation-artifact-resolution/"
+      ]
     }
   ]
 }
