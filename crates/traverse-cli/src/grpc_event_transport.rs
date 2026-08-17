@@ -9,6 +9,7 @@ use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use std::time::Duration;
+use tokio::sync::Semaphore;
 use tokio_stream::Stream;
 use tokio_stream::wrappers::ReceiverStream;
 use tonic::transport::{Identity, Server, ServerTlsConfig};
@@ -24,6 +25,8 @@ use proto::event_service_server::{EventService, EventServiceServer};
 use proto::{Event, GovernanceMetadata, StreamEventsRequest};
 
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(50);
+const MAX_CONCURRENT_STREAMS: usize = 64;
+const MAX_STREAM_DURATION: Duration = Duration::from_secs(300);
 
 pub(crate) struct GrpcServerConfig {
     pub(crate) bind_address: String,
@@ -75,7 +78,10 @@ where
             runtime.block_on(async move {
                 let tls = ServerTlsConfig::new()
                     .identity(Identity::from_pem(certificate, private_key));
-                let service = GrpcEventService { state };
+                let service = GrpcEventService {
+                    state,
+                    stream_permits: Arc::new(Semaphore::new(MAX_CONCURRENT_STREAMS)),
+                };
                 let result = Server::builder().tls_config(tls).map(|mut server| {
                     server
                         .add_service(EventServiceServer::new(service))
@@ -101,6 +107,7 @@ where
 #[derive(Clone)]
 struct GrpcEventService<E> {
     state: Arc<ApiState<E>>,
+    stream_permits: Arc<Semaphore>,
 }
 
 #[tonic::async_trait]
@@ -114,6 +121,17 @@ where
         &self,
         request: Request<StreamEventsRequest>,
     ) -> Result<Response<Self::StreamEventsStream>, Status> {
+        let permit = self
+            .stream_permits
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| {
+                structured_status(
+                    Code::ResourceExhausted,
+                    "grpc_stream_limit_reached",
+                    "gRPC event stream concurrency limit reached",
+                )
+            })?;
         let metadata = request.metadata();
         let mut headers = HashMap::new();
         if let Some(value) = metadata.get("authorization")
@@ -151,32 +169,47 @@ where
                     return;
                 }
             }
-            loop {
-                match source.poll() {
-                    Ok(events) => {
-                        for (cursor, event) in events {
-                            if sender
-                                .send(Ok(to_proto_event(cursor, event)))
-                                .await
-                                .is_err()
-                            {
-                                return;
+            let streaming = async {
+                loop {
+                    match source.poll() {
+                        Ok(events) => {
+                            for (cursor, event) in events {
+                                if sender
+                                    .send(Ok(to_proto_event(cursor, event)))
+                                    .await
+                                    .is_err()
+                                {
+                                    return;
+                                }
                             }
                         }
+                        Err(message) => {
+                            let _ = sender
+                                .send(Err(structured_status(
+                                    Code::Unavailable,
+                                    "event_broker_unavailable",
+                                    &message,
+                                )))
+                                .await;
+                            return;
+                        }
                     }
-                    Err(message) => {
-                        let _ = sender
-                            .send(Err(structured_status(
-                                Code::Unavailable,
-                                "event_broker_unavailable",
-                                &message,
-                            )))
-                            .await;
-                        return;
-                    }
+                    tokio::time::sleep(STREAM_POLL_INTERVAL).await;
                 }
-                tokio::time::sleep(STREAM_POLL_INTERVAL).await;
+            };
+            if tokio::time::timeout(MAX_STREAM_DURATION, streaming)
+                .await
+                .is_err()
+            {
+                let _ = sender
+                    .send(Err(structured_status(
+                        Code::DeadlineExceeded,
+                        "grpc_stream_duration_exceeded",
+                        "gRPC event stream exceeded its maximum duration",
+                    )))
+                    .await;
             }
+            drop(permit);
         });
 
         Ok(Response::new(Box::pin(ReceiverStream::new(receiver))))
