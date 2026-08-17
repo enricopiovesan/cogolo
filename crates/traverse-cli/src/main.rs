@@ -14,6 +14,7 @@ use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
 };
 use semver::Version;
+use serde::Deserialize;
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::env;
@@ -31,14 +32,15 @@ use traverse_registry::{
     ApplicationManifestError, ApplicationManifestErrorCode, ApplicationManifestFailure,
     ApplicationRegistrationRequest, ApplicationRegistry, ArtifactDigests, BinaryFormat,
     BinaryReference, CapabilityArtifactRecord, CapabilityRegistration, CapabilityRegistry,
-    ComposabilityMetadata, CompositionKind, CompositionPattern, ConnectorRegistration,
-    DiscoveryQuery, EventRegistration, EventRegistry, ImplementationKind, LookupScope,
-    PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryBundle, RegistryComponentResolver,
-    RegistryProvenance, RegistryReference, RegistryScope, ResolvedRegistryComponent, SourceKind,
-    SourceReference, WorkflowReference, WorkflowRegistration, WorkflowRegistry,
-    cache_verified_public_registry_bytes, load_application_bundle_manifest,
-    load_application_bundle_manifest_with_resolver, load_registry_bundle,
-    public_registry_cache_path, write_synced_public_registry_state,
+    ComposabilityMetadata, CompositionKind, CompositionPattern, ConnectorActivationRequest,
+    ConnectorRegistration, DiscoveryQuery, EventRegistration, EventRegistry, ImplementationKind,
+    InstalledConnector, LookupScope, PublicRegistryCapabilityRecord, PublicRegistryIndex,
+    RegistryBundle, RegistryComponentResolver, RegistryProvenance, RegistryReference,
+    RegistryScope, ResolvedRegistryComponent, SourceKind, SourceReference, WorkflowReference,
+    WorkflowRegistration, WorkflowRegistry, cache_verified_public_registry_bytes,
+    load_application_bundle_manifest, load_application_bundle_manifest_with_resolver,
+    load_registry_bundle, public_registry_cache_path, validate_connector_activation,
+    write_synced_public_registry_state,
 };
 use traverse_runtime::executor::{SUPPORTED_HOST_ABI_VERSION, verify_wasm_host_abi_bytes};
 use traverse_runtime::{
@@ -70,6 +72,12 @@ enum Command {
     AppRegister {
         manifest_path: PathBuf,
         workspace_id: String,
+        json_output: bool,
+    },
+    AppActivate {
+        manifest_path: PathBuf,
+        workspace_id: String,
+        host_activation_path: PathBuf,
         json_output: bool,
     },
     RegistrySync {
@@ -291,6 +299,17 @@ fn run_command(command: Command) -> Result<String, CliError> {
             workspace_id,
             json_output,
         } => app_register(&manifest_path, &workspace_id, json_output),
+        Command::AppActivate {
+            manifest_path,
+            workspace_id,
+            host_activation_path,
+            json_output,
+        } => app_activate(
+            &manifest_path,
+            &workspace_id,
+            &host_activation_path,
+            json_output,
+        ),
         command @ (Command::RegistrySync { .. }
         | Command::RegistryList { .. }
         | Command::RegistrySearch { .. }) => run_registry_command(command),
@@ -439,6 +458,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("app"), Some("new")) => parse_app_new_command(args),
         (Some("app"), Some("validate")) => parse_app_validate_command(args),
         (Some("app"), Some("register")) => parse_app_register_command(args),
+        (Some("app"), Some("activate")) => parse_app_activate_command(args),
         (Some("registry"), Some("sync")) => parse_registry_sync_command(args),
         (Some("registry"), Some("list")) => parse_registry_list_command(args),
         (Some("registry"), Some("search")) => parse_registry_search_command(args),
@@ -470,6 +490,7 @@ fn subcommand_help(family: Option<&str>, subcommand: Option<&str>) -> String {
         (Some("app"), Some("new")) => help_app_new(),
         (Some("app"), Some("validate")) => help_app_validate(),
         (Some("app"), Some("register")) => help_app_register(),
+        (Some("app"), Some("activate")) => help_app_activate(),
         (Some("app"), _) => help_app(),
         (Some("registry"), Some("sync")) => help_registry_sync(),
         (Some("registry"), Some("list")) => help_registry_list(),
@@ -633,6 +654,30 @@ fn help_app_register() -> String {
         .to_string()
 }
 
+fn help_app_activate() -> String {
+    "traverse-cli app activate --manifest <path> --workspace <workspace-id> --host-activation <path> --json
+
+  Purpose:
+    Resolve and validate each declared application connector binding against
+    host-installed connector metadata and private configuration. Persists only
+    immutable, non-secret activation evidence; configuration values are never
+    emitted or written to workspace state.
+
+  Required flags:
+    --manifest <path>          Path to the application manifest JSON file.
+    --workspace <id>           Local workspace id.
+    --host-activation <path>   Host-private activation input JSON file.
+    --json                     Emit machine-readable activation evidence.
+
+  Example:
+    traverse-cli app activate \\
+      --manifest app.manifest.json \\
+      --workspace local \\
+      --host-activation host-activation.json \\
+      --json"
+        .to_string()
+}
+
 fn help_app() -> String {
     "traverse-cli app <subcommand> [options]
 
@@ -640,6 +685,7 @@ fn help_app() -> String {
     new <app-id>                 Create a governed Traverse app bundle scaffold.
     validate --manifest <path>   Validate an app bundle and emit JSON evidence.
     register --manifest <path>   Validate and persist local app registration.
+    activate --manifest <path>   Validate host connector bindings and persist evidence.
 
   Run `traverse-cli app <subcommand> --help` for subcommand-specific help."
         .to_string()
@@ -1307,6 +1353,24 @@ fn parse_app_register_command(args: &[String]) -> Result<Command, String> {
     Ok(Command::AppRegister {
         manifest_path: PathBuf::from(manifest_path),
         workspace_id,
+        json_output: true,
+    })
+}
+
+fn parse_app_activate_command(args: &[String]) -> Result<Command, String> {
+    let manifest_path = parse_string_flag(args, "--manifest")
+        .ok_or_else(|| "app activate requires --manifest <path>".to_string())?;
+    let workspace_id = parse_string_flag(args, "--workspace")
+        .ok_or_else(|| "app activate requires --workspace <workspace-id>".to_string())?;
+    let host_activation_path = parse_string_flag(args, "--host-activation")
+        .ok_or_else(|| "app activate requires --host-activation <path>".to_string())?;
+    if !args.iter().any(|arg| arg == "--json") {
+        return Err("app activate requires --json for stable activation evidence".to_string());
+    }
+    Ok(Command::AppActivate {
+        manifest_path: PathBuf::from(manifest_path),
+        workspace_id,
+        host_activation_path: PathBuf::from(host_activation_path),
         json_output: true,
     })
 }
@@ -2522,6 +2586,211 @@ fn app_register_at(
 
     serde_json::to_string_pretty(&state)
         .map_err(|e| CliError::IoError(format!("failed to serialize app registration: {e}")))
+}
+
+#[derive(Debug, Deserialize)]
+struct HostActivationInput {
+    connectors: Vec<HostConnectorActivationInput>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostConnectorActivationInput {
+    connector_id: String,
+    installed_version: String,
+    placement_target: traverse_contracts::ExecutionTarget,
+    config: Value,
+}
+
+#[allow(clippy::too_many_lines)]
+fn app_activate(
+    manifest_path: &Path,
+    workspace_id: &str,
+    host_activation_path: &Path,
+    json_output: bool,
+) -> Result<String, CliError> {
+    if !json_output {
+        return Err(CliError::UsageError(
+            "app activate requires --json for stable activation evidence".to_string(),
+        ));
+    }
+    if let Some(error) = validate_workspace_id_for_cli(workspace_id) {
+        return render_app_activation_failure(manifest_path, workspace_id, vec![error]);
+    }
+
+    let manifest = match load_application_bundle_manifest(manifest_path) {
+        Ok(manifest) => manifest,
+        Err(failure) => {
+            return render_app_activation_failure(
+                manifest_path,
+                workspace_id,
+                failure
+                    .errors
+                    .into_iter()
+                    .map(AppValidationError::from_manifest_error)
+                    .collect(),
+            );
+        }
+    };
+    let host_input: HostActivationInput =
+        read_json_file(host_activation_path).and_then(|value| {
+            serde_json::from_value(value).map_err(|error| {
+                CliError::ValidationFailed(format!(
+                    "host_activation_invalid: {}: {error}",
+                    host_activation_path.display()
+                ))
+            })
+        })?;
+
+    let mut seen = std::collections::BTreeSet::new();
+    let mut errors = Vec::new();
+    for input in &host_input.connectors {
+        if !seen.insert(input.connector_id.clone()) {
+            errors.push(AppValidationError {
+                code: "connector_activation_duplicate".to_string(),
+                path: format!("$.connectors[{}]", input.connector_id),
+                message: format!("duplicate host activation input for {}", input.connector_id),
+            });
+        }
+    }
+    for binding in &manifest.connector_bindings {
+        if !seen.contains(&binding.connector_id) {
+            errors.push(AppValidationError {
+                code: "connector_activation_missing".to_string(),
+                path: format!("$.connector_bindings[{}]", binding.connector_id),
+                message: format!("host activation input is missing {}", binding.connector_id),
+            });
+        }
+    }
+    for input in &host_input.connectors {
+        if !manifest
+            .connector_bindings
+            .iter()
+            .any(|binding| binding.connector_id == input.connector_id)
+        {
+            errors.push(AppValidationError {
+                code: "connector_activation_undeclared".to_string(),
+                path: format!("$.connectors[{}]", input.connector_id),
+                message: format!(
+                    "host activation input declares unbound connector {}",
+                    input.connector_id
+                ),
+            });
+        }
+    }
+    if !errors.is_empty() {
+        return render_app_activation_failure(manifest_path, workspace_id, errors);
+    }
+
+    let mut registry = CapabilityRegistry::new();
+    for connector in reference_connector_contracts() {
+        registry
+            .register_connector(ConnectorRegistration {
+                scope: RegistryScope::Public,
+                contract_path: format!(
+                    "contracts/connectors/{}/connector_contract.json",
+                    connector.connector_id
+                ),
+                contract: connector,
+                registered_at: "host-activation".to_string(),
+                governing_spec: "039-connector-plugin-architecture".to_string(),
+                validator_version: env!("CARGO_PKG_VERSION").to_string(),
+            })
+            .map_err(|failure| CliError::ValidationFailed(render_registry_failure(failure)))?;
+    }
+
+    let mut evidence = Vec::new();
+    for binding in &manifest.connector_bindings {
+        let input = host_input
+            .connectors
+            .iter()
+            .find(|input| input.connector_id == binding.connector_id)
+            .ok_or_else(|| {
+                CliError::ValidationFailed("connector activation input disappeared".to_string())
+            })?;
+        match validate_connector_activation(
+            &registry,
+            LookupScope::PreferPrivate,
+            &manifest.connector_bindings,
+            &ConnectorActivationRequest {
+                connector_id: input.connector_id.clone(),
+                installed: InstalledConnector {
+                    connector_id: input.connector_id.clone(),
+                    version: input.installed_version.clone(),
+                },
+                placement_target: input.placement_target.clone(),
+                host_config: input.config.clone(),
+            },
+        ) {
+            Ok(record) => evidence.push(serde_json::json!({
+                "connector_id": record.connector_id,
+                "config_ref": binding.config_ref,
+                "resolved_version": record.resolved_version,
+                "placement_target": record.placement_target,
+                "config_keys_present": record.config_keys_present,
+                "evidence_digest": record.evidence_digest,
+            })),
+            Err(failure) => {
+                let errors = failure
+                    .errors
+                    .into_iter()
+                    .map(|error| AppValidationError {
+                        code: debug_enum_to_snake_case(&format!("{:?}", error.code)),
+                        path: format!("$.connector_bindings[{}]", error.connector_id),
+                        message: error.message,
+                    })
+                    .collect();
+                return render_app_activation_failure(manifest_path, workspace_id, errors);
+            }
+        }
+    }
+    evidence.sort_by(|left, right| {
+        left["connector_id"]
+            .as_str()
+            .cmp(&right["connector_id"].as_str())
+    });
+    let activation = serde_json::json!({
+        "status": "activated",
+        "workspace_id": workspace_id,
+        "app_id": manifest.app_id,
+        "app_version": manifest.version,
+        "manifest_path": manifest_path.display().to_string(),
+        "connectors": evidence,
+        "governing_specs": ["039-connector-plugin-architecture", "103-application-connector-binding"],
+    });
+    let base_dir = std::env::current_dir().map_err(|error| {
+        CliError::IoError(format!("failed to resolve current directory: {error}"))
+    })?;
+    let state_path =
+        app_activation_state_path(&base_dir, workspace_id, &manifest.app_id, &manifest.version);
+    write_registration_state_atomically(&state_path, &activation)
+        .map_err(|error| CliError::IoError(format!("{}: {}", error.code, error.message)))?;
+    serde_json::to_string_pretty(&activation).map_err(|error| {
+        CliError::IoError(format!("failed to serialize activation evidence: {error}"))
+    })
+}
+
+fn render_app_activation_failure(
+    manifest_path: &Path,
+    workspace_id: &str,
+    errors: Vec<AppValidationError>,
+) -> Result<String, CliError> {
+    let errors = errors
+        .into_iter()
+        .map(|error| {
+            serde_json::json!({
+                "code": error.code,
+                "path": error.path,
+                "message": error.message,
+            })
+        })
+        .collect::<Vec<_>>();
+    serde_json::to_string_pretty(&serde_json::json!({
+        "status": "activation_failed",
+        "workspace_id": workspace_id,
+        "manifest_path": manifest_path.display().to_string(),
+        "errors": errors,
+    }))
+    .map_err(|error| CliError::IoError(format!("failed to serialize activation failure: {error}")))
 }
 
 const DEFAULT_PUBLIC_REGISTRY_SOURCE: &str = "traverse-framework/registry";
@@ -4163,6 +4432,22 @@ fn app_registration_relative_state_path(
         .join(sanitize_state_segment(app_id))
         .join(sanitize_state_segment(version))
         .join("registration.json")
+}
+
+fn app_activation_state_path(
+    base_dir: &Path,
+    workspace_id: &str,
+    app_id: &str,
+    version: &str,
+) -> PathBuf {
+    base_dir
+        .join(".traverse")
+        .join("workspaces")
+        .join(workspace_id)
+        .join("apps")
+        .join(sanitize_state_segment(app_id))
+        .join(sanitize_state_segment(version))
+        .join("activation.json")
 }
 
 fn sanitize_state_segment(value: &str) -> String {
@@ -6644,6 +6929,46 @@ mod tests {
             "local-dev".to_string(),
         ];
         assert!(parse_command(&missing_json).is_err());
+    }
+
+    #[test]
+    fn parse_app_activate_requires_all_host_activation_flags() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "app".to_string(),
+            "activate".to_string(),
+            "--manifest".to_string(),
+            "app.manifest.json".to_string(),
+            "--workspace".to_string(),
+            "local".to_string(),
+            "--host-activation".to_string(),
+            "host-activation.json".to_string(),
+            "--json".to_string(),
+        ];
+        let command = parse_command(&args).expect("app activate should parse");
+        assert!(matches!(
+            command,
+            Command::AppActivate {
+                manifest_path,
+                workspace_id,
+                host_activation_path,
+                json_output: true,
+            } if manifest_path == Path::new("app.manifest.json")
+                && workspace_id == "local"
+                && host_activation_path == Path::new("host-activation.json")
+        ));
+
+        let missing_host_input = vec![
+            "traverse-cli".to_string(),
+            "app".to_string(),
+            "activate".to_string(),
+            "--manifest".to_string(),
+            "app.manifest.json".to_string(),
+            "--workspace".to_string(),
+            "local".to_string(),
+            "--json".to_string(),
+        ];
+        assert!(parse_command(&missing_host_input).is_err());
     }
 
     #[test]
@@ -10059,6 +10384,7 @@ mod tests {
             ("app", Some("new")),
             ("app", Some("validate")),
             ("app", Some("register")),
+            ("app", Some("activate")),
             ("app", None),
             ("registry", Some("sync")),
             ("registry", None),
@@ -10236,6 +10562,15 @@ mod tests {
                 "command with missing input must fail cleanly"
             );
         }
+
+        let activation = run_command(Command::AppActivate {
+            manifest_path: missing.clone(),
+            workspace_id: "ws".to_string(),
+            host_activation_path: missing.clone(),
+            json_output: true,
+        })
+        .expect("activation failures should return structured JSON evidence");
+        assert!(activation.contains("activation_failed"));
 
         let serve = Command::Serve {
             bind_address: "127.0.0.1:0".to_string(),
