@@ -7,6 +7,10 @@ pub use artifact_router::*;
 pub mod data_store;
 pub mod events;
 pub mod executor;
+/// Native-only governed inference providers, enabled by the `native-inference`
+/// feature. This surface is intentionally unavailable to no-default-features
+/// wasm32 builds because its Ollama implementation requires TCP sockets.
+#[cfg(feature = "native-inference")]
 pub mod inference;
 pub mod placement;
 pub mod router;
@@ -278,6 +282,7 @@ impl<E> Runtime<E> {
     /// Returns [`inference::GovernedModelExecutionError`] when the app or
     /// interface is not registered, model resolution fails, or provider
     /// execution fails.
+    #[cfg(feature = "native-inference")]
     pub fn execute_governed_model_dependency(
         &self,
         app_id: &str,
