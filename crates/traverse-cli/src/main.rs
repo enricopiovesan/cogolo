@@ -2608,6 +2608,26 @@ fn app_activate(
     host_activation_path: &Path,
     json_output: bool,
 ) -> Result<String, CliError> {
+    let base_dir = std::env::current_dir().map_err(|error| {
+        CliError::IoError(format!("failed to resolve current directory: {error}"))
+    })?;
+    app_activate_at(
+        &base_dir,
+        manifest_path,
+        workspace_id,
+        host_activation_path,
+        json_output,
+    )
+}
+
+#[allow(clippy::too_many_lines)]
+fn app_activate_at(
+    state_root: &Path,
+    manifest_path: &Path,
+    workspace_id: &str,
+    host_activation_path: &Path,
+    json_output: bool,
+) -> Result<String, CliError> {
     if !json_output {
         return Err(CliError::UsageError(
             "app activate requires --json for stable activation evidence".to_string(),
@@ -2757,11 +2777,12 @@ fn app_activate(
         "connectors": evidence,
         "governing_specs": ["039-connector-plugin-architecture", "103-application-connector-binding"],
     });
-    let base_dir = std::env::current_dir().map_err(|error| {
-        CliError::IoError(format!("failed to resolve current directory: {error}"))
-    })?;
-    let state_path =
-        app_activation_state_path(&base_dir, workspace_id, &manifest.app_id, &manifest.version);
+    let state_path = app_activation_state_path(
+        state_root,
+        workspace_id,
+        &manifest.app_id,
+        &manifest.version,
+    );
     write_registration_state_atomically(&state_path, &activation)
         .map_err(|error| CliError::IoError(format!("{}: {}", error.code, error.message)))?;
     serde_json::to_string_pretty(&activation).map_err(|error| {
@@ -6678,8 +6699,9 @@ mod tests {
         ArtifactRouter, CapabilityPublishRequest, CapabilityRegistry, CliError, Command,
         DEFAULT_PUBLIC_REGISTRY_SOURCE, ExpeditionExampleExecutor, FetchedRegistryIndex,
         PublishCommandOutput, PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher,
-        RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION, app_new_at,
-        app_register_at, app_registration_state_path, app_validate, app_validate_at,
+        RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION,
+        app_activate_at, app_activation_state_path, app_new_at, app_register_at,
+        app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
         curl_text, enforce_contract_surface_coverage, enforce_persona_refs_resolve,
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
@@ -7971,6 +7993,73 @@ mod tests {
             first_json["registration_fingerprint"],
             second_json["registration_fingerprint"]
         );
+    }
+
+    #[test]
+    fn app_activate_persists_empty_connector_activation_evidence() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_app_validate_fixture(
+            &fixture_root,
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            None,
+        );
+        let host_activation_path = fixture_root.join("host-activation.json");
+        fs::write(&host_activation_path, r#"{"connectors":[]}"#)
+            .expect("host activation fixture should write");
+
+        let output = app_activate_at(
+            &state_root,
+            &manifest_path,
+            "local",
+            &host_activation_path,
+            true,
+        )
+        .expect("empty connector activation should succeed");
+        let json: Value = serde_json::from_str(&output).expect("activation output must be JSON");
+        let state_path =
+            app_activation_state_path(&state_root, "local", "expedition.readiness", "1.0.0");
+        let persisted: Value = serde_json::from_str(
+            &fs::read_to_string(&state_path).expect("activation evidence must persist"),
+        )
+        .expect("persisted activation must be JSON");
+
+        assert_eq!(json["status"], "activated");
+        assert_eq!(json["connectors"], serde_json::json!([]));
+        assert_eq!(json, persisted);
+    }
+
+    #[test]
+    fn app_activate_rejects_undeclared_host_connector_without_writing_state() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_app_validate_fixture(
+            &fixture_root,
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            None,
+        );
+        let host_activation_path = fixture_root.join("host-activation.json");
+        fs::write(
+            &host_activation_path,
+            r#"{"connectors":[{"connector_id":"unknown.connector","installed_version":"1.0.0","placement_target":"local","config":{}}]}"#,
+        )
+        .expect("host activation fixture should write");
+
+        let output = app_activate_at(
+            &state_root,
+            &manifest_path,
+            "local",
+            &host_activation_path,
+            true,
+        )
+        .expect("activation denial should render JSON evidence");
+        let json: Value = serde_json::from_str(&output).expect("activation output must be JSON");
+
+        assert_eq!(json["status"], "activation_failed");
+        assert_eq!(json["errors"][0]["code"], "connector_activation_undeclared");
+        assert!(!state_root.join(".traverse").exists());
     }
 
     #[test]
