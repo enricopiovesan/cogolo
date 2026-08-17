@@ -1,5 +1,15 @@
 # Governed Model Dependency Authoring Guide
 
+## Runtime target availability
+
+The initial Ollama-backed governed inference provider uses blocking native TCP
+sockets. It is enabled by the `traverse-runtime` `native-inference` feature,
+which is included in the default feature set. Portable `wasm32` consumers
+should build `traverse-runtime` with `--no-default-features`; that build does
+not expose the `inference` module or `Runtime::execute_governed_model_dependency`.
+Use a future compatible browser-native provider before declaring an inference
+workflow for a wasm32 host.
+
 Spec `045-governed-model-dependency-resolution` defines app manifest model
 dependencies for real inference. These declarations belong in application
 manifests, not inside downstream product code.
