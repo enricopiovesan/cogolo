@@ -5062,12 +5062,14 @@ fn execute_capability_package(
     registry
         .register(package.capability_registration())
         .map_err(|f| CliError::RegistrationConflict(render_registry_failure(f)))?;
+    let sink: std::sync::Arc<dyn traverse_contracts::UsageTelemetrySink> =
+        std::sync::Arc::from(telemetry::wire_usage_telemetry_sink());
     let runtime = Runtime::new(
         registry,
         ArtifactRouter::new().map_err(|error| CliError::ExecutionFailed(error.message))?,
     )
-    .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
-    let sink = telemetry::wire_usage_telemetry_sink();
+    .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development())
+    .with_usage_telemetry_sink(sink.clone());
     let outcome = telemetry::execute_with_telemetry(&runtime, request, sink.as_ref());
 
     if outcome.result.status == RuntimeResultStatus::Error {

@@ -3040,6 +3040,9 @@ fn load_workspace_app_runtime<E: LocalExecutor + Clone>(
         env!("CARGO_PKG_VERSION"),
     ) {
         Ok(runtime) => {
+            let runtime = runtime.with_usage_telemetry_sink(std::sync::Arc::from(
+                crate::telemetry::wire_usage_telemetry_sink(),
+            ));
             let machines = load_workspace_app_state_machines(workspace_root, &runtime);
             ws.app_list_context_fields = machines
                 .iter()

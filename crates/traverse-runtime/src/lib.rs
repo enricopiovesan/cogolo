@@ -40,15 +40,16 @@ use std::path::Path;
 use std::sync::{Arc, Mutex};
 use trace::TraceStore;
 use traverse_contracts::{
-    EventReference, ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess, ServiceType,
-    ViolationRecord,
+    EventReference, ExecutionTarget, HostApiAccess, Lifecycle, NetworkAccess,
+    NoOpUsageTelemetrySink, ServiceType, UsageTelemetrySink, ViolationRecord,
 };
 use traverse_registry::{
     CapabilityRegistration, CapabilityRegistry, DiscoveryQuery, ImplementationKind, LookupScope,
     ModelResolutionEvidence, RegistrationOutcome, RegistryFailure, RegistryScope, ResolutionError,
-    ResolvedCapability, WorkflowFailure, WorkflowRegistration, WorkflowRegistrationOutcome,
-    WorkflowRegistry, WorkspaceAppStateFailure, WorkspaceApplicationRegistration,
-    load_workspace_application_registries, resolve_dependencies, resolve_version_range,
+    ResolveTelemetry, ResolvedCapability, WorkflowFailure, WorkflowRegistration,
+    WorkflowRegistrationOutcome, WorkflowRegistry, WorkspaceAppStateFailure,
+    WorkspaceApplicationRegistration, load_workspace_application_registries, resolve_dependencies,
+    resolve_version_range,
 };
 use uuid::Uuid;
 
@@ -81,6 +82,7 @@ pub struct Runtime<E> {
     event_sink: Arc<dyn RuntimeEventSink>,
     trace_store: Arc<Mutex<TraceStore>>,
     event_broker: Arc<dyn EventBroker>,
+    usage_telemetry_sink: Arc<dyn UsageTelemetrySink>,
 }
 
 impl<E: Clone> Clone for Runtime<E> {
@@ -95,6 +97,7 @@ impl<E: Clone> Clone for Runtime<E> {
             event_sink: Arc::clone(&self.event_sink),
             trace_store: Arc::clone(&self.trace_store),
             event_broker: Arc::clone(&self.event_broker),
+            usage_telemetry_sink: Arc::clone(&self.usage_telemetry_sink),
         }
     }
 }
@@ -111,6 +114,7 @@ impl<E: fmt::Debug> fmt::Debug for Runtime<E> {
             .field("event_sink", &self.event_sink)
             .field("trace_store", &self.trace_store)
             .field("event_broker", &"Arc<dyn EventBroker>")
+            .field("usage_telemetry_sink", &"Arc<dyn UsageTelemetrySink>")
             .finish()
     }
 }
@@ -128,6 +132,7 @@ impl<E> Runtime<E> {
             event_sink: Arc::new(NoopRuntimeEventSink),
             trace_store: Arc::new(Mutex::new(TraceStore::new())),
             event_broker: default_event_broker(),
+            usage_telemetry_sink: Arc::new(NoOpUsageTelemetrySink),
         }
     }
 
@@ -194,6 +199,18 @@ impl<E> Runtime<E> {
     #[must_use]
     pub fn with_event_broker(mut self, event_broker: Arc<dyn EventBroker>) -> Self {
         self.event_broker = event_broker;
+        self
+    }
+
+    /// Injects the [`UsageTelemetrySink`] used to record a `resolve` event
+    /// (spec `015-runtime-usage-telemetry-resolve-hook`) whenever
+    /// [`collect_candidates`](Self::collect_candidates) resolves a
+    /// capability through a semver range. Defaults to
+    /// [`NoOpUsageTelemetrySink`], so no caller takes on a network or
+    /// configuration dependency merely by constructing a [`Runtime`].
+    #[must_use]
+    pub fn with_usage_telemetry_sink(mut self, sink: Arc<dyn UsageTelemetrySink>) -> Self {
+        self.usage_telemetry_sink = sink;
         self
     }
 
@@ -1311,11 +1328,16 @@ where
         ) && non_empty(capability_id)
             && non_empty(range_str)
         {
+            let resolved_at = Utc::now().to_rfc3339();
             return match resolve_version_range(
                 &self.registry,
                 capability_id,
                 range_str,
                 lookup_scope,
+                Some(ResolveTelemetry {
+                    sink: self.usage_telemetry_sink.as_ref(),
+                    resolved_at: &resolved_at,
+                }),
             ) {
                 Ok(resolved) => {
                     let entry_lookup = match resolved.scope {
