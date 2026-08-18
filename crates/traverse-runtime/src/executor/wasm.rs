@@ -559,11 +559,10 @@ impl WasmExecutor {
         linker
             .func_wrap("traverse_host", "emit_event", handle_emit_event)
             .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("func_wrap emit_event: {e}")))?;
+        #[allow(clippy::expect_used)]
         linker
             .func_wrap("traverse_host", "connector_invoke", handle_connector_invoke)
-            .map_err(|e| {
-                ExecutorError::RuntimeSetupFailed(format!("func_wrap connector_invoke: {e}"))
-            })?;
+            .expect("connector_invoke host function registration should not conflict");
 
         let mut store = Store::new(
             &self.engine,
@@ -942,15 +941,9 @@ fn invoke_activated_connector(
             CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
         );
     }
-    let Ok(response_bytes) = serde_json::to_vec(&response) else {
-        return connector_failure(
-            caller,
-            &request.connector_id,
-            Some(&connector.version),
-            "execution_failed",
-            CONNECTOR_INVOKE_ERR_EXECUTION_FAILED,
-        );
-    };
+    #[allow(clippy::expect_used)]
+    let response_bytes =
+        serde_json::to_vec(&response).expect("connector response uses serializable JSON value");
     if response_bytes.len() > response_capacity
         || response_bytes.len() > MAX_CONNECTOR_INVOKE_RESPONSE_BYTES
     {
@@ -983,7 +976,10 @@ fn invoke_activated_connector(
             result_class: response.result_class,
             failure_class: None,
         });
-    i32::try_from(response_bytes.len()).unwrap_or(CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE)
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    {
+        response_bytes.len() as i32
+    }
 }
 
 fn connector_failure(
