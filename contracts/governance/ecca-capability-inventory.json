@@ -120,8 +120,15 @@
   "excluded": [
     {
       "kind": "connector_contract",
-      "reason": "Connectors (traverse.http, traverse.fs.read, traverse.env) are resource adapters, not capabilities, per the constitution's capability-first boundary principle. They are out of scope for the ECCA existing-catalog migration in FR-020.",
-      "ids": ["traverse.http", "traverse.fs.read", "traverse.env"]
+      "reason": "Connectors (traverse.http, traverse.fs.read, traverse.env, traverse.object-store, traverse.state-store, traverse.scheduler) are resource adapters, not capabilities, per the constitution's capability-first boundary principle. They are out of scope for the ECCA existing-catalog migration in FR-020.",
+      "ids": [
+        "traverse.http",
+        "traverse.fs.read",
+        "traverse.env",
+        "traverse.object-store",
+        "traverse.state-store",
+        "traverse.scheduler"
+      ]
     }
   ]
 }

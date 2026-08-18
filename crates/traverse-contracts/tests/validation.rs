@@ -96,7 +96,48 @@ fn parses_and_validates_connector_contract() -> Result<(), String> {
         vec!["traverse.http.outbound".to_string()]
     );
     assert!(validated.required_config_schema.is_object());
+    assert_eq!(validated.operation_envelopes[0].operation_id, "request");
     Ok(())
+}
+
+#[test]
+fn reference_connector_registry_includes_universal_local_connectors() {
+    let contracts = reference_connector_contracts();
+    let connector_ids: Vec<_> = contracts
+        .iter()
+        .map(|connector| connector.connector_id.as_str())
+        .collect();
+
+    for connector_id in [
+        "traverse.object-store",
+        "traverse.state-store",
+        "traverse.scheduler",
+    ] {
+        assert!(
+            connector_ids.contains(&connector_id),
+            "missing reference connector {connector_id}"
+        );
+    }
+
+    let operation_ids: Vec<_> = contracts
+        .iter()
+        .filter(|connector| {
+            matches!(
+                connector.connector_id.as_str(),
+                "traverse.object-store" | "traverse.state-store" | "traverse.scheduler"
+            )
+        })
+        .flat_map(|connector| {
+            connector
+                .operation_envelopes
+                .iter()
+                .map(|envelope| envelope.operation_id.as_str())
+        })
+        .collect();
+
+    assert!(operation_ids.contains(&"put_immutable"));
+    assert!(operation_ids.contains(&"append_transition"));
+    assert!(operation_ids.contains(&"schedule_invocation"));
 }
 
 #[test]
@@ -117,6 +158,7 @@ fn rejects_invalid_connector_contract_shape() -> Result<(), String> {
     contract.version = "nope".to_string();
     contract.capabilities_provided.clear();
     contract.required_config_schema = serde_json::json!("not-object");
+    contract.operation_envelopes.clear();
     contract.supported_placement_targets = vec![ExecutionTarget::Local, ExecutionTarget::Local];
 
     let errors: Vec<_> = expect_validation_failure(validate_connector_contract(contract))
@@ -140,6 +182,75 @@ fn rejects_invalid_connector_contract_shape() -> Result<(), String> {
     assert!(failure.errors.iter().any(|error| {
         error.code == ValidationErrorCode::DuplicateItem
             && error.path == "$.supported_placement_targets"
+    }));
+    assert!(failure.errors.iter().any(|error| {
+        error.code == ValidationErrorCode::MissingRequiredField
+            && error.path == "$.operation_envelopes"
+    }));
+    Ok(())
+}
+
+#[test]
+fn rejects_invalid_connector_operation_envelopes() -> Result<(), String> {
+    let mut contract = reference_connector_contracts()
+        .into_iter()
+        .find(|connector| connector.connector_id == "traverse.object-store")
+        .ok_or_else(|| "reference connector should exist".to_string())?;
+    let mut duplicate = contract.operation_envelopes[0].clone();
+    duplicate.operation_id = String::new();
+    contract.operation_envelopes[0].operation_id = String::new();
+    contract.operation_envelopes[0].request_schema = serde_json::json!("not-object");
+    contract.operation_envelopes[0].success_schema = serde_json::json!("not-object");
+    contract.operation_envelopes[0].failure_classes = vec![
+        "configuration".to_string(),
+        "configuration".to_string(),
+        String::new(),
+    ];
+    contract.operation_envelopes.push(duplicate);
+
+    let errors: Vec<_> = expect_validation_failure(validate_connector_contract(contract))
+        .into_iter()
+        .collect();
+    let failure = &errors[0];
+
+    assert!(failure.errors.iter().any(|error| {
+        error.code == ValidationErrorCode::MissingRequiredField
+            && error.path == "$.operation_envelopes[0].operation_id"
+    }));
+    assert!(failure.errors.iter().any(|error| {
+        error.code == ValidationErrorCode::InvalidFormat
+            && error.path == "$.operation_envelopes[0].request_schema"
+    }));
+    assert!(failure.errors.iter().any(|error| {
+        error.code == ValidationErrorCode::InvalidFormat
+            && error.path == "$.operation_envelopes[0].success_schema"
+    }));
+    assert!(failure.errors.iter().any(|error| {
+        error.code == ValidationErrorCode::DuplicateItem
+            && error.path == "$.operation_envelopes[0].failure_classes"
+    }));
+    assert!(failure.errors.iter().any(|error| {
+        error.code == ValidationErrorCode::MissingRequiredField
+            && error.path == "$.operation_envelopes[0].failure_classes[2]"
+    }));
+    Ok(())
+}
+
+#[test]
+fn rejects_connector_operation_without_failure_classes() -> Result<(), String> {
+    let mut contract = reference_connector_contracts()
+        .into_iter()
+        .find(|connector| connector.connector_id == "traverse.scheduler")
+        .ok_or_else(|| "reference connector should exist".to_string())?;
+    contract.operation_envelopes[0].failure_classes.clear();
+
+    let errors: Vec<_> = expect_validation_failure(validate_connector_contract(contract))
+        .into_iter()
+        .collect();
+
+    assert!(errors[0].errors.iter().any(|error| {
+        error.code == ValidationErrorCode::MissingRequiredField
+            && error.path == "$.operation_envelopes[0].failure_classes"
     }));
     Ok(())
 }
@@ -1023,6 +1134,9 @@ fn validates_checked_in_reference_connector_contracts() -> Result<(), String> {
         "contracts/connectors/traverse.http/connector_contract.json",
         "contracts/connectors/traverse.fs.read/connector_contract.json",
         "contracts/connectors/traverse.env/connector_contract.json",
+        "contracts/connectors/traverse.object-store/connector_contract.json",
+        "contracts/connectors/traverse.state-store/connector_contract.json",
+        "contracts/connectors/traverse.scheduler/connector_contract.json",
     ] {
         let path = repo_root.join(relative_path);
         let contents = fs::read_to_string(&path)

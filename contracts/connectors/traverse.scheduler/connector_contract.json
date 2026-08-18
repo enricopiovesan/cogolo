@@ -1,18 +1,21 @@
 {
   "kind": "connector_contract",
   "schema_version": "1.0.0",
-  "connector_id": "traverse.env",
+  "connector_id": "traverse.scheduler",
   "version": "1.0.0",
   "capabilities_provided": [
-    "traverse.env.read"
+    "traverse.scheduler.schedule"
   ],
   "required_config_schema": {
     "type": "object",
     "required": [
-      "allowed_keys"
+      "authority_ref"
     ],
     "properties": {
-      "allowed_keys": {
+      "authority_ref": {
+        "type": "string"
+      },
+      "allowed_job_kinds": {
         "type": "array",
         "items": {
           "type": "string"
@@ -23,15 +26,26 @@
   },
   "operation_envelopes": [
     {
-      "operation_id": "read",
+      "operation_id": "schedule_invocation",
       "request_schema": {
         "type": "object",
         "required": [
-          "key_ref",
+          "job_kind",
+          "calendar_policy_ref",
+          "logical_deadline",
           "idempotency_key"
         ],
         "properties": {
-          "key_ref": {
+          "job_kind": {
+            "type": "string"
+          },
+          "calendar_policy_ref": {
+            "type": "string"
+          },
+          "logical_deadline": {
+            "type": "string"
+          },
+          "cancellation_ref": {
             "type": "string"
           },
           "idempotency_key": {
@@ -43,11 +57,15 @@
       "success_schema": {
         "type": "object",
         "required": [
-          "value_ref",
+          "invocation_ref",
+          "idempotency_key",
           "result_class"
         ],
         "properties": {
-          "value_ref": {
+          "invocation_ref": {
+            "type": "string"
+          },
+          "idempotency_key": {
             "type": "string"
           },
           "result_class": {
@@ -58,8 +76,9 @@
       },
       "failure_classes": [
         "configuration",
-        "not_found",
-        "authorization"
+        "authorization",
+        "deadline",
+        "quota"
       ]
     }
   ],
