@@ -1,9 +1,11 @@
 use serde_json::{Value, json};
+use std::sync::{Arc, Mutex};
 use traverse_contracts::{
     BinaryFormat as ContractBinaryFormat, Condition, DependencyReference, Entrypoint,
     EntrypointKind, EventReference, Execution, ExecutionConstraints, ExecutionTarget,
     FilesystemAccess, HostApiAccess, IdReference, Lifecycle, NetworkAccess, Owner, Provenance,
-    ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind,
+    ProvenanceSource, SchemaContainer, SideEffect, SideEffectKind, UsageEvent, UsageEventKind,
+    UsageTelemetrySink,
 };
 use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
@@ -656,6 +658,88 @@ fn executes_capability_resolved_via_semver_range() {
         Some(json!({"draft_id": "draft-001"}))
     );
     assert_eq!(outcome.trace.selection.status, SelectionStatus::Selected);
+}
+
+#[derive(Default)]
+struct SpyUsageTelemetrySink {
+    events: Arc<Mutex<Vec<UsageEvent>>>,
+}
+
+impl UsageTelemetrySink for SpyUsageTelemetrySink {
+    fn record(&self, event: UsageEvent) {
+        self.events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .push(event);
+    }
+}
+
+#[test]
+fn semver_range_resolution_records_a_resolve_usage_telemetry_event() {
+    // Spec 015-runtime-usage-telemetry-resolve-hook / issue #930: a
+    // capability_id + version_range request resolved through
+    // `resolve_version_range` must fire exactly one `resolve` event through
+    // whatever `UsageTelemetrySink` the `Runtime` was configured with.
+    let sink = SpyUsageTelemetrySink::default();
+    let events = Arc::clone(&sink.events);
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.2.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    )
+    .with_security_config(RuntimeSecurityConfig::development())
+    .with_usage_telemetry_sink(Arc::new(sink));
+    let mut request = base_request_exact();
+    request.intent.capability_version = None;
+    request.intent.version_range = Some("^1.0.0".to_string());
+
+    let outcome = runtime.execute(request);
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+    let recorded = events
+        .lock()
+        .unwrap_or_else(std::sync::PoisonError::into_inner);
+    assert_eq!(recorded.len(), 1);
+    assert_eq!(recorded[0].kind, UsageEventKind::Resolve);
+    assert_eq!(
+        recorded[0].capability_ref,
+        "content.comments.create-comment-draft@1.2.0"
+    );
+}
+
+#[test]
+fn exact_version_lookup_does_not_record_a_resolve_usage_telemetry_event() {
+    // The resolve hook only instruments the semver-range resolution path
+    // (spec 015 FR-006 scope) — an exact capability_id + capability_version
+    // lookup never calls `resolve_version_range` and must not fire a
+    // `resolve` event.
+    let sink = SpyUsageTelemetrySink::default();
+    let events = Arc::clone(&sink.events);
+    let runtime = Runtime::new(
+        registry_with(vec![registration(
+            RegistryScope::Private,
+            "content.comments.create-comment-draft",
+            "1.0.0",
+            Lifecycle::Active,
+        )]),
+        EchoExecutor,
+    )
+    .with_security_config(RuntimeSecurityConfig::development())
+    .with_usage_telemetry_sink(Arc::new(sink));
+
+    let outcome = runtime.execute(base_request_exact());
+
+    assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+    assert!(
+        events
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner)
+            .is_empty()
+    );
 }
 
 #[test]

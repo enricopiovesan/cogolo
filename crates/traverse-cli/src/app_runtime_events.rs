@@ -141,7 +141,10 @@ pub(crate) fn runtime_with_app_event_broker<E: LocalExecutor + Clone>(
     Ok(Runtime::new(registry, executor)
         .with_workflow_registry(workflow_registry)
         .with_security_config(security)
-        .with_event_broker(broker))
+        .with_event_broker(broker)
+        .with_usage_telemetry_sink(std::sync::Arc::from(
+            crate::telemetry::wire_usage_telemetry_sink(),
+        )))
 }
 
 #[allow(clippy::too_many_arguments)]
