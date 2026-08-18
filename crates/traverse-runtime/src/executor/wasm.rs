@@ -21,7 +21,10 @@ use wasmtime_wasi::WasiCtxBuilder;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
-use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput};
+use super::{
+    ArtifactType, CapabilityExecutor, ConnectorInvocationEvidence, ExecutorCapability,
+    ExecutorError, ExecutorOutput,
+};
 use crate::events::types::{LifecycleStatus, TraverseEvent};
 use traverse_contracts::{ConnectorRequirement, EventReference, ServiceType};
 
@@ -359,6 +362,7 @@ struct WasmStoreState {
     /// Events accepted via `traverse_host::emit_event` during this call.
     emitted_events: Vec<TraverseEvent>,
     connector_context: Option<MediatedConnectorContext>,
+    connector_invocation_evidence: Vec<ConnectorInvocationEvidence>,
 }
 
 impl CapabilityExecutor for WasmExecutor {
@@ -562,6 +566,7 @@ impl WasmExecutor {
                 service_type,
                 emitted_events: Vec::new(),
                 connector_context,
+                connector_invocation_evidence: Vec::new(),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -591,9 +596,11 @@ impl WasmExecutor {
             ))
         })?;
 
+        let data = store.into_data();
         Ok(ExecutorOutput {
             value,
-            emitted_events: store.into_data().emitted_events,
+            emitted_events: data.emitted_events,
+            connector_invocation_evidence: data.connector_invocation_evidence,
         })
     }
 
@@ -777,21 +784,39 @@ fn handle_connector_invoke(
         return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
     }
     let Some(context) = caller.data().connector_context.clone() else {
-        return CONNECTOR_INVOKE_ERR_UNBOUND;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            None,
+            "unbound",
+            CONNECTOR_INVOKE_ERR_UNBOUND,
+        );
     };
     if !context
         .declared_requirements
         .iter()
         .any(|requirement| requirement.connector_id == request.connector_id)
     {
-        return CONNECTOR_INVOKE_ERR_UNDECLARED;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            None,
+            "undeclared",
+            CONNECTOR_INVOKE_ERR_UNDECLARED,
+        );
     }
     let Some(connector) = context
         .activated_connectors
         .iter()
         .find(|connector| connector.connector_id == request.connector_id)
     else {
-        return CONNECTOR_INVOKE_ERR_UNBOUND;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            None,
+            "unbound",
+            CONNECTOR_INVOKE_ERR_UNBOUND,
+        );
     };
     let compatible = context
         .declared_requirements
@@ -804,35 +829,99 @@ fn handle_connector_invoke(
                 .is_some_and(|(range, version)| range.matches(&version))
         });
     if !compatible {
-        return CONNECTOR_INVOKE_ERR_UNAUTHORIZED;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "incompatible",
+            CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
+        );
     }
     let Ok(response) = connector.implementation.invoke(&request) else {
-        return CONNECTOR_INVOKE_ERR_EXECUTION_FAILED;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "execution_failed",
+            CONNECTOR_INVOKE_ERR_EXECUTION_FAILED,
+        );
     };
     if response.abi_version != SUPPORTED_HOST_ABI_VERSION
         || response.result_class.is_empty()
         || contains_host_private_data(&response.payload)
     {
-        return CONNECTOR_INVOKE_ERR_UNAUTHORIZED;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "unauthorized_output",
+            CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
+        );
     }
     let Ok(response_bytes) = serde_json::to_vec(&response) else {
-        return CONNECTOR_INVOKE_ERR_EXECUTION_FAILED;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "execution_failed",
+            CONNECTOR_INVOKE_ERR_EXECUTION_FAILED,
+        );
     };
     if response_bytes.len() > response_capacity
         || response_bytes.len() > MAX_CONNECTOR_INVOKE_RESPONSE_BYTES
     {
-        return CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "bounded_io",
+            CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE,
+        );
     }
     if memory
         .write(&mut caller, response_ptr, &response_bytes)
         .is_err()
     {
-        return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "invalid_response_memory",
+            CONNECTOR_INVOKE_ERR_INVALID_REQUEST,
+        );
     }
+    caller
+        .data_mut()
+        .connector_invocation_evidence
+        .push(ConnectorInvocationEvidence {
+            connector_id: request.connector_id,
+            resolved_version: Some(connector.version.clone()),
+            result_class: response.result_class,
+            failure_class: None,
+        });
     #[allow(clippy::cast_possible_truncation)]
     {
         response_bytes.len() as i32
     }
+}
+
+fn connector_failure(
+    caller: &mut Caller<'_, WasmStoreState>,
+    connector_id: &str,
+    resolved_version: Option<&str>,
+    failure_class: &str,
+    code: i32,
+) -> i32 {
+    caller
+        .data_mut()
+        .connector_invocation_evidence
+        .push(ConnectorInvocationEvidence {
+            connector_id: connector_id.to_string(),
+            resolved_version: resolved_version.map(str::to_string),
+            result_class: "failure".to_string(),
+            failure_class: Some(failure_class.to_string()),
+        });
+    code
 }
 
 fn contains_host_private_data(value: &Value) -> bool {

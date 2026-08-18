@@ -42,6 +42,7 @@ impl CapabilityExecutor for NativeExecutor {
             .map(|value| ExecutorOutput {
                 value,
                 emitted_events: Vec::new(),
+                connector_invocation_evidence: Vec::new(),
             })
             .map_err(ExecutorError::ExecutionFailed)
     }

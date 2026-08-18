@@ -30,6 +30,7 @@ fn native_executor_runs_handler() {
         Ok(ExecutorOutput {
             value: json!({ "greeting": "hello, traverse!" }),
             emitted_events: Vec::new(),
+            connector_invocation_evidence: Vec::new(),
         })
     );
 }
@@ -572,6 +573,22 @@ fn wasm_connector_invoke_requires_declaration_and_activation() -> Result<(), Str
         .map_err(|error| format!("{error:?}"))?;
     assert_eq!(output.value["result_class"], "success");
     assert_eq!(output.value["payload"]["request_id"], "x");
+    assert_eq!(output.connector_invocation_evidence.len(), 1);
+    assert_eq!(
+        output.connector_invocation_evidence[0].connector_id,
+        "traverse.test"
+    );
+    assert_eq!(
+        output.connector_invocation_evidence[0]
+            .resolved_version
+            .as_deref(),
+        Some("1.0.0")
+    );
+    assert_eq!(
+        output.connector_invocation_evidence[0].result_class,
+        "success"
+    );
+    assert_eq!(output.connector_invocation_evidence[0].failure_class, None);
     Ok(())
 }
 
@@ -772,6 +789,7 @@ fn wasm_executor_full_execute_path_via_disk() -> Result<(), String> {
         Ok(ExecutorOutput {
             value: input,
             emitted_events: Vec::new(),
+            connector_invocation_evidence: Vec::new(),
         })
     );
     Ok(())
@@ -831,6 +849,7 @@ fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String>
         Ok(ExecutorOutput {
             value: json!({}),
             emitted_events: Vec::new(),
+            connector_invocation_evidence: Vec::new(),
         })
     );
     Ok(())

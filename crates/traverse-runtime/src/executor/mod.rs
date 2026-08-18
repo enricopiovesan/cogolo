@@ -29,6 +29,15 @@ use crate::events::types::TraverseEvent;
 use serde_json::Value;
 use traverse_contracts::{EventReference, ServiceType};
 
+/// Immutable, non-secret outcome evidence for one mediated connector call.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ConnectorInvocationEvidence {
+    pub connector_id: String,
+    pub resolved_version: Option<String>,
+    pub result_class: String,
+    pub failure_class: Option<String>,
+}
+
 /// The artifact type recorded in a capability registration, used to route to the correct executor.
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum ArtifactType {
@@ -70,6 +79,8 @@ pub struct ExecutorOutput {
     /// 098-capability-event-host-abi FR-002/FR-003). Always empty for
     /// non-WASM executors, since the host ABI is WASM-only.
     pub emitted_events: Vec<TraverseEvent>,
+    /// Immutable, non-secret connector authorization and outcome evidence.
+    pub connector_invocation_evidence: Vec<ConnectorInvocationEvidence>,
 }
 
 /// Error returned by a [`CapabilityExecutor`].

@@ -1716,6 +1716,7 @@ where
         Ok(ExecutorOutput {
             value: output.value,
             emitted_events: output.emitted_events,
+            connector_invocation_evidence: Vec::new(),
         })
     }
 }
