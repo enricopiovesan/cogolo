@@ -426,6 +426,7 @@ mod tests {
             Ok(ExecutorOutput {
                 value: input.clone(),
                 emitted_events: Vec::new(),
+                connector_invocation_evidence: Vec::new(),
             })
         }
     }
@@ -461,6 +462,7 @@ mod tests {
             Ok(ExecutorOutput {
                 value: json!({ "second": true }),
                 emitted_events: Vec::new(),
+                connector_invocation_evidence: Vec::new(),
             })
         );
         Ok(())
@@ -487,6 +489,7 @@ mod tests {
             Ok(ExecutorOutput {
                 value: json!({ "ok": true }),
                 emitted_events: Vec::new(),
+                connector_invocation_evidence: Vec::new(),
             })
         );
         Ok(())

@@ -5,13 +5,14 @@
 //! No ambient WASI authority is granted — all capabilities are deny-by-default.
 
 use chrono::Utc;
-use serde::Deserialize;
+use semver::{Version, VersionReq};
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::fs;
-use std::sync::{LazyLock, Mutex};
+use std::sync::{Arc, LazyLock, Mutex};
 use uuid::Uuid;
 use wasmtime::{
     Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder,
@@ -20,9 +21,12 @@ use wasmtime_wasi::WasiCtxBuilder;
 use wasmtime_wasi::p1::WasiP1Ctx;
 use wasmtime_wasi::p2::pipe::{MemoryInputPipe, MemoryOutputPipe};
 
-use super::{ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput};
+use super::{
+    ArtifactType, CapabilityExecutor, ConnectorInvocationEvidence, ExecutorCapability,
+    ExecutorError, ExecutorOutput,
+};
 use crate::events::types::{LifecycleStatus, TraverseEvent};
-use traverse_contracts::{EventReference, ServiceType};
+use traverse_contracts::{ConnectorRequirement, EventReference, ServiceType};
 
 /// Traverse Host ABI v1 is independently versioned from the runtime crate.
 pub const SUPPORTED_HOST_ABI_VERSION: &str = "1.0.0";
@@ -55,6 +59,59 @@ const EMIT_EVENT_ERR_UNDECLARED_EVENT: i32 = -2;
 /// The calling capability's `service_type` is not `Subscribable` (spec 098
 /// FR-003, acceptance scenario 3).
 const EMIT_EVENT_ERR_NOT_SUBSCRIBABLE: i32 = -3;
+
+/// `traverse_host::connector_invoke` is unavailable unless the embedding host
+/// supplies an activated, capability-authorized connector binding. The default
+/// WASM executor deliberately returns this stable failure rather than granting
+/// any ambient authority (Spec 104 FR-002/FR-007).
+const CONNECTOR_INVOKE_ERR_UNBOUND: i32 = -2;
+const CONNECTOR_INVOKE_ERR_INVALID_REQUEST: i32 = -1;
+const CONNECTOR_INVOKE_ERR_UNDECLARED: i32 = -3;
+const CONNECTOR_INVOKE_ERR_UNAUTHORIZED: i32 = -4;
+const CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE: i32 = -5;
+const CONNECTOR_INVOKE_ERR_EXECUTION_FAILED: i32 = -6;
+const MAX_CONNECTOR_INVOKE_REQUEST_BYTES: usize = 64 * 1024;
+const MAX_CONNECTOR_INVOKE_RESPONSE_BYTES: usize = 64 * 1024;
+
+/// Versioned guest request accepted by `traverse_host::connector_invoke`.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorInvokeRequest {
+    pub abi_version: String,
+    pub connector_id: String,
+    pub operation: String,
+    pub payload: Value,
+}
+
+/// Non-secret response returned to the guest by a mediated connector.
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
+pub struct ConnectorInvokeResponse {
+    pub abi_version: String,
+    pub result_class: String,
+    pub payload: Value,
+}
+
+/// A host-owned activated connector. Its implementation is never visible to a guest.
+pub trait MediatedConnector: Send + Sync {
+    /// # Errors
+    ///
+    /// Returns a stable, non-secret failure description when the host-owned
+    /// connector cannot complete the requested operation.
+    fn invoke(&self, request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String>;
+}
+
+/// The host-owned authorization context for one WASM execution.
+#[derive(Clone)]
+pub struct MediatedConnectorContext {
+    pub declared_requirements: Vec<ConnectorRequirement>,
+    pub activated_connectors: Vec<ActivatedConnector>,
+}
+
+#[derive(Clone)]
+pub struct ActivatedConnector {
+    pub connector_id: String,
+    pub version: String,
+    pub implementation: Arc<dyn MediatedConnector>,
+}
 
 static HOST_ABI_V1_WHITELIST_CACHE: LazyLock<Result<HostAbiWhitelist, String>> =
     LazyLock::new(|| {
@@ -308,6 +365,8 @@ struct WasmStoreState {
     service_type: ServiceType,
     /// Events accepted via `traverse_host::emit_event` during this call.
     emitted_events: Vec<TraverseEvent>,
+    connector_context: Option<MediatedConnectorContext>,
+    connector_invocation_evidence: Vec<ConnectorInvocationEvidence>,
 }
 
 impl CapabilityExecutor for WasmExecutor {
@@ -420,6 +479,32 @@ impl WasmExecutor {
         )
     }
 
+    /// Execute bytes with host-owned, activated connector bindings. This is the
+    /// only API that can enable `connector_invoke`; callers that do not supply
+    /// this context retain the deny-by-default handler.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] when the module, guest memory, or execution
+    /// cannot be completed safely.
+    pub fn run_bytes_with_mediated_connectors(
+        &self,
+        wasm_bytes: &[u8],
+        input: &Value,
+        capability_id: &str,
+        connector_context: MediatedConnectorContext,
+    ) -> Result<ExecutorOutput, ExecutorError> {
+        self.run_wasm_with_connectors(
+            wasm_bytes,
+            input,
+            SUPPORTED_HOST_ABI_VERSION,
+            capability_id,
+            &[],
+            ServiceType::Stateless,
+            Some(connector_context),
+        )
+    }
+
     #[allow(clippy::too_many_arguments)]
     fn run_wasm(
         &self,
@@ -429,6 +514,28 @@ impl WasmExecutor {
         capability_id: &str,
         emits: &[EventReference],
         service_type: ServiceType,
+    ) -> Result<ExecutorOutput, ExecutorError> {
+        self.run_wasm_with_connectors(
+            wasm_bytes,
+            input,
+            abi_version,
+            capability_id,
+            emits,
+            service_type,
+            None,
+        )
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn run_wasm_with_connectors(
+        &self,
+        wasm_bytes: &[u8],
+        input: &Value,
+        abi_version: &str,
+        capability_id: &str,
+        emits: &[EventReference],
+        service_type: ServiceType,
+        connector_context: Option<MediatedConnectorContext>,
     ) -> Result<ExecutorOutput, ExecutorError> {
         let input_json = serde_json::to_string(input)
             .map_err(|e| ExecutorError::ExecutionFailed(format!("input serialization: {e}")))?;
@@ -452,6 +559,10 @@ impl WasmExecutor {
         linker
             .func_wrap("traverse_host", "emit_event", handle_emit_event)
             .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("func_wrap emit_event: {e}")))?;
+        #[allow(clippy::expect_used)]
+        linker
+            .func_wrap("traverse_host", "connector_invoke", handle_connector_invoke)
+            .expect("connector_invoke host function registration should not conflict");
 
         let mut store = Store::new(
             &self.engine,
@@ -462,6 +573,8 @@ impl WasmExecutor {
                 emits: emits.to_vec(),
                 service_type,
                 emitted_events: Vec::new(),
+                connector_context,
+                connector_invocation_evidence: Vec::new(),
             },
         );
         store.limiter(|state| &mut state.limits);
@@ -491,9 +604,11 @@ impl WasmExecutor {
             ))
         })?;
 
+        let data = store.into_data();
         Ok(ExecutorOutput {
             value,
-            emitted_events: store.into_data().emitted_events,
+            emitted_events: data.emitted_events,
+            connector_invocation_evidence: data.connector_invocation_evidence,
         })
     }
 
@@ -629,6 +744,285 @@ fn handle_emit_event(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32)
     };
     caller.data_mut().emitted_events.push(event);
     EMIT_EVENT_OK
+}
+
+/// Fail closed until an embedding host supplies an active application binding.
+///
+/// The four integers are the versioned ABI's request pointer/length and
+/// response pointer/capacity. This default handler intentionally neither reads
+/// nor writes guest memory: no request data, host configuration, credentials,
+/// paths, or endpoint can cross the boundary before authorization exists.
+fn handle_connector_invoke(
+    mut caller: Caller<'_, WasmStoreState>,
+    request_ptr: i32,
+    request_len: i32,
+    response_ptr: i32,
+    response_capacity: i32,
+) -> i32 {
+    let Ok((memory, request, request_ptr, response_ptr, response_capacity)) =
+        parse_connector_request(
+            &mut caller,
+            request_ptr,
+            request_len,
+            response_ptr,
+            response_capacity,
+        )
+    else {
+        return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+    };
+    let Some(context) = caller.data().connector_context.clone() else {
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            None,
+            "unbound",
+            CONNECTOR_INVOKE_ERR_UNBOUND,
+        );
+    };
+    let connector = match resolve_activated_connector(&context, &request) {
+        Ok(connector) => connector,
+        Err(failure) => {
+            return connector_failure(
+                &mut caller,
+                &request.connector_id,
+                failure.resolved_version.as_deref(),
+                failure.failure_class,
+                failure.code,
+            );
+        }
+    };
+    invoke_activated_connector(
+        &mut caller,
+        memory,
+        request,
+        request_ptr,
+        response_ptr,
+        response_capacity,
+        &connector,
+    )
+}
+
+fn parse_connector_request(
+    caller: &mut Caller<'_, WasmStoreState>,
+    request_ptr: i32,
+    request_len: i32,
+    response_ptr: i32,
+    response_capacity: i32,
+) -> Result<
+    (
+        wasmtime::Memory,
+        ConnectorInvokeRequest,
+        usize,
+        usize,
+        usize,
+    ),
+    (),
+> {
+    if request_ptr < 0 || request_len < 0 || response_ptr < 0 || response_capacity < 0 {
+        return Err(());
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let (request_ptr, request_len, response_ptr, response_capacity) = (
+        request_ptr as usize,
+        request_len as usize,
+        response_ptr as usize,
+        response_capacity as usize,
+    );
+    if request_len > MAX_CONNECTOR_INVOKE_REQUEST_BYTES
+        || response_capacity > MAX_CONNECTOR_INVOKE_RESPONSE_BYTES
+    {
+        return Err(());
+    }
+    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
+        return Err(());
+    };
+    let mut bytes = vec![0_u8; request_len];
+    if memory.read(&caller, request_ptr, &mut bytes).is_err() {
+        return Err(());
+    }
+    let Ok(request) = serde_json::from_slice::<ConnectorInvokeRequest>(&bytes) else {
+        return Err(());
+    };
+    if request.abi_version != SUPPORTED_HOST_ABI_VERSION
+        || request.connector_id.is_empty()
+        || request.operation.is_empty()
+        || contains_host_private_data(&request.payload)
+    {
+        return Err(());
+    }
+    Ok((
+        memory,
+        request,
+        request_ptr,
+        response_ptr,
+        response_capacity,
+    ))
+}
+
+struct ConnectorInvokeFailure {
+    failure_class: &'static str,
+    resolved_version: Option<String>,
+    code: i32,
+}
+
+fn resolve_activated_connector(
+    context: &MediatedConnectorContext,
+    request: &ConnectorInvokeRequest,
+) -> Result<ActivatedConnector, ConnectorInvokeFailure> {
+    if !context
+        .declared_requirements
+        .iter()
+        .any(|requirement| requirement.connector_id == request.connector_id)
+    {
+        return Err(ConnectorInvokeFailure {
+            failure_class: "undeclared",
+            resolved_version: None,
+            code: CONNECTOR_INVOKE_ERR_UNDECLARED,
+        });
+    }
+    let Some(connector) = context
+        .activated_connectors
+        .iter()
+        .find(|connector| connector.connector_id == request.connector_id)
+    else {
+        return Err(ConnectorInvokeFailure {
+            failure_class: "unbound",
+            resolved_version: None,
+            code: CONNECTOR_INVOKE_ERR_UNBOUND,
+        });
+    };
+    let compatible = context
+        .declared_requirements
+        .iter()
+        .filter(|requirement| requirement.connector_id == request.connector_id)
+        .any(|requirement| {
+            VersionReq::parse(&requirement.version)
+                .ok()
+                .zip(Version::parse(&connector.version).ok())
+                .is_some_and(|(range, version)| range.matches(&version))
+        });
+    if !compatible {
+        return Err(ConnectorInvokeFailure {
+            failure_class: "incompatible",
+            resolved_version: Some(connector.version.clone()),
+            code: CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
+        });
+    }
+    Ok(connector.clone())
+}
+
+fn invoke_activated_connector(
+    caller: &mut Caller<'_, WasmStoreState>,
+    memory: wasmtime::Memory,
+    request: ConnectorInvokeRequest,
+    _request_ptr: usize,
+    response_ptr: usize,
+    response_capacity: usize,
+    connector: &ActivatedConnector,
+) -> i32 {
+    let Ok(response) = connector.implementation.invoke(&request) else {
+        return connector_failure(
+            caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "execution_failed",
+            CONNECTOR_INVOKE_ERR_EXECUTION_FAILED,
+        );
+    };
+    if response.abi_version != SUPPORTED_HOST_ABI_VERSION
+        || response.result_class.is_empty()
+        || contains_host_private_data(&response.payload)
+    {
+        return connector_failure(
+            caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "unauthorized_output",
+            CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
+        );
+    }
+    #[allow(clippy::expect_used)]
+    let response_bytes =
+        serde_json::to_vec(&response).expect("connector response uses serializable JSON value");
+    if response_bytes.len() > response_capacity
+        || response_bytes.len() > MAX_CONNECTOR_INVOKE_RESPONSE_BYTES
+    {
+        return connector_failure(
+            caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "bounded_io",
+            CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE,
+        );
+    }
+    if memory
+        .write(&mut *caller, response_ptr, &response_bytes)
+        .is_err()
+    {
+        return connector_failure(
+            caller,
+            &request.connector_id,
+            Some(&connector.version),
+            "invalid_response_memory",
+            CONNECTOR_INVOKE_ERR_INVALID_REQUEST,
+        );
+    }
+    caller
+        .data_mut()
+        .connector_invocation_evidence
+        .push(ConnectorInvocationEvidence {
+            connector_id: request.connector_id,
+            resolved_version: Some(connector.version.clone()),
+            result_class: response.result_class,
+            failure_class: None,
+        });
+    #[allow(clippy::cast_possible_truncation, clippy::cast_possible_wrap)]
+    {
+        response_bytes.len() as i32
+    }
+}
+
+fn connector_failure(
+    caller: &mut Caller<'_, WasmStoreState>,
+    connector_id: &str,
+    resolved_version: Option<&str>,
+    failure_class: &str,
+    code: i32,
+) -> i32 {
+    caller
+        .data_mut()
+        .connector_invocation_evidence
+        .push(ConnectorInvocationEvidence {
+            connector_id: connector_id.to_string(),
+            resolved_version: resolved_version.map(str::to_string),
+            result_class: "failure".to_string(),
+            failure_class: Some(failure_class.to_string()),
+        });
+    code
+}
+
+fn contains_host_private_data(value: &Value) -> bool {
+    match value {
+        Value::Object(map) => map.iter().any(|(key, value)| {
+            let key = key.to_ascii_lowercase();
+            [
+                "config",
+                "credential",
+                "secret",
+                "password",
+                "path",
+                "device",
+                "endpoint",
+                "bucket",
+            ]
+            .iter()
+            .any(|needle| key.contains(needle))
+                || contains_host_private_data(value)
+        }),
+        Value::Array(values) => values.iter().any(contains_host_private_data),
+        Value::String(value) => value.starts_with('/') || value.contains("://"),
+        _ => false,
+    }
 }
 
 fn classify_wasm_execution_error(error: &wasmtime::Error) -> ExecutorError {

@@ -148,6 +148,7 @@ impl CapabilityExecutor for EventEmittingExecutor {
         Ok(ExecutorOutput {
             value: self.output.clone(),
             emitted_events: self.emitted_events.clone(),
+            connector_invocation_evidence: Vec::new(),
         })
     }
 }

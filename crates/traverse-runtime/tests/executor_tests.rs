@@ -1,12 +1,14 @@
 use serde_json::json;
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
+use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
-use traverse_contracts::{EventReference, ServiceType};
+use traverse_contracts::{ConnectorRequirement, EventReference, ServiceType};
 use traverse_runtime::executor::{
-    ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput,
-    NativeExecutor, SUPPORTED_HOST_ABI_VERSION, WasmExecutionLimits, WasmExecutor,
-    WasmModuleCacheConfig, supported_host_abi_versions, verify_wasm_host_abi_bytes,
+    ActivatedConnector, ArtifactType, CapabilityExecutor, ConnectorInvokeRequest,
+    ConnectorInvokeResponse, ExecutorCapability, ExecutorError, ExecutorOutput, MediatedConnector,
+    MediatedConnectorContext, NativeExecutor, SUPPORTED_HOST_ABI_VERSION, WasmExecutionLimits,
+    WasmExecutor, WasmModuleCacheConfig, supported_host_abi_versions, verify_wasm_host_abi_bytes,
 };
 
 // --- NativeExecutor tests ---
@@ -28,6 +30,7 @@ fn native_executor_runs_handler() {
         Ok(ExecutorOutput {
             value: json!({ "greeting": "hello, traverse!" }),
             emitted_events: Vec::new(),
+            connector_invocation_evidence: Vec::new(),
         })
     );
 }
@@ -500,6 +503,428 @@ fn wasm_host_abi_verifier_accepts_sanctioned_stdio_imports() -> Result<(), Strin
 }
 
 #[test]
+fn wasm_host_abi_verifier_accepts_versioned_connector_invoke_import() -> Result<(), String> {
+    let wasm_bytes = wat::parse_str(
+        r#"
+        (module
+            (import "traverse_host" "connector_invoke"
+                (func $connector_invoke (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func $_start (export "_start"))
+        )
+        "#,
+    )
+    .map_err(|error| format!("WAT parse: {error}"))?;
+
+    let validation = verify_wasm_host_abi_bytes(&wasm_bytes, SUPPORTED_HOST_ABI_VERSION)
+        .map_err(|error| format!("{error:?}"))?;
+
+    assert!(
+        validation.imports.iter().any(|import| {
+            import.module == "traverse_host" && import.name == "connector_invoke"
+        })
+    );
+    Ok(())
+}
+
+struct TestConnector;
+
+impl MediatedConnector for TestConnector {
+    fn invoke(&self, request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String> {
+        Ok(ConnectorInvokeResponse {
+            abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+            result_class: "success".to_string(),
+            payload: json!({"request_id": request.payload["id"]}),
+        })
+    }
+}
+
+enum ConnectorOutcome {
+    Fails,
+    UnsafeOutput,
+    LargeOutput,
+}
+
+struct OutcomeConnector(ConnectorOutcome);
+
+impl MediatedConnector for OutcomeConnector {
+    fn invoke(&self, _request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String> {
+        match self.0 {
+            ConnectorOutcome::Fails => Err("connector failed".to_string()),
+            ConnectorOutcome::UnsafeOutput => Ok(ConnectorInvokeResponse {
+                abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+                result_class: "success".to_string(),
+                payload: json!({"secret": "must not cross the ABI"}),
+            }),
+            ConnectorOutcome::LargeOutput => Ok(ConnectorInvokeResponse {
+                abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+                result_class: "success".to_string(),
+                payload: json!({"value": "x".repeat(1024)}),
+            }),
+        }
+    }
+}
+
+fn connector_test_wasm(
+    request: &str,
+    request_ptr: i32,
+    request_len: i32,
+    response_ptr: i32,
+    response_capacity: i32,
+) -> Result<Vec<u8>, String> {
+    let escaped_request = request.replace('\\', "\\\\").replace('"', "\\\"");
+    wat::parse_str(format!(
+        r#"
+        (module
+          (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+          (import "traverse_host" "connector_invoke" (func $invoke (param i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 32) "{escaped_request}")
+          (data (i32.const 2048) "0")
+          (func $_start (export "_start")
+            i32.const {request_ptr} i32.const {request_len} i32.const {response_ptr} i32.const {response_capacity} call $invoke drop
+            i32.const 4 i32.const 2048 i32.store
+            i32.const 8 i32.const 1 i32.store
+            i32.const 1 i32.const 4 i32.const 1 i32.const 12 call $write drop)
+        )
+        "#
+    ))
+    .map_err(|error| format!("WAT parse: {error}"))
+}
+
+fn connector_context(
+    connector: Arc<dyn MediatedConnector>,
+    version: &str,
+) -> MediatedConnectorContext {
+    MediatedConnectorContext {
+        declared_requirements: vec![ConnectorRequirement {
+            connector_id: "traverse.test".to_string(),
+            version: "^1.0.0".to_string(),
+        }],
+        activated_connectors: vec![ActivatedConnector {
+            connector_id: "traverse.test".to_string(),
+            version: version.to_string(),
+            implementation: connector,
+        }],
+    }
+}
+
+fn declared_connector_context() -> MediatedConnectorContext {
+    MediatedConnectorContext {
+        declared_requirements: vec![ConnectorRequirement {
+            connector_id: "traverse.test".to_string(),
+            version: "^1.0.0".to_string(),
+        }],
+        activated_connectors: Vec::new(),
+    }
+}
+
+const VALID_CONNECTOR_REQUEST: &str = r#"{"abi_version":"1.0.0","connector_id":"traverse.test","operation":"read","payload":{"id":"x"}}"#;
+
+fn valid_connector_request_len() -> Result<i32, String> {
+    i32::try_from(VALID_CONNECTOR_REQUEST.len())
+        .map_err(|error| format!("request length conversion: {error}"))
+}
+
+#[test]
+fn wasm_connector_invoke_denies_invalid_requests() -> Result<(), String> {
+    let valid_request_len = valid_connector_request_len()?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+
+    let invalid_requests = vec![
+        ("not-json", 32, 8, 256, 64),
+        (
+            r#"{"abi_version":"2.0.0","connector_id":"traverse.test","operation":"read","payload":{}}"#,
+            32,
+            0,
+            256,
+            64,
+        ),
+        (
+            r#"{"abi_version":"1.0.0","connector_id":"","operation":"read","payload":{}}"#,
+            32,
+            0,
+            256,
+            64,
+        ),
+        (
+            r#"{"abi_version":"1.0.0","connector_id":"traverse.test","operation":"","payload":{}}"#,
+            32,
+            0,
+            256,
+            64,
+        ),
+        (
+            r#"{"abi_version":"1.0.0","connector_id":"traverse.test","operation":"read","payload":{"path":"/private"}}"#,
+            32,
+            0,
+            256,
+            64,
+        ),
+        (
+            r#"{"abi_version":"1.0.0","connector_id":"traverse.test","operation":"read","payload":{"items":["https://example.test"]}}"#,
+            32,
+            0,
+            256,
+            64,
+        ),
+        (VALID_CONNECTOR_REQUEST, -1, 1, 256, 64),
+        (VALID_CONNECTOR_REQUEST, 65_535, 10, 256, 64),
+        (VALID_CONNECTOR_REQUEST, 32, valid_request_len, 256, 65_537),
+    ];
+
+    for (request, request_ptr, request_len, response_ptr, response_capacity) in invalid_requests {
+        let request_len = if request_len == 0 {
+            i32::try_from(request.len())
+                .map_err(|error| format!("request length conversion: {error}"))?
+        } else {
+            request_len
+        };
+        let wasm = connector_test_wasm(
+            request,
+            request_ptr,
+            request_len,
+            response_ptr,
+            response_capacity,
+        )?;
+        let output = executor
+            .run_bytes_with_mediated_connectors(
+                &wasm,
+                &json!({}),
+                "test",
+                connector_context(Arc::new(TestConnector), "1.0.0"),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+        assert_eq!(output.value, json!(0));
+    }
+
+    Ok(())
+}
+
+#[test]
+fn wasm_connector_invoke_accepts_numeric_payload_values() -> Result<(), String> {
+    let numeric_payload_request = r#"{"abi_version":"1.0.0","connector_id":"traverse.test","operation":"read","payload":{"id":1}}"#;
+    let numeric_payload_request_len = i32::try_from(numeric_payload_request.len())
+        .map_err(|error| format!("request length conversion: {error}"))?;
+    let wasm = connector_test_wasm(
+        numeric_payload_request,
+        32,
+        numeric_payload_request_len,
+        256,
+        64,
+    )?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+    let output = executor
+        .run_bytes_with_mediated_connectors(
+            &wasm,
+            &json!({}),
+            "test",
+            connector_context(Arc::new(TestConnector), "1.0.0"),
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(output.value, json!(0));
+    Ok(())
+}
+
+#[test]
+fn wasm_connector_invoke_denies_modules_without_memory() -> Result<(), String> {
+    let wasm_without_memory = wat::parse_str(
+        r#"
+        (module
+          (import "traverse_host" "connector_invoke" (func $invoke (param i32 i32 i32 i32) (result i32)))
+          (func $_start (export "_start")
+            i32.const 0 i32.const 0 i32.const 0 i32.const 0 call $invoke drop))
+        "#,
+    )
+    .map_err(|error| format!("WAT parse: {error}"))?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+    let err = expect_err(
+        executor.run_bytes_with_mediated_connectors(
+            &wasm_without_memory,
+            &json!({}),
+            "test",
+            connector_context(Arc::new(TestConnector), "1.0.0"),
+        ),
+        "expected invalid stdout after connector_invoke without memory",
+    )?;
+    assert!(
+        matches!(err, ExecutorError::OutputDeserializationFailed(_)),
+        "expected OutputDeserializationFailed, got {err:?}"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn wasm_connector_invoke_records_unbound_and_undeclared_failures() -> Result<(), String> {
+    let valid_request_len = valid_connector_request_len()?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+    let wasm = connector_test_wasm(VALID_CONNECTOR_REQUEST, 32, valid_request_len, 256, 64)?;
+    let unbound = executor
+        .run_bytes_with_capability(&wasm, &json!({}), "test", &[], ServiceType::Stateless)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        unbound.connector_invocation_evidence[0]
+            .failure_class
+            .as_deref(),
+        Some("unbound")
+    );
+
+    let undeclared_request = VALID_CONNECTOR_REQUEST.replace("traverse.test", "other.test");
+    let undeclared_request_len = i32::try_from(undeclared_request.len())
+        .map_err(|error| format!("request length conversion: {error}"))?;
+    let wasm = connector_test_wasm(&undeclared_request, 32, undeclared_request_len, 256, 64)?;
+    let undeclared = executor
+        .run_bytes_with_mediated_connectors(
+            &wasm,
+            &json!({}),
+            "test",
+            connector_context(Arc::new(TestConnector), "1.0.0"),
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        undeclared.connector_invocation_evidence[0]
+            .failure_class
+            .as_deref(),
+        Some("undeclared")
+    );
+
+    let wasm = connector_test_wasm(VALID_CONNECTOR_REQUEST, 32, valid_request_len, 256, 64)?;
+    let declared_unbound = executor
+        .run_bytes_with_mediated_connectors(&wasm, &json!({}), "test", declared_connector_context())
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        declared_unbound.connector_invocation_evidence[0]
+            .failure_class
+            .as_deref(),
+        Some("unbound")
+    );
+
+    Ok(())
+}
+
+#[test]
+fn wasm_connector_invoke_records_activated_connector_failures() -> Result<(), String> {
+    let valid_request_len = valid_connector_request_len()?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+
+    for (connector, version, response_ptr, response_capacity, failure_class) in [
+        (
+            Arc::new(TestConnector) as Arc<dyn MediatedConnector>,
+            "2.0.0",
+            256,
+            64,
+            "incompatible",
+        ),
+        (
+            Arc::new(OutcomeConnector(ConnectorOutcome::Fails)) as Arc<dyn MediatedConnector>,
+            "1.0.0",
+            256,
+            64,
+            "execution_failed",
+        ),
+        (
+            Arc::new(OutcomeConnector(ConnectorOutcome::UnsafeOutput))
+                as Arc<dyn MediatedConnector>,
+            "1.0.0",
+            256,
+            64,
+            "unauthorized_output",
+        ),
+        (
+            Arc::new(OutcomeConnector(ConnectorOutcome::LargeOutput)) as Arc<dyn MediatedConnector>,
+            "1.0.0",
+            256,
+            1,
+            "bounded_io",
+        ),
+        (
+            Arc::new(TestConnector) as Arc<dyn MediatedConnector>,
+            "1.0.0",
+            65_535,
+            1_024,
+            "invalid_response_memory",
+        ),
+    ] {
+        let wasm = connector_test_wasm(
+            VALID_CONNECTOR_REQUEST,
+            32,
+            valid_request_len,
+            response_ptr,
+            response_capacity,
+        )?;
+        let output = executor
+            .run_bytes_with_mediated_connectors(
+                &wasm,
+                &json!({}),
+                "test",
+                connector_context(connector, version),
+            )
+            .map_err(|error| format!("{error:?}"))?;
+        assert_eq!(
+            output.connector_invocation_evidence[0]
+                .failure_class
+                .as_deref(),
+            Some(failure_class)
+        );
+    }
+    Ok(())
+}
+
+#[test]
+fn wasm_connector_invoke_requires_declaration_and_activation() -> Result<(), String> {
+    let wasm_bytes = wat::parse_str(
+        r#"
+        (module
+          (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+          (import "traverse_host" "connector_invoke" (func $invoke (param i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 32) "{\"abi_version\":\"1.0.0\",\"connector_id\":\"traverse.test\",\"operation\":\"read\",\"payload\":{\"id\":\"x\"}}")
+          (func $_start (export "_start") (local $len i32)
+            i32.const 32 i32.const 94 i32.const 256 i32.const 1024 call $invoke local.set $len
+            i32.const 4 i32.const 256 i32.store
+            i32.const 8 local.get $len i32.store
+            i32.const 1 i32.const 4 i32.const 1 i32.const 12 call $write drop))
+        "#,
+    )
+    .map_err(|error| format!("WAT parse: {error}"))?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+    let context = MediatedConnectorContext {
+        declared_requirements: vec![ConnectorRequirement {
+            connector_id: "traverse.test".to_string(),
+            version: "^1.0.0".to_string(),
+        }],
+        activated_connectors: vec![ActivatedConnector {
+            connector_id: "traverse.test".to_string(),
+            version: "1.0.0".to_string(),
+            implementation: Arc::new(TestConnector),
+        }],
+    };
+    let output = executor
+        .run_bytes_with_mediated_connectors(&wasm_bytes, &json!({}), "test", context)
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(output.value["result_class"], "success");
+    assert_eq!(output.value["payload"]["request_id"], "x");
+    assert_eq!(output.connector_invocation_evidence.len(), 1);
+    assert_eq!(
+        output.connector_invocation_evidence[0].connector_id,
+        "traverse.test"
+    );
+    assert_eq!(
+        output.connector_invocation_evidence[0]
+            .resolved_version
+            .as_deref(),
+        Some("1.0.0")
+    );
+    assert_eq!(
+        output.connector_invocation_evidence[0].result_class,
+        "success"
+    );
+    assert_eq!(output.connector_invocation_evidence[0].failure_class, None);
+    Ok(())
+}
+
+#[test]
 fn wasm_host_abi_verifier_rejects_unauthorized_import_before_execution() -> Result<(), String> {
     let wat_src = r#"
         (module
@@ -696,6 +1121,7 @@ fn wasm_executor_full_execute_path_via_disk() -> Result<(), String> {
         Ok(ExecutorOutput {
             value: input,
             emitted_events: Vec::new(),
+            connector_invocation_evidence: Vec::new(),
         })
     );
     Ok(())
@@ -755,6 +1181,7 @@ fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String>
         Ok(ExecutorOutput {
             value: json!({}),
             emitted_events: Vec::new(),
+            connector_invocation_evidence: Vec::new(),
         })
     );
     Ok(())
