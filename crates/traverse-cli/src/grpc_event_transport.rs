@@ -26,7 +26,7 @@ use proto::{Event, GovernanceMetadata, StreamEventsRequest};
 
 const STREAM_POLL_INTERVAL: Duration = Duration::from_millis(50);
 const MAX_CONCURRENT_STREAMS: usize = 64;
-const MAX_STREAM_DURATION: Duration = Duration::from_secs(300);
+const MAX_STREAM_DURATION: Duration = Duration::from_mins(5);
 
 pub(crate) struct GrpcServerConfig {
     pub(crate) bind_address: String,
