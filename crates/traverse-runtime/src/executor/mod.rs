@@ -19,9 +19,10 @@ pub use native::NativeExecutor;
 pub use thread_pool::{ConfigError, ThreadPoolExecutor, ThreadPoolExecutorConfig};
 #[cfg(feature = "wasmtime-executor")]
 pub use wasm::{
-    HostAbiImport, HostAbiValidation, SUPPORTED_HOST_ABI_VERSION, WasmExecutionLimits,
-    WasmExecutor, WasmModuleCacheConfig, WasmModuleCacheStats, supported_host_abi_versions,
-    verify_wasm_host_abi_bytes,
+    ActivatedConnector, ConnectorInvokeRequest, ConnectorInvokeResponse, HostAbiImport,
+    HostAbiValidation, MediatedConnector, MediatedConnectorContext, SUPPORTED_HOST_ABI_VERSION,
+    WasmExecutionLimits, WasmExecutor, WasmModuleCacheConfig, WasmModuleCacheStats,
+    supported_host_abi_versions, verify_wasm_host_abi_bytes,
 };
 
 use crate::events::types::TraverseEvent;
