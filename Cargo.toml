@@ -20,7 +20,7 @@ version = "0.9.1"
 
 [workspace.dependencies]
 traverse-contracts = { path = "crates/traverse-contracts", version = "0.9.1" }
-traverse-registry = { version = "=0.13.0" }
+traverse-registry = { version = "=0.14.0" }
 traverse-runtime = { path = "crates/traverse-runtime", version = "0.9.1" }
 
 # The published registry crate pins the current contracts release.  During

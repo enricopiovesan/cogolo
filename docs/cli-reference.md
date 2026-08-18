@@ -57,7 +57,7 @@ consistent with error output behaviour across the CLI.
 | `app new <app-id> [--register --workspace <workspace-id>]` | Create a governed Traverse app bundle scaffold under `apps/<app-id>`. | `cargo run -p traverse-cli-rs -- app new youaskm3` | Creates `manifest.json`, `workspace.config.json`, component/workflow directories, and a bundle README. `--register` rejects the initial incomplete scaffold until real components and workflows are present. |
 | `app validate --manifest <path> --json` | Validate a downstream app manifest and emit stable setup evidence without writing workspace state. | `cargo run -p traverse-cli-rs -- app validate --manifest examples/applications/expedition-readiness/app.manifest.json --json` | Prints JSON with `status: validated`, app identity, component/workflow ids, verified WASM digests, public surfaces, model readiness, and runtime references. |
 | `app register --manifest <path> --workspace <workspace-id> --json` | Validate a downstream app manifest and atomically persist local workspace registration state. | `cargo run -p traverse-cli-rs -- app register --manifest examples/applications/expedition-readiness/app.manifest.json --workspace local --json` | Prints JSON with `status: registered` or `status: already_registered`, app identity, workspace id, `state_scope: workspace_persisted`, `state_path`, digest evidence, and runtime references. |
-| `app activate --manifest <path> --workspace <workspace-id> --host-activation <path> --json` | Resolve each declared connector binding against host-installed connector metadata and private configuration. | `cargo run -p traverse-cli-rs -- app activate --manifest app.manifest.json --workspace local --host-activation host-activation.json --json` | Prints `status: activated` with connector id/version/placement/config-key evidence only and writes `activation.json`; no configuration values are emitted or persisted. |
+| `app activate --manifest <path> --workspace <workspace-id> --host-activation <path> --json` | Resolve declared connector bindings and every required capability contract against host-installed, executable artifacts. | `cargo run -p traverse-cli-rs -- app activate --manifest app.manifest.json --workspace local --host-activation host-activation.json --json` | Prints `status: activated` with connector evidence plus the selected package identity, digest, ABI, placement, constraints, configuration-reference names, and eligibility evidence; writes immutable `activation.json` without configuration values. |
 | `capability new <capability-id>` | Create a governed WASM capability package scaffold under `capabilities/<capability-id>`. | `cargo run -p traverse-cli-rs -- capability new knowledge.retrieve` | Creates a loadable `kind: capability_package` manifest, contract with authorable input/output fields, `#![no_std]` WASI guest stub, and sample runtime request. `component new` is retired and redirects here. |
 | `capability-package inspect <manifest-path>` | Load and summarize a governed WASM capability package manifest. | `cargo run -p traverse-cli-rs -- capability-package inspect examples/capabilities/expedition-intent-agent/manifest.json` | Prints `path`, `package_id`, `package_version`, `capability_id`, binary location, digest, and model/workflow references. |
 | `capability-package execute <manifest-path> <request-path>` | Load a governed WASM capability package and execute it against a runtime request. | `cargo run -p traverse-cli-rs -- capability-package execute examples/capabilities/expedition-intent-agent/manifest.json examples/capabilities/runtime-requests/interpret-expedition-intent.json` | Prints `request_id`, `execution_id`, `package_id`, `capability_id`, `trace_ref`, `status`, and capability-specific result fields. |
@@ -150,16 +150,22 @@ cargo run -p traverse-cli-rs -- app register \
 Re-registering unchanged state is idempotent and returns `status: already_registered` with the same stable app, workspace, and digest evidence.
 
 `app activate` is the complementary host-only step governed by
-`103-application-connector-binding`. Static `app validate` checks portable
-binding shape and compatibility without reading private host configuration.
-Activation reads the host-private input only to validate the installed
-connector version, placement target, and required configuration keys. It writes
+`103-application-connector-binding` and `106-activation-artifact-resolution`.
+Static `app validate` checks portable binding shape and compatibility without
+reading host package inventory or private configuration. Activation reads the
+host-private input only to validate connector metadata and to resolve every
+required contract to a compatible active executable package. An exact package
+id/version pin is honored; otherwise the resolver selects the highest compatible
+package version and then the lowest package id. It writes
 `.traverse/workspaces/<workspace-id>/apps/<app-id>/<version>/activation.json`
-with immutable non-secret evidence: connector id, resolved version, placement,
-configuration key names, and evidence digest. It never writes configuration
-values, credentials, paths, device identifiers, or provider endpoints.
+with immutable non-secret evidence: connector id, resolved version, selected
+package id/version/digest, ABI, placement, declared execution constraints,
+configuration-reference names, eligibility decisions, and evidence digests.
+It never writes configuration values, credentials, paths, device identifiers,
+or provider endpoints. A host runtime must consume this activation record and
+fail closed if the selected artifact drifts rather than re-resolving at execution.
 
-Common failure cases return non-zero exit status and JSON with `status: failed` plus actionable error entries:
+Common activation failures return JSON with `status: activation_failed` plus actionable error entries:
 
 - missing `--manifest`, `--workspace`, or `--json`
 - invalid workspace id
