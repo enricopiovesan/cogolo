@@ -1396,6 +1396,22 @@
         "docs/adr/0040-standalone-capability-packages-and-activation-resolution.md",
         "specs/106-activation-artifact-resolution/"
       ]
+    },
+    {
+      "id": "107-cross-host-embedded-registry-cache",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/107-cross-host-embedded-registry-cache/spec.md",
+      "governs": [
+        "crates/traverse-embedder/",
+        "packages/web/TraverseEmbedder/",
+        "packages/swift/TraverseEmbedder/",
+        "packages/kotlin/TraverseEmbedder/",
+        "packages/dotnet/TraverseEmbedder/",
+        "docs/adr/0041-cross-host-embedded-registry-cache.md",
+        "specs/107-cross-host-embedded-registry-cache/"
+      ]
     }
   ]
 }
