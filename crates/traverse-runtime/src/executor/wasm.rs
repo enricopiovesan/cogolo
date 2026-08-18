@@ -92,6 +92,10 @@ pub struct ConnectorInvokeResponse {
 
 /// A host-owned activated connector. Its implementation is never visible to a guest.
 pub trait MediatedConnector: Send + Sync {
+    /// # Errors
+    ///
+    /// Returns a stable, non-secret failure description when the host-owned
+    /// connector cannot complete the requested operation.
     fn invoke(&self, request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String>;
 }
 
@@ -478,6 +482,11 @@ impl WasmExecutor {
     /// Execute bytes with host-owned, activated connector bindings. This is the
     /// only API that can enable `connector_invoke`; callers that do not supply
     /// this context retain the deny-by-default handler.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] when the module, guest memory, or execution
+    /// cannot be completed safely.
     pub fn run_bytes_with_mediated_connectors(
         &self,
         wasm_bytes: &[u8],
@@ -751,8 +760,67 @@ fn handle_connector_invoke(
     response_ptr: i32,
     response_capacity: i32,
 ) -> i32 {
-    if request_ptr < 0 || request_len < 0 || response_ptr < 0 || response_capacity < 0 {
+    let Ok((memory, request, request_ptr, response_ptr, response_capacity)) =
+        parse_connector_request(
+            &mut caller,
+            request_ptr,
+            request_len,
+            response_ptr,
+            response_capacity,
+        )
+    else {
         return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+    };
+    let Some(context) = caller.data().connector_context.clone() else {
+        return connector_failure(
+            &mut caller,
+            &request.connector_id,
+            None,
+            "unbound",
+            CONNECTOR_INVOKE_ERR_UNBOUND,
+        );
+    };
+    let connector = match resolve_activated_connector(&context, &request) {
+        Ok(connector) => connector,
+        Err(failure) => {
+            return connector_failure(
+                &mut caller,
+                &request.connector_id,
+                failure.resolved_version.as_deref(),
+                failure.failure_class,
+                failure.code,
+            );
+        }
+    };
+    invoke_activated_connector(
+        &mut caller,
+        memory,
+        request,
+        request_ptr,
+        response_ptr,
+        response_capacity,
+        &connector,
+    )
+}
+
+fn parse_connector_request(
+    caller: &mut Caller<'_, WasmStoreState>,
+    request_ptr: i32,
+    request_len: i32,
+    response_ptr: i32,
+    response_capacity: i32,
+) -> Result<
+    (
+        wasmtime::Memory,
+        ConnectorInvokeRequest,
+        usize,
+        usize,
+        usize,
+    ),
+    (),
+> {
+    if request_ptr < 0 || request_len < 0 || response_ptr < 0 || response_capacity < 0 {
+        return Err(());
     }
     #[allow(clippy::cast_sign_loss)]
     let (request_ptr, request_len, response_ptr, response_capacity) = (
@@ -764,59 +832,65 @@ fn handle_connector_invoke(
     if request_len > MAX_CONNECTOR_INVOKE_REQUEST_BYTES
         || response_capacity > MAX_CONNECTOR_INVOKE_RESPONSE_BYTES
     {
-        return CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE;
+        return Err(());
     }
     let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
-        return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+        return Err(());
     };
     let mut bytes = vec![0_u8; request_len];
     if memory.read(&caller, request_ptr, &mut bytes).is_err() {
-        return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+        return Err(());
     }
     let Ok(request) = serde_json::from_slice::<ConnectorInvokeRequest>(&bytes) else {
-        return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+        return Err(());
     };
     if request.abi_version != SUPPORTED_HOST_ABI_VERSION
         || request.connector_id.is_empty()
         || request.operation.is_empty()
         || contains_host_private_data(&request.payload)
     {
-        return CONNECTOR_INVOKE_ERR_INVALID_REQUEST;
+        return Err(());
     }
-    let Some(context) = caller.data().connector_context.clone() else {
-        return connector_failure(
-            &mut caller,
-            &request.connector_id,
-            None,
-            "unbound",
-            CONNECTOR_INVOKE_ERR_UNBOUND,
-        );
-    };
+    Ok((
+        memory,
+        request,
+        request_ptr,
+        response_ptr,
+        response_capacity,
+    ))
+}
+
+struct ConnectorInvokeFailure {
+    failure_class: &'static str,
+    resolved_version: Option<String>,
+    code: i32,
+}
+
+fn resolve_activated_connector(
+    context: &MediatedConnectorContext,
+    request: &ConnectorInvokeRequest,
+) -> Result<ActivatedConnector, ConnectorInvokeFailure> {
     if !context
         .declared_requirements
         .iter()
         .any(|requirement| requirement.connector_id == request.connector_id)
     {
-        return connector_failure(
-            &mut caller,
-            &request.connector_id,
-            None,
-            "undeclared",
-            CONNECTOR_INVOKE_ERR_UNDECLARED,
-        );
+        return Err(ConnectorInvokeFailure {
+            failure_class: "undeclared",
+            resolved_version: None,
+            code: CONNECTOR_INVOKE_ERR_UNDECLARED,
+        });
     }
     let Some(connector) = context
         .activated_connectors
         .iter()
         .find(|connector| connector.connector_id == request.connector_id)
     else {
-        return connector_failure(
-            &mut caller,
-            &request.connector_id,
-            None,
-            "unbound",
-            CONNECTOR_INVOKE_ERR_UNBOUND,
-        );
+        return Err(ConnectorInvokeFailure {
+            failure_class: "unbound",
+            resolved_version: None,
+            code: CONNECTOR_INVOKE_ERR_UNBOUND,
+        });
     };
     let compatible = context
         .declared_requirements
@@ -829,17 +903,27 @@ fn handle_connector_invoke(
                 .is_some_and(|(range, version)| range.matches(&version))
         });
     if !compatible {
-        return connector_failure(
-            &mut caller,
-            &request.connector_id,
-            Some(&connector.version),
-            "incompatible",
-            CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
-        );
+        return Err(ConnectorInvokeFailure {
+            failure_class: "incompatible",
+            resolved_version: Some(connector.version.clone()),
+            code: CONNECTOR_INVOKE_ERR_UNAUTHORIZED,
+        });
     }
+    Ok(connector.clone())
+}
+
+fn invoke_activated_connector(
+    caller: &mut Caller<'_, WasmStoreState>,
+    memory: wasmtime::Memory,
+    request: ConnectorInvokeRequest,
+    _request_ptr: usize,
+    response_ptr: usize,
+    response_capacity: usize,
+    connector: &ActivatedConnector,
+) -> i32 {
     let Ok(response) = connector.implementation.invoke(&request) else {
         return connector_failure(
-            &mut caller,
+            caller,
             &request.connector_id,
             Some(&connector.version),
             "execution_failed",
@@ -851,7 +935,7 @@ fn handle_connector_invoke(
         || contains_host_private_data(&response.payload)
     {
         return connector_failure(
-            &mut caller,
+            caller,
             &request.connector_id,
             Some(&connector.version),
             "unauthorized_output",
@@ -860,7 +944,7 @@ fn handle_connector_invoke(
     }
     let Ok(response_bytes) = serde_json::to_vec(&response) else {
         return connector_failure(
-            &mut caller,
+            caller,
             &request.connector_id,
             Some(&connector.version),
             "execution_failed",
@@ -871,7 +955,7 @@ fn handle_connector_invoke(
         || response_bytes.len() > MAX_CONNECTOR_INVOKE_RESPONSE_BYTES
     {
         return connector_failure(
-            &mut caller,
+            caller,
             &request.connector_id,
             Some(&connector.version),
             "bounded_io",
@@ -879,11 +963,11 @@ fn handle_connector_invoke(
         );
     }
     if memory
-        .write(&mut caller, response_ptr, &response_bytes)
+        .write(&mut *caller, response_ptr, &response_bytes)
         .is_err()
     {
         return connector_failure(
-            &mut caller,
+            caller,
             &request.connector_id,
             Some(&connector.version),
             "invalid_response_memory",
@@ -899,10 +983,7 @@ fn handle_connector_invoke(
             result_class: response.result_class,
             failure_class: None,
         });
-    #[allow(clippy::cast_possible_truncation)]
-    {
-        response_bytes.len() as i32
-    }
+    i32::try_from(response_bytes.len()).unwrap_or(CONNECTOR_INVOKE_ERR_PAYLOAD_TOO_LARGE)
 }
 
 fn connector_failure(
