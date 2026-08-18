@@ -1,38 +1,48 @@
 {
   "kind": "connector_contract",
   "schema_version": "1.0.0",
-  "connector_id": "traverse.env",
+  "connector_id": "traverse.state-store",
   "version": "1.0.0",
   "capabilities_provided": [
-    "traverse.env.read"
+    "traverse.state_store.append"
   ],
   "required_config_schema": {
     "type": "object",
     "required": [
-      "allowed_keys"
+      "authority_ref"
     ],
     "properties": {
-      "allowed_keys": {
-        "type": "array",
-        "items": {
-          "type": "string"
-        }
+      "authority_ref": {
+        "type": "string"
+      },
+      "record_type_namespace": {
+        "type": "string"
       }
     },
     "additionalProperties": false
   },
   "operation_envelopes": [
     {
-      "operation_id": "read",
+      "operation_id": "append_transition",
       "request_schema": {
         "type": "object",
         "required": [
-          "key_ref",
+          "record_refs",
+          "transition",
           "idempotency_key"
         ],
         "properties": {
-          "key_ref": {
-            "type": "string"
+          "record_refs": {
+            "type": "array",
+            "items": {
+              "type": "string"
+            }
+          },
+          "transition": {
+            "type": "object"
+          },
+          "expected_version": {
+            "type": "integer"
           },
           "idempotency_key": {
             "type": "string"
@@ -43,12 +53,20 @@
       "success_schema": {
         "type": "object",
         "required": [
-          "value_ref",
+          "result_ref",
+          "version",
+          "replay",
           "result_class"
         ],
         "properties": {
-          "value_ref": {
+          "result_ref": {
             "type": "string"
+          },
+          "version": {
+            "type": "integer"
+          },
+          "replay": {
+            "type": "boolean"
           },
           "result_class": {
             "type": "string"
@@ -58,8 +76,9 @@
       },
       "failure_classes": [
         "configuration",
-        "not_found",
-        "authorization"
+        "authorization",
+        "conflict",
+        "integrity"
       ]
     }
   ],
