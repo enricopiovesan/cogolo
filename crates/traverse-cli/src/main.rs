@@ -27,20 +27,21 @@ use traverse_contracts::{
     CapabilityContract, EventContract, EventValidationContext, ValidationContext, parse_contract,
     parse_event_contract, validate_contract, validate_event_contract,
 };
-use traverse_contracts::{ViolationRecord, reference_connector_contracts};
+use traverse_contracts::{Lifecycle, ViolationRecord, reference_connector_contracts};
 use traverse_registry::{
     ApplicationManifestError, ApplicationManifestErrorCode, ApplicationManifestFailure,
-    ApplicationRegistrationRequest, ApplicationRegistry, ArtifactDigests, BinaryFormat,
-    BinaryReference, CapabilityArtifactRecord, CapabilityRegistration, CapabilityRegistry,
-    ComposabilityMetadata, CompositionKind, CompositionPattern, ConnectorActivationRequest,
-    ConnectorRegistration, DiscoveryQuery, EventRegistration, EventRegistry, ImplementationKind,
+    ApplicationRegistrationRequest, ApplicationRegistry, ArtifactDigests,
+    ArtifactResolutionRequest, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
+    CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
+    CompositionPattern, ConnectorActivationRequest, ConnectorRegistration, DiscoveryQuery,
+    EventRegistration, EventRegistry, ExecutableArtifactCandidate, ImplementationKind,
     InstalledConnector, LookupScope, PublicRegistryCapabilityRecord, PublicRegistryIndex,
     RegistryBundle, RegistryComponentResolver, RegistryProvenance, RegistryReference,
     RegistryScope, ResolvedRegistryComponent, SourceKind, SourceReference, WorkflowReference,
     WorkflowRegistration, WorkflowRegistry, cache_verified_public_registry_bytes,
     load_application_bundle_manifest, load_application_bundle_manifest_with_resolver,
-    load_registry_bundle, public_registry_cache_path, validate_connector_activation,
-    write_synced_public_registry_state,
+    load_registry_bundle, public_registry_cache_path, resolve_executable_artifact,
+    validate_connector_activation, write_synced_public_registry_state,
 };
 use traverse_runtime::executor::{SUPPORTED_HOST_ABI_VERSION, verify_wasm_host_abi_bytes};
 use traverse_runtime::{
@@ -658,10 +659,10 @@ fn help_app_activate() -> String {
     "traverse-cli app activate --manifest <path> --workspace <workspace-id> --host-activation <path> --json
 
   Purpose:
-    Resolve and validate each declared application connector binding against
-    host-installed connector metadata and private configuration. Persists only
-    immutable, non-secret activation evidence; configuration values are never
-    emitted or written to workspace state.
+    Resolve and validate each declared application connector binding and
+    required executable capability artifact against host-local metadata.
+    Persists only immutable, non-secret activation evidence; configuration
+    values are never emitted or written to workspace state.
 
   Required flags:
     --manifest <path>          Path to the application manifest JSON file.
@@ -685,7 +686,7 @@ fn help_app() -> String {
     new <app-id>                 Create a governed Traverse app bundle scaffold.
     validate --manifest <path>   Validate an app bundle and emit JSON evidence.
     register --manifest <path>   Validate and persist local app registration.
-    activate --manifest <path>   Validate host connector bindings and persist evidence.
+    activate --manifest <path>   Validate host connectors and artifacts, then persist evidence.
 
   Run `traverse-cli app <subcommand> --help` for subcommand-specific help."
         .to_string()
@@ -2590,7 +2591,10 @@ fn app_register_at(
 
 #[derive(Debug, Deserialize)]
 struct HostActivationInput {
+    #[serde(default)]
     connectors: Vec<HostConnectorActivationInput>,
+    #[serde(default)]
+    artifacts: Vec<HostArtifactActivationInput>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -2599,6 +2603,29 @@ struct HostConnectorActivationInput {
     installed_version: String,
     placement_target: traverse_contracts::ExecutionTarget,
     config: Value,
+}
+
+/// Host-local executable candidates for one required capability contract.
+/// This input deliberately carries no artifact bytes or private configuration.
+#[derive(Debug, Deserialize)]
+struct HostArtifactActivationInput {
+    contract_reference: String,
+    placement_target: traverse_contracts::ExecutionTarget,
+    #[serde(default)]
+    config_refs: Vec<String>,
+    #[serde(default)]
+    candidates: Vec<HostExecutableArtifactCandidate>,
+}
+
+#[derive(Debug, Deserialize)]
+struct HostExecutableArtifactCandidate {
+    package_id: String,
+    package_version: String,
+    digest: String,
+    abi: String,
+    lifecycle: Lifecycle,
+    placement: Vec<traverse_contracts::ExecutionTarget>,
+    execution_constraints: String,
 }
 
 #[allow(clippy::too_many_lines)]
@@ -2768,6 +2795,133 @@ fn app_activate_at(
             .as_str()
             .cmp(&right["connector_id"].as_str())
     });
+    let mut artifact_evidence = Vec::new();
+    let mut required_contracts = std::collections::BTreeSet::new();
+    for component in &manifest.components {
+        required_contracts.insert(format!(
+            "{}@{}",
+            component.manifest.capability_id, component.manifest.capability_version
+        ));
+    }
+    let mut artifact_input_ids = std::collections::BTreeSet::new();
+    for input in &host_input.artifacts {
+        if !artifact_input_ids.insert(input.contract_reference.clone()) {
+            errors.push(AppValidationError {
+                code: "executable_artifact_duplicate".to_string(),
+                path: format!("$.artifacts[{}]", input.contract_reference),
+                message: format!(
+                    "duplicate host activation input for {}",
+                    input.contract_reference
+                ),
+            });
+        }
+        if !required_contracts.contains(&input.contract_reference) {
+            errors.push(AppValidationError {
+                code: "executable_artifact_undeclared".to_string(),
+                path: format!("$.artifacts[{}]", input.contract_reference),
+                message: format!(
+                    "host activation input declares an artifact for undeclared contract {}",
+                    input.contract_reference
+                ),
+            });
+        }
+    }
+    for contract_reference in &required_contracts {
+        if !artifact_input_ids.contains(contract_reference) {
+            errors.push(AppValidationError {
+                code: "executable_artifact_unavailable".to_string(),
+                path: format!("$.components[{contract_reference}]"),
+                message: format!(
+                    "host activation input is missing executable artifacts for {contract_reference}"
+                ),
+            });
+        }
+    }
+    if !errors.is_empty() {
+        return render_app_activation_failure(manifest_path, workspace_id, errors);
+    }
+
+    for contract_reference in required_contracts {
+        let Some(input) = host_input
+            .artifacts
+            .iter()
+            .find(|input| input.contract_reference == contract_reference)
+        else {
+            return render_app_activation_failure(
+                manifest_path,
+                workspace_id,
+                vec![AppValidationError {
+                    code: "executable_artifact_unavailable".to_string(),
+                    path: format!("$.components[{contract_reference}]"),
+                    message: format!(
+                        "host activation input is missing executable artifacts for {contract_reference}"
+                    ),
+                }],
+            );
+        };
+        let pin = manifest.components.iter().find_map(|component| {
+            (format!(
+                "{}@{}",
+                component.manifest.capability_id, component.manifest.capability_version
+            ) == contract_reference)
+                .then(|| component.manifest.executable_pin.clone())
+                .flatten()
+        });
+        let candidates = input
+            .candidates
+            .iter()
+            .map(|candidate| ExecutableArtifactCandidate {
+                package_id: candidate.package_id.clone(),
+                package_version: candidate.package_version.clone(),
+                contract_reference: contract_reference.clone(),
+                digest: candidate.digest.clone(),
+                abi: candidate.abi.clone(),
+                lifecycle: candidate.lifecycle.clone(),
+                placement: candidate.placement.clone(),
+                execution_constraints: candidate.execution_constraints.clone(),
+            })
+            .collect::<Vec<_>>();
+        let resolution = match resolve_executable_artifact(
+            &ArtifactResolutionRequest {
+                contract_reference: contract_reference.clone(),
+                placement_target: input.placement_target.clone(),
+                config_refs: input.config_refs.clone(),
+                pin,
+            },
+            &candidates,
+        ) {
+            Ok(resolution) => resolution,
+            Err(failure) => {
+                return render_app_activation_failure(
+                    manifest_path,
+                    workspace_id,
+                    failure
+                        .errors
+                        .into_iter()
+                        .map(|error| AppValidationError {
+                            code: debug_enum_to_snake_case(&format!("{:?}", error.code)),
+                            path: format!("$.artifacts[{contract_reference}]"),
+                            message: error.message,
+                        })
+                        .collect(),
+                );
+            }
+        };
+        artifact_evidence.push(serde_json::json!({
+            "contract_reference": resolution.contract_reference,
+            "selected_package_id": resolution.selected_package_id,
+            "selected_package_version": resolution.selected_package_version,
+            "selected_digest": resolution.selected_digest,
+            "selected_lifecycle": resolution.selected_lifecycle,
+            "selected_abi": resolution.selected_abi,
+            "selected_placement": resolution.selected_placement,
+            "selected_execution_constraints": resolution.selected_execution_constraints,
+            "resolver_version": resolution.resolver_version,
+            "eligibility_decisions": resolution.eligibility_decisions,
+            "config_refs": input.config_refs,
+            "evidence_digest": resolution.evidence_digest,
+        }));
+    }
     let activation = serde_json::json!({
         "status": "activated",
         "workspace_id": workspace_id,
@@ -2775,7 +2929,8 @@ fn app_activate_at(
         "app_version": manifest.version,
         "manifest_path": manifest_path.display().to_string(),
         "connectors": evidence,
-        "governing_specs": ["039-connector-plugin-architecture", "103-application-connector-binding"],
+        "artifacts": artifact_evidence,
+        "governing_specs": ["039-connector-plugin-architecture", "103-application-connector-binding", "106-activation-artifact-resolution"],
     });
     let state_path = app_activation_state_path(
         state_root,
@@ -8006,7 +8161,10 @@ mod tests {
             None,
         );
         let host_activation_path = fixture_root.join("host-activation.json");
-        fs::write(&host_activation_path, r#"{"connectors":[]}"#)
+        fs::write(
+            &host_activation_path,
+            r#"{"connectors":[],"artifacts":[{"contract_reference":"expedition.planning.validate-team-readiness@1.0.0","placement_target":"local","candidates":[{"package_id":"fixture.team-readiness","package_version":"1.0.0","digest":"sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90","abi":"wasi-preview1","lifecycle":"active","placement":["local"],"execution_constraints":"fixture"}]}]}"#,
+        )
             .expect("host activation fixture should write");
 
         let output = app_activate_at(
@@ -8027,7 +8185,97 @@ mod tests {
 
         assert_eq!(json["status"], "activated");
         assert_eq!(json["connectors"], serde_json::json!([]));
+        assert_eq!(
+            json["artifacts"][0]["selected_package_id"],
+            "fixture.team-readiness"
+        );
         assert_eq!(json, persisted);
+    }
+
+    #[test]
+    fn app_activate_fails_closed_when_required_artifact_input_is_missing() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_app_validate_fixture(
+            &fixture_root,
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            None,
+        );
+        let host_activation_path = fixture_root.join("host-activation.json");
+        fs::write(&host_activation_path, r#"{"connectors":[]}"#)
+            .expect("host activation fixture should write");
+
+        let output = app_activate_at(
+            &state_root,
+            &manifest_path,
+            "local",
+            &host_activation_path,
+            true,
+        )
+        .expect("activation denial should render JSON evidence");
+        let json: Value = serde_json::from_str(&output).expect("activation output must be JSON");
+
+        assert_eq!(json["status"], "activation_failed");
+        assert_eq!(json["errors"][0]["code"], "executable_artifact_unavailable");
+        assert!(!state_root.join(".traverse").exists());
+    }
+
+    #[test]
+    fn app_activate_honors_an_exact_executable_package_pin() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_app_validate_fixture(
+            &fixture_root,
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            None,
+        );
+        let app_manifest: Value = serde_json::from_str(
+            &fs::read_to_string(&manifest_path).expect("app manifest should read"),
+        )
+        .expect("app manifest should parse");
+        let component_path = PathBuf::from(
+            app_manifest["components"][0]["manifest_path"]
+                .as_str()
+                .expect("component manifest path should be present"),
+        );
+        let mut component: Value = serde_json::from_str(
+            &fs::read_to_string(&component_path).expect("component manifest should read"),
+        )
+        .expect("component manifest should parse");
+        component["executable_pin"] = serde_json::json!({
+            "package_id": "fixture.pinned",
+            "package_version": "1.0.0"
+        });
+        fs::write(
+            &component_path,
+            serde_json::to_string_pretty(&component).expect("component manifest should serialize"),
+        )
+        .expect("component manifest should write");
+        let host_activation_path = fixture_root.join("host-activation.json");
+        fs::write(
+            &host_activation_path,
+            r#"{"connectors":[],"artifacts":[{"contract_reference":"expedition.planning.validate-team-readiness@1.0.0","placement_target":"local","candidates":[{"package_id":"fixture.newer","package_version":"2.0.0","digest":"sha256:newer","abi":"wasi-preview1","lifecycle":"active","placement":["local"],"execution_constraints":"fixture"},{"package_id":"fixture.pinned","package_version":"1.0.0","digest":"sha256:pinned","abi":"wasi-preview1","lifecycle":"active","placement":["local"],"execution_constraints":"fixture"}]}]}"#,
+        )
+        .expect("host activation fixture should write");
+
+        let output = app_activate_at(
+            &state_root,
+            &manifest_path,
+            "local",
+            &host_activation_path,
+            true,
+        )
+        .expect("pinned activation should succeed");
+        let json: Value = serde_json::from_str(&output).expect("activation output must be JSON");
+
+        assert_eq!(json["status"], "activated");
+        assert_eq!(
+            json["artifacts"][0]["selected_package_id"],
+            "fixture.pinned"
+        );
+        assert_eq!(json["artifacts"][0]["selected_digest"], "sha256:pinned");
     }
 
     #[test]
