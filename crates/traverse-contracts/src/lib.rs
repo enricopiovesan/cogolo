@@ -80,8 +80,17 @@ pub struct ConnectorContract {
     pub version: String,
     pub capabilities_provided: Vec<String>,
     pub required_config_schema: Value,
+    pub operation_envelopes: Vec<ConnectorOperationEnvelope>,
     #[serde(default = "default_connector_targets")]
     pub supported_placement_targets: Vec<ExecutionTarget>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ConnectorOperationEnvelope {
+    pub operation_id: String,
+    pub request_schema: Value,
+    pub success_schema: Value,
+    pub failure_classes: Vec<String>,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -122,6 +131,7 @@ pub trait ConnectorPlugin: Send + Sync {
 }
 
 #[must_use]
+#[allow(clippy::too_many_lines)]
 pub fn reference_connector_contracts() -> Vec<ConnectorContract> {
     vec![
         reference_connector_contract(
@@ -135,6 +145,32 @@ pub fn reference_connector_contracts() -> Vec<ConnectorContract> {
                 },
                 "additionalProperties": false
             }),
+            vec![connector_operation_envelope(
+                "request",
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["method", "resource_ref", "idempotency_key"],
+                    "properties": {
+                        "method": {"type": "string"},
+                        "resource_ref": {"type": "string"},
+                        "headers_ref": {"type": "string"},
+                        "body_ref": {"type": "string"},
+                        "idempotency_key": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["status", "body_ref", "result_class"],
+                    "properties": {
+                        "status": {"type": "integer"},
+                        "body_ref": {"type": "string"},
+                        "result_class": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                vec!["configuration", "transport", "authorization", "timeout"],
+            )],
         ),
         reference_connector_contract(
             "traverse.fs.read",
@@ -147,6 +183,31 @@ pub fn reference_connector_contracts() -> Vec<ConnectorContract> {
                 },
                 "additionalProperties": false
             }),
+            vec![connector_operation_envelope(
+                "read",
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["resource_ref", "idempotency_key"],
+                    "properties": {
+                        "resource_ref": {"type": "string"},
+                        "max_bytes": {"type": "integer"},
+                        "idempotency_key": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["content_ref", "content_digest", "size", "result_class"],
+                    "properties": {
+                        "content_ref": {"type": "string"},
+                        "content_digest": {"type": "string"},
+                        "size": {"type": "integer"},
+                        "result_class": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                vec!["configuration", "not_found", "authorization", "too_large"],
+            )],
         ),
         reference_connector_contract(
             "traverse.env",
@@ -162,6 +223,154 @@ pub fn reference_connector_contracts() -> Vec<ConnectorContract> {
                 },
                 "additionalProperties": false
             }),
+            vec![connector_operation_envelope(
+                "read",
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["key_ref", "idempotency_key"],
+                    "properties": {
+                        "key_ref": {"type": "string"},
+                        "idempotency_key": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["value_ref", "result_class"],
+                    "properties": {
+                        "value_ref": {"type": "string"},
+                        "result_class": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                vec!["configuration", "not_found", "authorization"],
+            )],
+        ),
+        reference_connector_contract(
+            "traverse.object-store",
+            vec!["traverse.object_store.put".to_string()],
+            serde_json::json!({
+                "type": "object",
+                "required": ["authority_ref"],
+                "properties": {
+                    "authority_ref": {"type": "string"},
+                    "retention_classes": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "additionalProperties": false
+            }),
+            vec![connector_operation_envelope(
+                "put_immutable",
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["content_ref", "media_type", "idempotency_key"],
+                    "properties": {
+                        "content_ref": {"type": "string"},
+                        "media_type": {"type": "string"},
+                        "retention_class": {"type": "string"},
+                        "idempotency_key": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["asset_ref", "content_digest", "size", "result_class"],
+                    "properties": {
+                        "asset_ref": {"type": "string"},
+                        "content_digest": {"type": "string"},
+                        "size": {"type": "integer"},
+                        "result_class": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                vec!["configuration", "authorization", "quota", "integrity"],
+            )],
+        ),
+        reference_connector_contract(
+            "traverse.state-store",
+            vec!["traverse.state_store.append".to_string()],
+            serde_json::json!({
+                "type": "object",
+                "required": ["authority_ref"],
+                "properties": {
+                    "authority_ref": {"type": "string"},
+                    "record_type_namespace": {"type": "string"}
+                },
+                "additionalProperties": false
+            }),
+            vec![connector_operation_envelope(
+                "append_transition",
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["record_refs", "transition", "idempotency_key"],
+                    "properties": {
+                        "record_refs": {
+                            "type": "array",
+                            "items": {"type": "string"}
+                        },
+                        "transition": {"type": "object"},
+                        "expected_version": {"type": "integer"},
+                        "idempotency_key": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["result_ref", "version", "replay", "result_class"],
+                    "properties": {
+                        "result_ref": {"type": "string"},
+                        "version": {"type": "integer"},
+                        "replay": {"type": "boolean"},
+                        "result_class": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                vec!["configuration", "authorization", "conflict", "integrity"],
+            )],
+        ),
+        reference_connector_contract(
+            "traverse.scheduler",
+            vec!["traverse.scheduler.schedule".to_string()],
+            serde_json::json!({
+                "type": "object",
+                "required": ["authority_ref"],
+                "properties": {
+                    "authority_ref": {"type": "string"},
+                    "allowed_job_kinds": {
+                        "type": "array",
+                        "items": {"type": "string"}
+                    }
+                },
+                "additionalProperties": false
+            }),
+            vec![connector_operation_envelope(
+                "schedule_invocation",
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["job_kind", "calendar_policy_ref", "logical_deadline", "idempotency_key"],
+                    "properties": {
+                        "job_kind": {"type": "string"},
+                        "calendar_policy_ref": {"type": "string"},
+                        "logical_deadline": {"type": "string"},
+                        "cancellation_ref": {"type": "string"},
+                        "idempotency_key": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                serde_json::json!({
+                    "type": "object",
+                    "required": ["invocation_ref", "idempotency_key", "result_class"],
+                    "properties": {
+                        "invocation_ref": {"type": "string"},
+                        "idempotency_key": {"type": "string"},
+                        "result_class": {"type": "string"}
+                    },
+                    "additionalProperties": false
+                }),
+                vec!["configuration", "authorization", "deadline", "quota"],
+            )],
         ),
     ]
 }
@@ -170,6 +379,7 @@ fn reference_connector_contract(
     connector_id: &str,
     capabilities_provided: Vec<String>,
     required_config_schema: Value,
+    operation_envelopes: Vec<ConnectorOperationEnvelope>,
 ) -> ConnectorContract {
     ConnectorContract {
         kind: CONNECTOR_CONTRACT_KIND.to_string(),
@@ -178,7 +388,25 @@ fn reference_connector_contract(
         version: "1.0.0".to_string(),
         capabilities_provided,
         required_config_schema,
+        operation_envelopes,
         supported_placement_targets: default_connector_targets(),
+    }
+}
+
+fn connector_operation_envelope(
+    operation_id: &str,
+    request_schema: Value,
+    success_schema: Value,
+    failure_classes: Vec<&str>,
+) -> ConnectorOperationEnvelope {
+    ConnectorOperationEnvelope {
+        operation_id: operation_id.to_string(),
+        request_schema,
+        success_schema,
+        failure_classes: failure_classes
+            .into_iter()
+            .map(std::string::ToString::to_string)
+            .collect(),
     }
 }
 
@@ -718,6 +946,7 @@ pub fn validate_connector_contract(
         "$.required_config_schema",
         &mut errors,
     );
+    validate_connector_operation_envelopes(&contract.operation_envelopes, &mut errors);
     if contract.supported_placement_targets.is_empty() {
         errors.push(error(
             ValidationErrorCode::MissingRequiredField,
@@ -743,6 +972,66 @@ pub fn validate_connector_contract(
     }
 
     Ok(contract)
+}
+
+fn validate_connector_operation_envelopes(
+    operation_envelopes: &[ConnectorOperationEnvelope],
+    errors: &mut Vec<ValidationError>,
+) {
+    if operation_envelopes.is_empty() {
+        errors.push(error(
+            ValidationErrorCode::MissingRequiredField,
+            "$.operation_envelopes",
+            "operation_envelopes must contain at least one operation",
+        ));
+        return;
+    }
+
+    let mut seen = HashSet::new();
+    for (index, envelope) in operation_envelopes.iter().enumerate() {
+        let operation_id_path = format!("$.operation_envelopes[{index}].operation_id");
+        validate_non_empty(&envelope.operation_id, &operation_id_path, errors);
+        if !seen.insert(envelope.operation_id.clone()) {
+            errors.push(error(
+                ValidationErrorCode::DuplicateItem,
+                &operation_id_path,
+                "operation_id values must be unique",
+            ));
+        }
+
+        validate_schema_value(
+            &envelope.request_schema,
+            &format!("$.operation_envelopes[{index}].request_schema"),
+            errors,
+        );
+        validate_schema_value(
+            &envelope.success_schema,
+            &format!("$.operation_envelopes[{index}].success_schema"),
+            errors,
+        );
+
+        let failure_classes_path = format!("$.operation_envelopes[{index}].failure_classes");
+        if envelope.failure_classes.is_empty() {
+            errors.push(error(
+                ValidationErrorCode::MissingRequiredField,
+                &failure_classes_path,
+                "failure_classes must contain at least one stable failure class",
+            ));
+        }
+        validate_unique_strings(
+            &envelope.failure_classes,
+            &failure_classes_path,
+            "failure_classes must be unique",
+            errors,
+        );
+        for (failure_index, failure_class) in envelope.failure_classes.iter().enumerate() {
+            validate_non_empty(
+                failure_class,
+                &format!("$.operation_envelopes[{index}].failure_classes[{failure_index}]"),
+                errors,
+            );
+        }
+    }
 }
 
 /// Validates a parsed event contract against the governed `v0.1` rules.

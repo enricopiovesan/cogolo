@@ -18,6 +18,63 @@
     },
     "additionalProperties": false
   },
+  "operation_envelopes": [
+    {
+      "operation_id": "request",
+      "request_schema": {
+        "type": "object",
+        "required": [
+          "method",
+          "resource_ref",
+          "idempotency_key"
+        ],
+        "properties": {
+          "method": {
+            "type": "string"
+          },
+          "resource_ref": {
+            "type": "string"
+          },
+          "headers_ref": {
+            "type": "string"
+          },
+          "body_ref": {
+            "type": "string"
+          },
+          "idempotency_key": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "success_schema": {
+        "type": "object",
+        "required": [
+          "status",
+          "body_ref",
+          "result_class"
+        ],
+        "properties": {
+          "status": {
+            "type": "integer"
+          },
+          "body_ref": {
+            "type": "string"
+          },
+          "result_class": {
+            "type": "string"
+          }
+        },
+        "additionalProperties": false
+      },
+      "failure_classes": [
+        "configuration",
+        "transport",
+        "authorization",
+        "timeout"
+      ]
+    }
+  ],
   "supported_placement_targets": [
     "local",
     "cloud"
