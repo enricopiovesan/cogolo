@@ -1,8 +1,9 @@
 use serde_json::json;
 use sha2::{Digest, Sha256};
+use std::collections::{BTreeMap, BTreeSet};
 use std::fmt::Write as _;
-use std::sync::Arc;
 use std::sync::atomic::{AtomicU64, Ordering};
+use std::sync::{Arc, Mutex};
 use traverse_contracts::{ConnectorRequirement, EventReference, ServiceType};
 use traverse_runtime::executor::{
     ActivatedConnector, ArtifactType, CapabilityExecutor, ConnectorInvokeRequest,
@@ -592,6 +593,32 @@ fn connector_test_wasm(
     .map_err(|error| format!("WAT parse: {error}"))
 }
 
+fn connector_response_wasm(
+    request: &str,
+    request_ptr: i32,
+    request_len: i32,
+    response_ptr: i32,
+    response_capacity: i32,
+) -> Result<Vec<u8>, String> {
+    let escaped_request = request.replace('\\', "\\\\").replace('"', "\\\"");
+    wat::parse_str(format!(
+        r#"
+        (module
+          (import "wasi_snapshot_preview1" "fd_write" (func $write (param i32 i32 i32 i32) (result i32)))
+          (import "traverse_host" "connector_invoke" (func $invoke (param i32 i32 i32 i32) (result i32)))
+          (memory (export "memory") 1)
+          (data (i32.const 32) "{escaped_request}")
+          (func $_start (export "_start") (local $len i32)
+            i32.const {request_ptr} i32.const {request_len} i32.const {response_ptr} i32.const {response_capacity} call $invoke local.set $len
+            i32.const 4 i32.const {response_ptr} i32.store
+            i32.const 8 local.get $len i32.store
+            i32.const 1 i32.const 4 i32.const 1 i32.const 12 call $write drop)
+        )
+        "#
+    ))
+    .map_err(|error| format!("WAT parse: {error}"))
+}
+
 fn connector_context(
     connector: Arc<dyn MediatedConnector>,
     version: &str,
@@ -619,11 +646,212 @@ fn declared_connector_context() -> MediatedConnectorContext {
     }
 }
 
+fn universal_connector_context(
+    connector_id: &str,
+    connector: Arc<dyn MediatedConnector>,
+    version: &str,
+) -> MediatedConnectorContext {
+    MediatedConnectorContext {
+        declared_requirements: vec![ConnectorRequirement {
+            connector_id: connector_id.to_string(),
+            version: "^1.0.0".to_string(),
+        }],
+        activated_connectors: vec![ActivatedConnector {
+            connector_id: connector_id.to_string(),
+            version: version.to_string(),
+            implementation: connector,
+        }],
+    }
+}
+
 const VALID_CONNECTOR_REQUEST: &str = r#"{"abi_version":"1.0.0","connector_id":"traverse.test","operation":"read","payload":{"id":"x"}}"#;
 
 fn valid_connector_request_len() -> Result<i32, String> {
     i32::try_from(VALID_CONNECTOR_REQUEST.len())
         .map_err(|error| format!("request length conversion: {error}"))
+}
+
+fn connector_request(connector_id: &str, operation: &str, payload: &serde_json::Value) -> String {
+    json!({
+        "abi_version": SUPPORTED_HOST_ABI_VERSION,
+        "connector_id": connector_id,
+        "operation": operation,
+        "payload": payload
+    })
+    .to_string()
+}
+
+fn invoke_connector_fixture(
+    connector_id: &str,
+    operation: &str,
+    payload: &serde_json::Value,
+    connector: Arc<dyn MediatedConnector>,
+) -> Result<ExecutorOutput, String> {
+    let request = connector_request(connector_id, operation, payload);
+    let request_len = i32::try_from(request.len())
+        .map_err(|error| format!("request length conversion: {error}"))?;
+    let wasm = connector_response_wasm(&request, 32, request_len, 256, 2048)?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+    executor
+        .run_bytes_with_mediated_connectors(
+            &wasm,
+            &json!({}),
+            "universal-connector-fixture",
+            universal_connector_context(connector_id, connector, "1.0.0"),
+        )
+        .map_err(|error| format!("{error:?}"))
+}
+
+fn assert_no_private_connector_details(output: &ExecutorOutput) {
+    let rendered = format!(
+        "{:?} {}",
+        output.connector_invocation_evidence, output.value
+    );
+    for forbidden in [
+        "/var/private/traverse",
+        "bucket-prod",
+        "postgres://",
+        "scheduler-device-42",
+        "credential",
+        "secret-token",
+        "https://provider.internal",
+    ] {
+        assert!(
+            !rendered.contains(forbidden),
+            "connector output/evidence leaked {forbidden}: {rendered}"
+        );
+    }
+}
+
+struct ObjectStoreFixtureConnector {
+    max_bytes: u64,
+}
+
+impl MediatedConnector for ObjectStoreFixtureConnector {
+    fn invoke(&self, request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String> {
+        let size = request.payload["size"].as_u64().unwrap_or(u64::MAX);
+        let digest = request.payload["content_digest"]
+            .as_str()
+            .unwrap_or_default();
+        let result_class = if size > self.max_bytes {
+            "too_large"
+        } else if digest != "sha256:fixture-content" {
+            "integrity"
+        } else {
+            "stored"
+        };
+        Ok(ConnectorInvokeResponse {
+            abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+            result_class: result_class.to_string(),
+            payload: json!({
+                "asset_ref": "asset:fixture-content",
+                "content_digest": digest,
+                "size": size,
+                "result_class": result_class
+            }),
+        })
+    }
+}
+
+#[derive(Default)]
+struct StateStoreFixtureConnector {
+    state: Mutex<StateStoreFixtureState>,
+}
+
+#[derive(Default)]
+struct StateStoreFixtureState {
+    version: u64,
+    seen_idempotency: BTreeMap<String, u64>,
+}
+
+impl MediatedConnector for StateStoreFixtureConnector {
+    fn invoke(&self, request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String> {
+        let idempotency_key = request.payload["idempotency_key"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let expected_version = request.payload["expected_version"].as_u64();
+        let mut state = self
+            .state
+            .lock()
+            .map_err(|_| "state fixture lock poisoned".to_string())?;
+        if let Some(version) = state.seen_idempotency.get(&idempotency_key) {
+            return Ok(ConnectorInvokeResponse {
+                abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+                result_class: "replay".to_string(),
+                payload: json!({
+                    "result_ref": "state:fixture-transition",
+                    "version": version,
+                    "replay": true,
+                    "result_class": "replay"
+                }),
+            });
+        }
+        if expected_version.is_some_and(|version| version != state.version) {
+            return Ok(ConnectorInvokeResponse {
+                abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+                result_class: "conflict".to_string(),
+                payload: json!({
+                    "result_ref": "state:fixture-transition",
+                    "version": state.version,
+                    "replay": false,
+                    "result_class": "conflict"
+                }),
+            });
+        }
+        state.version += 1;
+        let version = state.version;
+        state.seen_idempotency.insert(idempotency_key, version);
+        Ok(ConnectorInvokeResponse {
+            abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+            result_class: "appended".to_string(),
+            payload: json!({
+                "result_ref": "state:fixture-transition",
+                "version": version,
+                "replay": false,
+                "result_class": "appended"
+            }),
+        })
+    }
+}
+
+#[derive(Default)]
+struct SchedulerFixtureConnector {
+    scheduled: Mutex<BTreeSet<String>>,
+}
+
+impl MediatedConnector for SchedulerFixtureConnector {
+    fn invoke(&self, request: &ConnectorInvokeRequest) -> Result<ConnectorInvokeResponse, String> {
+        let deadline = request.payload["logical_deadline"]
+            .as_str()
+            .unwrap_or_default();
+        let idempotency_key = request.payload["idempotency_key"]
+            .as_str()
+            .unwrap_or_default()
+            .to_string();
+        let result_class = if deadline < "2026-08-18T00:00:00Z" {
+            "late"
+        } else {
+            let mut scheduled = self
+                .scheduled
+                .lock()
+                .map_err(|_| "scheduler fixture lock poisoned".to_string())?;
+            if scheduled.insert(idempotency_key.clone()) {
+                "scheduled"
+            } else {
+                "duplicate"
+            }
+        };
+        Ok(ConnectorInvokeResponse {
+            abi_version: SUPPORTED_HOST_ABI_VERSION.to_string(),
+            result_class: result_class.to_string(),
+            payload: json!({
+                "invocation_ref": "schedule:fixture-invocation",
+                "idempotency_key": idempotency_key,
+                "result_class": result_class
+            }),
+        })
+    }
 }
 
 #[test]
@@ -921,6 +1149,290 @@ fn wasm_connector_invoke_requires_declaration_and_activation() -> Result<(), Str
         "success"
     );
     assert_eq!(output.connector_invocation_evidence[0].failure_class, None);
+    Ok(())
+}
+
+#[test]
+fn universal_connector_fixtures_invoke_through_mediated_abi() -> Result<(), String> {
+    struct UniversalConnectorCase {
+        connector_id: &'static str,
+        operation: &'static str,
+        payload: serde_json::Value,
+        connector: Arc<dyn MediatedConnector>,
+        result_class: &'static str,
+    }
+
+    let cases = vec![
+        UniversalConnectorCase {
+            connector_id: "traverse.object-store",
+            operation: "put_immutable",
+            payload: json!({
+                "content_ref": "content:fixture",
+                "content_digest": "sha256:fixture-content",
+                "size": 12,
+                "idempotency_key": "object-ok"
+            }),
+            connector: Arc::new(ObjectStoreFixtureConnector { max_bytes: 64 }),
+            result_class: "stored",
+        },
+        UniversalConnectorCase {
+            connector_id: "traverse.state-store",
+            operation: "append_transition",
+            payload: json!({
+                "record_refs": ["record:fixture"],
+                "transition": {"kind": "fixture"},
+                "expected_version": 0,
+                "idempotency_key": "state-ok"
+            }),
+            connector: Arc::new(StateStoreFixtureConnector::default()),
+            result_class: "appended",
+        },
+        UniversalConnectorCase {
+            connector_id: "traverse.scheduler",
+            operation: "schedule_invocation",
+            payload: json!({
+                "job_kind": "fixture-job",
+                "calendar_policy_ref": "calendar:fixture",
+                "logical_deadline": "2026-08-19T00:00:00Z",
+                "idempotency_key": "schedule-ok"
+            }),
+            connector: Arc::new(SchedulerFixtureConnector::default()),
+            result_class: "scheduled",
+        },
+    ];
+
+    for case in cases {
+        let output = invoke_connector_fixture(
+            case.connector_id,
+            case.operation,
+            &case.payload,
+            case.connector,
+        )?;
+        assert_eq!(output.value["result_class"], case.result_class);
+        assert_eq!(
+            output.connector_invocation_evidence[0].connector_id,
+            case.connector_id
+        );
+        assert_eq!(
+            output.connector_invocation_evidence[0]
+                .resolved_version
+                .as_deref(),
+            Some("1.0.0")
+        );
+        assert_eq!(
+            output.connector_invocation_evidence[0].result_class,
+            case.result_class
+        );
+        assert_eq!(output.connector_invocation_evidence[0].failure_class, None);
+        assert_no_private_connector_details(&output);
+    }
+
+    Ok(())
+}
+
+#[test]
+fn object_store_fixture_enforces_digest_and_byte_bounds() -> Result<(), String> {
+    let connector = Arc::new(ObjectStoreFixtureConnector { max_bytes: 16 });
+    let oversized = invoke_connector_fixture(
+        "traverse.object-store",
+        "put_immutable",
+        &json!({
+            "content_ref": "content:too-large",
+            "content_digest": "sha256:fixture-content",
+            "size": 17,
+            "idempotency_key": "object-too-large"
+        }),
+        connector.clone(),
+    )?;
+    assert_eq!(oversized.value["result_class"], "too_large");
+    assert_eq!(
+        oversized.connector_invocation_evidence[0].result_class,
+        "too_large"
+    );
+    assert_no_private_connector_details(&oversized);
+
+    let bad_digest = invoke_connector_fixture(
+        "traverse.object-store",
+        "put_immutable",
+        &json!({
+            "content_ref": "content:bad-digest",
+            "content_digest": "sha256:wrong",
+            "size": 12,
+            "idempotency_key": "object-bad-digest"
+        }),
+        connector,
+    )?;
+    assert_eq!(bad_digest.value["result_class"], "integrity");
+    assert_eq!(
+        bad_digest.connector_invocation_evidence[0].result_class,
+        "integrity"
+    );
+    assert_no_private_connector_details(&bad_digest);
+    Ok(())
+}
+
+#[test]
+fn state_store_fixture_replays_duplicate_and_reports_stale_conflict() -> Result<(), String> {
+    let connector = Arc::new(StateStoreFixtureConnector::default());
+    let initial = invoke_connector_fixture(
+        "traverse.state-store",
+        "append_transition",
+        &json!({
+            "record_refs": ["record:fixture"],
+            "transition": {"kind": "started"},
+            "expected_version": 0,
+            "idempotency_key": "state-idempotent"
+        }),
+        connector.clone(),
+    )?;
+    assert_eq!(initial.value["result_class"], "appended");
+    assert_eq!(initial.value["payload"]["version"], 1);
+
+    let replay = invoke_connector_fixture(
+        "traverse.state-store",
+        "append_transition",
+        &json!({
+            "record_refs": ["record:fixture"],
+            "transition": {"kind": "started"},
+            "expected_version": 0,
+            "idempotency_key": "state-idempotent"
+        }),
+        connector.clone(),
+    )?;
+    assert_eq!(replay.value["result_class"], "replay");
+    assert_eq!(replay.value["payload"]["replay"], true);
+
+    let stale = invoke_connector_fixture(
+        "traverse.state-store",
+        "append_transition",
+        &json!({
+            "record_refs": ["record:fixture"],
+            "transition": {"kind": "stale"},
+            "expected_version": 0,
+            "idempotency_key": "state-stale"
+        }),
+        connector,
+    )?;
+    assert_eq!(stale.value["result_class"], "conflict");
+    assert_eq!(stale.value["payload"]["version"], 1);
+
+    assert_no_private_connector_details(&initial);
+    assert_no_private_connector_details(&replay);
+    assert_no_private_connector_details(&stale);
+    Ok(())
+}
+
+#[test]
+fn scheduler_fixture_reports_duplicate_and_late_requests() -> Result<(), String> {
+    let connector = Arc::new(SchedulerFixtureConnector::default());
+    let scheduled = invoke_connector_fixture(
+        "traverse.scheduler",
+        "schedule_invocation",
+        &json!({
+            "job_kind": "fixture-job",
+            "calendar_policy_ref": "calendar:fixture",
+            "logical_deadline": "2026-08-19T00:00:00Z",
+            "idempotency_key": "schedule-idempotent"
+        }),
+        connector.clone(),
+    )?;
+    assert_eq!(scheduled.value["result_class"], "scheduled");
+
+    let duplicate = invoke_connector_fixture(
+        "traverse.scheduler",
+        "schedule_invocation",
+        &json!({
+            "job_kind": "fixture-job",
+            "calendar_policy_ref": "calendar:fixture",
+            "logical_deadline": "2026-08-19T00:00:00Z",
+            "idempotency_key": "schedule-idempotent"
+        }),
+        connector.clone(),
+    )?;
+    assert_eq!(duplicate.value["result_class"], "duplicate");
+
+    let late = invoke_connector_fixture(
+        "traverse.scheduler",
+        "schedule_invocation",
+        &json!({
+            "job_kind": "fixture-job",
+            "calendar_policy_ref": "calendar:fixture",
+            "logical_deadline": "2026-08-17T23:59:59Z",
+            "idempotency_key": "schedule-late"
+        }),
+        connector,
+    )?;
+    assert_eq!(late.value["result_class"], "late");
+
+    assert_no_private_connector_details(&scheduled);
+    assert_no_private_connector_details(&duplicate);
+    assert_no_private_connector_details(&late);
+    Ok(())
+}
+
+#[test]
+fn universal_connector_authorization_failures_are_non_secret() -> Result<(), String> {
+    let request = connector_request(
+        "traverse.object-store",
+        "put_immutable",
+        &json!({
+            "content_ref": "content:fixture",
+            "content_digest": "sha256:fixture-content",
+            "size": 12,
+            "idempotency_key": "object-authz"
+        }),
+    );
+    let request_len = i32::try_from(request.len())
+        .map_err(|error| format!("request length conversion: {error}"))?;
+    let wasm = connector_test_wasm(&request, 32, request_len, 256, 2048)?;
+    let executor = WasmExecutor::new().map_err(|error| format!("{error:?}"))?;
+
+    let undeclared = executor
+        .run_bytes_with_mediated_connectors(
+            &wasm,
+            &json!({}),
+            "universal-connector-authz",
+            MediatedConnectorContext {
+                declared_requirements: vec![ConnectorRequirement {
+                    connector_id: "traverse.scheduler".to_string(),
+                    version: "^1.0.0".to_string(),
+                }],
+                activated_connectors: vec![ActivatedConnector {
+                    connector_id: "traverse.object-store".to_string(),
+                    version: "1.0.0".to_string(),
+                    implementation: Arc::new(ObjectStoreFixtureConnector { max_bytes: 64 }),
+                }],
+            },
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        undeclared.connector_invocation_evidence[0]
+            .failure_class
+            .as_deref(),
+        Some("undeclared")
+    );
+    assert_no_private_connector_details(&undeclared);
+
+    let incompatible = executor
+        .run_bytes_with_mediated_connectors(
+            &wasm,
+            &json!({}),
+            "universal-connector-authz",
+            universal_connector_context(
+                "traverse.object-store",
+                Arc::new(ObjectStoreFixtureConnector { max_bytes: 64 }),
+                "2.0.0",
+            ),
+        )
+        .map_err(|error| format!("{error:?}"))?;
+    assert_eq!(
+        incompatible.connector_invocation_evidence[0]
+            .failure_class
+            .as_deref(),
+        Some("incompatible")
+    );
+    assert_no_private_connector_details(&incompatible);
+
     Ok(())
 }
 

@@ -8313,6 +8313,165 @@ mod tests {
     }
 
     #[test]
+    fn app_activate_persists_universal_connector_evidence_without_private_config_values() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_app_validate_fixture(
+            &fixture_root,
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            None,
+        );
+        add_universal_connector_bindings(&manifest_path);
+        let host_activation_path = fixture_root.join("host-activation.json");
+        fs::write(
+            &host_activation_path,
+            universal_host_activation_json(&serde_json::json!([
+                {
+                    "connector_id": "traverse.object-store",
+                    "installed_version": "1.0.0",
+                    "placement_target": "local",
+                    "config": {
+                        "authority_ref": "bucket-prod-private-name",
+                        "retention_classes": ["standard"]
+                    }
+                },
+                {
+                    "connector_id": "traverse.state-store",
+                    "installed_version": "1.0.0",
+                    "placement_target": "local",
+                    "config": {
+                        "authority_ref": "postgres://private-state-store",
+                        "record_type_namespace": "fixture"
+                    }
+                },
+                {
+                    "connector_id": "traverse.scheduler",
+                    "installed_version": "1.0.0",
+                    "placement_target": "local",
+                    "config": {
+                        "authority_ref": "scheduler-device-42",
+                        "allowed_job_kinds": ["fixture-job"]
+                    }
+                }
+            ])),
+        )
+        .expect("host activation fixture should write");
+
+        let output = app_activate_at(
+            &state_root,
+            &manifest_path,
+            "local",
+            &host_activation_path,
+            true,
+        )
+        .expect("universal connector activation should succeed");
+        let json: Value = serde_json::from_str(&output).expect("activation output must be JSON");
+        let state_path =
+            app_activation_state_path(&state_root, "local", "expedition.readiness", "1.0.0");
+        let persisted: Value = serde_json::from_str(
+            &fs::read_to_string(&state_path).expect("activation evidence must persist"),
+        )
+        .expect("persisted activation must be JSON");
+
+        assert_eq!(json["status"], "activated");
+        assert_eq!(json["connectors"].as_array().map(Vec::len), Some(3));
+        assert_eq!(
+            json["connectors"][0]["connector_id"],
+            "traverse.object-store"
+        );
+        assert_eq!(json["connectors"][1]["connector_id"], "traverse.scheduler");
+        assert_eq!(
+            json["connectors"][2]["connector_id"],
+            "traverse.state-store"
+        );
+        assert_eq!(
+            json["connectors"][0]["config_keys_present"],
+            serde_json::json!(["authority_ref", "retention_classes"])
+        );
+        assert_eq!(json, persisted);
+        for private_value in [
+            "bucket-prod-private-name",
+            "postgres://private-state-store",
+            "scheduler-device-42",
+        ] {
+            assert!(
+                !output.contains(private_value),
+                "activation evidence leaked host-private value {private_value}"
+            );
+        }
+    }
+
+    #[test]
+    fn app_activate_rejects_unconfigured_universal_connector_without_leaking_value() {
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let manifest_path = write_app_validate_fixture(
+            &fixture_root,
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+            None,
+        );
+        add_universal_connector_bindings(&manifest_path);
+        let host_activation_path = fixture_root.join("host-activation.json");
+        fs::write(
+            &host_activation_path,
+            universal_host_activation_json(&serde_json::json!([
+                {
+                    "connector_id": "traverse.object-store",
+                    "installed_version": "1.0.0",
+                    "placement_target": "local",
+                    "config": {
+                        "retention_classes": ["standard"],
+                        "private_value": "bucket-prod-private-name"
+                    }
+                },
+                {
+                    "connector_id": "traverse.state-store",
+                    "installed_version": "1.0.0",
+                    "placement_target": "local",
+                    "config": {
+                        "authority_ref": "state-authority",
+                        "record_type_namespace": "fixture"
+                    }
+                },
+                {
+                    "connector_id": "traverse.scheduler",
+                    "installed_version": "1.0.0",
+                    "placement_target": "local",
+                    "config": {
+                        "authority_ref": "scheduler-authority",
+                        "allowed_job_kinds": ["fixture-job"]
+                    }
+                }
+            ])),
+        )
+        .expect("host activation fixture should write");
+
+        let output = app_activate_at(
+            &state_root,
+            &manifest_path,
+            "local",
+            &host_activation_path,
+            true,
+        )
+        .expect("activation denial should render JSON evidence");
+        let json: Value = serde_json::from_str(&output).expect("activation output must be JSON");
+
+        assert_eq!(json["status"], "activation_failed");
+        assert_eq!(json["errors"][0]["code"], "connector_unconfigured");
+        assert_eq!(
+            json["errors"][0]["path"],
+            "$.connector_bindings[traverse.object-store]"
+        );
+        assert!(
+            !output.contains("bucket-prod-private-name"),
+            "activation failure leaked host-private value"
+        );
+        assert!(!state_root.join(".traverse").exists());
+    }
+
+    #[test]
     #[allow(clippy::too_many_lines)] // Exercises the complete synced-reference registration flow.
     fn synced_registry_reference_validates_registers_and_reuses_verified_cache() {
         let state_root = unique_temp_dir();
@@ -10453,6 +10612,55 @@ mod tests {
         )
         .expect("app manifest must write");
         manifest_path
+    }
+
+    fn add_universal_connector_bindings(manifest_path: &Path) {
+        let mut manifest: Value = serde_json::from_str(
+            &fs::read_to_string(manifest_path).expect("app manifest should read"),
+        )
+        .expect("app manifest should parse");
+        manifest["connector_bindings"] = serde_json::json!([
+            {
+                "connector_id": "traverse.object-store",
+                "version_range": "^1.0.0",
+                "config_ref": "object-store.default"
+            },
+            {
+                "connector_id": "traverse.state-store",
+                "version_range": "^1.0.0",
+                "config_ref": "state-store.default"
+            },
+            {
+                "connector_id": "traverse.scheduler",
+                "version_range": "^1.0.0",
+                "config_ref": "scheduler.default"
+            }
+        ]);
+        fs::write(
+            manifest_path,
+            serde_json::to_string_pretty(&manifest).expect("app manifest should serialize"),
+        )
+        .expect("app manifest should write");
+    }
+
+    fn universal_host_activation_json(connectors: &Value) -> String {
+        serde_json::to_string_pretty(&serde_json::json!({
+            "connectors": connectors,
+            "artifacts": [{
+                "contract_reference": "expedition.planning.validate-team-readiness@1.0.0",
+                "placement_target": "local",
+                "candidates": [{
+                    "package_id": "fixture.team-readiness",
+                    "package_version": "1.0.0",
+                    "digest": "sha256:470e430bb7e53d2b4d37af50186511a1f7f9ae903bc4f1524755f2a97014ef90",
+                    "abi": "wasi-preview1",
+                    "lifecycle": "active",
+                    "placement": ["local"],
+                    "execution_constraints": "fixture"
+                }]
+            }]
+        }))
+        .expect("host activation fixture should serialize")
     }
 
     fn app_state_machine_fixture() -> Value {
