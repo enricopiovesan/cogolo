@@ -56,6 +56,12 @@ const EMIT_EVENT_ERR_UNDECLARED_EVENT: i32 = -2;
 /// FR-003, acceptance scenario 3).
 const EMIT_EVENT_ERR_NOT_SUBSCRIBABLE: i32 = -3;
 
+/// `traverse_host::connector_invoke` is unavailable unless the embedding host
+/// supplies an activated, capability-authorized connector binding. The default
+/// WASM executor deliberately returns this stable failure rather than granting
+/// any ambient authority (Spec 104 FR-002/FR-007).
+const CONNECTOR_INVOKE_ERR_UNBOUND: i32 = -2;
+
 static HOST_ABI_V1_WHITELIST_CACHE: LazyLock<Result<HostAbiWhitelist, String>> =
     LazyLock::new(|| {
         serde_json::from_str::<HostAbiWhitelist>(HOST_ABI_V1_WHITELIST).map_err(|e| e.to_string())
@@ -452,6 +458,15 @@ impl WasmExecutor {
         linker
             .func_wrap("traverse_host", "emit_event", handle_emit_event)
             .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("func_wrap emit_event: {e}")))?;
+        linker
+            .func_wrap(
+                "traverse_host",
+                "connector_invoke",
+                handle_connector_invoke_without_active_binding,
+            )
+            .map_err(|e| {
+                ExecutorError::RuntimeSetupFailed(format!("func_wrap connector_invoke: {e}"))
+            })?;
 
         let mut store = Store::new(
             &self.engine,
@@ -629,6 +644,22 @@ fn handle_emit_event(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32)
     };
     caller.data_mut().emitted_events.push(event);
     EMIT_EVENT_OK
+}
+
+/// Fail closed until an embedding host supplies an active application binding.
+///
+/// The four integers are the versioned ABI's request pointer/length and
+/// response pointer/capacity. This default handler intentionally neither reads
+/// nor writes guest memory: no request data, host configuration, credentials,
+/// paths, or endpoint can cross the boundary before authorization exists.
+fn handle_connector_invoke_without_active_binding(
+    _caller: Caller<'_, WasmStoreState>,
+    _request_ptr: i32,
+    _request_len: i32,
+    _response_ptr: i32,
+    _response_capacity: i32,
+) -> i32 {
+    CONNECTOR_INVOKE_ERR_UNBOUND
 }
 
 fn classify_wasm_execution_error(error: &wasmtime::Error) -> ExecutorError {

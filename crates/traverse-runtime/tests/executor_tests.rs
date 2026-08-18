@@ -500,6 +500,31 @@ fn wasm_host_abi_verifier_accepts_sanctioned_stdio_imports() -> Result<(), Strin
 }
 
 #[test]
+fn wasm_host_abi_verifier_accepts_versioned_connector_invoke_import() -> Result<(), String> {
+    let wasm_bytes = wat::parse_str(
+        r#"
+        (module
+            (import "traverse_host" "connector_invoke"
+                (func $connector_invoke (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (func $_start (export "_start"))
+        )
+        "#,
+    )
+    .map_err(|error| format!("WAT parse: {error}"))?;
+
+    let validation = verify_wasm_host_abi_bytes(&wasm_bytes, SUPPORTED_HOST_ABI_VERSION)
+        .map_err(|error| format!("{error:?}"))?;
+
+    assert!(
+        validation.imports.iter().any(|import| {
+            import.module == "traverse_host" && import.name == "connector_invoke"
+        })
+    );
+    Ok(())
+}
+
+#[test]
 fn wasm_host_abi_verifier_rejects_unauthorized_import_before_execution() -> Result<(), String> {
     let wat_src = r#"
         (module

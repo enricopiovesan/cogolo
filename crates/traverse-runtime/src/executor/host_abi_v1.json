@@ -47,6 +47,11 @@
       "module": "traverse_host",
       "name": "emit_event",
       "category": "event_publish"
+    },
+    {
+      "module": "traverse_host",
+      "name": "connector_invoke",
+      "category": "mediated_connector_invocation"
     }
   ]
 }
