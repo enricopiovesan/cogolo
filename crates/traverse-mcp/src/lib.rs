@@ -41,6 +41,9 @@ pub fn discover_capabilities(registry: &CapabilityRegistry) -> serde_json::Value
                 "lifecycle": lifecycle_name(&e.lifecycle),
                 "summary": e.summary,
                 "tags": e.tags,
+                "implementation_kind": format!("{:?}", e.implementation_kind),
+                "artifact_ref": e.artifact_ref,
+                "activation_eligibility": "host_activation_required",
             })
         })
         .collect();
@@ -175,6 +178,9 @@ where
                 owner_team: Some(entry.owner.team),
                 tags: entry.tags,
                 provenance_summary: None,
+                implementation_kind: Some(format!("{:?}", entry.implementation_kind)),
+                artifact_ref: Some(entry.artifact_ref),
+                activation_eligibility: "host_activation_required".to_string(),
             })
             .collect()
     }
@@ -194,6 +200,9 @@ where
                 owner_team: None,
                 tags: entry.tags,
                 provenance_summary: Some(format!("{:?}", entry.classification)),
+                implementation_kind: None,
+                artifact_ref: None,
+                activation_eligibility: "not_applicable".to_string(),
             })
             .collect()
     }
@@ -217,6 +226,9 @@ where
                     entry.start_node,
                     entry.terminal_nodes.join(",")
                 )),
+                implementation_kind: None,
+                artifact_ref: None,
+                activation_eligibility: "not_applicable".to_string(),
             })
             .collect()
     }
@@ -373,6 +385,12 @@ pub struct McpArtifactSummary {
     pub owner_team: Option<String>,
     pub tags: Vec<String>,
     pub provenance_summary: Option<String>,
+    /// Portable implementation metadata; it does not assert host eligibility.
+    pub implementation_kind: Option<String>,
+    /// Registry artifact identity for discoverable executable packages.
+    pub artifact_ref: Option<String>,
+    /// Discovery intentionally reports host-specific eligibility truthfully.
+    pub activation_eligibility: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -1342,6 +1360,8 @@ mod tests {
             entry["id"].as_str(),
             Some("content.comments.create-comment-draft")
         );
+        assert_eq!(entry["activation_eligibility"], "host_activation_required");
+        assert!(entry["artifact_ref"].is_string());
         assert!(entry.get("version").is_some(), "entry must have version");
         assert!(entry.get("summary").is_some(), "entry must have summary");
         assert!(entry.get("tags").is_some(), "entry must have tags");

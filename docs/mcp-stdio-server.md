@@ -13,6 +13,11 @@ It is intentionally narrow:
 - it exposes discovery, description, validation, execution, and execution-report rendering through one stdio command surface
 - it is documented and runnable locally
 
+Discovery reports portable contract and executable-package metadata only. A
+discoverable standalone package is not thereby eligible to execute on the
+current host: activation remains host-specific and must resolve the package
+against that host's verified artifacts, placement, bindings, and configuration.
+
 ## Supported Bootstrap Path
 
 The supported developer bootstrap path for the dedicated MCP server is:
