@@ -5025,12 +5025,31 @@ fn discover_capabilities(manifest_path: &Path, json_output: bool) -> Result<Stri
         let json_entries: Vec<serde_json::Value> = entries
             .iter()
             .map(|entry| {
+                let resolved = registered.capability_registry.find_exact(
+                    LookupScope::PreferPrivate,
+                    &entry.id,
+                    &entry.version,
+                );
+                let package_mode = resolved
+                    .as_ref()
+                    .map_or("unknown", |capability| {
+                        capability_discovery_package_mode(&capability.artifact)
+                    });
+                let advisory_compositions = resolved.as_ref().map_or_else(Vec::new, |capability| {
+                    capability_discovery_advisory_compositions(
+                        capability.artifact.workflow_ref.as_ref(),
+                    )
+                });
                 serde_json::json!({
                     "id": entry.id,
                     "version": entry.version,
                     "scope": format!("{:?}", entry.scope).to_lowercase(),
                     "lifecycle": format!("{:?}", entry.lifecycle).to_lowercase(),
                     "implementation_kind": format!("{:?}", entry.implementation_kind).to_lowercase(),
+                    "package_mode": package_mode,
+                    "advisory_compositions": advisory_compositions,
+                    "activation_eligibility": "unknown",
+                    "activation_eligibility_reason": "requires_host_activation_resolution",
                     "summary": entry.summary,
                     "tags": entry.tags,
                 })
@@ -5045,6 +5064,27 @@ fn discover_capabilities(manifest_path: &Path, json_output: bool) -> Result<Stri
             .collect();
         Ok(lines.join("\n"))
     }
+}
+
+fn capability_discovery_package_mode(artifact: &CapabilityArtifactRecord) -> &'static str {
+    if artifact.workflow_ref.is_some() {
+        "workflow_composed"
+    } else {
+        "standalone"
+    }
+}
+
+fn capability_discovery_advisory_compositions(
+    workflow_ref: Option<&WorkflowReference>,
+) -> Vec<String> {
+    workflow_ref
+        .map(|reference| {
+            vec![format!(
+                "{}@{}",
+                reference.workflow_id, reference.workflow_version
+            )]
+        })
+        .unwrap_or_default()
 }
 
 fn inspect_capability_package(manifest_path: &Path) -> Result<String, CliError> {
@@ -6860,9 +6900,9 @@ mod tests {
         app_activate_at, app_activation_state_path, app_new_at, app_register_at,
         app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_text, enforce_contract_surface_coverage, enforce_persona_refs_resolve,
-        ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
-        execute_traverse_starter_process, execute_traverse_starter_summarize,
+        curl_text, discover_capabilities, enforce_contract_surface_coverage,
+        enforce_persona_refs_resolve, ensure_clean_registry_checkout, execute_capability_package,
+        execute_expedition, execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, format_capability_package_execution_summary,
         help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
         inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
@@ -9493,6 +9533,38 @@ mod tests {
         assert!(output.contains("registered_events: 5"));
         assert!(output.contains("registered_workflows: 1"));
         assert!(output.contains("expedition.planning.plan-expedition@1.0.0 (workflow)"));
+    }
+
+    #[test]
+    fn capability_discover_json_distinguishes_package_mode_from_activation_eligibility() {
+        let manifest_path =
+            repo_root().join("examples/traverse-starter/registry-bundle/manifest.json");
+        let output = discover_capabilities(&manifest_path, true)
+            .expect("capability discovery should render JSON");
+        let entries: Vec<Value> =
+            serde_json::from_str(&output).expect("discovery output should be JSON");
+        let process = entries
+            .iter()
+            .find(|entry| entry["id"] == "traverse-starter.process")
+            .expect("process capability should be discovered");
+        let pipeline = entries
+            .iter()
+            .find(|entry| entry["id"] == "traverse-starter.pipeline")
+            .expect("pipeline capability should be discovered");
+
+        assert_eq!(process["package_mode"], "standalone");
+        assert_eq!(process["advisory_compositions"], serde_json::json!([]));
+        assert_eq!(process["activation_eligibility"], "unknown");
+        assert_eq!(
+            process["activation_eligibility_reason"],
+            "requires_host_activation_resolution"
+        );
+        assert_eq!(pipeline["package_mode"], "workflow_composed");
+        assert_eq!(
+            pipeline["advisory_compositions"],
+            serde_json::json!(["traverse-starter.pipeline@1.0.0"])
+        );
+        assert_eq!(pipeline["activation_eligibility"], "unknown");
     }
 
     #[test]

@@ -4,7 +4,9 @@
 
 use serde::{Deserialize, Serialize};
 use traverse_contracts::{ExecutionTarget, ServiceType};
-use traverse_registry::{CapabilityRegistry, DiscoveryQuery, LookupScope};
+use traverse_registry::{
+    CapabilityArtifactRecord, CapabilityRegistry, DiscoveryQuery, LookupScope, WorkflowReference,
+};
 
 use crate::{McpError, McpErrorCode};
 
@@ -31,6 +33,14 @@ pub struct CapabilitySummary {
     pub permitted_targets: Vec<ExecutionTarget>,
     /// Short human-readable description.
     pub description: String,
+    /// Whether the executable package is standalone or carries advisory workflow composition metadata.
+    pub package_mode: String,
+    /// Advisory known workflow compositions; never used as execution authority.
+    pub advisory_compositions: Vec<String>,
+    /// Host activation eligibility is unknown from registry discovery alone.
+    pub activation_eligibility: String,
+    /// Stable reason explaining why eligibility requires activation evidence.
+    pub activation_eligibility_reason: String,
 }
 
 /// List all capabilities, optionally filtered by `service_type` or `permitted_targets`.
@@ -69,8 +79,31 @@ pub fn list_capabilities(
             service_type: cap.contract.service_type.clone(),
             permitted_targets: cap.contract.permitted_targets.clone(),
             description: cap.contract.description.clone(),
+            package_mode: capability_package_mode(&cap.artifact).to_string(),
+            advisory_compositions: advisory_compositions(cap.artifact.workflow_ref.as_ref()),
+            activation_eligibility: "unknown".to_string(),
+            activation_eligibility_reason: "requires_host_activation_resolution".to_string(),
         })
         .collect()
+}
+
+fn capability_package_mode(artifact: &CapabilityArtifactRecord) -> &'static str {
+    if artifact.workflow_ref.is_some() {
+        "workflow_composed"
+    } else {
+        "standalone"
+    }
+}
+
+fn advisory_compositions(workflow_ref: Option<&WorkflowReference>) -> Vec<String> {
+    workflow_ref
+        .map(|reference| {
+            vec![format!(
+                "{}@{}",
+                reference.workflow_id, reference.workflow_version
+            )]
+        })
+        .unwrap_or_default()
 }
 
 /// Return the full contract JSON for a capability identified by `capability_id`.
