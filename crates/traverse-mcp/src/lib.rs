@@ -13,8 +13,9 @@ pub use stdio_server::*;
 
 use std::collections::HashMap;
 use traverse_registry::{
-    CapabilityRegistry, DiscoveryQuery, EventRegistry, LookupScope, ModelResolutionEvidence,
-    RegistryScope, ResolvedCapability, ResolvedEvent, ResolvedWorkflow, WorkflowRegistry,
+    CapabilityArtifactRecord, CapabilityRegistry, DiscoveryQuery, EventRegistry, LookupScope,
+    ModelResolutionEvidence, RegistryScope, ResolvedCapability, ResolvedEvent, ResolvedWorkflow,
+    WorkflowReference, WorkflowRegistry,
 };
 use traverse_runtime::{
     LocalExecutor, Runtime, RuntimeErrorCode, RuntimeExecutionOutcome, RuntimeRequest,
@@ -35,12 +36,23 @@ pub fn discover_capabilities(registry: &CapabilityRegistry) -> serde_json::Value
     let summaries: Vec<serde_json::Value> = entries
         .into_iter()
         .map(|e| {
+            let resolved = registry.find_exact(LookupScope::PreferPrivate, &e.id, &e.version);
+            let package_mode = resolved
+                .as_ref()
+                .map_or("unknown", |cap| capability_package_mode(&cap.artifact));
+            let advisory_compositions = resolved.as_ref().map_or_else(Vec::new, |cap| {
+                advisory_compositions(cap.artifact.workflow_ref.as_ref())
+            });
             serde_json::json!({
                 "id": e.id,
                 "version": e.version,
                 "lifecycle": lifecycle_name(&e.lifecycle),
                 "summary": e.summary,
                 "tags": e.tags,
+                "package_mode": package_mode,
+                "advisory_compositions": advisory_compositions,
+                "activation_eligibility": activation_eligibility_unknown(),
+                "activation_eligibility_reason": activation_eligibility_reason(),
             })
         })
         .collect();
@@ -166,6 +178,21 @@ where
             .discover(map_lookup_scope(lookup_scope), query)
             .into_iter()
             .map(|entry| McpArtifactSummary {
+                package_mode: self
+                    .capability_registry
+                    .find_exact(map_lookup_scope(lookup_scope), &entry.id, &entry.version)
+                    .as_ref()
+                    .map_or("unknown", |cap| capability_package_mode(&cap.artifact))
+                    .to_string(),
+                advisory_compositions: self
+                    .capability_registry
+                    .find_exact(map_lookup_scope(lookup_scope), &entry.id, &entry.version)
+                    .as_ref()
+                    .map_or_else(Vec::new, |cap| {
+                        advisory_compositions(cap.artifact.workflow_ref.as_ref())
+                    }),
+                activation_eligibility: activation_eligibility_unknown().to_string(),
+                activation_eligibility_reason: activation_eligibility_reason().to_string(),
                 artifact_kind: McpArtifactKind::Capability,
                 scope: map_registry_scope(entry.scope),
                 id: entry.id,
@@ -189,6 +216,10 @@ where
                 scope: map_registry_scope(entry.scope),
                 id: entry.id,
                 version: entry.version,
+                package_mode: "not_applicable".to_string(),
+                advisory_compositions: Vec::new(),
+                activation_eligibility: "not_applicable".to_string(),
+                activation_eligibility_reason: "not_executable_capability_package".to_string(),
                 lifecycle: lifecycle_name(&entry.lifecycle).to_string(),
                 summary: entry.summary,
                 owner_team: None,
@@ -208,6 +239,10 @@ where
                 scope: map_registry_scope(entry.scope),
                 id: entry.id,
                 version: entry.version,
+                package_mode: "not_applicable".to_string(),
+                advisory_compositions: Vec::new(),
+                activation_eligibility: "not_applicable".to_string(),
+                activation_eligibility_reason: "not_executable_capability_package".to_string(),
                 lifecycle: lifecycle_name(&entry.lifecycle).to_string(),
                 summary: entry.summary,
                 owner_team: Some(entry.owner.team),
@@ -368,6 +403,10 @@ pub struct McpArtifactSummary {
     pub scope: McpRegistryScope,
     pub id: String,
     pub version: String,
+    pub package_mode: String,
+    pub advisory_compositions: Vec<String>,
+    pub activation_eligibility: String,
+    pub activation_eligibility_reason: String,
     pub lifecycle: String,
     pub summary: String,
     pub owner_team: Option<String>,
@@ -498,6 +537,33 @@ fn map_lookup_scope(scope: McpLookupScope) -> LookupScope {
     }
 }
 
+fn capability_package_mode(artifact: &CapabilityArtifactRecord) -> &'static str {
+    if artifact.workflow_ref.is_some() {
+        "workflow_composed"
+    } else {
+        "standalone"
+    }
+}
+
+fn advisory_compositions(workflow_ref: Option<&WorkflowReference>) -> Vec<String> {
+    workflow_ref
+        .map(|reference| {
+            vec![format!(
+                "{}@{}",
+                reference.workflow_id, reference.workflow_version
+            )]
+        })
+        .unwrap_or_default()
+}
+
+fn activation_eligibility_unknown() -> &'static str {
+    "unknown"
+}
+
+fn activation_eligibility_reason() -> &'static str {
+    "requires_host_activation_resolution"
+}
+
 fn map_registry_scope(scope: RegistryScope) -> McpRegistryScope {
     match scope {
         RegistryScope::Public => McpRegistryScope::Public,
@@ -562,7 +628,7 @@ mod tests {
         EventRegistration, ModelCandidateEvaluation, ModelCandidateReadiness,
         ModelCandidateRejectionCode, ModelResolutionEvidence, ModelResolutionPhase,
         RegistryProvenance, SelectedModelCandidate, SourceKind, SourceReference,
-        WorkflowDefinition, WorkflowNode, WorkflowNodeInput, WorkflowNodeOutput,
+        WorkflowDefinition, WorkflowNode, WorkflowNodeInput, WorkflowNodeOutput, WorkflowReference,
         WorkflowRegistration,
     };
     use traverse_runtime::{
@@ -590,10 +656,82 @@ mod tests {
 
         assert_eq!(capabilities.len(), 1);
         assert_eq!(capabilities[0].artifact_kind, McpArtifactKind::Capability);
+        assert_eq!(capabilities[0].package_mode, "standalone");
+        assert_eq!(capabilities[0].advisory_compositions, Vec::<String>::new());
+        assert_eq!(capabilities[0].activation_eligibility, "unknown");
+        assert_eq!(
+            capabilities[0].activation_eligibility_reason,
+            "requires_host_activation_resolution"
+        );
         assert_eq!(events.len(), 1);
         assert_eq!(events[0].artifact_kind, McpArtifactKind::Event);
+        assert_eq!(events[0].activation_eligibility, "not_applicable");
         assert_eq!(workflows.len(), 1);
         assert_eq!(workflows[0].artifact_kind, McpArtifactKind::Workflow);
+        assert_eq!(workflows[0].activation_eligibility, "not_applicable");
+    }
+
+    #[test]
+    fn capability_discovery_marks_workflow_compositions_advisory_and_not_activation_eligible() {
+        let mut capability_registry = CapabilityRegistry::new();
+        let mut artifact = capability_artifact_record();
+        artifact.implementation_kind = traverse_registry::ImplementationKind::Workflow;
+        artifact.binary = None;
+        artifact.digests.binary_digest = None;
+        artifact.workflow_ref = Some(WorkflowReference {
+            workflow_id: "content.comments.publish-comment".to_string(),
+            workflow_version: "1.0.0".to_string(),
+        });
+        capability_registry
+            .register(CapabilityRegistration {
+                scope: RegistryScope::Private,
+                contract: capability_contract(),
+                contract_path:
+                    "registry/private/content.comments.create-comment-draft/1.0.0/contract.json"
+                        .to_string(),
+                artifact,
+                registered_at: "2026-03-30T00:00:00Z".to_string(),
+                tags: vec!["comments".to_string()],
+                composability: ComposabilityMetadata {
+                    kind: CompositionKind::Composite,
+                    patterns: vec![CompositionPattern::Sequential],
+                    provides: vec!["draft".to_string()],
+                    requires: Vec::new(),
+                },
+                governing_spec: "005-capability-registry".to_string(),
+                validator_version: "validator".to_string(),
+            })
+            .expect("workflow-referenced capability should register");
+        let event_registry = EventRegistry::new();
+        let workflow_registry = WorkflowRegistry::new();
+        let runtime = runtime_fixture(&capability_registry, &workflow_registry);
+        let mcp = TraverseMcp::new(
+            &capability_registry,
+            &event_registry,
+            &workflow_registry,
+            &runtime,
+        );
+
+        let json = super::discover_capabilities(&capability_registry);
+        assert_eq!(json[0]["package_mode"], "workflow_composed");
+        assert_eq!(
+            json[0]["advisory_compositions"],
+            serde_json::json!(["content.comments.publish-comment@1.0.0"])
+        );
+        assert_eq!(json[0]["activation_eligibility"], "unknown");
+        assert_eq!(
+            json[0]["activation_eligibility_reason"],
+            "requires_host_activation_resolution"
+        );
+
+        let discovered =
+            mcp.discover_capabilities(McpLookupScope::PreferPrivate, &DiscoveryQuery::default());
+        assert_eq!(discovered[0].package_mode, "workflow_composed");
+        assert_eq!(
+            discovered[0].advisory_compositions,
+            vec!["content.comments.publish-comment@1.0.0"]
+        );
+        assert_eq!(discovered[0].activation_eligibility, "unknown");
     }
 
     #[test]
@@ -1345,6 +1483,13 @@ mod tests {
         assert!(entry.get("version").is_some(), "entry must have version");
         assert!(entry.get("summary").is_some(), "entry must have summary");
         assert!(entry.get("tags").is_some(), "entry must have tags");
+        assert_eq!(entry["package_mode"], "standalone");
+        assert_eq!(entry["advisory_compositions"], serde_json::json!([]));
+        assert_eq!(entry["activation_eligibility"], "unknown");
+        assert_eq!(
+            entry["activation_eligibility_reason"],
+            "requires_host_activation_resolution"
+        );
     }
 
     #[test]

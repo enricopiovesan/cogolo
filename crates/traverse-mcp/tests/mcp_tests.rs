@@ -21,7 +21,7 @@ use traverse_registry::{
     ArtifactDigests, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, ImplementationKind, RegistryProvenance, RegistryScope, SourceKind,
-    SourceReference,
+    SourceReference, WorkflowReference,
 };
 use traverse_runtime::{
     events::{
@@ -174,6 +174,18 @@ fn capability_artifact_record(id: &str) -> CapabilityArtifactRecord {
     }
 }
 
+fn workflow_composed_capability_artifact_record(id: &str) -> CapabilityArtifactRecord {
+    let mut artifact = capability_artifact_record(id);
+    artifact.implementation_kind = ImplementationKind::Workflow;
+    artifact.binary = None;
+    artifact.digests.binary_digest = None;
+    artifact.workflow_ref = Some(WorkflowReference {
+        workflow_id: "content.comments.publish-comment".to_string(),
+        workflow_version: "1.0.0".to_string(),
+    });
+    artifact
+}
+
 fn composability() -> ComposabilityMetadata {
     ComposabilityMetadata {
         kind: CompositionKind::Atomic,
@@ -218,6 +230,31 @@ fn capability_registry_with_two_capabilities() -> Result<CapabilityRegistry, Str
         })
         .map_err(|e| format!("{e:?}"))?;
 
+    Ok(registry)
+}
+
+fn workflow_composed_capability_registry() -> Result<CapabilityRegistry, String> {
+    let mut registry = CapabilityRegistry::new();
+    let contract = capability_contract();
+    let id = contract.id.clone();
+    registry
+        .register(CapabilityRegistration {
+            scope: RegistryScope::Public,
+            contract,
+            contract_path: format!("registry/public/{id}/1.0.0/contract.json"),
+            artifact: workflow_composed_capability_artifact_record(&id),
+            registered_at: "2026-04-09T00:00:00Z".to_string(),
+            tags: vec!["comments".to_string()],
+            composability: ComposabilityMetadata {
+                kind: CompositionKind::Composite,
+                patterns: vec![CompositionPattern::Sequential],
+                provides: vec!["draft".to_string()],
+                requires: Vec::new(),
+            },
+            governing_spec: "005-capability-registry".to_string(),
+            validator_version: "v1".to_string(),
+        })
+        .map_err(|e| format!("{e:?}"))?;
     Ok(registry)
 }
 
@@ -327,6 +364,31 @@ fn list_capabilities_returns_expected_fields() -> Result<(), String> {
     assert_eq!(s.name, "create-comment-draft");
     assert!(!s.description.is_empty());
     assert!(!s.permitted_targets.is_empty());
+    assert_eq!(s.package_mode, "standalone");
+    assert!(s.advisory_compositions.is_empty());
+    assert_eq!(s.activation_eligibility, "unknown");
+    assert_eq!(
+        s.activation_eligibility_reason,
+        "requires_host_activation_resolution"
+    );
+    Ok(())
+}
+
+#[test]
+fn list_capabilities_marks_workflow_compositions_advisory() -> Result<(), String> {
+    let registry = workflow_composed_capability_registry()?;
+    let summaries = list_capabilities(&registry, None);
+    assert_eq!(summaries.len(), 1);
+    assert_eq!(summaries[0].package_mode, "workflow_composed");
+    assert_eq!(
+        summaries[0].advisory_compositions,
+        vec!["content.comments.publish-comment@1.0.0"]
+    );
+    assert_eq!(summaries[0].activation_eligibility, "unknown");
+    assert_eq!(
+        summaries[0].activation_eligibility_reason,
+        "requires_host_activation_resolution"
+    );
     Ok(())
 }
 
