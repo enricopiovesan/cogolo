@@ -24,7 +24,7 @@ CLI request → PlacementRouter → WasmExecutor → WASM binary (stdin/stdout) 
 
 ### 2. MCP Surface (Agent/LLM Discovery and Invocation)
 
-**What**: The `traverse-mcp` crate exposes a Model Context Protocol server over stdio. It provides tools that LLMs and AI agents can call to discover registered capabilities, inspect their contracts, and execute them — without knowing the CLI.
+**What**: The `traverse-mcp` crate exposes a Model Context Protocol server over stdio plus a Rust library surface. It provides tools that LLMs and AI agents can call to discover registered capabilities, inspect their contracts, and execute them — without knowing the CLI.
 
 **MCP tools exposed**:
 | Tool | Description |
@@ -48,7 +48,13 @@ LLM tool call → MCP stdio server → traverse-mcp → traverse-runtime → Was
 
 **Entry point**: [`docs/mcp-stdio-server.md`](mcp-stdio-server.md)
 
-**Important**: In v0.1, `traverse-mcp` is a stdio binary server. Agents cannot link it as a library — they must communicate via the MCP wire protocol. See [#310](https://github.com/traverse-framework/traverse/issues/310) for the planned library API.
+**Important**: Capability discovery is contract/package discovery, not host activation. Discovery may report whether a package is standalone or carries advisory workflow composition metadata, but it must not claim the package is activation-eligible without host activation-resolution evidence.
+
+### Direct Invocation vs Application Activation
+
+Standalone capability packages can be inspected and executed directly through `capability-package execute`, MCP `execute_capability`, or the `traverse-mcp` library API when the caller supplies a valid runtime request. Direct invocation uses the registered capability contract and executable artifact metadata.
+
+Governed application activation is a separate host step. `traverse-cli app activate` resolves application-required contracts to host-installed executable artifacts and records immutable activation evidence. That evidence is the only place discovery consumers should treat a package as activation-eligible for an application. Advisory composition metadata such as known workflow references is useful context, but it does not grant authority, select artifacts, or prove host availability.
 
 ---
 
