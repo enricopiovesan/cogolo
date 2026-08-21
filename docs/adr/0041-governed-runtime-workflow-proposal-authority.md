@@ -17,11 +17,16 @@ The planner is an untrusted external proposer. Traverse accepts a canonical,
 immutable proposal only if its graph is within an app manifest's declared
 authority and all contract, connector, placement, schema, risk, policy, and
 resource checks pass. The runtime is deterministic over pinned snapshots.
-Capability risk is immutable portable contract metadata (`read_only`,
-`state_write`, `external_side_effect`); app manifests may only tighten it.
+Capability authority metadata is immutable and portable: effect class,
+determinism class, field-level data classification/egress policy, and
+reliability semantics. App manifests may only tighten it.
 P1 is a bounded sequential DAG, stops on first failure, and records a
 redacted trace attachment. It has no implicit retries, compensation, graph
 mutation, manifest mutation, or catalog registration.
+
+Approval tokens are verified, scoped, bounded-use credentials tied to the
+canonical proposal and governing snapshots. JSON-schema compatibility never by
+itself permits a classified field to reach a target or external connector.
 
 ## Consequences
 
@@ -29,6 +34,8 @@ Traverse stays provider-neutral and never needs planner credentials or prompts.
 MCP clients can still provide UMA-style planning experiences. Authorization
 tokens gate sensitive proposals and bind to snapshot identity. Parallelism,
 durability, and promotion remain separately governed phases.
+Runtime determinism is limited to decisions, resolution, scheduling, and
+evidence ordering over pinned inputs; external results are declared separately.
 
 ## Alternatives considered
 

@@ -23,6 +23,10 @@ ordering.
   completed predecessor outputs.
 - **FR-004**: Side-effecting concurrent branches require an explicit policy
   that declares their independence and idempotency requirements.
+- **FR-004a**: The first P2 implementation MUST permit parallel execution
+  only for `pure_read` nodes. Parallel state writes or external effects remain
+  disabled until a successor specification proves declared independence,
+  idempotency, cancellation, and budget semantics.
 - **FR-005**: Saturation or bound violation MUST reject or terminate with a
   stable code; it MUST NOT silently queue unbounded work.
 
@@ -32,7 +36,8 @@ ordering.
    produce deterministic ordered evidence.
 2. A join cannot read a branch output before that branch completes.
 3. A graph exceeding fan-out or concurrency budget is rejected before work.
-4. Concurrent side effects without an independence policy are denied.
+4. A state-writing or external-effect branch is denied by the first P2
+   implementation even when it declares independence.
 
 ## Out of scope
 

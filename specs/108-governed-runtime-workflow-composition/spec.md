@@ -19,8 +19,11 @@ not make future phases available before their successor specs are approved.
 - The planner is an untrusted proposer, never the authority.
 - A proposal is constrained by its versioned application manifest; it cannot
   add capabilities, connectors, permissions, placement targets, or secrets.
-- Capability risk is portable, immutable contract metadata. Apps may tighten
-  it but cannot weaken it.
+- Capability authority metadata is portable and immutable. Apps may tighten it
+  but cannot weaken it.
+- Authority is evaluated on four independent portable dimensions: effect
+  class, determinism class, field-level data classification/egress policy,
+  and reliability semantics. A single label MUST NOT imply another dimension.
 - Given the same canonical proposal, manifest, registry, binding, policy, and
   host inputs, validation, authorization, resolution, and execution planning
   are deterministic.
@@ -28,7 +31,8 @@ not make future phases available before their successor specs are approved.
   private configuration, paths, and raw private data.
 - No proposal mutates a manifest, registry, or reusable workflow catalog.
 - Runtime execution has explicit node, edge, payload, time, concurrency, and
-  resource budgets, and fails closed on a violated bound.
+  resource budgets owned by an authenticated principal/app/workspace, and
+  fails closed on a violated bound.
 
 ## Phases
 
@@ -46,11 +50,16 @@ validation, authorization, execution, observation, and export surfaces. It
 does not provide or require an LLM planner. An MCP client may use any planner
 that can submit the governed proposal format.
 
+Every proposal is authenticated and tenant/workspace scoped. Runtime
+determinism applies to canonicalization, validation, authorization, artifact
+resolution, scheduling, and evidence ordering over pinned inputs; it does not
+claim identical external connector, clock, model, or remote-state results.
+
 ## Cross-phase acceptance criteria
 
 1. A client can explain every accepted or rejected proposal from stable
    decision evidence without exposing a secret or private host identifier.
-2. An app cannot use a proposal to weaken declared risk, add authority, or
+2. An app cannot use a proposal to weaken declared authority metadata, add authority, or
    invoke an undeclared capability/connector.
 3. Equivalent pinned inputs yield the same graph digest, decision, execution
    order, resolved versions, and stable error codes.

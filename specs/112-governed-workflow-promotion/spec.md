@@ -19,6 +19,9 @@ ephemeral proposal to a reusable versioned workflow artifact.
 - **FR-002**: Promotion MUST require explicit review, a new workflow version,
   canonical workflow validation, registry/bundle publication gates, and a new
   application-manifest version where applicable.
+- **FR-002a**: A candidate MUST preserve reviewed effect, determinism,
+  data-flow/egress, and reliability declarations. It MUST NOT export raw
+  inputs, approval tokens, private bindings, prompts, or secrets.
 - **FR-003**: A promoted workflow MUST have its own immutable identity and
   lifecycle; its source proposal does not confer ongoing execution authority.
 - **FR-004**: Yank, rollback, deprecation, and compatibility behavior MUST

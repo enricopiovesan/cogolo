@@ -16,6 +16,8 @@ compensation semantics for governed dynamic workflow executions.
 - **FR-001**: A resumable execution MUST persist an authenticated,
   secret-free checkpoint bound to its proposal, manifest, registry, policy,
   and authorization snapshots before reporting a wait or completed effect.
+- **FR-001a**: Checkpoints MUST use lease ownership and fencing tokens so a
+  stale worker cannot resume or commit an execution after ownership changes.
 - **FR-002**: Recovery MUST either resume from a valid checkpoint exactly as
   governed or fail closed; it MUST never re-plan or silently re-resolve an
   unpinned dependency.
@@ -23,6 +25,9 @@ compensation semantics for governed dynamic workflow executions.
   bounded lifetime, cancellation, ownership, and stable wake-up evidence.
 - **FR-004**: Retry requires declared retryability, bounded attempts/backoff,
   idempotency key behavior, budget accounting, and evidence.
+- **FR-004a**: Durable delivery and recovery are at-least-once unless a
+  connector's declared idempotency contract proves otherwise; the runtime MUST
+  never claim exactly-once semantics by default.
 - **FR-005**: Compensation MUST be explicit, capability-contract declared,
   authorization-checked, ordered, bounded, and separately traceable. It is
   not a claim of distributed atomicity.

@@ -20,6 +20,12 @@ recovery semantics; add P4 only via export and normal human-reviewed
 workflow/app publication. No phase becomes available solely because a prior
 phase exists.
 
+P2 starts with parallel `pure_read` work only. P3 uses host-owned checkpoints
+with leases/fencing and at-least-once recovery semantics unless an explicit
+connector idempotency contract proves stronger behavior. P4 preserves the
+proposal's reviewed authority/data/reliability metadata while removing raw
+inputs and private approval material from exported candidates.
+
 ## Consequences
 
 The complete destination is visible and ticketed now, while each implementation

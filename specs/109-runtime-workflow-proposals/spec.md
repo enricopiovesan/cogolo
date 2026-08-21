@@ -25,26 +25,49 @@ workflow proposal that executes as a bounded sequential DAG.
 - **FR-004**: Validation MUST reject undeclared capabilities/connectors,
   incompatible schemas, invalid mappings, unavailable/yanked versions,
   disallowed placement, and any attempt to weaken manifest policy.
-- **FR-005**: Capability contracts MUST declare exactly one baseline risk:
-  `read_only`, `state_write`, or `external_side_effect`. A manifest may only
-  tighten the required authorization.
-- **FR-006**: A valid proposal containing only automatic-eligible risk classes
-  and budgets MAY run automatically. Private connectors/secrets,
+- **FR-005**: Capability contracts MUST independently declare effect class
+  (`pure_read`, `state_write`, `external_effect`, `irreversible_effect`),
+  determinism class (`deterministic`, `externally_variable`,
+  `model_derived`), field-level accepted/produced data classifications and
+  egress policy, plus reliability metadata (idempotency requirement,
+  retryability, and compensation availability). A manifest may only tighten
+  these requirements.
+- **FR-006**: A valid proposal containing only automatic-eligible effect,
+  data-flow, reliability, and budget classes MAY run automatically. Private connectors/secrets,
   side-effecting operations, or policy/budget exceptions MUST require an
   approval token bound to proposal digest, manifest identity/version,
   workspace scope, and expiry.
+- **FR-006a**: An approval token MUST have a verified issuer, key identity,
+  audience, authenticated approver/principal, tenant/workspace scope, exact
+  proposal and snapshot digest, permitted effects/connectors, maximum use
+  count, expiry, revocation behavior, and replay prevention.
 - **FR-007**: P1 MUST accept only acyclic graphs below configured node, edge,
   mapping, payload, validation-time, execution-time, and resource limits, and
   execute one node at a time in deterministic topological order.
+- **FR-007a**: The proposal format MUST define canonical JSON/hash rules,
+  exact resolved capability/artifact versions and digests, initial input
+  bindings, unique node IDs, deterministic ready-node tie breaking, no
+  ambiguous multi-writer target path, and policy-defined safe defaults.
+- **FR-007b**: Validation MUST authenticate the caller and enforce per-
+  principal, per-app, and per-workspace quotas/reservations for concurrency,
+  wall time, payload/output bytes, and declared external-resource budgets.
 - **FR-008**: The runtime MUST stop at the first failed node. It MUST NOT
   perform an implicit retry, compensation, graph mutation, or runtime catalog
   registration. A new execution is required for retry.
+- **FR-008a**: P1 terminal states are `succeeded`, `failed`, `cancelled`,
+  `expired`, and `authorization_revoked`. Side-effecting nodes MUST use a
+  declared idempotency key; P1 provides neither exactly-once execution nor
+  distributed transactional rollback.
 - **FR-009**: The trace MUST retain a bounded redacted snapshot: graph digest,
   identities/versions/digests, mapping paths, authorization decision, budgets,
   per-node status, and terminal outcome. It MUST exclude prompts, secrets,
   private config, and arbitrary raw payload copies.
 - **FR-010**: All denials and failures MUST use stable machine-readable codes
   and secret-free details.
+- **FR-011**: Every explicit mapping MUST pass field-level data-flow policy:
+  source classification, target acceptance, connector/model egress policy,
+  and trace projection policy. Schema compatibility alone MUST NOT authorize
+  data disclosure.
 
 ## Acceptance scenarios
 
@@ -60,6 +83,10 @@ workflow proposal that executes as a bounded sequential DAG.
    not-started nodes.
 5. Re-submitting pinned identical inputs produces the same proposal digest and
    validation decision.
+6. A schema-compatible mapping of classified customer data into an external
+   connector without declared egress authority is rejected before invocation.
+7. An expired, revoked, replayed, or differently scoped approval token is
+   rejected before side effects occur.
 
 ## Out of scope
 
