@@ -1,6 +1,6 @@
 # ADR-0041: Govern Runtime Workflow Proposals as Untrusted, Manifest-Bounded Snapshots
 
-- Status: Proposed
+- Status: Accepted
 - Governing specs: `108-governed-runtime-workflow-composition`, `109-runtime-workflow-proposals`
 - Related issues: #865, #1089
 
@@ -38,4 +38,3 @@ durability, and promotion remain separately governed phases.
   accidental weakening.
 - Persist proposals as workflows automatically: rejected because runtime
   inference would mutate deployable governed catalogs.
-

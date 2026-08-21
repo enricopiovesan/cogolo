@@ -1,6 +1,6 @@
 # Bounded Parallel Workflow Scheduling (P2)
 
-**Status**: Draft — approval required  
+**Status**: Approved
 **Canonical governing ID**: `110-bounded-parallel-workflow-scheduling`  
 **Version**: 0.1.0  
 **Depends on**: approved `109-runtime-workflow-proposals`.
@@ -38,4 +38,3 @@ ordering.
 
 Dynamic expansion, loops, durable waits, retry/saga semantics, and implicit
 parallelism inferred by the planner.
-

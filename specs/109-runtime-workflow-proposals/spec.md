@@ -1,6 +1,6 @@
 # Runtime Workflow Proposals and Authorization (P1)
 
-**Status**: Draft — approval required  
+**Status**: Approved
 **Canonical governing ID**: `109-runtime-workflow-proposals`  
 **Version**: 0.1.0  
 **Implements phase**: P1 of `108-governed-runtime-workflow-composition`  
@@ -65,4 +65,3 @@ workflow proposal that executes as a bounded sequential DAG.
 
 Parallel execution, cycles, event waits, durable resume, automatic retries,
 sagas, direct registry mutation, and planner implementation.
-

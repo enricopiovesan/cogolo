@@ -1,6 +1,6 @@
 # Governed Runtime Workflow Composition — North Star
 
-**Status**: Draft — approval required  
+**Status**: Approved
 **Canonical governing ID**: `108-governed-runtime-workflow-composition`  
 **Version**: 0.1.0  
 **Input**: Issue #1089; decisions recorded on #865.  
@@ -62,4 +62,3 @@ that can submit the governed proposal format.
 - A Traverse-operated model/provider or storage of planner prompts.
 - General-purpose user code or mapping scripts in a proposal.
 - Treating a proposal as a transactional distributed workflow.
-

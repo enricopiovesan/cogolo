@@ -1,6 +1,6 @@
 # Durable Dynamic Orchestration (P3)
 
-**Status**: Draft — approval required  
+**Status**: Approved
 **Canonical governing ID**: `111-durable-dynamic-orchestration`  
 **Version**: 0.1.0  
 **Depends on**: approved P1 and P2 specs and a production-approved host-owned
@@ -39,4 +39,3 @@ compensation semantics for governed dynamic workflow executions.
 
 Unbounded durable queues, hidden provider retry behavior, and automatic
 compensation for capabilities without a declared compensation contract.
-

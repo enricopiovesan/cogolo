@@ -1,6 +1,6 @@
 # Governed Workflow Promotion and Versioning (P4)
 
-**Status**: Draft — approval required  
+**Status**: Approved
 **Canonical governing ID**: `112-governed-workflow-promotion`  
 **Version**: 0.1.0  
 **Depends on**: approved `109-runtime-workflow-proposals`, workflow registry
@@ -35,4 +35,3 @@ ephemeral proposal to a reusable versioned workflow artifact.
 ## Out of scope
 
 Direct runtime publication, automatic promotion, or bypassing human review.
-

@@ -1412,6 +1412,75 @@
         "docs/adr/0041-cross-host-embedded-registry-cache.md",
         "specs/107-cross-host-embedded-registry-cache/"
       ]
+    },
+    {
+      "id": "108-governed-runtime-workflow-composition",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/108-governed-runtime-workflow-composition/spec.md",
+      "governs": [
+        "specs/108-governed-runtime-workflow-composition/",
+        "specs/109-runtime-workflow-proposals/",
+        "specs/110-bounded-parallel-workflow-scheduling/",
+        "specs/111-durable-dynamic-orchestration/",
+        "specs/112-governed-workflow-promotion/",
+        "docs/adr/0041-governed-runtime-workflow-proposal-authority.md",
+        "docs/adr/0042-phased-dynamic-orchestration-evolution.md",
+        "docs/decision-log.md"
+      ]
+    },
+    {
+      "id": "109-runtime-workflow-proposals",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/109-runtime-workflow-proposals/spec.md",
+      "governs": [
+        "crates/traverse-contracts/",
+        "crates/traverse-runtime/",
+        "crates/traverse-mcp/",
+        "crates/traverse-cli/",
+        "specs/109-runtime-workflow-proposals/"
+      ]
+    },
+    {
+      "id": "110-bounded-parallel-workflow-scheduling",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/110-bounded-parallel-workflow-scheduling/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-mcp/",
+        "specs/110-bounded-parallel-workflow-scheduling/"
+      ]
+    },
+    {
+      "id": "111-durable-dynamic-orchestration",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/111-durable-dynamic-orchestration/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-contracts/",
+        "crates/traverse-mcp/",
+        "specs/111-durable-dynamic-orchestration/"
+      ]
+    },
+    {
+      "id": "112-governed-workflow-promotion",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/112-governed-workflow-promotion/spec.md",
+      "governs": [
+        "crates/traverse-registry/",
+        "crates/traverse-cli/",
+        "crates/traverse-mcp/",
+        "specs/112-governed-workflow-promotion/"
+      ]
     }
   ]
 }

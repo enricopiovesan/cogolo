@@ -1,6 +1,6 @@
 # ADR-0042: Evolve Dynamic Composition Through Bounded Parallel, Durable, and Promotion Phases
 
-- Status: Proposed
+- Status: Accepted
 - Governing specs: `108-governed-runtime-workflow-composition`, `110-bounded-parallel-workflow-scheduling`, `111-durable-dynamic-orchestration`, `112-governed-workflow-promotion`
 - Related issue: #1089
 
@@ -31,4 +31,3 @@ must never describe P2-P4 as shipped before their gates are met.
 - Define only P1: rejected because the product architecture would drift.
 - Build a full general workflow engine at once: rejected as too broad for
   deterministic security, performance, persistence, and verification controls.
-
