@@ -1425,9 +1425,11 @@
         "specs/110-bounded-parallel-workflow-scheduling/",
         "specs/111-durable-dynamic-orchestration/",
         "specs/112-governed-workflow-promotion/",
+        "specs/113-declarative-workflow-planning/",
         "docs/adr/0041-governed-runtime-workflow-proposal-authority.md",
         "docs/adr/0042-phased-dynamic-orchestration-evolution.md",
-        "docs/decision-log.md"
+        "docs/decision-log.md",
+        "docs/adr/0043-declarative-workflow-planning-boundary.md"
       ]
     },
     {
@@ -1480,6 +1482,19 @@
         "crates/traverse-cli/",
         "crates/traverse-mcp/",
         "specs/112-governed-workflow-promotion/"
+      ]
+    },
+    {
+      "id": "113-declarative-workflow-planning",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/113-declarative-workflow-planning/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-contracts/",
+        "crates/traverse-mcp/",
+        "specs/113-declarative-workflow-planning/"
       ]
     }
   ]

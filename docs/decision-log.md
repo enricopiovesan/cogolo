@@ -2166,3 +2166,69 @@ Decision 57 / Spec 102 v1.0.0 gated only `inputs.schema.properties.action.enum`.
 - Implementation tracked by traverse `#1040` and registry `#215`.
 - Honesty patch-bumps for stripped Loop caps follow once the gate lands.
 
+
+## Decision 59: Declarative Workflow Planner (P0) — Data-Dependency-Only, Fail-Closed, Bounded
+
+- **Date**: 2026-08-22
+- **Status**: Accepted; Spec 113 Approved 2026-08-22
+- **Governing spec**: `113-declarative-workflow-planning` (P0 of `108-governed-runtime-workflow-composition`), ADR-0043
+- **Related issues**: `#1098`; registry `#304`, `#305`; related `#865`, `#1089`–`#1094`
+- **Origin**: Investigation into why a live demo at traverse-framework.com/discover.html only simulates workflow composition instead of doing it for real (traverse `#1097`, `#1098`, `#1100`; registry `#304`, `#305`), which surfaced that `109`'s own scope explicitly excluded "planner implementation" — the actual remaining gap was narrower and different than first filed.
+
+### Context
+
+`109-runtime-workflow-proposals` (P1) governs how a *submitted* proposal is
+validated, authorized, and executed, and is Approved and shipping. It
+explicitly named "planner implementation" as out of scope. Nothing in this
+repo generates the content of a proposal from declared capability metadata
+— composing a multi-step workflow has only ever been possible by hand
+(`workflow.json`) or via the explicit `WorkflowBuilder` API (`#309`/`#367`),
+where the caller already knows and names the exact chain.
+
+### Decision
+
+Ship a first-party, deterministic planner in `traverse-runtime`, governed as
+phase P0 of the existing `108` north star (not a standalone spec, since
+`109` already named this exact boundary):
+
+1. Accepts a structured target only — no natural-language goal
+   interpretation, no hosted-model dependency.
+2. Plans only from capabilities with real, declared `consumes`/`emits`
+   linkage; no namespace/verb-name fallback when that data is missing.
+3. Never auto-resolves ambiguity between multiple viable capabilities —
+   enumerates every complete candidate plan and hands the choice to the
+   caller/reviewer.
+4. Bounds search to a small, fixed, non-configurable limit in v1 (5
+   candidate plans, 8 nodes deep).
+5. Proposes best-effort field-level JSON-path mappings per edge, always
+   flagged `mapping_unconfirmed` until a human/reviewer clears it.
+6. Is exposed as a new public MCP tool alongside the existing P1 tools, and
+   produces plans structurally submittable to the P1 surface as-is once
+   reviewed — the planner itself never submits or executes anything.
+
+### Alternatives Considered
+
+- Namespace/verb-name heuristic fallback when `consumes`/`emits` is empty
+  (what the discover.html demo already does client-side) — rejected for
+  the governed planner: mixing a real, data-grounded candidate with a
+  guessed one on the same proposal surface undermines exactly the honesty
+  line this org holds elsewhere (registry decision-log entry 61).
+- Auto-pick via a scoring heuristic (coverage %, version recency) —
+  rejected; a silent automatic pick is the unreviewed runtime decision
+  `109`'s explicit-mapping requirement exists to prevent.
+- Standalone new spec instead of a phase of `108` — rejected; `109`
+  explicitly deferred this exact scope to a later phase, and a parallel
+  spec covering the same feature invites drift (cf. Decision 58's "do not
+  create a parallel coverage law").
+- Accept and interpret natural-language goals in-runtime — rejected;
+  reintroduces the hosted-model dependency `109` FR-001 and ADR-0041
+  explicitly excluded.
+
+### Outcome
+
+Spec `113` drafted and Approved same-day; ADR-0043 recorded. `traverse#1098`
+retitled and rescoped to match (see issue history for the two prior
+corrections). Real unblock condition made explicit: this planner will
+return almost no candidates until registry `#305` backfills real
+`consumes`/`emits` data — that dependency is recorded as a formal
+`blocked by` relationship on `#1098`, not just prose.
