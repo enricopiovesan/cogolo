@@ -2232,3 +2232,59 @@ corrections). Real unblock condition made explicit: this planner will
 return almost no candidates until registry `#305` backfills real
 `consumes`/`emits` data — that dependency is recorded as a formal
 `blocked by` relationship on `#1098`, not just prose.
+
+## Decision 60: Single-Capability Browser Execution Routes Through `execute_entrypoint`, Not an Extended BundleEmbedder
+
+- **Date**: 2026-08-22
+- **Status**: Accepted
+- **Governing spec**: `023-browser-hosted-mcp-consumer-model` (existing scope confirmed sufficient); ADR-0044; related `006-runtime-request-execution`, `010-runtime-state-machine`, `068-public-platform-embedder-packages`
+- **Related issues**: `#1100`; related `#1097`, `#1098`, `#865`
+- **Origin**: Same discover.html investigation as Decision 59. `#1100` proposed extending `BundleEmbedder` (spec `068`) to construct a `manifest.json`/FNV-1a digest client-side so a browser could run an arbitrary, live-fetched registry capability directly — surfaced while approving specs/ADRs for the remaining `needs-spec` tickets from that investigation.
+
+### Context
+
+Real capability execution requires a `manifest.json` (`agent_package`,
+FNV-1a `expected_digest`) and a `runtime-request.json`, with a digest match
+enforced before anything runs. `#1100` found that a browser fetching a
+capability straight from `catalog.json` has neither, and proposed teaching
+`BundleEmbedder` (or a new browser-side helper) to build both client-side.
+`traverse-mcp`'s existing `execute_entrypoint` tool already performs this
+exact resolution server-side and returns a public trace summary — the
+ceremony `#1100` was proposing to duplicate is already solved once.
+
+### Decision
+
+Do not extend `BundleEmbedder` to build manifests or digests client-side.
+Single-capability execution from a browser-hosted client goes through the
+existing `execute_entrypoint` MCP tool, over whatever non-stdio transport
+spec `023` already defines for browser-hosted consumers (FR-006) — the
+manifest/digest/binary-resolution ceremony stays server-side. `BundleEmbedder`
+keeps its narrower, existing job: executing a pre-vetted application bundle
+(spec `044`) shipped with the app itself, not arbitrary live registry
+content chosen at runtime. No new governing spec is required: spec `023`
+already defines browser-hosted transport access in general terms, with no
+tool-level allowlist excluding `execute_entrypoint`. What remains is
+implementation and validation — confirming a browser-hosted client can
+actually reach `execute_entrypoint` over spec `023`'s transport and that
+the trace-summary response is sufficient for a real consumer.
+
+### Alternatives Considered
+
+- Client-side manifest/digest construction in `BundleEmbedder` — rejected;
+  duplicates server-enforced ceremony in the browser and needs a registry
+  digest field that doesn't exist today.
+- Registry publishes a ready-made `manifest.json` per version, keeping
+  `BundleEmbedder`'s existing flow — deferred, not rejected; a registry-side
+  change with its own review, only worth it if `execute_entrypoint` proves
+  insufficient.
+- A new spec formally governing browser-hosted `execute_entrypoint` access
+  — rejected; spec `023` already covers this generically, and a parallel
+  spec re-covering the same surface risks the drift Decision 58 warned
+  against.
+
+### Outcome
+
+ADR-0044 recorded. `traverse#1100` rescoped from an execution-ceremony
+implementation gap to an integration/validation ticket: confirm the
+already-approved browser-hosted MCP execute path works end-to-end; `needs-spec`
+removed since no new governing document is required.
