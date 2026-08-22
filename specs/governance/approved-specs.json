@@ -193,7 +193,9 @@
         "docs/app-consumable-acceptance.md",
         "docs/app-consumable-release-checklist.md",
         "docs/youaskm3-integration-validation.md",
-        "docs/mcp-consumption-validation.md"
+        "docs/mcp-consumption-validation.md",
+        "docs/adr/0044-single-capability-execution-via-mcp-not-embedder.md",
+        "docs/decision-log.md"
       ]
     },
     {
