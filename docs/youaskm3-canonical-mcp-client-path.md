@@ -111,3 +111,4 @@ These checks prove that the released public MCP path can start, expose the expec
 - [docs/mcp-real-agent-exercise.md](mcp-real-agent-exercise.md)
 - [docs/v0.3.0-downstream-validation-path.md](v0.3.0-downstream-validation-path.md)
 - [docs/youaskm3-integration-validation.md](youaskm3-integration-validation.md)
+- [docs/browser-hosted-execute-entrypoint-validation.md](browser-hosted-execute-entrypoint-validation.md) — confirms this stdio-only path is not yet reachable from a browser-hosted client
