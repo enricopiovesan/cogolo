@@ -1,8 +1,8 @@
 use traverse_contracts::{
-    CanonicalProposal, ManifestReference, MappingSource, ProposalEdge, ProposalLimits,
-    ProposalMapping, ProposalNode, ProposalValidationErrorCode, ProposalValidationFailure,
-    SnapshotDigests, WorkflowProposal, canonicalize_proposal, proposal_digest,
-    proposal_snapshot_digest,
+    CanonicalProposal, ManifestReference, MappingSource, ParallelScheduleErrorCode,
+    ParallelScheduleLimits, ProposalEdge, ProposalLimits, ProposalMapping, ProposalNode,
+    ProposalValidationErrorCode, ProposalValidationFailure, SnapshotDigests, WorkflowProposal,
+    canonicalize_proposal, compute_parallel_schedule, proposal_digest, proposal_snapshot_digest,
 };
 
 fn expect_failure(
@@ -56,6 +56,36 @@ fn linear_proposal() -> WorkflowProposal {
         }],
         initial_input: serde_json::json!({"comment_text": "hello", "resource_id": "r1"}),
     }
+}
+
+fn diamond_proposal() -> WorkflowProposal {
+    let mut proposal = linear_proposal();
+    proposal.nodes = vec![
+        node("a", "content.comments.create-comment-draft"),
+        node("b", "content.comments.publish-comment"),
+        node("c", "content.comments.publish-comment"),
+        node("d", "content.comments.publish-comment"),
+    ];
+    proposal.edges = vec![
+        ProposalEdge {
+            from_node_id: "a".to_string(),
+            to_node_id: "b".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "a".to_string(),
+            to_node_id: "c".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "b".to_string(),
+            to_node_id: "d".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "c".to_string(),
+            to_node_id: "d".to_string(),
+        },
+    ];
+    proposal.mappings = Vec::new();
+    proposal
 }
 
 #[test]
@@ -530,4 +560,148 @@ fn snapshot_digest_changes_when_any_pinned_snapshot_changes_even_if_proposal_is_
     let with_changed_policy = proposal_snapshot_digest(&digest, &changed);
 
     assert_ne!(base, with_changed_policy);
+}
+
+// -- Parallel scheduling (spec 110 P2) ---------------------------------------
+
+#[test]
+fn compute_parallel_schedule_levelizes_a_linear_proposal_into_singleton_waves() -> Result<(), String>
+{
+    let canonical = canonicalize_proposal(linear_proposal(), &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let schedule = compute_parallel_schedule(&canonical, &ParallelScheduleLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        schedule.waves,
+        vec![vec!["a".to_string()], vec!["b".to_string()]]
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_parallel_schedule_levelizes_the_diamond_graph_into_a_concurrent_wave()
+-> Result<(), String> {
+    let canonical = canonicalize_proposal(diamond_proposal(), &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let schedule = compute_parallel_schedule(&canonical, &ParallelScheduleLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        schedule.waves,
+        vec![
+            vec!["a".to_string()],
+            vec!["b".to_string(), "c".to_string()],
+            vec!["d".to_string()],
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_parallel_schedule_levelizes_the_wide_fan_out_graph() -> Result<(), String> {
+    let mut proposal = diamond_proposal();
+    proposal
+        .nodes
+        .push(node("e", "content.comments.publish-comment"));
+    proposal.edges.push(ProposalEdge {
+        from_node_id: "a".to_string(),
+        to_node_id: "e".to_string(),
+    });
+    proposal.edges.push(ProposalEdge {
+        from_node_id: "e".to_string(),
+        to_node_id: "d".to_string(),
+    });
+
+    let canonical = canonicalize_proposal(proposal, &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let schedule = compute_parallel_schedule(&canonical, &ParallelScheduleLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        schedule.waves,
+        vec![
+            vec!["a".to_string()],
+            vec!["b".to_string(), "c".to_string(), "e".to_string()],
+            vec!["d".to_string()],
+        ]
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_a_schedule_exceeding_the_configured_fan_out_limit() -> Result<(), String> {
+    let canonical = canonicalize_proposal(diamond_proposal(), &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let limits = ParallelScheduleLimits {
+        max_fan_out: 1,
+        ..ParallelScheduleLimits::default()
+    };
+    let Err(failure) = compute_parallel_schedule(&canonical, &limits) else {
+        return Err("a fan-out over the configured limit must be rejected".to_string());
+    };
+    assert!(
+        failure
+            .errors
+            .iter()
+            .any(|e| e.code == ParallelScheduleErrorCode::FanOutExceeded)
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_a_schedule_exceeding_the_configured_join_width_limit() -> Result<(), String> {
+    let canonical = canonicalize_proposal(diamond_proposal(), &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let limits = ParallelScheduleLimits {
+        max_join_width: 1,
+        ..ParallelScheduleLimits::default()
+    };
+    let Err(failure) = compute_parallel_schedule(&canonical, &limits) else {
+        return Err("a join width over the configured limit must be rejected".to_string());
+    };
+    assert!(
+        failure
+            .errors
+            .iter()
+            .any(|e| e.code == ParallelScheduleErrorCode::JoinWidthExceeded)
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_a_schedule_exceeding_the_configured_queue_depth_limit() -> Result<(), String> {
+    let canonical = canonicalize_proposal(diamond_proposal(), &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let limits = ParallelScheduleLimits {
+        max_queue_depth: 1,
+        ..ParallelScheduleLimits::default()
+    };
+    let Err(failure) = compute_parallel_schedule(&canonical, &limits) else {
+        return Err("a queue depth over the configured limit must be rejected".to_string());
+    };
+    assert!(
+        failure
+            .errors
+            .iter()
+            .any(|e| e.code == ParallelScheduleErrorCode::QueueDepthExceeded)
+    );
+    Ok(())
+}
+
+#[test]
+fn compute_parallel_schedule_reports_every_exceeded_bound_in_one_pass() -> Result<(), String> {
+    let canonical = canonicalize_proposal(diamond_proposal(), &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    let limits = ParallelScheduleLimits {
+        max_fan_out: 1,
+        max_join_width: 1,
+        max_queue_depth: 1,
+        max_concurrent_nodes: 1,
+    };
+    let Err(failure) = compute_parallel_schedule(&canonical, &limits) else {
+        return Err("every configured bound is violated and must be rejected".to_string());
+    };
+    let codes: std::collections::BTreeSet<_> = failure.errors.iter().map(|e| e.code).collect();
+    assert!(codes.contains(&ParallelScheduleErrorCode::FanOutExceeded));
+    assert!(codes.contains(&ParallelScheduleErrorCode::JoinWidthExceeded));
+    assert!(codes.contains(&ParallelScheduleErrorCode::QueueDepthExceeded));
+    Ok(())
 }

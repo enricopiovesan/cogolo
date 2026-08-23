@@ -12,6 +12,7 @@ pub mod executor;
 /// wasm32 builds because its Ollama implementation requires TCP sockets.
 #[cfg(feature = "native-inference")]
 pub mod inference;
+pub mod parallel_proposal;
 pub mod placement;
 pub mod proposal;
 pub mod router;

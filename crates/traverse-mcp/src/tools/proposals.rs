@@ -18,8 +18,8 @@ use traverse_registry::{ApplicationBundleManifest, CapabilityRegistry};
 use traverse_runtime::proposal::{
     ApprovalTokenStore, ApprovalTokenVerificationContext, AuthorizationDecision,
     AuthorizationSummary, ProposalCrossValidationError as CrossError, ProposalTrace, QuotaLimits,
-    QuotaTracker, execute_proposal, proposal_is_automatic_eligible,
-    validate_proposal_against_host_state, verify_approval_token,
+    QuotaReservation, QuotaTracker, ResolvedProposalNode, execute_proposal,
+    proposal_is_automatic_eligible, validate_proposal_against_host_state, verify_approval_token,
 };
 use traverse_runtime::{LocalExecutor, Runtime};
 
@@ -261,57 +261,119 @@ pub fn execute_proposal_via_mcp<E: LocalExecutor>(
         }
     };
 
-    let authorization = if proposal_is_automatic_eligible(&resolved) {
+    let authorized = match authorize_and_reserve_quota(&AuthorizeAndReserveQuotaRequest {
+        resolved: &resolved,
+        digest: &digest,
+        snapshot_digest: &snapshot_digest,
+        workspace_id: &workspace_id,
+        approval_token: request.approval_token,
+        expected_token_issuer: request.expected_token_issuer,
+        expected_token_audience: request.expected_token_audience,
+        token_verifying_keys_by_key_id: request.token_verifying_keys_by_key_id,
+        token_store,
+        quota_tracker,
+        quota_limits,
+        principal: request.principal,
+        app_id: request.app_id,
+    }) {
+        Ok(authorized) => authorized,
+        Err(denial) => return Ok(*denial),
+    };
+
+    let trace = execute_proposal(
+        runtime,
+        &canonical,
+        &resolved,
+        authorized.summary,
+        &digest,
+        &snapshot_digest,
+    );
+    drop(authorized.reservation);
+    Ok(ProposalExecutionResponse::Trace(trace))
+}
+
+/// Everything [`authorize_and_reserve_quota`] needs to decide automatic vs.
+/// approval-token authorization and reserve a concurrency quota slot.
+/// Shared by the P1 sequential and P2 parallel MCP execute paths.
+pub(crate) struct AuthorizeAndReserveQuotaRequest<'a> {
+    pub resolved: &'a [ResolvedProposalNode],
+    pub digest: &'a str,
+    pub snapshot_digest: &'a str,
+    pub workspace_id: &'a str,
+    pub approval_token: Option<&'a str>,
+    pub expected_token_issuer: &'a str,
+    pub expected_token_audience: &'a str,
+    pub token_verifying_keys_by_key_id: &'a HashMap<String, VerifyingKey>,
+    pub token_store: &'a ApprovalTokenStore,
+    pub quota_tracker: &'a QuotaTracker,
+    pub quota_limits: &'a QuotaLimits,
+    pub principal: &'a str,
+    pub app_id: &'a str,
+}
+
+pub(crate) struct AuthorizedQuota<'a> {
+    pub summary: AuthorizationSummary,
+    pub reservation: QuotaReservation<'a>,
+}
+
+/// Decides automatic-vs-approval-token authorization (spec 109 FR-006,
+/// FR-006a) and reserves a per-principal/app/workspace concurrency quota
+/// slot (FR-007b). On any denial, returns the exact
+/// [`ProposalExecutionResponse::Denied`] the caller should return unchanged.
+pub(crate) fn authorize_and_reserve_quota<'a>(
+    request: &AuthorizeAndReserveQuotaRequest<'a>,
+) -> Result<AuthorizedQuota<'a>, Box<ProposalExecutionResponse>> {
+    let authorization = if proposal_is_automatic_eligible(request.resolved) {
         AuthorizationDecision::Automatic
     } else {
         let Some(token) = request.approval_token else {
-            return Ok(ProposalExecutionResponse::Denied {
+            return Err(Box::new(ProposalExecutionResponse::Denied {
                 code: "approval_token_required".to_string(),
                 message: "this proposal requires a verified approval token".to_string(),
-            });
+            }));
         };
         let verification_context = ApprovalTokenVerificationContext {
             expected_issuer: request.expected_token_issuer,
             expected_audience: request.expected_token_audience,
-            expected_workspace_id: &workspace_id,
-            expected_proposal_digest: &digest,
-            expected_snapshot_digest: &snapshot_digest,
+            expected_workspace_id: request.workspace_id,
+            expected_proposal_digest: request.digest,
+            expected_snapshot_digest: request.snapshot_digest,
             verifying_keys_by_key_id: request.token_verifying_keys_by_key_id,
         };
         let claims = match verify_approval_token(token, &verification_context) {
             Ok(claims) => claims,
             Err(error) => {
-                return Ok(ProposalExecutionResponse::Denied {
+                return Err(Box::new(ProposalExecutionResponse::Denied {
                     code: token_error_code(&error.code),
                     message: error.message,
-                });
+                }));
             }
         };
-        if let Err(error) = token_store.check_and_record_use(&claims) {
-            return Ok(ProposalExecutionResponse::Denied {
+        if let Err(error) = request.token_store.check_and_record_use(&claims) {
+            return Err(Box::new(ProposalExecutionResponse::Denied {
                 code: token_error_code(&error.code),
                 message: error.message,
-            });
+            }));
         }
         AuthorizationDecision::Approved(Box::new(claims))
     };
 
-    let reservation = match quota_tracker.reserve(
+    let reservation = match request.quota_tracker.reserve(
         request.principal,
         request.app_id,
-        &workspace_id,
-        quota_limits,
+        request.workspace_id,
+        request.quota_limits,
     ) {
         Ok(reservation) => reservation,
         Err(denial) => {
-            return Ok(ProposalExecutionResponse::Denied {
+            return Err(Box::new(ProposalExecutionResponse::Denied {
                 code: format!("quota_exhausted_{}", denial.scope),
                 message: denial.message,
-            });
+            }));
         }
     };
 
-    let authorization_summary = match &authorization {
+    let summary = match &authorization {
         AuthorizationDecision::Automatic => AuthorizationSummary {
             automatic: true,
             approval_token_id: None,
@@ -322,16 +384,10 @@ pub fn execute_proposal_via_mcp<E: LocalExecutor>(
         },
     };
 
-    let trace = execute_proposal(
-        runtime,
-        &canonical,
-        &resolved,
-        authorization_summary,
-        &digest,
-        &snapshot_digest,
-    );
-    drop(reservation);
-    Ok(ProposalExecutionResponse::Trace(trace))
+    Ok(AuthorizedQuota {
+        summary,
+        reservation,
+    })
 }
 
 /// Renders a completed execution's redacted trace for MCP observation (spec
@@ -379,7 +435,9 @@ pub fn export_proposal(
     })
 }
 
-fn parse_and_digest(proposal_json: &str) -> Result<(WorkflowProposal, String, String), McpError> {
+pub(crate) fn parse_and_digest(
+    proposal_json: &str,
+) -> Result<(WorkflowProposal, String, String), McpError> {
     let proposal: WorkflowProposal = serde_json::from_str(proposal_json).map_err(|e| McpError {
         code: McpErrorCode::InvalidRequest,
         message: format!("proposal is not valid JSON: {e}"),
@@ -389,7 +447,7 @@ fn parse_and_digest(proposal_json: &str) -> Result<(WorkflowProposal, String, St
     Ok((proposal, proposal_id, digest))
 }
 
-fn structural_denial(error: StructuralError) -> ProposalDenial {
+pub(crate) fn structural_denial(error: StructuralError) -> ProposalDenial {
     ProposalDenial {
         code: debug_enum_to_snake_case(&format!("{:?}", error.code)),
         path: error.path,
@@ -397,7 +455,7 @@ fn structural_denial(error: StructuralError) -> ProposalDenial {
     }
 }
 
-fn cross_denial(error: CrossError) -> ProposalDenial {
+pub(crate) fn cross_denial(error: CrossError) -> ProposalDenial {
     ProposalDenial {
         code: debug_enum_to_snake_case(&format!("{:?}", error.code)),
         path: error.path,
@@ -405,7 +463,9 @@ fn cross_denial(error: CrossError) -> ProposalDenial {
     }
 }
 
-fn token_error_code(code: &traverse_runtime::proposal::ApprovalTokenErrorCode) -> String {
+pub(crate) fn token_error_code(
+    code: &traverse_runtime::proposal::ApprovalTokenErrorCode,
+) -> String {
     debug_enum_to_snake_case(&format!("{code:?}"))
 }
 
