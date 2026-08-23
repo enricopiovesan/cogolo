@@ -152,6 +152,12 @@ npm install
 npm test   # builds with tsc, then runs the node:test suite
 ```
 
+## Publishing
+
+This package is not yet published to npm. See
+[docs/web-embedder-npm-publish-runbook.md](../../../docs/web-embedder-npm-publish-runbook.md)
+for the preflight checklist and exact publish commands.
+
 `npm test` compiles a set of real WASI capability modules from WebAssembly
 Text format via `wabt` (a devDependency, mirroring the Rust crate's `wat`
 crate test fixtures) and runs `BundleEmbedder` against them — including one
