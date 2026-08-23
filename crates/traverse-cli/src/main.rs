@@ -10062,6 +10062,43 @@ mod tests {
     }
 
     #[test]
+    fn execute_capability_package_first_governed_request_reflects_varied_input() {
+        // Issue #888: guard against this fixture regressing to fixed output
+        // that ignores its input -- vary preferences.style/priority and
+        // assert the real WASM execution's route_preferences/constraints
+        // track them, rather than only matching one canned request.
+        let manifest_path =
+            repo_root().join("examples/capabilities/expedition-intent-agent/manifest.json");
+        build_real_capability_package_artifact(&manifest_path);
+        let request_path = repo_root()
+            .join("examples/capabilities/runtime-requests/interpret-expedition-intent.json");
+        let mut request: Value = serde_json::from_str(
+            &fs::read_to_string(&request_path).expect("canonical request fixture should read"),
+        )
+        .expect("canonical request fixture should parse");
+        request["input"]["objective"]["preferences"]["style"] =
+            serde_json::json!("aggressive-summit-push");
+        request["input"]["objective"]["preferences"]["priority"] =
+            serde_json::json!("fastest-route");
+        let modified_request_path =
+            unique_temp_dir().join("interpret-expedition-intent-varied.json");
+        fs::write(
+            &modified_request_path,
+            serde_json::to_string_pretty(&request).expect("modified request should serialize"),
+        )
+        .expect("modified request should write");
+
+        let output = execute_capability_package(&manifest_path, &modified_request_path)
+            .expect("capability package execution should succeed for the varied request");
+
+        assert!(output.contains("\"aggressive-summit-push\""));
+        assert!(output.contains("\"fastest-route\""));
+        assert!(output.contains("priority:fastest-route"));
+        assert!(!output.contains("\"conservative-alpine-push\""));
+        assert!(!output.contains("priority:same-day-return"));
+    }
+
+    #[test]
     fn inspect_capability_package_renders_second_governed_wasm_capability_package() {
         let fixture = create_validate_team_readiness_capability_fixture();
 
@@ -10090,6 +10127,37 @@ mod tests {
         assert!(output.contains("capability_version: 1.0.0"));
         assert!(output.contains("status: completed"));
         assert!(output.contains("\"status\": \"ready\"") || output.contains("\"ready\""));
+    }
+
+    #[test]
+    fn execute_capability_package_second_governed_request_reflects_varied_input() {
+        // Issue #888: guard against this fixture regressing to fixed output
+        // that ignores its input -- flip team_profile.equipment_ready and
+        // assert the real WASM execution's status/required_actions track it.
+        let manifest_path =
+            repo_root().join("examples/capabilities/team-readiness-agent/manifest.json");
+        build_real_capability_package_artifact(&manifest_path);
+        let request_path =
+            repo_root().join("examples/capabilities/runtime-requests/validate-team-readiness.json");
+        let mut request: Value = serde_json::from_str(
+            &fs::read_to_string(&request_path).expect("canonical request fixture should read"),
+        )
+        .expect("canonical request fixture should parse");
+        request["input"]["team_profile"]["equipment_ready"] = serde_json::json!(false);
+        let modified_request_path =
+            unique_temp_dir().join("validate-team-readiness-not-ready.json");
+        fs::write(
+            &modified_request_path,
+            serde_json::to_string_pretty(&request).expect("modified request should serialize"),
+        )
+        .expect("modified request should write");
+
+        let output = execute_capability_package(&manifest_path, &modified_request_path)
+            .expect("capability package execution should succeed for the varied request");
+
+        assert!(output.contains("\"status\": \"needs_action\""));
+        assert!(output.contains("\"complete equipment verification\""));
+        assert!(!output.contains("\"status\": \"ready\""));
     }
 
     #[test]
