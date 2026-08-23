@@ -4,5 +4,6 @@
 
 pub mod capabilities;
 pub mod events;
+pub mod parallel_proposals;
 pub mod proposals;
 pub mod traces;

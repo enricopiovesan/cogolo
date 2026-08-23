@@ -968,51 +968,8 @@ pub fn execute_proposal<E: crate::LocalExecutor>(
             continue;
         }
 
-        let mut input = Value::Object(serde_json::Map::new());
-        for mapping in &canonical.proposal.mappings {
-            if mapping.target_node_id != *node_id {
-                continue;
-            }
-            let value = match &mapping.source {
-                MappingSource::InitialInput => {
-                    pointer_get(&canonical.proposal.initial_input, &mapping.source_path)
-                }
-                MappingSource::Node { node_id: source_id } => outputs
-                    .get(source_id)
-                    .and_then(|output| pointer_get(output, &mapping.source_path)),
-            };
-            if let Some(value) = value {
-                pointer_set(&mut input, &mapping.target_path, value.clone());
-            }
-        }
-
-        let request = RuntimeRequest {
-            kind: "runtime_request".to_string(),
-            schema_version: "1.0.0".to_string(),
-            request_id: format!("{}-{node_id}", canonical.proposal.proposal_id),
-            intent: RuntimeIntent {
-                capability_id: Some(node.capability_id.clone()),
-                capability_version: Some(node.capability_version.clone()),
-                version_range: None,
-                intent_key: None,
-            },
-            input,
-            lookup: RuntimeLookup {
-                scope: RuntimeLookupScope::PreferPrivate,
-                allow_ambiguity: false,
-            },
-            context: RuntimeContext {
-                requested_target: PlacementTarget::Local,
-                correlation_id: Some(canonical.proposal.proposal_id.clone()),
-                caller: Some("workflow_proposal".to_string()),
-                traceparent: None,
-                tracestate: None,
-                metadata: None,
-                identity: None,
-            },
-            governing_spec: "006-runtime-request-execution".to_string(),
-        };
-
+        let input = assemble_node_input(canonical, node_id, &outputs);
+        let request = build_node_execution_request(canonical, node, node_id, input);
         let outcome = runtime.execute(request);
         match outcome.result.status {
             RuntimeResultStatus::Completed => {
@@ -1069,11 +1026,75 @@ pub fn execute_proposal<E: crate::LocalExecutor>(
     }
 }
 
-fn pointer_get<'a>(value: &'a Value, pointer: &str) -> Option<&'a Value> {
+/// Resolves every mapping targeting `node_id` against `outputs` (and the
+/// proposal's `initial_input`) into that node's assembled input object.
+/// Shared by the sequential P1 executor and the P2 wave executor.
+pub(crate) fn assemble_node_input(
+    canonical: &CanonicalProposal,
+    node_id: &str,
+    outputs: &HashMap<String, Value>,
+) -> Value {
+    let mut input = Value::Object(serde_json::Map::new());
+    for mapping in &canonical.proposal.mappings {
+        if mapping.target_node_id != *node_id {
+            continue;
+        }
+        let value = match &mapping.source {
+            MappingSource::InitialInput => {
+                pointer_get(&canonical.proposal.initial_input, &mapping.source_path)
+            }
+            MappingSource::Node { node_id: source_id } => outputs
+                .get(source_id)
+                .and_then(|output| pointer_get(output, &mapping.source_path)),
+        };
+        if let Some(value) = value {
+            pointer_set(&mut input, &mapping.target_path, value.clone());
+        }
+    }
+    input
+}
+
+/// Builds the `006-runtime-request-execution` request for one proposal node.
+/// Shared by the sequential P1 executor and the P2 wave executor.
+pub(crate) fn build_node_execution_request(
+    canonical: &CanonicalProposal,
+    node: &ProposalNode,
+    node_id: &str,
+    input: Value,
+) -> RuntimeRequest {
+    RuntimeRequest {
+        kind: "runtime_request".to_string(),
+        schema_version: "1.0.0".to_string(),
+        request_id: format!("{}-{node_id}", canonical.proposal.proposal_id),
+        intent: RuntimeIntent {
+            capability_id: Some(node.capability_id.clone()),
+            capability_version: Some(node.capability_version.clone()),
+            version_range: None,
+            intent_key: None,
+        },
+        input,
+        lookup: RuntimeLookup {
+            scope: RuntimeLookupScope::PreferPrivate,
+            allow_ambiguity: false,
+        },
+        context: RuntimeContext {
+            requested_target: PlacementTarget::Local,
+            correlation_id: Some(canonical.proposal.proposal_id.clone()),
+            caller: Some("workflow_proposal".to_string()),
+            traceparent: None,
+            tracestate: None,
+            metadata: None,
+            identity: None,
+        },
+        governing_spec: "006-runtime-request-execution".to_string(),
+    }
+}
+
+pub(crate) fn pointer_get<'a>(value: &'a Value, pointer: &str) -> Option<&'a Value> {
     value.pointer(pointer)
 }
 
-fn pointer_set(target: &mut Value, pointer: &str, new_value: Value) {
+pub(crate) fn pointer_set(target: &mut Value, pointer: &str, new_value: Value) {
     let segments: Vec<&str> = pointer.split('/').filter(|s| !s.is_empty()).collect();
     *target = set_at_segments(std::mem::take(target), &segments, new_value);
 }

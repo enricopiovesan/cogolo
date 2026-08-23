@@ -9,9 +9,12 @@ pub mod proposal;
 pub mod usage_telemetry;
 pub mod violations;
 pub use proposal::{
-    CanonicalProposal, ManifestReference, MappingSource, ProposalEdge, ProposalLimits,
-    ProposalMapping, ProposalNode, ProposalValidationError, ProposalValidationErrorCode,
-    ProposalValidationFailure, SnapshotDigests, WorkflowProposal, canonicalize_proposal,
+    CanonicalProposal, DEFAULT_MAX_CONCURRENT_NODES, DEFAULT_MAX_FAN_OUT, DEFAULT_MAX_JOIN_WIDTH,
+    DEFAULT_MAX_QUEUE_DEPTH, ManifestReference, MappingSource, ParallelSchedule,
+    ParallelScheduleError, ParallelScheduleErrorCode, ParallelScheduleFailure,
+    ParallelScheduleLimits, ProposalEdge, ProposalLimits, ProposalMapping, ProposalNode,
+    ProposalValidationError, ProposalValidationErrorCode, ProposalValidationFailure,
+    SnapshotDigests, WorkflowProposal, canonicalize_proposal, compute_parallel_schedule,
     proposal_digest, proposal_snapshot_digest,
 };
 pub use usage_telemetry::{NoOpUsageTelemetrySink, UsageEvent, UsageEventKind, UsageTelemetrySink};

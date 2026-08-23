@@ -431,6 +431,172 @@ fn topological_order(
     }
 }
 
+// ---------------------------------------------------------------------------
+// Bounded parallel scheduling (spec 110 P2, ADR-0042)
+// ---------------------------------------------------------------------------
+
+/// Configured parallel-scheduling bounds a P2 execution schedule must fall
+/// within (spec 110 FR-001, FR-005). Values are host configuration, never
+/// caller-supplied.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct ParallelScheduleLimits {
+    /// Max node ids eligible to become ready and run concurrently in any
+    /// single wave.
+    pub max_fan_out: usize,
+    /// Max direct predecessors (in-degree) converging into any single node.
+    pub max_join_width: usize,
+    /// Max total node ids across the whole schedule.
+    pub max_queue_depth: usize,
+    /// Max node executions the runtime may dispatch at once within a wave.
+    pub max_concurrent_nodes: usize,
+}
+
+pub const DEFAULT_MAX_FAN_OUT: usize = 8;
+pub const DEFAULT_MAX_JOIN_WIDTH: usize = 8;
+pub const DEFAULT_MAX_QUEUE_DEPTH: usize = 16;
+pub const DEFAULT_MAX_CONCURRENT_NODES: usize = 8;
+
+impl Default for ParallelScheduleLimits {
+    fn default() -> Self {
+        Self {
+            max_fan_out: DEFAULT_MAX_FAN_OUT,
+            max_join_width: DEFAULT_MAX_JOIN_WIDTH,
+            max_queue_depth: DEFAULT_MAX_QUEUE_DEPTH,
+            max_concurrent_nodes: DEFAULT_MAX_CONCURRENT_NODES,
+        }
+    }
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, Serialize)]
+pub struct ParallelScheduleError {
+    pub code: ParallelScheduleErrorCode,
+    pub message: String,
+    pub path: String,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize)]
+#[serde(rename_all = "snake_case")]
+pub enum ParallelScheduleErrorCode {
+    FanOutExceeded,
+    JoinWidthExceeded,
+    QueueDepthExceeded,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParallelScheduleFailure {
+    pub errors: Vec<ParallelScheduleError>,
+}
+
+/// A bounded schedule of concurrency waves over an already-canonicalized
+/// proposal (spec 110 FR-001, FR-002). Each wave is the set of node ids
+/// whose dependencies are fully satisfied by earlier waves, sorted
+/// lexicographically for deterministic dispatch order.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct ParallelSchedule {
+    pub waves: Vec<Vec<String>>,
+}
+
+/// Levelizes an already-canonicalized, acyclic proposal into concurrency
+/// waves and checks it against configured fan-out/join-width/queue-depth
+/// bounds (spec 110 FR-001, FR-005: reject before doing any work). Performs
+/// no capability-contract lookups — the `pure_read`-only constraint
+/// (FR-004a) requires resolved contracts and is enforced in
+/// `traverse-runtime`.
+///
+/// # Errors
+///
+/// Returns [`ParallelScheduleFailure`] listing every exceeded bound.
+pub fn compute_parallel_schedule(
+    canonical: &CanonicalProposal,
+    limits: &ParallelScheduleLimits,
+) -> Result<ParallelSchedule, ParallelScheduleFailure> {
+    let mut errors = Vec::new();
+
+    let node_ids: BTreeSet<String> = canonical
+        .proposal
+        .nodes
+        .iter()
+        .map(|node| node.node_id.clone())
+        .collect();
+    if node_ids.len() > limits.max_queue_depth {
+        errors.push(ParallelScheduleError {
+            code: ParallelScheduleErrorCode::QueueDepthExceeded,
+            message: format!(
+                "schedule has {} nodes, exceeding the configured queue depth of {}",
+                node_ids.len(),
+                limits.max_queue_depth
+            ),
+            path: "$.nodes".to_string(),
+        });
+    }
+
+    let mut adjacency: BTreeMap<String, BTreeSet<String>> = BTreeMap::new();
+    let mut in_degree: BTreeMap<String, usize> =
+        node_ids.iter().map(|id| (id.clone(), 0)).collect();
+    for edge in &canonical.proposal.edges {
+        adjacency
+            .entry(edge.from_node_id.clone())
+            .or_default()
+            .insert(edge.to_node_id.clone());
+        *in_degree.entry(edge.to_node_id.clone()).or_insert(0) += 1;
+    }
+
+    for (node_id, degree) in &in_degree {
+        if *degree > limits.max_join_width {
+            errors.push(ParallelScheduleError {
+                code: ParallelScheduleErrorCode::JoinWidthExceeded,
+                message: format!(
+                    "node '{node_id}' has {degree} direct predecessors, exceeding the configured join width of {}",
+                    limits.max_join_width
+                ),
+                path: format!("$.nodes[?node_id={node_id}]"),
+            });
+        }
+    }
+
+    let mut remaining_in_degree = in_degree.clone();
+    let mut ready: BTreeSet<String> = node_ids
+        .iter()
+        .filter(|id| remaining_in_degree.get(*id).copied().unwrap_or(0) == 0)
+        .cloned()
+        .collect();
+    let mut waves = Vec::new();
+    while !ready.is_empty() {
+        let wave: Vec<String> = ready.iter().cloned().collect();
+        if wave.len() > limits.max_fan_out {
+            errors.push(ParallelScheduleError {
+                code: ParallelScheduleErrorCode::FanOutExceeded,
+                message: format!(
+                    "{} nodes became ready concurrently, exceeding the configured fan-out of {}",
+                    wave.len(),
+                    limits.max_fan_out
+                ),
+                path: "$.nodes".to_string(),
+            });
+        }
+        let mut next_ready = BTreeSet::new();
+        for node_id in &wave {
+            if let Some(successors) = adjacency.get(node_id) {
+                for successor in successors {
+                    let degree = remaining_in_degree.entry(successor.clone()).or_insert(0);
+                    *degree -= 1;
+                    if *degree == 0 {
+                        next_ready.insert(successor.clone());
+                    }
+                }
+            }
+        }
+        waves.push(wave);
+        ready = next_ready;
+    }
+
+    if errors.is_empty() {
+        Ok(ParallelSchedule { waves })
+    } else {
+        Err(ParallelScheduleFailure { errors })
+    }
+}
+
 /// Deterministic, independently-reproducible digest of a proposal's canonical
 /// JSON form (spec 109 FR-003, FR-007a). Uses recursively key-sorted JSON
 /// (not Rust `Debug` formatting) hashed with SHA-256, so an external proposer
