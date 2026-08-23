@@ -2357,3 +2357,98 @@ ADR-0044 recorded. `traverse#1100` rescoped from an execution-ceremony
 implementation gap to an integration/validation ticket: confirm the
 already-approved browser-hosted MCP execute path works end-to-end; `needs-spec`
 removed since no new governing document is required.
+
+## Decision 62: Declarative Workflow Planner Chains on Schema-Shape Compatibility, Not `consumes`/`emits`
+
+- **Date**: 2026-08-23
+- **Status**: Accepted; Spec `113` amended to v0.2.0, ADR-0043 amended, both approved same-day
+- **Governing spec**: `113-declarative-workflow-planning` (v0.2.0); ADR-0043 (amended)
+- **Related issues**: `traverse#1098`; registry `#305`
+- **Origin**: A registry-ops session working registry `#305` (Decision 61's reopened, scoped backfill ask) found that registry's own already-governed FR-020 capability inventory directly contradicts the premise that a real `consumes`/`emits` backfill exists to do, and raised it as a live, owner-participated brainstorm spanning both repos rather than either fabricating the backfill or leaving `#1098` blocked indefinitely.
+
+### Context
+
+Decision 59 / spec `113` FR-002 required the planner to chain on declared
+`consumes`/`emits` (`EventReference`) linkage. Decision 61 reopened
+registry `#305` to get that data populated for the 98 in-source
+capabilities. Before attempting the backfill, registry's own
+`contracts/governance/ecca-capability-inventory.json` (registry decision
+57, CI-enforced) was checked directly rather than assumed: it classifies
+45 of registry's 46 unique published capability IDs as `no-event-required`
+— reviewed, merged content stating they are synchronous, direct-return
+capabilities with no asynchronous domain fact to broadcast. This holds even
+for the five capabilities in two already-published, human-reviewed
+`workflows/*.json` chains (`doc-approval.analyze` -> `doc-approval.recommend`;
+`traverse-starter.validate` -> `.process` -> `.summarize`) — real,
+structurally-composable data dependencies that are nonetheless not
+asynchronous events. Registry's own `graph.rs` composition-graph builder
+confirmed this isn't just a labeling question: a declared `emits`/`consumes`
+`EventReference` only produces a graph edge when it resolves against a real,
+registered `events/**/product.json`; an unbacked reference is functionally
+inert there, not a working shortcut.
+
+### Decision
+
+Change the planner's chain-discovery signal (spec `113` FR-002/FR-003) from
+declared `consumes`/`emits` linkage to structural `inputs.schema`/
+`outputs.schema` compatibility: a candidate producer's `outputs.schema`
+structurally satisfies a candidate consumer's `inputs.schema` when every
+property named in the consumer's `inputs.schema.required` exists in the
+producer's `outputs.schema.properties` with a matching JSON type. This is
+not new computation — the planner already derives this exact relationship
+for its FR-005 field-mapping step. A capability that separately declares
+real `consumes`/`emits` linkage to a governed event may still be selected
+on that basis too; the two signals are independent, not a replacement of
+one by the other. `consumes`/`emits` keeps meaning what it means everywhere
+else in the org (a real, governed, decoupled-subscriber event); nothing
+about registry's FR-020 classification needed to change.
+
+False-positive risk (two unrelated capabilities whose schemas happen to
+overlap, e.g. both taking `{id: string}`) is accepted rather than solved
+here: FR-005/FR-006's `mapping_unconfirmed` flag and mandatory human review
+before any submission already gate exactly this risk, and nothing a planner
+proposes ever executes unreviewed.
+
+Both the spec and ADR amendments are approved on creation, per this org's
+existing precedent that a decision tracing directly to a live,
+owner-participated brainstorm — not an agent-invented draft — already has
+its sign-off.
+
+### Alternatives Considered
+
+- Loosen registry's FR-020 inventory criterion instead, keep `consumes`/
+  `emits` as the sole signal — rejected; would require ~26 capabilities to
+  carry full governed-event ceremony (privacy field classification,
+  retention policy, CloudEvents mapping, spec `534`'s full descriptor) for
+  relationships that were never really asynchronous events, and blurs the
+  event-vs-workflow-composition distinction registry's decision 57
+  deliberately drew.
+- Backfill `consumes`/`emits` anyway, treating a bare `EventReference` with
+  no matching `events/**/product.json` as sufficient — rejected; produces
+  zero graph edges in registry's own tooling (functionally inert) and
+  repeats the overclaiming pattern registry decision-log entries 61/64
+  exist to prevent.
+- Exact full-schema match instead of required-property overlap — rejected;
+  independently-authored capabilities' schemas are rarely exactly equal or
+  a strict superset even when genuinely composable, so this would find very
+  few real chains.
+- A new named/tagged data-shape identifier capabilities opt into (e.g. an
+  `x-data-shape` tag) — deferred, not rejected; avoids both false positives
+  and event ceremony, but is itself a new schema convention needing its own
+  spec and per-capability adoption. Worth reconsidering if structural
+  matching's false-positive rate proves too high in practice.
+- Do nothing, accept the planner finds almost no candidates until genuinely
+  event-driven capabilities grow organically — rejected; leaves `#1098`
+  effectively blocked indefinitely and doesn't address why registry `#305`
+  was reopened in the first place.
+
+### Outcome
+
+Spec `113` amended to v0.2.0 (FR-002/FR-003, Purpose, and Acceptance
+scenarios 1-3 updated; no other requirement changed). ADR-0043 amended in
+place (status line notes the amendment; Decision/Consequences/Alternatives
+rewritten to the new signal). Registry `#305` closed as resolved-by-redirect
+rather than by backfill (registry decision-log entry 68, cross-referencing
+this entry). `traverse#1098`'s `blocked by registry#305` relationship is
+removed — it is now unblocked by this spec amendment landing, not by any
+registry-side work.
