@@ -2233,6 +2233,75 @@ return almost no candidates until registry `#305` backfills real
 `consumes`/`emits` data — that dependency is recorded as a formal
 `blocked by` relationship on `#1098`, not just prose.
 
+## Decision 61: Break the #1098 / Registry #305 Circular Wait by Reopening #305, Scoped
+
+- **Date**: 2026-08-23
+- **Status**: Accepted
+- **Governing spec**: `113-declarative-workflow-planning` (no change — this decision only acts on an already-approved requirement); related registry `100-`series namespace/discovery umbrella
+- **Related issues**: `traverse#1098`; registry `#305`, `#302`
+- **Origin**: User asked which registry ticket was actually blocking traverse work, surfaced from the registry repo's own Project board (which showed `#103`/`#302` as Blocked, neither of which is the real blocker).
+
+### Context
+
+Registry `#305` documented the empirical gap Decision 59 already leaned
+on: 116/116 published capability versions have empty `emits`, 0/116 have
+non-empty `consumes`. It was closed as `COMPLETED`, but its own closing
+comment says the investigation-only close was deliberate: *"the
+traverse-framework/traverse runtime team is evaluating this gap
+themselves... before this repo backfills."* That evaluation is exactly
+what Decision 59 / spec `113` FR-002 did same-day ("plans only from
+capabilities with real, declared consumes/emits linkage; no
+namespace/verb-name fallback") — but nothing had gone back to `#305` to
+say so, leaving both sides waiting on each other. Separately, registry
+`#302` documents that 18 of the 116 capabilities (`owner.team:
+"callweave"`) have no `capability-src/` in-repo at all, only a compiled
+`.wasm` release artifact — those can't be backfilled without external
+contribution regardless of `#305`'s outcome.
+
+### Decision
+
+1. **Reopen `#305`** rather than filing a fresh issue or only commenting on
+   the closed one — keeps the existing empirical data (116/116 measured)
+   and investigation history in one thread, with a new comment stating
+   spec `113` is the runtime-side decision `#305` was waiting on.
+2. **Scope the reopened ask to the 98 capabilities with real
+   `capability-src/` in this repo**, explicitly excluding the 18
+   Callweave-owned, sourceless capabilities from `#302` — asking for all
+   116 at once would make the ticket blocked on an unrelated external-
+   contribution issue before it could ever fully close.
+3. **File and stop** — this traverse-repo session has `gh` API access to
+   `traverse-framework/registry` for issue/comment/label operations but no
+   cloned worktree there, so it reopens and scopes the ask but does not
+   attempt the backfill itself.
+4. **Comment on `traverse#1098` only** (not umbrella `#1099`) linking the
+   reopened `#305` and its scope, so anyone reading `#1098` later sees
+   exactly what unblocking it now depends on, without taking on upkeep of
+   a second, higher-level umbrella thread that tends to go stale regardless.
+
+### Alternatives Considered
+
+- File a brand-new registry issue instead of reopening `#305` — rejected;
+  fragments the empirical 116/116 measurement and prior triage history
+  across two issues for no real benefit.
+- Ask for a full 116-capability backfill in one pass — rejected; couples
+  a resolvable request to `#302`'s unrelated external-contribution
+  dependency, which could stall `#305` indefinitely.
+- Attempt the backfill directly from this session — rejected; out of
+  this worktree's actual reach (registry access here is `gh`-API-only,
+  no local clone to edit contract files in).
+- Update umbrella `#1099` too — deferred, not rejected; `#1098`'s own
+  comment is the operative record, and `#1099` can be refreshed in a
+  dedicated backlog-gardening pass instead of piecemeal per sub-issue.
+
+### Outcome
+
+`traverse-framework/registry#305` reopened with a comment linking spec
+`113`'s FR-002 and scoping the ask to the 98 in-source capabilities (18
+Callweave-owned ones deferred to `#302`). `traverse#1098` commented with
+the same scoping so its `blocked by #305` relationship (recorded in
+Decision 59) now points at a live, correctly-scoped ticket instead of a
+closed one.
+
 ## Decision 60: Single-Capability Browser Execution Routes Through `execute_entrypoint`, Not an Extended BundleEmbedder
 
 - **Date**: 2026-08-22
