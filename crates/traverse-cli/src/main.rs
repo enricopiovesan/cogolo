@@ -3515,6 +3515,13 @@ fn capability_publish_plan(
         )
     })?;
     merge_author_fields_into_publish_contract(&mut contract_value, &raw_contract_value);
+    // Issue #859: `artifact.digest`/`artifact.url` are always computed here from the real
+    // artifact binary (`request.artifact_path`), never taken from the author-supplied
+    // contract. `CapabilityContract` intentionally has no `artifact` field for this reason:
+    // an author cannot know the real digest before the artifact is built, and a value they
+    // did supply must not be trusted into a published index entry. Do not add `artifact`
+    // to `merge_author_fields_into_publish_contract` — that would let an author-forged
+    // digest/url reach the registry.
     contract_value["artifact"] = serde_json::json!({
         "digest": artifact_digest,
         "url": artifact_url,
@@ -7560,6 +7567,45 @@ mod tests {
         assert!(!commands.contains("056-capability-publish"));
         assert_eq!(json["registry_repo"], "traverse-framework/registry");
         assert!(commands.contains("--repo traverse-framework/registry"));
+    }
+
+    #[test]
+    fn capability_publish_overrides_author_supplied_artifact_field() {
+        // Issue #859: `CapabilityContract` has no `artifact` field, so an author-supplied
+        // one is dropped on parse; publish must still end up with the real digest/url
+        // computed from the actual artifact binary, never a forged author value.
+        let fixture = capability_publish_fixture();
+        let mut contract: Value = serde_json::from_str(
+            &fs::read_to_string(&fixture.contract).expect("fixture contract should read"),
+        )
+        .expect("fixture contract should parse");
+        contract["artifact"] = serde_json::json!({
+            "digest": "sha256:forged-by-author",
+            "url": "https://evil.example/fake.wasm",
+        });
+        fs::write(
+            &fixture.contract,
+            serde_json::to_string_pretty(&contract).expect("forged contract should serialize"),
+        )
+        .expect("forged contract should write");
+        let runner = RecordingPublishRunner::default();
+
+        let output = capability_publish_at(&fixture.request(false), &runner)
+            .expect("publish should open PR with fake runner");
+        let json: Value = serde_json::from_str(&output).expect("publish output must be JSON");
+        let published: Value = serde_json::from_str(
+            &fs::read_to_string(fixture.registry_contract_path())
+                .expect("published registry contract should read"),
+        )
+        .expect("published registry contract should parse");
+
+        assert_ne!(published["artifact"]["digest"], "sha256:forged-by-author");
+        assert_ne!(
+            published["artifact"]["url"],
+            "https://evil.example/fake.wasm"
+        );
+        assert_eq!(published["artifact"]["digest"], json["artifact_digest"]);
+        assert_eq!(published["artifact"]["url"], json["artifact_url"]);
     }
 
     #[test]
