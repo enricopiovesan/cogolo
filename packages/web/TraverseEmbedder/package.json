@@ -19,10 +19,12 @@
   },
   "files": [
     "dist",
-    "README.md"
+    "README.md",
+    "LICENSE"
   ],
   "scripts": {
     "build": "tsc",
+    "prepublishOnly": "npm run build",
     "test": "npm run build && node --test tests/embedder.test.mjs tests/bundleEmbedder.test.mjs tests/registryCache.test.mjs tests/indexedDbDataStore.test.mjs"
   },
   "devDependencies": {
