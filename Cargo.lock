@@ -2648,6 +2648,7 @@ dependencies = [
  "semver",
  "serde",
  "serde_json",
+ "sha2 0.11.0",
 ]
 
 [[package]]
@@ -2676,6 +2677,7 @@ dependencies = [
 name = "traverse-mcp"
 version = "0.9.1"
 dependencies = [
+ "ed25519-dalek",
  "serde",
  "serde_json",
  "traverse-contracts",

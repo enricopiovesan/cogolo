@@ -13,6 +13,7 @@ pub mod executor;
 #[cfg(feature = "native-inference")]
 pub mod inference;
 pub mod placement;
+pub mod proposal;
 pub mod router;
 pub mod security;
 pub mod trace;
