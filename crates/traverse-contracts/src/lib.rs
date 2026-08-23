@@ -5,8 +5,15 @@ use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use std::collections::{BTreeSet, HashSet};
 
+pub mod proposal;
 pub mod usage_telemetry;
 pub mod violations;
+pub use proposal::{
+    CanonicalProposal, ManifestReference, MappingSource, ProposalEdge, ProposalLimits,
+    ProposalMapping, ProposalNode, ProposalValidationError, ProposalValidationErrorCode,
+    ProposalValidationFailure, SnapshotDigests, WorkflowProposal, canonicalize_proposal,
+    proposal_digest, proposal_snapshot_digest,
+};
 pub use usage_telemetry::{NoOpUsageTelemetrySink, UsageEvent, UsageEventKind, UsageTelemetrySink};
 pub use violations::ViolationRecord;
 
