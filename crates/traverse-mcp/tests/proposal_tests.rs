@@ -259,6 +259,27 @@ fn linear_proposal_json(proposal_id: &str) -> String {
     .to_string()
 }
 
+/// Fails `canonicalize_proposal` (wrong `kind`), exercising the structural-
+/// validation-failure branch of every MCP tool function.
+fn structurally_invalid_proposal_json(proposal_id: &str) -> String {
+    json!({
+        "kind": "not_a_workflow_proposal",
+        "schema_version": "1.0.0",
+        "proposal_id": proposal_id,
+        "workspace_id": "workspace-001",
+        "app_manifest": {
+            "app_id": "test-app",
+            "app_version": "1.0.0",
+            "manifest_digest": "sha256:manifest-digest"
+        },
+        "nodes": [],
+        "edges": [],
+        "mappings": [],
+        "initial_input": {}
+    })
+    .to_string()
+}
+
 struct EchoExecutor;
 
 impl LocalExecutor for EchoExecutor {
@@ -310,6 +331,27 @@ fn validate_proposal_accepts_a_well_formed_automatic_proposal() -> Result<(), St
     assert!(response.valid, "errors: {:?}", response.errors);
     assert!(response.errors.is_empty());
     assert!(!response.proposal_digest.is_empty());
+    Ok(())
+}
+
+#[test]
+fn validate_proposal_rejects_a_structurally_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.single", "1.0.0")], &automatic_risk());
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+
+    let response = validate_proposal(
+        &structurally_invalid_proposal_json("proposal-bad-kind"),
+        &manifest,
+        &registry,
+        &ProposalLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    assert!(!response.valid);
+    assert!(!response.errors.is_empty());
     Ok(())
 }
 
@@ -389,6 +431,57 @@ fn submit_proposal_reports_automatic_eligibility_and_a_bound_snapshot_digest() -
 }
 
 #[test]
+fn submit_proposal_reports_a_structurally_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.single", "1.0.0")], &automatic_risk());
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+
+    let response = submit_proposal(
+        &structurally_invalid_proposal_json("proposal-submit-bad-kind"),
+        &manifest,
+        &registry,
+        &ProposalLimits::default(),
+        &snapshots(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    assert!(!response.valid);
+    assert!(!response.automatic_eligible);
+    assert!(!response.errors.is_empty());
+    Ok(())
+}
+
+#[test]
+fn submit_proposal_reports_a_cross_validation_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.other", "1.0.0")], &automatic_risk()); // does not declare test.single
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+
+    let response = submit_proposal(
+        &linear_proposal_json("proposal-submit-undeclared"),
+        &manifest,
+        &registry,
+        &ProposalLimits::default(),
+        &snapshots(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    assert!(!response.valid);
+    assert!(!response.automatic_eligible);
+    assert!(
+        response
+            .errors
+            .iter()
+            .any(|e| e.code == "undeclared_capability")
+    );
+    Ok(())
+}
+
+#[test]
 fn authorization_state_is_automatic_for_an_automatic_eligible_proposal() -> Result<(), String> {
     let manifest = manifest_declaring(&[("test.single", "1.0.0")], &automatic_risk());
     let registry = registry_with(vec![(
@@ -425,6 +518,52 @@ fn authorization_state_requires_approval_for_a_non_automatic_proposal() -> Resul
     .map_err(|e| format!("{e:?}"))?;
 
     assert_eq!(state, AuthorizationState::RequiresApprovalToken);
+    Ok(())
+}
+
+#[test]
+fn authorization_state_is_invalid_for_a_structurally_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.single", "1.0.0")], &automatic_risk());
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+
+    let state = authorization_state(
+        &structurally_invalid_proposal_json("proposal-auth-bad-kind"),
+        &manifest,
+        &registry,
+        &ProposalLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    let AuthorizationState::Invalid { errors } = state else {
+        return Err(format!("expected Invalid, got {state:?}"));
+    };
+    assert!(!errors.is_empty());
+    Ok(())
+}
+
+#[test]
+fn authorization_state_is_invalid_for_a_cross_validation_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.other", "1.0.0")], &automatic_risk()); // does not declare test.single
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+
+    let state = authorization_state(
+        &linear_proposal_json("proposal-auth-undeclared"),
+        &manifest,
+        &registry,
+        &ProposalLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    let AuthorizationState::Invalid { errors } = state else {
+        return Err(format!("expected Invalid, got {state:?}"));
+    };
+    assert!(errors.iter().any(|e| e.code == "undeclared_capability"));
     Ok(())
 }
 
@@ -497,6 +636,175 @@ fn execute_proposal_via_mcp_succeeds_for_an_automatic_eligible_proposal() -> Res
     // The redacted trace must never carry raw payloads or secrets.
     assert!(observed.get("initial_input").is_none());
     assert!(observed.get("output").is_none());
+    Ok(())
+}
+
+#[test]
+fn execute_proposal_via_mcp_denies_a_structurally_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.single", "1.0.0")], &automatic_risk());
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+    let runtime = Runtime::new(registry.clone(), EchoExecutor)
+        .with_security_config(RuntimeSecurityConfig::development());
+    let token_store = ApprovalTokenStore::new();
+    let quota_tracker = QuotaTracker::new();
+    let keys = HashMap::new();
+    let proposal_json = structurally_invalid_proposal_json("proposal-exec-bad-kind");
+
+    let response = execute_proposal_via_mcp(
+        &runtime,
+        &execution_context(
+            &proposal_json,
+            &manifest,
+            &registry,
+            &ProposalLimits::default(),
+            &snapshots(),
+            None,
+            &keys,
+        ),
+        &token_store,
+        &quota_tracker,
+        &QuotaLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    let ProposalExecutionResponse::Denied { code, .. } = response else {
+        return Err(format!("expected a denial, got {response:?}"));
+    };
+    assert_eq!(code, "invalid_proposal");
+    Ok(())
+}
+
+#[test]
+fn execute_proposal_via_mcp_denies_a_cross_validation_invalid_proposal() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.other", "1.0.0")], &automatic_risk()); // does not declare test.single
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+    let runtime = Runtime::new(registry.clone(), EchoExecutor)
+        .with_security_config(RuntimeSecurityConfig::development());
+    let token_store = ApprovalTokenStore::new();
+    let quota_tracker = QuotaTracker::new();
+    let keys = HashMap::new();
+    let proposal_json = linear_proposal_json("proposal-exec-undeclared");
+
+    let response = execute_proposal_via_mcp(
+        &runtime,
+        &execution_context(
+            &proposal_json,
+            &manifest,
+            &registry,
+            &ProposalLimits::default(),
+            &snapshots(),
+            None,
+            &keys,
+        ),
+        &token_store,
+        &quota_tracker,
+        &QuotaLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    let ProposalExecutionResponse::Denied { code, .. } = response else {
+        return Err(format!("expected a denial, got {response:?}"));
+    };
+    assert_eq!(code, "invalid_proposal");
+    Ok(())
+}
+
+#[test]
+fn execute_proposal_via_mcp_denies_when_the_approval_token_use_count_is_already_exhausted()
+-> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.single", "1.0.0")], &non_automatic_risk());
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", non_automatic_risk()),
+        artifact("digest-a"),
+    )]);
+    let runtime = Runtime::new(registry.clone(), EchoExecutor)
+        .with_security_config(RuntimeSecurityConfig::development());
+    let token_store = ApprovalTokenStore::new();
+    let quota_tracker = QuotaTracker::new();
+    let signing_key = SigningKey::from_bytes(&[13_u8; 32]);
+    let mut keys = HashMap::new();
+    keys.insert("key-1".to_string(), signing_key.verifying_key());
+
+    let proposal_json = linear_proposal_json("proposal-exec-use-count");
+    let submission = submit_proposal(
+        &proposal_json,
+        &manifest,
+        &registry,
+        &ProposalLimits::default(),
+        &snapshots(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    // max_use_count: 1 — the token store must reject the second execute call
+    // with the *same* token even though its signature and digest bindings
+    // are still perfectly valid (spec 109 FR-006a use-count enforcement).
+    let token = sign_token(
+        &json!({
+            "jti": "token-single-use-001",
+            "iss": "traverse-approval-service",
+            "aud": "traverse-runtime",
+            "sub": "principal-001",
+            "workspace_id": "workspace-001",
+            "proposal_digest": submission.proposal_digest,
+            "snapshot_digest": submission.snapshot_digest,
+            "permitted_effects": ["external_effect"],
+            "permitted_connectors": [],
+            "max_use_count": 1,
+            "exp": 4_102_444_800_i64,
+        }),
+        &signing_key,
+        "key-1",
+    );
+
+    let first = execute_proposal_via_mcp(
+        &runtime,
+        &execution_context(
+            &proposal_json,
+            &manifest,
+            &registry,
+            &ProposalLimits::default(),
+            &snapshots(),
+            Some(&token),
+            &keys,
+        ),
+        &token_store,
+        &quota_tracker,
+        &QuotaLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+    let ProposalExecutionResponse::Trace(_) = first else {
+        return Err(format!("expected the first use to succeed, got {first:?}"));
+    };
+
+    let second = execute_proposal_via_mcp(
+        &runtime,
+        &execution_context(
+            &proposal_json,
+            &manifest,
+            &registry,
+            &ProposalLimits::default(),
+            &snapshots(),
+            Some(&token),
+            &keys,
+        ),
+        &token_store,
+        &quota_tracker,
+        &QuotaLimits::default(),
+    )
+    .map_err(|e| format!("{e:?}"))?;
+
+    let ProposalExecutionResponse::Denied { code, .. } = second else {
+        return Err(format!(
+            "expected the second use to be denied, got {second:?}"
+        ));
+    };
+    assert_eq!(code, "use_count_exhausted");
     Ok(())
 }
 
@@ -827,4 +1135,13 @@ fn export_proposal_digest_matches_submit_proposal_digest() -> Result<(), String>
     assert_eq!(export.proposal_digest, submission.proposal_digest);
     assert_eq!(export.execution_order, vec!["a".to_string()]);
     Ok(())
+}
+
+#[test]
+fn export_proposal_rejects_a_structurally_invalid_proposal() {
+    let result = export_proposal(
+        &structurally_invalid_proposal_json("proposal-export-bad-kind"),
+        &ProposalLimits::default(),
+    );
+    assert!(result.is_err());
 }

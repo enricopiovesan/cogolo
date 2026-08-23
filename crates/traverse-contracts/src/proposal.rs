@@ -409,14 +409,17 @@ fn topological_order(
     while let Some(next) = ready.iter().next().cloned() {
         ready.remove(&next);
         order.push(next.clone());
-        if let Some(successors) = adjacency.get(&next) {
-            for successor in successors {
-                if let Some(degree) = remaining_in_degree.get_mut(successor) {
-                    *degree -= 1;
-                    if *degree == 0 {
-                        ready.insert(successor.clone());
-                    }
-                }
+        let Some(successors) = adjacency.get(&next) else {
+            continue;
+        };
+        for successor in successors {
+            // Every successor was validated to be a declared node_id before
+            // this function runs, and `remaining_in_degree` is seeded with
+            // every declared node_id — this entry always already exists.
+            let degree = remaining_in_degree.entry(successor.clone()).or_insert(0);
+            *degree -= 1;
+            if *degree == 0 {
+                ready.insert(successor.clone());
             }
         }
     }

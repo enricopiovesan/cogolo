@@ -222,12 +222,14 @@ pub fn validate_proposal_against_host_state(
             ));
             continue;
         }
+        let is_external_or_irreversible_effect = matches!(
+            target.contract.risk.effect_class,
+            EffectClass::ExternalEffect | EffectClass::IrreversibleEffect
+        );
+        let egress_is_denied = target.contract.risk.data_flow.egress_policy == EgressPolicy::Denied;
         if produced_classification > DataClassification::Public
-            && matches!(
-                target.contract.risk.effect_class,
-                EffectClass::ExternalEffect | EffectClass::IrreversibleEffect
-            )
-            && target.contract.risk.data_flow.egress_policy == EgressPolicy::Denied
+            && is_external_or_irreversible_effect
+            && egress_is_denied
         {
             errors.push(cross_error(
                 ProposalCrossValidationErrorCode::EgressDeniedForClassifiedMapping,
@@ -1073,33 +1075,30 @@ fn pointer_get<'a>(value: &'a Value, pointer: &str) -> Option<&'a Value> {
 
 fn pointer_set(target: &mut Value, pointer: &str, new_value: Value) {
     let segments: Vec<&str> = pointer.split('/').filter(|s| !s.is_empty()).collect();
-    let Some((last, ancestors)) = segments.split_last() else {
-        *target = new_value;
-        return;
+    *target = set_at_segments(std::mem::take(target), &segments, new_value);
+}
+
+/// Recursively rebuilds `current` with `new_value` inserted at `segments`,
+/// creating intermediate objects as needed and overwriting any non-object
+/// value found along the path. Every branch here is a real semantic case
+/// (root replacement, descend-into-existing-object, or create-fresh-object)
+/// rather than a defensive fallback, so there is no unreachable arm to guard.
+fn set_at_segments(current: Value, segments: &[&str], new_value: Value) -> Value {
+    let Some((head, rest)) = segments.split_first() else {
+        return new_value;
     };
-    let mut current = target;
-    for segment in ancestors {
-        if !current.is_object() {
-            *current = Value::Object(serde_json::Map::new());
-        }
-        let Value::Object(map) = current else {
-            return;
-        };
-        current = map
-            .entry((*segment).to_string())
-            .or_insert_with(|| Value::Object(serde_json::Map::new()));
-    }
-    if !current.is_object() {
-        *current = Value::Object(serde_json::Map::new());
-    }
-    let Value::Object(map) = current else {
-        return;
+    let mut map = match current {
+        Value::Object(map) => map,
+        _ => serde_json::Map::new(),
     };
-    map.insert((*last).to_string(), new_value);
+    let child = map.remove(*head).unwrap_or(Value::Null);
+    map.insert((*head).to_string(), set_at_segments(child, rest, new_value));
+    Value::Object(map)
 }
 
 #[cfg(test)]
 #[allow(clippy::expect_used)]
+#[allow(clippy::panic)]
 mod tests {
     use super::*;
     use crate::security::RuntimeSecurityConfig;
@@ -1372,6 +1371,39 @@ mod tests {
     fn linear_canonical() -> CanonicalProposal {
         canonicalize_proposal(linear_proposal_source(), &ProposalLimits::default())
             .expect("linear proposal must canonicalize")
+    }
+
+    fn initial_input_proposal_source() -> WorkflowProposal {
+        WorkflowProposal {
+            kind: "workflow_proposal".to_string(),
+            schema_version: "1.0.0".to_string(),
+            proposal_id: "proposal-002".to_string(),
+            workspace_id: "workspace-001".to_string(),
+            app_manifest: ManifestReference {
+                app_id: "test-app".to_string(),
+                app_version: "1.0.0".to_string(),
+                manifest_digest: "sha256:manifest-digest".to_string(),
+            },
+            nodes: vec![ProposalNode {
+                node_id: "x".to_string(),
+                capability_id: "test.consume".to_string(),
+                capability_version: "1.0.0".to_string(),
+                artifact_digest: "digest-x".to_string(),
+            }],
+            edges: Vec::new(),
+            mappings: vec![ProposalMapping {
+                source: MappingSource::InitialInput,
+                source_path: "/value".to_string(),
+                target_node_id: "x".to_string(),
+                target_path: "/nested/value".to_string(),
+            }],
+            initial_input: json!({"value": "from-caller"}),
+        }
+    }
+
+    fn initial_input_canonical() -> CanonicalProposal {
+        canonicalize_proposal(initial_input_proposal_source(), &ProposalLimits::default())
+            .expect("initial-input proposal must canonicalize")
     }
 
     // -- Cross-validation ---------------------------------------------------
@@ -1717,6 +1749,60 @@ mod tests {
         );
     }
 
+    #[test]
+    fn accepts_a_mapping_sourced_from_initial_input_with_no_classification_check() {
+        let manifest = manifest_declaring(&[("test.consume", "1.0.0")]);
+        let registry = registry_with(vec![(
+            contract(
+                "test.consume",
+                "1.0.0",
+                json!({"type": "object"}),
+                json!({"type": "object"}),
+                automatic_risk(),
+            ),
+            artifact("digest-x"),
+        )]);
+
+        let resolved =
+            validate_proposal_against_host_state(&initial_input_canonical(), &manifest, &registry)
+                .expect("an initial-input-sourced mapping needs no capability-to-capability classification check");
+        assert_eq!(resolved.len(), 1);
+    }
+
+    #[test]
+    fn validate_proposal_against_host_state_skips_a_mapping_whose_target_node_is_not_resolved() {
+        // `mapping.target_node_id` is normally guaranteed to reference a
+        // declared node by `canonicalize_proposal`'s own validation, but
+        // `CanonicalProposal` has public fields, so a caller could construct
+        // one by hand bypassing that guarantee. This proves the function
+        // degrades gracefully (skips the dangling mapping) rather than
+        // panicking on such a malformed value.
+        let manifest = manifest_declaring(&[("test.produce", "1.0.0")]);
+        let registry = registry_with(vec![(
+            contract(
+                "test.produce",
+                "1.0.0",
+                json!({"type": "object"}),
+                json!({"type": "object"}),
+                automatic_risk(),
+            ),
+            artifact("digest-a"),
+        )]);
+
+        let mut proposal = linear_proposal_source();
+        proposal.nodes.truncate(1);
+        proposal.edges.clear();
+        proposal.mappings[0].target_node_id = "ghost".to_string();
+        let canonical = CanonicalProposal {
+            execution_order: vec!["a".to_string()],
+            proposal,
+        };
+
+        let resolved = validate_proposal_against_host_state(&canonical, &manifest, &registry)
+            .expect("a dangling mapping target must not itself fail cross-validation");
+        assert_eq!(resolved.len(), 1);
+    }
+
     // -- Automatic eligibility -----------------------------------------------
 
     #[test]
@@ -1966,6 +2052,150 @@ mod tests {
         assert_eq!(failure.code, ApprovalTokenErrorCode::Expired);
     }
 
+    #[test]
+    fn rejects_a_token_with_an_invalid_base64url_character() {
+        let payload = base64url_encode(valid_claims_payload().to_string().as_bytes());
+        let token = format!("not!valid!base64.{payload}.sig");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("an invalid base64url character must be rejected");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::Malformed);
+    }
+
+    #[test]
+    fn rejects_a_token_whose_header_is_not_valid_json() {
+        let header = base64url_encode(b"not-json");
+        let payload = base64url_encode(valid_claims_payload().to_string().as_bytes());
+        let token = format!("{header}.{payload}.sig");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("a non-JSON header must be rejected");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::Malformed);
+    }
+
+    #[test]
+    fn rejects_a_token_with_a_wrong_length_signature() {
+        let header = base64url_encode(br#"{"alg":"EdDSA","kid":"key-1"}"#);
+        let payload_b64 = base64url_encode(valid_claims_payload().to_string().as_bytes());
+        let short_signature = base64url_encode(b"too-short");
+        let token = format!("{header}.{payload_b64}.{short_signature}");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("a signature that is not 64 bytes must be rejected");
+        assert_eq!(
+            failure.code,
+            ApprovalTokenErrorCode::SignatureVerificationFailed
+        );
+    }
+
+    #[test]
+    fn rejects_a_token_whose_payload_is_not_valid_json() {
+        let key = signing_key();
+        let header = base64url_encode(br#"{"alg":"EdDSA","kid":"key-1"}"#);
+        let payload_b64 = base64url_encode(b"not-json");
+        let signing_input = format!("{header}.{payload_b64}");
+        let signature = key.sign(signing_input.as_bytes());
+        let signature_b64 = base64url_encode(&signature.to_bytes());
+        let token = format!("{header}.{payload_b64}.{signature_b64}");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("a non-JSON payload must be rejected");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::Malformed);
+    }
+
+    #[test]
+    fn rejects_a_token_missing_a_required_string_claim() {
+        let mut payload = valid_claims_payload();
+        payload
+            .as_object_mut()
+            .expect("payload fixture is an object")
+            .remove("jti");
+        let token = sign_token(&payload, &signing_key(), "key-1");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("a missing required string claim must be rejected");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::Malformed);
+    }
+
+    #[test]
+    fn rejects_a_token_missing_max_use_count() {
+        let mut payload = valid_claims_payload();
+        payload
+            .as_object_mut()
+            .expect("payload fixture is an object")
+            .remove("max_use_count");
+        let token = sign_token(&payload, &signing_key(), "key-1");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("a missing max_use_count claim must be rejected");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::Malformed);
+    }
+
+    #[test]
+    fn rejects_a_token_missing_exp() {
+        let mut payload = valid_claims_payload();
+        payload
+            .as_object_mut()
+            .expect("payload fixture is an object")
+            .remove("exp");
+        let token = sign_token(&payload, &signing_key(), "key-1");
+        let keys = keys_with_signing_key();
+        let failure = verify_approval_token(&token, &verification_context(&keys))
+            .expect_err("a missing exp claim must be rejected");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::Malformed);
+    }
+
+    #[test]
+    fn accepts_a_token_permitting_an_irreversible_effect() {
+        let mut payload = valid_claims_payload();
+        payload["permitted_effects"] = json!(["irreversible_effect"]);
+        let token = sign_token(&payload, &signing_key(), "key-1");
+        let keys = keys_with_signing_key();
+        let claims = verify_approval_token(&token, &verification_context(&keys))
+            .expect("a token permitting an irreversible effect must verify");
+        assert_eq!(
+            claims.permitted_effects,
+            vec![EffectClass::IrreversibleEffect]
+        );
+    }
+
+    #[test]
+    fn ignores_an_unrecognized_permitted_effect_string() {
+        let mut payload = valid_claims_payload();
+        payload["permitted_effects"] = json!(["not_a_real_effect", "external_effect"]);
+        let token = sign_token(&payload, &signing_key(), "key-1");
+        let keys = keys_with_signing_key();
+        let claims = verify_approval_token(&token, &verification_context(&keys))
+            .expect("an unrecognized effect string must be filtered out, not rejected");
+        assert_eq!(claims.permitted_effects, vec![EffectClass::ExternalEffect]);
+    }
+
+    #[test]
+    fn approval_token_store_default_starts_with_no_recorded_uses() {
+        let store = ApprovalTokenStore::default();
+        store
+            .check_and_record_use(&claims_with_use_count(1))
+            .expect("a freshly defaulted store has no recorded uses");
+    }
+
+    #[test]
+    fn check_and_record_use_fails_closed_when_the_store_mutex_is_poisoned() {
+        let store = ApprovalTokenStore::new();
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = store
+                .used
+                .lock()
+                .expect("lock must be acquirable to poison it");
+            panic!("poison approval token store lock for test");
+        }));
+
+        let failure = store
+            .check_and_record_use(&claims_with_use_count(10))
+            .expect_err("a poisoned store must fail closed");
+        assert_eq!(failure.code, ApprovalTokenErrorCode::StoreUnavailable);
+    }
+
     // -- Token store -----------------------------------------------------------
 
     fn claims_with_use_count(max_use_count: u32) -> ApprovalTokenClaims {
@@ -2064,6 +2294,71 @@ mod tests {
         tracker
             .reserve("principal-1", "app-1", "workspace-1", &limits)
             .expect("reservation must succeed again after the first is dropped");
+    }
+
+    #[test]
+    fn quota_tracker_denies_when_app_limit_reached_and_rolls_back_the_principal_reservation() {
+        let tracker = QuotaTracker::new();
+        let limits = QuotaLimits {
+            max_concurrent_per_principal: 1,
+            max_concurrent_per_app: 1,
+            max_concurrent_per_workspace: 10,
+        };
+        let _first = tracker
+            .reserve("principal-1", "app-1", "workspace-1", &limits)
+            .expect("first reservation must succeed");
+
+        let denial = tracker
+            .reserve("principal-2", "app-1", "workspace-2", &limits)
+            .expect_err("second reservation against the same app must be denied");
+        assert_eq!(denial.scope, "app");
+
+        // If the principal-dimension reservation taken just before the
+        // app-dimension denial were not rolled back, principal-2 would
+        // already be at its limit and this would incorrectly fail too.
+        tracker
+            .reserve("principal-2", "app-2", "workspace-3", &limits)
+            .expect("principal-2's slot must have been released by the app-limit rollback");
+    }
+
+    #[test]
+    fn quota_limits_default_matches_the_documented_defaults() {
+        let limits = QuotaLimits::default();
+        assert_eq!(
+            limits.max_concurrent_per_principal,
+            DEFAULT_MAX_CONCURRENT_PER_PRINCIPAL
+        );
+        assert_eq!(
+            limits.max_concurrent_per_app,
+            DEFAULT_MAX_CONCURRENT_PER_APP
+        );
+        assert_eq!(
+            limits.max_concurrent_per_workspace,
+            DEFAULT_MAX_CONCURRENT_PER_WORKSPACE
+        );
+    }
+
+    #[test]
+    fn reserve_fails_closed_when_a_quota_dimension_mutex_is_poisoned() {
+        let tracker = QuotaTracker::new();
+
+        let _ = std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+            let _guard = tracker
+                .principal_slots
+                .lock()
+                .expect("lock must be acquirable to poison it");
+            panic!("poison quota tracker principal_slots lock for test");
+        }));
+
+        let limits = QuotaLimits {
+            max_concurrent_per_principal: 10,
+            max_concurrent_per_app: 10,
+            max_concurrent_per_workspace: 10,
+        };
+        let denial = tracker
+            .reserve("principal-1", "app-1", "workspace-1", &limits)
+            .expect_err("a poisoned quota dimension must fail closed");
+        assert_eq!(denial.scope, "store");
     }
 
     // -- Execution engine -----------------------------------------------------------
@@ -2245,5 +2540,117 @@ mod tests {
             trace.node_outcomes[1].status,
             ProposalNodeStatus::SkippedAfterEarlierFailure
         );
+    }
+
+    #[test]
+    fn executes_a_mapping_sourced_from_initial_input_into_a_nested_target_path() {
+        let registry = registry_with(vec![(
+            contract(
+                "test.consume",
+                "1.0.0",
+                json!({}),
+                json!({}),
+                automatic_risk(),
+            ),
+            artifact("digest-x"),
+        )]);
+        let consumer_saw_input = std::sync::Arc::new(Mutex::new(None));
+        let executor = MappingAwareExecutor {
+            consumer_saw_input: consumer_saw_input.clone(),
+        };
+        let runtime = Runtime::new(registry, executor)
+            .with_security_config(RuntimeSecurityConfig::development());
+
+        let canonical = initial_input_canonical();
+        let digest = proposal_digest(&canonical.proposal);
+        let trace = execute_proposal(
+            &runtime,
+            &canonical,
+            &[ResolvedProposalNode {
+                node_id: "x".to_string(),
+                contract: contract(
+                    "test.consume",
+                    "1.0.0",
+                    json!({}),
+                    json!({}),
+                    automatic_risk(),
+                ),
+            }],
+            AuthorizationSummary {
+                automatic: true,
+                approval_token_id: None,
+            },
+            &digest,
+            "snapshot-digest",
+        );
+
+        assert_eq!(trace.terminal_state, ProposalTerminalState::Succeeded);
+        let seen_input = consumer_saw_input
+            .lock()
+            .expect("test mutex must not be poisoned")
+            .clone()
+            .expect("consumer must have received input");
+        assert_eq!(seen_input["nested"]["value"], json!("from-caller"));
+    }
+
+    #[test]
+    fn execute_proposal_skips_an_execution_order_entry_with_no_matching_node() {
+        // `execution_order` is normally guaranteed to be a permutation of
+        // `proposal.nodes`' ids by `canonicalize_proposal`, but
+        // `CanonicalProposal` has public fields, so a caller could construct
+        // one by hand with a mismatched entry. This proves execution degrades
+        // gracefully (skips the unmatched entry) rather than panicking.
+        let registry = registry_with(vec![(
+            contract(
+                "test.produce",
+                "1.0.0",
+                json!({}),
+                json!({}),
+                automatic_risk(),
+            ),
+            artifact("digest-a"),
+        )]);
+        let runtime = Runtime::new(registry, MappingAwareExecutor::default())
+            .with_security_config(RuntimeSecurityConfig::development());
+
+        let mut proposal = linear_proposal_source();
+        proposal.nodes.truncate(1);
+        proposal.edges.clear();
+        proposal.mappings.clear();
+        let canonical = CanonicalProposal {
+            execution_order: vec!["a".to_string(), "ghost".to_string()],
+            proposal,
+        };
+        let digest = proposal_digest(&canonical.proposal);
+        let trace = execute_proposal(
+            &runtime,
+            &canonical,
+            &[ResolvedProposalNode {
+                node_id: "a".to_string(),
+                contract: contract(
+                    "test.produce",
+                    "1.0.0",
+                    json!({}),
+                    json!({}),
+                    automatic_risk(),
+                ),
+            }],
+            AuthorizationSummary {
+                automatic: true,
+                approval_token_id: None,
+            },
+            &digest,
+            "snapshot-digest",
+        );
+
+        assert_eq!(trace.terminal_state, ProposalTerminalState::Succeeded);
+        assert_eq!(trace.node_outcomes.len(), 1);
+    }
+
+    #[test]
+    fn pointer_set_with_an_empty_pointer_replaces_the_entire_target() {
+        let mut target = json!({"unused": true});
+        pointer_set(&mut target, "", json!({"replaced": true}));
+        assert_eq!(target, json!({"replaced": true}));
     }
 }

@@ -115,6 +115,63 @@ fn diamond_graph_uses_lexicographic_tie_break_among_ready_nodes() -> Result<(), 
 }
 
 #[test]
+fn wide_fan_out_and_fan_in_graph_orders_deterministically() -> Result<(), String> {
+    // a fans out to three independent successors (b, c, e), each of which
+    // feeds the same terminal node d — exercising both the "in-degree drops
+    // to exactly zero" and "in-degree merely decreases" branches multiple
+    // times across a single node's outgoing edges.
+    let mut proposal = linear_proposal();
+    proposal.nodes = vec![
+        node("a", "content.comments.create-comment-draft"),
+        node("b", "content.comments.publish-comment"),
+        node("c", "content.comments.publish-comment"),
+        node("e", "content.comments.publish-comment"),
+        node("d", "content.comments.publish-comment"),
+    ];
+    proposal.edges = vec![
+        ProposalEdge {
+            from_node_id: "a".to_string(),
+            to_node_id: "b".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "a".to_string(),
+            to_node_id: "c".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "a".to_string(),
+            to_node_id: "e".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "b".to_string(),
+            to_node_id: "d".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "c".to_string(),
+            to_node_id: "d".to_string(),
+        },
+        ProposalEdge {
+            from_node_id: "e".to_string(),
+            to_node_id: "d".to_string(),
+        },
+    ];
+    proposal.mappings = Vec::new();
+
+    let canonical = canonicalize_proposal(proposal, &ProposalLimits::default())
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(
+        canonical.execution_order,
+        vec![
+            "a".to_string(),
+            "b".to_string(),
+            "c".to_string(),
+            "e".to_string(),
+            "d".to_string(),
+        ]
+    );
+    Ok(())
+}
+
+#[test]
 fn rejects_a_cyclic_graph() -> Result<(), String> {
     let mut proposal = linear_proposal();
     proposal.edges.push(ProposalEdge {
@@ -303,6 +360,95 @@ fn rejects_a_proposal_over_the_configured_node_limit() -> Result<(), String> {
             .any(|e| e.code == ProposalValidationErrorCode::NodeLimitExceeded)
     );
     Ok(())
+}
+
+#[test]
+fn rejects_a_proposal_over_the_configured_edge_limit() -> Result<(), String> {
+    let proposal = linear_proposal();
+    let limits = ProposalLimits {
+        max_edges: 0,
+        ..ProposalLimits::default()
+    };
+
+    let failure = expect_failure(canonicalize_proposal(proposal, &limits))?;
+    assert!(
+        failure
+            .errors
+            .iter()
+            .any(|e| e.code == ProposalValidationErrorCode::EdgeLimitExceeded)
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_a_proposal_over_the_configured_mapping_limit() -> Result<(), String> {
+    let proposal = linear_proposal();
+    let limits = ProposalLimits {
+        max_mappings: 0,
+        ..ProposalLimits::default()
+    };
+
+    let failure = expect_failure(canonicalize_proposal(proposal, &limits))?;
+    assert!(
+        failure
+            .errors
+            .iter()
+            .any(|e| e.code == ProposalValidationErrorCode::MappingLimitExceeded)
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_an_edge_from_an_unknown_node() -> Result<(), String> {
+    let mut proposal = linear_proposal();
+    proposal.edges.push(ProposalEdge {
+        from_node_id: "missing".to_string(),
+        to_node_id: "b".to_string(),
+    });
+
+    let failure = expect_failure(canonicalize_proposal(proposal, &ProposalLimits::default()))?;
+    assert!(
+        failure
+            .errors
+            .iter()
+            .any(|e| e.code == ProposalValidationErrorCode::UnknownEdgeEndpoint)
+    );
+    Ok(())
+}
+
+#[test]
+fn rejects_empty_required_fields() -> Result<(), String> {
+    let mut proposal = linear_proposal();
+    proposal.proposal_id = String::new();
+    proposal.workspace_id = String::new();
+    proposal.nodes[0].node_id = String::new();
+    proposal.nodes[0].capability_id = String::new();
+
+    let failure = expect_failure(canonicalize_proposal(proposal, &ProposalLimits::default()))?;
+    assert!(
+        failure
+            .errors
+            .iter()
+            .filter(|e| e.code == ProposalValidationErrorCode::MissingRequiredField)
+            .count()
+            >= 4
+    );
+    Ok(())
+}
+
+#[test]
+fn proposal_digest_is_stable_for_non_string_initial_input_values() {
+    let mut proposal = linear_proposal();
+    proposal.initial_input = serde_json::json!({
+        "count": 42,
+        "enabled": true,
+        "note": serde_json::Value::Null,
+        "nested": [1, false, null]
+    });
+
+    let digest_one = proposal_digest(&proposal);
+    let digest_two = proposal_digest(&proposal);
+    assert_eq!(digest_one, digest_two);
 }
 
 #[test]
