@@ -7,4 +7,5 @@ pub mod events;
 pub mod parallel_proposals;
 pub mod proposals;
 pub mod traces;
+pub mod workflow_plan;
 pub mod workflow_promotion;
