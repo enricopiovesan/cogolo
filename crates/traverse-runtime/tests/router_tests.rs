@@ -13,8 +13,8 @@ use traverse_contracts::{
 };
 use traverse_runtime::{
     events::{
-        EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, LifecycleStatus,
-        TraverseEvent,
+        EventBroker, EventCatalog, EventCatalogEntry, InProcessBroker, JournalConfig,
+        LifecycleStatus, TraverseEvent,
     },
     executor::{
         ArtifactType, CapabilityExecutor, ExecutorCapability, ExecutorError, ExecutorOutput,
@@ -22,7 +22,10 @@ use traverse_runtime::{
     },
     placement::{PlacementConstraintEvaluator, PlacementError, RuntimeSnapshot},
     router::{CapabilityExecutorRegistry, PlacementRouter, RouterError, RouterRequest},
-    trace::TraceStore,
+    trace::{
+        DurableTraceConfig, DurableTraceJournal, PrivateTraceEntry, PublicTraceEntry,
+        TraceDurabilitySink, TraceJournalError, TraceStore,
+    },
 };
 
 // ---------------------------------------------------------------------------
@@ -481,6 +484,7 @@ fn router_error_display_covers_all_variants() {
             "test message",
         )]),
         RouterError::TraceLockPoisoned,
+        RouterError::DurableTraceWriteFailed("simulated durable trace write failure".to_string()),
     ];
 
     for err in &cases {
@@ -533,6 +537,151 @@ fn executor_error_returns_execution_failed() -> Result<(), String> {
         matches!(err, RouterError::ExecutionFailed(_)),
         "expected ExecutionFailed, got {err:?}"
     );
+
+    Ok(())
+}
+
+// ---------------------------------------------------------------------------
+// Durable trace integration (spec 079-durable-trace-journal FR-002)
+// ---------------------------------------------------------------------------
+
+/// A [`TraceDurabilitySink`] test double that always fails, standing in for
+/// a real durable-write failure without filesystem fault injection.
+struct FailingTraceDurabilitySink;
+
+impl TraceDurabilitySink for FailingTraceDurabilitySink {
+    fn record(
+        &self,
+        _public: &PublicTraceEntry,
+        _private: Option<&PrivateTraceEntry>,
+    ) -> Result<String, TraceJournalError> {
+        Err(TraceJournalError::Serialize(
+            "simulated durable trace write failure".to_string(),
+        ))
+    }
+}
+
+fn trace_journal_test_root(name: &str) -> std::path::PathBuf {
+    std::env::temp_dir().join(format!(
+        "traverse-router-durable-trace-{name}-{}",
+        uuid::Uuid::new_v4()
+    ))
+}
+
+#[test]
+fn durable_trace_write_failure_fails_closed_for_auditable_execution() -> Result<(), String> {
+    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
+    let broker: Arc<dyn EventBroker> = broker_with_event("dev.traverse.test.happened")?;
+
+    let router =
+        make_router_with_native(json!({ "result": "ok" }), Arc::clone(&trace_store), broker)
+            .with_durable_trace(DurableTraceConfig {
+                sink: Arc::new(FailingTraceDurabilitySink),
+                fail_closed: true,
+            });
+
+    let request = RouterRequest {
+        capability_id: "router.tests.subject".to_string(),
+        artifact_type: ArtifactType::Native,
+        contract: base_contract(ServiceType::Stateless),
+        target_hint: Some(ExecutionTarget::Local),
+        runtime_snapshot: idle_snapshot(),
+        input: json!({ "key": "value" }),
+        executor_capability: native_executor_capability("router.tests.subject"),
+        trace_id_override: None,
+    };
+
+    let err = must_err(router.execute(request), "expected a durable-trace failure")?;
+    assert!(
+        matches!(err, RouterError::DurableTraceWriteFailed(_)),
+        "expected DurableTraceWriteFailed, got {err:?}"
+    );
+
+    let store = trace_store.lock().map_err(|_| "lock poisoned")?;
+    assert!(
+        store.list_public(Some("router.tests.subject")).is_empty(),
+        "an auditable execution that failed closed must not keep an in-memory-only trace"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn durable_trace_write_failure_does_not_fail_open_execution_when_not_fail_closed()
+-> Result<(), String> {
+    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
+    let broker: Arc<dyn EventBroker> = broker_with_event("dev.traverse.test.happened")?;
+
+    let router =
+        make_router_with_native(json!({ "result": "ok" }), Arc::clone(&trace_store), broker)
+            .with_durable_trace(DurableTraceConfig {
+                sink: Arc::new(FailingTraceDurabilitySink),
+                fail_closed: false,
+            });
+
+    let request = RouterRequest {
+        capability_id: "router.tests.subject".to_string(),
+        artifact_type: ArtifactType::Native,
+        contract: base_contract(ServiceType::Stateless),
+        target_hint: Some(ExecutionTarget::Local),
+        runtime_snapshot: idle_snapshot(),
+        input: json!({ "key": "value" }),
+        executor_capability: native_executor_capability("router.tests.subject"),
+        trace_id_override: None,
+    };
+
+    let response = router.execute(request).map_err(|e| e.to_string())?;
+    assert_eq!(response.output, json!({ "result": "ok" }));
+
+    let store = trace_store.lock().map_err(|_| "lock poisoned")?;
+    assert_eq!(
+        store.list_public(Some("router.tests.subject")).len(),
+        1,
+        "non-audited work must keep its in-memory trace even when the durable write fails"
+    );
+
+    Ok(())
+}
+
+#[test]
+fn durable_trace_journal_round_trips_through_a_real_execution() -> Result<(), String> {
+    let root = trace_journal_test_root("round-trip");
+    let journal =
+        DurableTraceJournal::open(&root, JournalConfig::default()).map_err(|e| e.to_string())?;
+
+    let trace_store = Arc::new(Mutex::new(TraceStore::new()));
+    let broker: Arc<dyn EventBroker> = broker_with_event("dev.traverse.test.happened")?;
+
+    let router =
+        make_router_with_native(json!({ "result": "ok" }), Arc::clone(&trace_store), broker)
+            .with_durable_trace(DurableTraceConfig {
+                sink: Arc::new(Mutex::new(journal)),
+                fail_closed: true,
+            });
+
+    let request = RouterRequest {
+        capability_id: "router.tests.subject".to_string(),
+        artifact_type: ArtifactType::Native,
+        contract: base_contract(ServiceType::Stateless),
+        target_hint: Some(ExecutionTarget::Local),
+        runtime_snapshot: idle_snapshot(),
+        input: json!({ "key": "value" }),
+        executor_capability: native_executor_capability("router.tests.subject"),
+        trace_id_override: None,
+    };
+
+    let response = router.execute(request).map_err(|e| e.to_string())?;
+
+    // Reopen a fresh journal at the same root -- the trace this execution
+    // wrote must have survived durably, independent of the in-memory store.
+    let reopened =
+        DurableTraceJournal::open(&root, JournalConfig::default()).map_err(|e| e.to_string())?;
+    assert_eq!(
+        reopened.recovery_report().recovered_trace_ids,
+        vec![response.trace_id]
+    );
+
+    std::fs::remove_dir_all(&root).ok();
 
     Ok(())
 }

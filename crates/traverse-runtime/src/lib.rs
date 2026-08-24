@@ -1937,6 +1937,15 @@ fn map_router_error(
             ExecutionFailureReason::ExecutionFailed,
             Vec::new(),
         ),
+        RouterError::DurableTraceWriteFailed(message) => (
+            runtime_error(
+                RuntimeErrorCode::ExecutionFailed,
+                "the execution trace could not be durably written",
+                json!({"code": "durable_trace_write_failed", "detail": message}),
+            ),
+            ExecutionFailureReason::ExecutionFailed,
+            Vec::new(),
+        ),
     }
 }
 
@@ -3601,6 +3610,12 @@ mod tests {
             ),
         ]));
         assert_eq!(code.code, RuntimeErrorCode::ContractViolation);
+        assert_eq!(reason, ExecutionFailureReason::ExecutionFailed);
+
+        let (code, reason, _) = super::map_router_error(&RouterError::DurableTraceWriteFailed(
+            "simulated durable trace write failure".to_string(),
+        ));
+        assert_eq!(code.code, RuntimeErrorCode::ExecutionFailed);
         assert_eq!(reason, ExecutionFailureReason::ExecutionFailed);
     }
 
