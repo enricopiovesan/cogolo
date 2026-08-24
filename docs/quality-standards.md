@@ -33,7 +33,7 @@ Current phased floors:
 |---|---:|---:|---|
 | `traverse-cli` | 78% | 78.77% | [#618](https://github.com/traverse-framework/traverse/issues/618) |
 | `traverse-mcp` | 86% | 86.07% | [#617](https://github.com/traverse-framework/traverse/issues/617) |
-| `traverse-swift-host` | 78% | 78.66% | ADR-0018; raise to 100% before its next production release |
+| `traverse-swift-host` | 78% | 78.66% | ADR-0047; raise to 100% before its next production release |
 
 `traverse-swift-host` is included because it is the production, audited C-ABI
 boundary. `traverse-native-bridge` is a build-time fixture generator and

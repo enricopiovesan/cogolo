@@ -1221,7 +1221,8 @@ Traverse maintainers, not an operator-facing signal.
   to.
 - Architecturally: a `UsageTelemetrySink` port trait lives in
   `traverse-contracts` (the existing pattern for provider-neutral ports, see
-  ADR-0029's transport-port precedent) with a no-op default. `traverse-cli`
+  ADR-0049's transport-port precedent, renumbered from ADR-0029 on
+  2026-08-24) with a no-op default. `traverse-cli`
   owns the only real adapter (config, install ID, PostHog HTTP client).
   `crates/traverse-registry` (external, `traverse-framework/registry`-owned)
   calls the port at its resolution call site but never depends on the
@@ -2221,8 +2222,8 @@ phase P0 of the existing `108` north star (not a standalone spec, since
   spec covering the same feature invites drift (cf. Decision 58's "do not
   create a parallel coverage law").
 - Accept and interpret natural-language goals in-runtime — rejected;
-  reintroduces the hosted-model dependency `109` FR-001 and ADR-0041
-  explicitly excluded.
+  reintroduces the hosted-model dependency `109` FR-001 and ADR-0050
+  (renumbered from ADR-0041 on 2026-08-24) explicitly excluded.
 
 ### Outcome
 

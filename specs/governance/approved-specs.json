@@ -984,7 +984,7 @@
         "contracts/examples/",
         "examples/",
         "scripts/ci/",
-        "docs/adr/0011-agent-artifact-stdout-only.md",
+        "docs/adr/0046-agent-artifact-stdout-only.md",
         "specs/516-agent-artifact-execution/"
       ]
     },
@@ -1131,7 +1131,7 @@
         "crates/traverse-embedder/",
         "packages/",
         "examples/",
-        "docs/adr/0029-hosted-datastore-transport.md",
+        "docs/adr/0049-hosted-datastore-transport.md",
         "specs/535-hosted-datastore-transport/"
       ]
     },
@@ -1144,7 +1144,7 @@
       "governs": [
         "crates/traverse-mcp/",
         "docs/mcp-stdio-server.md",
-        "docs/adr/0024-mode-a-registry-mcp-host.md",
+        "docs/adr/0048-mode-a-registry-mcp-host.md",
         "specs/530-mode-a-registry-mcp/"
       ]
     },
@@ -1428,7 +1428,7 @@
         "specs/111-durable-dynamic-orchestration/",
         "specs/112-governed-workflow-promotion/",
         "specs/113-declarative-workflow-planning/",
-        "docs/adr/0041-governed-runtime-workflow-proposal-authority.md",
+        "docs/adr/0050-governed-runtime-workflow-proposal-authority.md",
         "docs/adr/0042-phased-dynamic-orchestration-evolution.md",
         "docs/decision-log.md",
         "docs/adr/0043-declarative-workflow-planning-boundary.md"
