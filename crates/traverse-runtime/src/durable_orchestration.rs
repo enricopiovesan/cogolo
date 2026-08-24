@@ -434,7 +434,8 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_and_recovery_guards_cover_all_fail_closed_paths() -> std::result::Result<(), String> {
+    fn checkpoint_and_recovery_guards_cover_all_fail_closed_paths()
+    -> std::result::Result<(), String> {
         let mut store = MemoryCheckpointStore::default();
         let mut incomplete = checkpoint();
         incomplete.snapshots.policy_digest.clear();
