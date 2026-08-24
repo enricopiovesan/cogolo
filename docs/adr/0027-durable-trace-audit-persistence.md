@@ -1,8 +1,9 @@
 # ADR-0027: Host-Owned Durable Trace and Audit Persistence
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-07-30
-- Governing draft: `527-durable-trace-productization`
+- Approved: 2026-08-24
+- Governing spec: `527-durable-trace-productization`
 
 ## Decision
 
@@ -24,4 +25,5 @@ workspace-scoped retention or deletion is oldest-first and emits
   behavior have deterministic, testable boundaries.
 - Private trace persistence and remote journal synchronization remain separate
   governed capabilities.
-- This ADR and its draft require maintainer approval before implementation.
+- Approved 2026-08-24; spec `527-durable-trace-productization` is registered
+  as approved and implementation may proceed.

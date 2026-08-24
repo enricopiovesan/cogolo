@@ -1498,6 +1498,19 @@
         "crates/traverse-mcp/",
         "specs/113-declarative-workflow-planning/"
       ]
+    },
+    {
+      "id": "527-durable-trace-productization",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/527-durable-trace-productization/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/trace_journal.rs",
+        "contracts/trace/durable-trace-export.schema.json",
+        "docs/adr/0027-durable-trace-audit-persistence.md",
+        "specs/527-durable-trace-productization/"
+      ]
     }
   ]
 }
