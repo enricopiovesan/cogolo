@@ -1,6 +1,6 @@
 # Browser-Reachable Verified Entrypoint Execution
 
-**Status**: Draft — pending explicit human approval
+**Status**: Approved (2026-08-24)
 **Canonical governing ID**: `115-browser-verified-entrypoint-execution`
 **Version**: 0.1.0
 **Input**: Traverse #1124; successor work following ADR-0044 and Spec 033.

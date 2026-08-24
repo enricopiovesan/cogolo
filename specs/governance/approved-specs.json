@@ -1511,6 +1511,29 @@
         "docs/adr/0045-durable-trace-audit-persistence.md",
         "specs/527-durable-trace-productization/"
       ]
+    },
+    {
+      "id": "114-mcp-capability-search",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/114-mcp-capability-search/spec.md",
+      "governs": [
+        "crates/traverse-mcp/",
+        "specs/114-mcp-capability-search/"
+      ]
+    },
+    {
+      "id": "115-browser-verified-entrypoint-execution",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/115-browser-verified-entrypoint-execution/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "crates/traverse-mcp/",
+        "specs/115-browser-verified-entrypoint-execution/"
+      ]
     }
   ]
 }
