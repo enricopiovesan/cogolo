@@ -5,6 +5,8 @@ pub use workflows::*;
 mod artifact_router;
 pub use artifact_router::*;
 pub mod data_store;
+/// Durable P3 checkpoint, recovery, wait, retry, and compensation controls.
+pub mod durable_orchestration;
 pub mod events;
 pub mod executor;
 /// Native-only governed inference providers, enabled by the `native-inference`
