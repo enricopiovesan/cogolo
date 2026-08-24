@@ -11163,9 +11163,32 @@ mod tests {
     }
 
     fn build_real_capability_package_artifact(manifest_path: &Path) {
+        use std::collections::HashSet;
+        use std::sync::OnceLock;
+
+        // build-fixture.sh shells out to `rustc` directly and writes to a
+        // fixed path under the fixture's own artifacts/ directory. When two
+        // tests build the same fixture, running their rustc invocations
+        // concurrently races on that shared output path (rustc stages
+        // intermediate .rcgu.o codegen-unit objects alongside it). Since the
+        // resulting artifact is deterministic for a given source, serialize
+        // all fixture builds through one lock and skip rebuilding a fixture
+        // that's already been built this test run.
+        static BUILT_FIXTURES: OnceLock<Mutex<HashSet<PathBuf>>> = OnceLock::new();
+        let built_fixtures = BUILT_FIXTURES.get_or_init(|| Mutex::new(HashSet::new()));
+
         let package_dir = manifest_path
             .parent()
-            .expect("real capability package manifest must have a package directory");
+            .expect("real capability package manifest must have a package directory")
+            .to_path_buf();
+
+        let mut built = built_fixtures
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if built.contains(&package_dir) {
+            return;
+        }
+
         let status = ProcessCommand::new("bash")
             .arg(package_dir.join("build-fixture.sh"))
             .status()
@@ -11174,6 +11197,7 @@ mod tests {
             status.success(),
             "real capability package fixture builder should succeed"
         );
+        built.insert(package_dir);
     }
 
     fn create_interpret_expedition_intent_capability_fixture() -> CapabilityPackageFixture {
