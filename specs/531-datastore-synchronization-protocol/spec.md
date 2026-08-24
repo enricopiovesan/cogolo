@@ -2,7 +2,12 @@
 
 **Feature Branch**: `codex/issue-877-datastore-sync-protocol`
 **Created**: 2026-07-29
-**Status**: Draft — requires maintainer approval before synchronization implementation.
+**Status**: Superseded (2026-08-24) by `089-datastore-synchronization` / ADR-0027
+(the pre-existing `docs/adr/0027-datastore-synchronization.md`, unrelated to the
+renumbered ADR-0045). Briefly approved the same day (ADR-0025) before this was
+found — issue #883 (closed, completed) shows this exact protocol already shipped
+under spec `089-datastore-synchronization`. Kept for historical record; not an
+active governing document.
 **Input**: Issue #877; extends Specs 518 and 519.
 
 ## Purpose
@@ -84,7 +89,6 @@ explicit host integration; hosted transports require a separate successor.
 - Background synchronization, offline queues, automatic retry, or scheduling.
 - CRDT semantics, transactions, scanning beyond protocol paging, or multi-process
   coordination.
-- Adding this draft to the approved registry without maintainer approval.
 
 ## Independent Conformance Evidence
 
