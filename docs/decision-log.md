@@ -2452,3 +2452,58 @@ rather than by backfill (registry decision-log entry 68, cross-referencing
 this entry). `traverse#1098`'s `blocked by registry#305` relationship is
 removed — it is now unblocked by this spec amendment landing, not by any
 registry-side work.
+
+## Decision 63: Approve ADR-0027 and Spec 527 (Host-Owned Durable Trace and Audit Persistence)
+
+- **Date**: 2026-08-24
+- **Status**: Accepted
+- **Governing spec**: `527-durable-trace-productization` (newly approved), ADR-0027 (Accepted)
+- **Related issues**: `#1093` (partial unblock — see Outcome), `#847` (spec origin)
+- **Origin**: A backlog-validity sweep across traverse + registry (this session) confirmed `#1093`'s stated P1/P2 half of its blocker is resolved (both approved and implemented this session) but its "approved durable host-owned state/trace substrate" half was still real: ADR-0027 and its governing draft spec `527-durable-trace-productization` were sitting at `Proposed`/`Draft`, dated 2026-07-30, with no open questions left unresolved in either document. Owner explicitly requested approval.
+
+### Context
+
+Spec `527` (authored from issue `#847`) defines the host-authorized durable
+trace-journal policy for production embeds: safe evidence persists across
+restart, is retained within deterministic limits (30 days or 10,000 records
+per workspace, oldest-first), and is exported only as explicitly redacted
+evidence. It is additive to the already-approved `079-durable-trace-journal`,
+scoped narrowly to `crates/traverse-runtime/src/trace_journal.rs` and a new
+export schema, and explicitly excludes encryption/key lifecycle, remote
+sync, and DataStore ownership changes. ADR-0027 records the same decision at
+the architecture level: production hosts, not Traverse, own the journal
+root, authorization, keys, tenancy, retention, and deletion authority.
+
+### Decision
+
+Approve both documents as written, no changes: ADR-0027 status
+`Proposed` -> `Accepted`; spec `527` status `Draft` -> `Approved` and
+registered in `specs/governance/approved-specs.json` (version `1.0.0`,
+`immutable: true`, governs the four paths its own "Compatibility and
+Governed Files" section already named). Neither document needed a
+`/brainstorm` pass first — both were already complete, self-consistent, and
+narrowly scoped when written; the only missing step was the owner's
+sign-off itself, which is not something an agent grants on its own
+judgment regardless of how well-formed a draft looks.
+
+### Alternatives Considered
+
+- Defer approval pending a fresh `/brainstorm` review — rejected; neither
+  document had an open question, an unresolved alternative, or a scope gap
+  in its own text, and the owner asked directly for approval, not review.
+- Approve only the ADR, leave spec `527` in Draft — rejected; the ADR
+  explicitly names `527` as its "governing draft" and states "this ADR and
+  its draft require maintainer approval before implementation" as one
+  combined gate. Approving one without the other leaves nothing
+  independently implementable.
+
+### Outcome
+
+ADR-0027 and spec `527-durable-trace-productization` are both Approved.
+This resolves the trace half of `#1093`'s stated blocker
+("approved durable host-owned state/trace substrate"); the checkpoint/state
+half (P3's own "authenticated secret-free checkpoint binds all governing
+snapshots" requirement) is a distinct concern from a trace journal and is
+not addressed by this approval — `#1093` is not yet fully unblocked, and no
+existing Proposed ADR was confirmed to cover checkpoint/state
+specifically. `#1093` left `Blocked` pending that remaining gap.
