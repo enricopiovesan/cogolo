@@ -434,7 +434,7 @@ mod tests {
     }
 
     #[test]
-    fn checkpoint_and_recovery_guards_cover_all_fail_closed_paths() {
+    fn checkpoint_and_recovery_guards_cover_all_fail_closed_paths() -> std::result::Result<(), String> {
         let mut store = MemoryCheckpointStore::default();
         let mut incomplete = checkpoint();
         incomplete.snapshots.policy_digest.clear();
@@ -455,10 +455,9 @@ mod tests {
             })
         ));
         assert!(persist_checkpoint(&mut store, checkpoint.clone()).is_ok());
-        let mut tampered = store
-            .load("exec-1")
-            .expect("memory load should succeed")
-            .expect("saved checkpoint should exist");
+        let Ok(Some(mut tampered)) = store.load("exec-1") else {
+            return Err("saved checkpoint must remain loadable".to_string());
+        };
         tampered.authentication_tag = "invalid".to_string();
         store.checkpoints.insert("exec-1".to_string(), tampered);
         assert!(matches!(
@@ -468,6 +467,7 @@ mod tests {
                 ..
             })
         ));
+        Ok(())
     }
 
     #[test]
