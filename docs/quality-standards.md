@@ -31,8 +31,11 @@ Current phased floors:
 
 | Crate | Gate floor | Measured baseline | Follow-up |
 |---|---:|---:|---|
-| `traverse-cli` | 78% | 78.77% | [#618](https://github.com/traverse-framework/traverse/issues/618) |
-| `traverse-mcp` | 86% | 86.07% | [#617](https://github.com/traverse-framework/traverse/issues/617) |
+| `traverse-contracts` | 100% | 100.00% | Keep the protected floor |
+| `traverse-runtime` | 100% | 100.00% | [#1126](https://github.com/traverse-framework/traverse/issues/1126) — isolated gate cleanup |
+| `traverse-cli` | 87% | 87.57% | [#618](https://github.com/traverse-framework/traverse/issues/618) |
+| `traverse-embedder` | 100% | 100.00% | Keep the protected floor |
+| `traverse-mcp` | 98% | 99.11% | [#617](https://github.com/traverse-framework/traverse/issues/617) |
 | `traverse-swift-host` | 78% | 78.66% | ADR-0047; raise to 100% before its next production release |
 
 `traverse-swift-host` is included because it is the production, audited C-ABI
