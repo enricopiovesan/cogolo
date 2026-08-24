@@ -1,7 +1,9 @@
-# ADR-0024: Mode A as a Local Registry-Backed Stdio MCP Host
+# ADR-0048: Mode A as a Local Registry-Backed Stdio MCP Host
 
 - Status: Accepted
 - Date: 2026-07-30
+- Renumbered: 2026-08-24 from ADR-0024 (that number collided with the
+  already-Accepted `docs/adr/0024-remote-key-value-datastore-contract.md`)
 - Governing spec: Approved `086-mode-a-registry-mcp` / `530-mode-a-registry-mcp`
 - Decided in: Traverse #865; governed by #906
 

@@ -1,6 +1,8 @@
-# ADR-0041: Govern Runtime Workflow Proposals as Untrusted, Manifest-Bounded Snapshots
+# ADR-0050: Govern Runtime Workflow Proposals as Untrusted, Manifest-Bounded Snapshots
 
 - Status: Accepted
+- Renumbered: 2026-08-24 from ADR-0041 (that number collided with the
+  already-Accepted `docs/adr/0041-cross-host-embedded-registry-cache.md`)
 - Governing specs: `108-governed-runtime-workflow-composition`, `109-runtime-workflow-proposals`
 - Related issues: #865, #1089
 

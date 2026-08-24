@@ -2,7 +2,8 @@
 
 **Feature Branch**: `codex/issue-906-mode-a-mcp-spec`
 **Created**: 2026-07-30
-**Status**: Approved (2026-07-30 — approved by Enrico; ADR-0024 accepted)
+**Status**: Approved (2026-07-30 — approved by Enrico; ADR-0048 accepted,
+renumbered 2026-08-24 from ADR-0024)
 **Version**: 1.0.0
 **Input**: Traverse #865 decision records; governing ticket #906; Specs 015,
 042, 054, 055, 516, and 520.
@@ -189,5 +190,6 @@ product path after Mode A lands.
 ## Approval
 
 This immutable artifact governs implementation as approved Spec 086 after
-explicit reviewer approval, acceptance of ADR-0024, and registry evidence in
+explicit reviewer approval, acceptance of ADR-0048 (renumbered from
+ADR-0024), and registry evidence in
 `specs/governance/approved-specs.json`.

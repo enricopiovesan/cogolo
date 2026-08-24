@@ -5,7 +5,8 @@
 - Governing spec: `536-runtime-usage-telemetry` / `088-runtime-usage-telemetry`
 - Decision evidence: `docs/decision-log.md` Decision 42, originating in
   `traverse-framework/registry`'s Decision 47 (registry#134)
-- Extends: ADR-0029 (provider-neutral port precedent)
+- Extends: ADR-0049 (provider-neutral port precedent; renumbered from
+  ADR-0029 on 2026-08-24)
 
 ## Context
 
@@ -24,7 +25,7 @@ its own portability and that repo's inherited-governance boundary
 ## Decision
 
 Add a `UsageTelemetrySink` port trait to `traverse-contracts`, with a no-op
-default — the same provider-neutral-port pattern ADR-0029 established for
+default — the same provider-neutral-port pattern ADR-0049 established for
 hosted DataStore transport. `traverse-cli` owns the only real
 implementation: a persistent, prompt-free opt-in config command, a locally
 generated anonymous install ID, and an HTTPS client to a purpose-built

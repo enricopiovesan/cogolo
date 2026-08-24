@@ -1,7 +1,9 @@
-# ADR-0029: Managed Hosted Transport Behind a Provider-Neutral Boundary
+# ADR-0049: Managed Hosted Transport Behind a Provider-Neutral Boundary
 
 - Status: Accepted
 - Date: 2026-07-30
+- Renumbered: 2026-08-24 from ADR-0029 (that number collided with the
+  already-Accepted `docs/adr/0029-s3-compatible-remote-datastore.md`)
 - Governing spec: `535-hosted-datastore-transport` / `087-hosted-datastore-transport`
 - Decision evidence: Traverse #887
 - Extends: ADR-0025, ADR-0028
