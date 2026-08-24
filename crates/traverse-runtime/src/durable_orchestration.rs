@@ -432,4 +432,116 @@ mod tests {
             Ok(ordered) if ordered[0].capability_id == "undo-second"
         ));
     }
+
+    #[test]
+    fn checkpoint_and_recovery_guards_cover_all_fail_closed_paths() {
+        let mut store = MemoryCheckpointStore::default();
+        let mut incomplete = checkpoint();
+        incomplete.snapshots.policy_digest.clear();
+        assert!(!incomplete.snapshots.is_complete());
+        assert!(matches!(
+            persist_checkpoint(&mut store, incomplete),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::InvalidCheckpoint,
+                ..
+            })
+        ));
+        let checkpoint = checkpoint();
+        assert!(matches!(
+            recover_checkpoint(&store, "missing", &checkpoint.snapshots, 0),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::InvalidCheckpoint,
+                ..
+            })
+        ));
+        assert!(persist_checkpoint(&mut store, checkpoint.clone()).is_ok());
+        let mut tampered = store
+            .load("exec-1")
+            .expect("memory load should succeed")
+            .expect("saved checkpoint should exist");
+        tampered.authentication_tag = "invalid".to_string();
+        store.checkpoints.insert("exec-1".to_string(), tampered);
+        assert!(matches!(
+            recover_checkpoint(&store, "exec-1", &checkpoint.snapshots, 0),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::AuthenticationFailed,
+                ..
+            })
+        ));
+    }
+
+    #[test]
+    fn lease_retry_wait_and_compensation_error_paths_are_stable() {
+        let mut checkpoint = checkpoint();
+        assert!(matches!(
+            acquire_lease(&mut checkpoint, "", 2, 21),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::StaleLease,
+                ..
+            })
+        ));
+        assert!(acquire_lease(&mut checkpoint, "worker-b", 2, 21).is_ok());
+        assert_eq!(checkpoint.lease.owner_id, "worker-b");
+        assert!(checkpoint.authentication_tag.is_empty());
+
+        let policy = RetryPolicy {
+            retryable: false,
+            max_attempts: 1,
+            backoff_units: 1,
+            budget_units: 1,
+            idempotency_key: String::new(),
+        };
+        assert!(matches!(
+            authorize_retry(&policy, 0, 0),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::RetryNotDeclared,
+                ..
+            })
+        ));
+        let bounded_policy = RetryPolicy {
+            retryable: true,
+            idempotency_key: "key".to_string(),
+            ..policy
+        };
+        assert!(matches!(
+            authorize_retry(&bounded_policy, 0, 1),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::RetryBudgetExhausted,
+                ..
+            })
+        ));
+
+        let wait = DurableWait {
+            kind: DurableWaitKind::Schedule,
+            owner_id: "worker-b".to_string(),
+            deadline: 10,
+            cancellation_id: "cancel".to_string(),
+        };
+        assert!(matches!(
+            wake_wait(&wait, "worker-b", false, 11),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::WaitExpired,
+                ..
+            })
+        ));
+        assert!(matches!(
+            wake_wait(&wait, "worker-c", false, 10),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::StaleLease,
+                ..
+            })
+        ));
+        let unauthorized = [CompensationStep {
+            capability_id: String::new(),
+            authorization_digest: "wrong".to_string(),
+            order: 1,
+        }];
+        assert!(matches!(
+            authorized_compensation(&unauthorized, "auth"),
+            Err(DurableOrchestrationError {
+                code: DurableOrchestrationErrorCode::CompensationUnauthorized,
+                ..
+            })
+        ));
+    }
 }
