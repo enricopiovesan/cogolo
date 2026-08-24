@@ -1,6 +1,8 @@
-# ADR 0011: Constrained stdout-only agent artifact output
+# ADR-0046: Constrained stdout-only agent artifact output
 
 **Status:** Approved (2026-07-21)
+**Renumbered:** 2026-08-24 from ADR-0011 (that number collided with the
+already-Accepted `docs/adr/0011-swift-native-resource-controls.md`)
 
 ## Context
 

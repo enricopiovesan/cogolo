@@ -393,7 +393,7 @@ Use `"stateful"` only for capabilities that explicitly manage a persistent resou
 ## `risk` Reference (spec 109)
 
 Every contract carries an immutable `risk` classification across four
-independent dimensions (spec `109-runtime-workflow-proposals` FR-005, ADR-0041).
+independent dimensions (spec `109-runtime-workflow-proposals` FR-005, ADR-0050).
 A single field never implies another dimension — declare each one deliberately.
 
 ```json

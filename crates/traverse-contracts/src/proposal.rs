@@ -1,6 +1,6 @@
 //! Runtime workflow proposal types, canonicalization, and digesting.
 //!
-//! Governed by spec `109-runtime-workflow-proposals` (P1) and ADR-0041. A
+//! Governed by spec `109-runtime-workflow-proposals` (P1) and ADR-0050. A
 //! proposal is an untrusted, externally-authored, ephemeral bounded sequential
 //! DAG over already-registered capabilities. This module owns the portable
 //! parts of the lifecycle that need no manifest or registry access: the wire
@@ -39,7 +39,7 @@ pub struct WorkflowProposal {
 }
 
 /// Identifies the exact, already-registered application manifest version a
-/// proposal is bounded by (spec 109 FR-002, ADR-0041: "a proposal is
+/// proposal is bounded by (spec 109 FR-002, ADR-0050: "a proposal is
 /// constrained by its versioned application manifest").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ManifestReference {
@@ -610,7 +610,7 @@ pub fn proposal_digest(proposal: &WorkflowProposal) -> String {
 /// Binds a proposal digest to the pinned snapshot digests it was validated
 /// against (spec 109 FR-003: "bind its digest to pinned manifest, registry,
 /// binding, policy, and budget snapshots"). This is the digest an approval
-/// token is scoped to (ADR-0041, FR-006a) — it changes if any governing
+/// token is scoped to (ADR-0050, FR-006a) — it changes if any governing
 /// snapshot changes even when the proposal JSON is byte-identical.
 #[must_use]
 pub fn proposal_snapshot_digest(proposal_digest: &str, snapshots: &SnapshotDigests) -> String {

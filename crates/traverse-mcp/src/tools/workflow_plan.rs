@@ -56,7 +56,7 @@ pub struct PlanRequest<'a> {
     pub starting_facts: &'a Value,
     pub manifest: &'a ApplicationBundleManifest,
     /// The exact, already-registered application manifest reference every
-    /// returned candidate is bound to (spec 109 FR-002, ADR-0041). The
+    /// returned candidate is bound to (spec 109 FR-002, ADR-0050). The
     /// planner does not compute this itself -- the caller already holds it
     /// from resolving `manifest` against the application registry.
     pub app_manifest: &'a ManifestReference,

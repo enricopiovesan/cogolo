@@ -1,13 +1,13 @@
 # Runtime Workflow Proposal Lifecycle (P1)
 
 Governed by spec [`109-runtime-workflow-proposals`](../specs/109-runtime-workflow-proposals/spec.md)
-and [ADR-0041](adr/0041-governed-runtime-workflow-proposal-authority.md). Tracks
+and [ADR-0050](adr/0050-governed-runtime-workflow-proposal-authority.md). Tracks
 issue `#1090`.
 
 A **workflow proposal** is an untrusted, externally-authored, ephemeral,
 manifest-bound bounded sequential DAG over already-registered capabilities.
 An MCP client (or any planner) submits one; Traverse validates, authorizes,
-and executes it — the planner is never the authority (ADR-0041).
+and executes it — the planner is never the authority (ADR-0050).
 
 ## Where the code lives
 
@@ -67,7 +67,7 @@ declared mapping (spec FR-002).
 - **`proposal_snapshot_digest`**: hashes `proposal_digest` together with the
   manifest/registry/binding/policy/budget digests supplied by the caller
   (`SnapshotDigests`). This is the digest an approval token is actually
-  scoped to (ADR-0041's "governing snapshots") — it changes if any pinned
+  scoped to (ADR-0050's "governing snapshots") — it changes if any pinned
   input changes even when the proposal JSON is byte-identical.
 
 ## Cross-validation (FR-004, FR-011)
@@ -141,7 +141,7 @@ revocation state, keyed by `jti`. Tokens are short-lived and scoped to one
 pinned snapshot, so no persistence across restarts is needed.
 
 **This repo verifies approval tokens; it does not issue them.** Per
-ADR-0041, the approving principal/service is external to Traverse — there is
+ADR-0050, the approving principal/service is external to Traverse — there is
 no token-signing code here, only verification.
 
 ## Quotas (FR-007b)

@@ -42,7 +42,7 @@ chain from capability names, namespaces, or any other signal, and never
 operates on a capability pair with no structural match. When more than one
 capability could satisfy a need, the planner enumerates every resulting
 complete candidate plan rather than choosing one — ambiguity resolution is
-a caller/reviewer decision, never a runtime one, consistent with ADR-0041
+a caller/reviewer decision, never a runtime one, consistent with ADR-0050
 treating the planner-adjacent surface as untrusted and this runtime's
 everywhere-else stance against silent inference. Search is bounded by
 fixed, small, non-configurable limits in v1. Field-level JSON-path mappings
@@ -79,7 +79,7 @@ this risk; nothing a planner proposes ever executes unreviewed.
   runtime decision `109`'s explicit-mapping requirement exists to prevent.
 - Accept natural-language goals and interpret them in-runtime: rejected —
   reintroduces exactly the hosted-model dependency `109` FR-001 and
-  ADR-0041 explicitly excluded.
+  ADR-0050 explicitly excluded.
 - Loosen registry's FR-020 inventory criterion instead, keep `consumes`/
   `emits` as the sole signal: rejected — would require ~26 capabilities to
   carry full governed-event ceremony (privacy field classification,

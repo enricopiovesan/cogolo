@@ -77,7 +77,7 @@ pub struct CapabilityContract {
 }
 
 /// Portable, immutable capability authority metadata across four independent
-/// dimensions (ADR-0041). A capability's own contract is the only place these
+/// dimensions (ADR-0050). A capability's own contract is the only place these
 /// values may be declared; an application manifest may narrow how a capability
 /// is actually wired (for example connector selection) but can never override
 /// or weaken these classifications.

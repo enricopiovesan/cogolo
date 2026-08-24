@@ -1,7 +1,9 @@
-# ADR-0018: Protect the Production Swift Host with a Measured Coverage Ratchet
+# ADR-0047: Protect the Production Swift Host with a Measured Coverage Ratchet
 
 - Status: Accepted
 - Date: 2026-07-22
+- Renumbered: 2026-08-24 from ADR-0018 (that number collided with the
+  already-Accepted `docs/adr/0018-durable-local-datastore.md`)
 - Governing specs: `001-foundation-v0-1`, `076-production-swift-wasmi-cabi`
 - Owner: Traverse maintainers
 - Review by: 2026-10-22
