@@ -1534,6 +1534,18 @@
         "crates/traverse-mcp/",
         "specs/115-browser-verified-entrypoint-execution/"
       ]
+    },
+    {
+      "id": "116-verified-public-contract-metadata-cache",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/116-verified-public-contract-metadata-cache/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "crates/traverse-mcp/",
+        "specs/116-verified-public-contract-metadata-cache/"
+      ]
     }
   ]
 }
