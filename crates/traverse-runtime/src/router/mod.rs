@@ -26,7 +26,10 @@ use crate::{
         PlacementConstraintEvaluator, PlacementDecision, PlacementError, PlacementRequest,
         RuntimeSnapshot,
     },
-    trace::{PrivateTraceEntry, PublicTraceEntry, TraceOutcome, TraceStore, new_trace_id_and_time},
+    trace::{
+        DurableTraceConfig, PrivateTraceEntry, PublicTraceEntry, TraceOutcome, TraceStore,
+        new_trace_id_and_time,
+    },
 };
 
 use traverse_contracts::ExecutionTarget;
@@ -71,6 +74,9 @@ pub enum RouterError {
     ContractViolation(Vec<ViolationRecord>),
     /// The trace store lock was poisoned.
     TraceLockPoisoned,
+    /// The trace could not be durably written and this router is configured
+    /// to fail closed on that condition (spec 079 FR-002).
+    DurableTraceWriteFailed(String),
 }
 
 impl std::fmt::Display for RouterError {
@@ -83,6 +89,9 @@ impl std::fmt::Display for RouterError {
                 write!(f, "contract violation: {} violation(s)", violations.len())
             }
             Self::TraceLockPoisoned => write!(f, "trace store lock is poisoned"),
+            Self::DurableTraceWriteFailed(msg) => {
+                write!(f, "durable trace write failed: {msg}")
+            }
         }
     }
 }
@@ -117,10 +126,13 @@ pub struct PlacementRouter {
     executor_registry: CapabilityExecutorRegistry,
     trace_store: Arc<Mutex<TraceStore>>,
     event_broker: Arc<dyn EventBroker>,
+    durable_trace: Option<DurableTraceConfig>,
 }
 
 impl PlacementRouter {
-    /// Construct a new [`PlacementRouter`] from injected dependencies.
+    /// Construct a new [`PlacementRouter`] from injected dependencies. Traces
+    /// are recorded to `trace_store` only (in-memory, process-local) unless
+    /// [`Self::with_durable_trace`] is also called.
     #[must_use]
     pub fn new(
         evaluator: PlacementConstraintEvaluator,
@@ -133,7 +145,17 @@ impl PlacementRouter {
             executor_registry,
             trace_store,
             event_broker,
+            durable_trace: None,
         }
+    }
+
+    /// Additionally persist every recorded trace through a durable trace
+    /// journal (spec `079-durable-trace-journal`). Without this, traces are
+    /// recorded to `trace_store` only and are lost on restart.
+    #[must_use]
+    pub fn with_durable_trace(mut self, durable_trace: DurableTraceConfig) -> Self {
+        self.durable_trace = Some(durable_trace);
+        self
     }
 
     /// Execute a capability end-to-end.
@@ -221,6 +243,17 @@ impl PlacementRouter {
         let output_str = serde_json::to_string(&output).unwrap_or_default();
         let private_entry =
             PrivateTraceEntry::new(trace_id.clone(), &input_str, &output_str, duration_ms);
+
+        // Durable write gates the in-memory record when the caller is
+        // configured to fail closed (spec 079 FR-002): a trace that could
+        // not be durably written is not silently kept in-memory-only for an
+        // auditable execution.
+        if let Some(durable) = &self.durable_trace
+            && let Err(error) = durable.sink.record(&public_entry, Some(&private_entry))
+            && durable.fail_closed
+        {
+            return Err(RouterError::DurableTraceWriteFailed(error.to_string()));
+        }
 
         {
             let mut store = self
