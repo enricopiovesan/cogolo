@@ -1508,7 +1508,7 @@
       "governs": [
         "crates/traverse-runtime/src/trace_journal.rs",
         "contracts/trace/durable-trace-export.schema.json",
-        "docs/adr/0027-durable-trace-audit-persistence.md",
+        "docs/adr/0045-durable-trace-audit-persistence.md",
         "specs/527-durable-trace-productization/"
       ]
     }

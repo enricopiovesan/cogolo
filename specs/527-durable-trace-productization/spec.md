@@ -1,7 +1,7 @@
 # Feature Specification: Durable Trace Productization
 
 **Feature Branch**: `codex/issue-847-durable-trace-productization`
-**Status**: Approved (2026-08-24), per ADR-0027.
+**Status**: Approved (2026-08-24), per ADR-0045.
 **Input**: Issue #847, Decision 38, `524-production-app-readiness`, and Spec 079.
 
 ## Purpose

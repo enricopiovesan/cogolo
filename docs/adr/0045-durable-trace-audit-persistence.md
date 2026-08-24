@@ -1,8 +1,10 @@
-# ADR-0027: Host-Owned Durable Trace and Audit Persistence
+# ADR-0045: Host-Owned Durable Trace and Audit Persistence
 
 - Status: Accepted
 - Date: 2026-07-30
 - Approved: 2026-08-24
+- Renumbered: 2026-08-24 from ADR-0027 (that number collided with the
+  already-Accepted `docs/adr/0027-datastore-synchronization.md`)
 - Governing spec: `527-durable-trace-productization`
 
 ## Decision

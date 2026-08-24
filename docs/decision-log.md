@@ -2453,13 +2453,13 @@ this entry). `traverse#1098`'s `blocked by registry#305` relationship is
 removed — it is now unblocked by this spec amendment landing, not by any
 registry-side work.
 
-## Decision 63: Approve ADR-0027 and Spec 527 (Host-Owned Durable Trace and Audit Persistence)
+## Decision 63: Approve ADR-0045 and Spec 527 (Host-Owned Durable Trace and Audit Persistence)
 
 - **Date**: 2026-08-24
 - **Status**: Accepted
-- **Governing spec**: `527-durable-trace-productization` (newly approved), ADR-0027 (Accepted)
+- **Governing spec**: `527-durable-trace-productization` (newly approved), ADR-0045 (Accepted)
 - **Related issues**: `#1093` (partial unblock — see Outcome), `#847` (spec origin)
-- **Origin**: A backlog-validity sweep across traverse + registry (this session) confirmed `#1093`'s stated P1/P2 half of its blocker is resolved (both approved and implemented this session) but its "approved durable host-owned state/trace substrate" half was still real: ADR-0027 and its governing draft spec `527-durable-trace-productization` were sitting at `Proposed`/`Draft`, dated 2026-07-30, with no open questions left unresolved in either document. Owner explicitly requested approval.
+- **Origin**: A backlog-validity sweep across traverse + registry (this session) confirmed `#1093`'s stated P1/P2 half of its blocker is resolved (both approved and implemented this session) but its "approved durable host-owned state/trace substrate" half was still real: ADR-0045 and its governing draft spec `527-durable-trace-productization` were sitting at `Proposed`/`Draft`, dated 2026-07-30, with no open questions left unresolved in either document. Owner explicitly requested approval.
 
 ### Context
 
@@ -2470,13 +2470,13 @@ per workspace, oldest-first), and is exported only as explicitly redacted
 evidence. It is additive to the already-approved `079-durable-trace-journal`,
 scoped narrowly to `crates/traverse-runtime/src/trace_journal.rs` and a new
 export schema, and explicitly excludes encryption/key lifecycle, remote
-sync, and DataStore ownership changes. ADR-0027 records the same decision at
+sync, and DataStore ownership changes. ADR-0045 records the same decision at
 the architecture level: production hosts, not Traverse, own the journal
 root, authorization, keys, tenancy, retention, and deletion authority.
 
 ### Decision
 
-Approve both documents as written, no changes: ADR-0027 status
+Approve both documents as written, no changes: ADR-0045 status
 `Proposed` -> `Accepted`; spec `527` status `Draft` -> `Approved` and
 registered in `specs/governance/approved-specs.json` (version `1.0.0`,
 `immutable: true`, governs the four paths its own "Compatibility and
@@ -2499,7 +2499,7 @@ judgment regardless of how well-formed a draft looks.
 
 ### Outcome
 
-ADR-0027 and spec `527-durable-trace-productization` are both Approved.
+ADR-0045 and spec `527-durable-trace-productization` are both Approved.
 This resolves the trace half of `#1093`'s stated blocker
 ("approved durable host-owned state/trace substrate"); the checkpoint/state
 half (P3's own "authenticated secret-free checkpoint binds all governing
@@ -2507,3 +2507,132 @@ snapshots" requirement) is a distinct concern from a trace journal and is
 not addressed by this approval — `#1093` is not yet fully unblocked, and no
 existing Proposed ADR was confirmed to cover checkpoint/state
 specifically. `#1093` left `Blocked` pending that remaining gap.
+
+**Renumbering note**: this ADR was originally numbered 0027, which collided
+with the unrelated, already-Accepted `docs/adr/0027-datastore-synchronization.md`
+("Keep DataStore Synchronization Host-Owned and Deterministic", spec
+`089-datastore-synchronization`). Renumbered to 0045 (the next free number)
+as part of approving it, rather than leaving a second "ADR-0027" in the
+tree. The same live sweep found five more pre-existing duplicate ADR
+numbers (0011, 0018, 0024, 0029, 0041), each shared by two unrelated,
+already-Accepted decisions — those are deliberately left as-is here (both
+sides are established and possibly cross-referenced elsewhere; renumbering
+them safely needs its own pass, not a rider on this approval) and filed as
+a separate follow-up ticket.
+
+## Decision 64: Approve ADR-0025 and Spec 531 (DataStore Synchronization Protocol)
+
+- **Date**: 2026-08-24
+- **Status**: Superseded same day — see Amendment below
+- **Governing spec**: `531-datastore-synchronization-protocol` (approved, then superseded and removed from the registry same day), ADR-0025 (Accepted, then marked Superseded)
+- **Related issues**: `#877` (spec origin), `#883` (closed, completed — see Amendment)
+- **Origin**: Same backlog-validity sweep as Decision 63, extended per the owner's follow-up request to review the two other Proposed ADRs found (`/brainstorm`, 2026-08-24).
+
+**Amendment (2026-08-24, same day)**: this approval was made without checking
+whether the DataStore synchronization protocol question had already been
+answered elsewhere. It had — issue `#883` (closed, completed) shows the exact
+same design (mutation envelopes, Lamport-clock-then-writer-ID conflict
+resolution, opaque per-peer cursors, in-process test-double transport) already
+shipped under `089-datastore-synchronization` / the pre-existing
+`docs/adr/0027-datastore-synchronization.md` (unrelated to the ADR-0027 that
+was renumbered to ADR-0045 in Decision 63 — this is the other, already-Accepted
+ADR-0027). ADR-0025 and spec `531` are now marked **Superseded by
+ADR-0027/spec 089** rather than Accepted/Approved, and spec `531`'s entry was
+removed from `specs/governance/approved-specs.json`, consistent with how spec
+`532` was handled in Decision 65's amendment. Found via the same due-diligence
+check applied retroactively after the 532/093 conflict surfaced — caught and
+corrected within the same session, before any implementation could reference
+the redundant protocol.
+
+### Context
+
+Spec `531` (from issue `#877`) defines a provider-neutral protocol for an
+explicit host-requested synchronization attempt between two DataStore
+replicas: deterministic Lamport-clock-then-writer-ID conflict resolution,
+idempotent replay, interruption and integrity-failure handling, and
+secret-free evidence — extending specs `518`/`519` without choosing a
+transport or provider. ADR-0025 records the same decision architecturally:
+synchronization is explicit and host-requested, never a background runtime
+service, with v1 scoped to a local-peer/test-double transport only.
+
+### Decision
+
+Approve both as written, no changes: ADR-0025 status `Proposed` ->
+`Accepted`; spec `531` registered in `specs/governance/approved-specs.json`
+(version `1.0.0`, `immutable: true`). Both documents were complete and
+self-consistent when drafted (2026-07-29); the only missing step was
+owner sign-off, given directly this session. The spec's own "Adding this
+draft to the approved registry without maintainer approval" out-of-scope
+line is removed as now-satisfied rather than left as a stale guardrail.
+
+### Alternatives Considered
+
+Same as Decision 63: a fresh `/brainstorm` review was considered and
+rejected as unnecessary (no open question in either document), and holding
+for further owner review was offered but not chosen.
+
+### Outcome
+
+Superseded same day (see Amendment above). ADR-0025 and spec `531` are marked
+Superseded by ADR-0027/spec `089-datastore-synchronization` and kept only as
+historical record of a design that was independently re-derived and then found
+redundant; spec `531` is removed from `specs/governance/approved-specs.json`.
+No open ticket depends on this decision — `#883` was already closed (completed)
+against the pre-existing spec, before this approval happened.
+
+## Decision 65: Approve ADR-0026 and Spec 532 (Multi-Process DataStore Coordination)
+
+- **Date**: 2026-08-24
+- **Status**: Superseded same day — see Amendment below
+- **Governing spec**: `532-multiprocess-datastore-coordination` (approved, then superseded and removed from the registry same day), ADR-0026 (Accepted, then marked Superseded)
+- **Related issues**: `#878` (spec origin), `#879` (closed 2026-08-05 — see Amendment)
+- **Origin**: Same sweep as Decision 64.
+
+**Amendment (2026-08-24, same day)**: this approval was made without checking
+whether the multi-process coordination question had already been answered
+elsewhere. It had — issue `#879`'s own comment history shows the team
+explicitly pivoted away from this plain-advisory-lock model on 2026-08-05 to
+a host-owned-coordinator-with-lease-fencing model
+(`093-datastore-multiprocess-coordination` / ADR-0033), which is what
+actually shipped; `#879` closed against that spec, not this one. ADR-0026
+and spec `532` are now marked **Superseded by ADR-0033/spec 093** rather
+than Accepted/Approved, and spec `532`'s entry was removed from
+`specs/governance/approved-specs.json` (a spec registry only ever lists
+currently-active approved specs; a superseded one is dropped from it, not
+given a different status value). Caught and corrected within the same
+session, before any implementation could reference the wrong model.
+
+### Context
+
+Spec `532` (from issue `#878`) defines the coordination-model boundary for
+a host that deliberately permits multiple processes to access one
+DataStore root: one OS-backed exclusive advisory lock per root, contenders
+receive `store_busy` and retry only on host instruction, crash recovery
+relies solely on OS lock release (no leases, heartbeats, fencing, or
+coordinator daemons), and unsupported filesystems fail closed. Single-
+process exclusive ownership remains the default; a host must explicitly
+opt in. ADR-0026 records the same decision architecturally.
+
+### Decision
+
+Approve both as written, no changes: ADR-0026 status `Proposed` ->
+`Accepted`; spec `532` registered in `specs/governance/approved-specs.json`
+(version `1.0.0`, `immutable: true`). Same rationale as Decision 64 — both
+documents were complete since 2026-07-29, only owner sign-off was missing.
+The same now-satisfied "without maintainer approval" out-of-scope line is
+removed. Note spec `532`'s own FR-010 states implementation itself still
+requires the separately-approved ticket `#879` — this decision approves
+the architecture/spec, not a claim to implement it.
+
+### Alternatives Considered
+
+Same as Decision 64.
+
+### Outcome
+
+Superseded same day (see Amendment above). ADR-0026 and spec `532` are
+marked Superseded by ADR-0033/spec `093-datastore-multiprocess-coordination`
+and kept only as historical record of a design that was considered and
+abandoned; spec `532` is removed from `specs/governance/approved-specs.json`.
+No open ticket depends on this decision — `#879` was already closed
+(2026-08-05) against the superseding spec, before this approval happened.

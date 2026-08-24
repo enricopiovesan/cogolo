@@ -2,7 +2,11 @@
 
 **Feature Branch**: `codex/issue-889-local-multiprocess-lock`
 **Created**: 2026-07-29
-**Status**: Draft — requires maintainer approval before implementation.
+**Status**: Superseded (2026-08-24) by `093-datastore-multiprocess-coordination`
+/ ADR-0033. Briefly approved the same day (ADR-0026) before this was found —
+issue #879's history shows the team pivoted to the host-owned-coordinator/
+lease-fencing model on 2026-08-05, which is what actually shipped. Kept for
+historical record; not an active governing document.
 **Input**: Issue #878; extends Specs 518 and 519.
 
 ## Purpose
@@ -79,7 +83,6 @@ out of scope.
 - CRDTs, replication, merge semantics, or remote DataStore synchronization.
 - Automatic root selection, process discovery, or silent fallback to shared
   access.
-- Adding this draft to the approved registry without maintainer approval.
 
 ## Independent Conformance Evidence
 
