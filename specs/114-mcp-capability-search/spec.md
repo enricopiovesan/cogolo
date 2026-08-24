@@ -1,6 +1,6 @@
 # Public MCP Capability Search
 
-**Status**: Draft — pending explicit human approval
+**Status**: Approved (2026-08-24)
 **Canonical governing ID**: `114-mcp-capability-search`
 **Version**: 0.1.0
 **Input**: Traverse #1123; unblocks #876.
