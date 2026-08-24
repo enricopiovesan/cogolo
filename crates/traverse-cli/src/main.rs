@@ -6978,7 +6978,7 @@ mod tests {
     use std::path::{Path, PathBuf};
     use std::process::Command as ProcessCommand;
     use std::sync::atomic::{AtomicU64, Ordering};
-    use std::sync::{Arc, Mutex};
+    use std::sync::{Arc, Mutex, OnceLock};
     use std::time::{SystemTime, UNIX_EPOCH};
     use traverse_contracts::parse_contract;
     use traverse_contracts::{UsageEvent, UsageEventKind, UsageTelemetrySink};
@@ -11162,7 +11162,16 @@ mod tests {
         manifest_path: PathBuf,
     }
 
+    // Fixture scripts invoke `rustup rustc` and write committed example artifacts.
+    // Serialise those shared external operations so the parallel test runner cannot
+    // contend on rustup's toolchain state or an artifact file.
+    static CAPABILITY_PACKAGE_BUILD_LOCK: OnceLock<Mutex<()>> = OnceLock::new();
+
     fn build_real_capability_package_artifact(manifest_path: &Path) {
+        let _build_lock = CAPABILITY_PACKAGE_BUILD_LOCK
+            .get_or_init(|| Mutex::new(()))
+            .lock()
+            .expect("capability package build lock should not be poisoned");
         let package_dir = manifest_path
             .parent()
             .expect("real capability package manifest must have a package directory");

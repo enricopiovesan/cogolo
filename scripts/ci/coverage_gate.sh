@@ -40,6 +40,10 @@ if [[ -z "${LLVM_COV:-}" || -z "${LLVM_PROFDATA:-}" ]]; then
   fi
 fi
 
+# Do not aggregate stale instrumentation from an earlier coverage invocation.
+# Each crate below must be measured against its own current test execution.
+cargo llvm-cov clean --workspace
+
 failed=0
 
 for entry in "${targets[@]}"; do
