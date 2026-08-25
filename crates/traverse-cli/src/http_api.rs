@@ -4945,6 +4945,7 @@ fn handle_execute<W: Write, E: LocalExecutor + Clone>(
 /// Execute one exact, already-verified host-supplied entrypoint (Spec 115).
 /// This handler deliberately never reads a path or mutates/synchronizes the
 /// registry: the state was atomically validated before `serve` listened.
+#[allow(clippy::too_many_lines)]
 fn handle_verified_entrypoint_execute<W: Write, E: LocalExecutor + Clone>(
     w: &mut W,
     request: &HttpRequest,
