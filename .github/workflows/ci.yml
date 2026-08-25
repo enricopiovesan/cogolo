@@ -9,6 +9,33 @@ on:
   pull_request:
 
 jobs:
+  classify-changes:
+    runs-on: ubuntu-latest
+    outputs:
+      full_ci: ${{ steps.classify.outputs.full_ci }}
+      reason: ${{ steps.classify.outputs.reason }}
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          fetch-depth: 0
+
+      - name: Classify validation scope
+        id: classify
+        shell: bash
+        env:
+          EVENT_NAME: ${{ github.event_name }}
+          GITHUB_BASE_SHA: ${{ github.event.pull_request.base.sha }}
+          GITHUB_HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+        run: |
+          if [[ "${EVENT_NAME}" != "pull_request" ]]; then
+            echo "full_ci=true" >> "$GITHUB_OUTPUT"
+            echo "reason=non-PR events always run full validation" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+          bash scripts/ci/pr_change_classification.sh >> "$GITHUB_OUTPUT"
+
   version-guard:
     runs-on: ubuntu-latest
 
@@ -53,6 +80,8 @@ jobs:
           echo "Cargo.toml workspace version ${workspace_version} matches ${tag_name}."
 
   repository-checks:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.full_ci == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -154,6 +183,8 @@ jobs:
         run: bash scripts/ci/embedder_conformance/rust_package.sh
 
   web-embedder-package:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.full_ci == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -169,6 +200,8 @@ jobs:
         run: bash scripts/ci/embedder_conformance/web_package.sh
 
   native-artifact-certification:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.full_ci == 'true'
     runs-on: macos-latest
 
     steps:
@@ -195,6 +228,8 @@ jobs:
         run: bash scripts/ci/native_artifact_certification.sh
 
   coverage-gate:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.full_ci == 'true'
     runs-on: ubuntu-latest
 
     steps:
@@ -220,6 +255,8 @@ jobs:
         run: bash scripts/ci/coverage_gate.sh
 
   stress-test:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.full_ci == 'true'
     name: ThreadPoolExecutor stress (${{ matrix.target }})
     runs-on: ${{ matrix.os }}
     timeout-minutes: 20

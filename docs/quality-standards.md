@@ -20,6 +20,22 @@ The coverage gate is merge-safe even before core logic exists. It passes when no
 The gate runs crate tests with `--test-threads=1` so coverage instrumentation is
 measured against deterministic package-local state.
 
+## Pull Request Validation Scope
+
+All pull requests run the org governance and CLA workflows, PR-body hygiene,
+and spec-alignment. The heavyweight runtime, coverage, native-artifact,
+embedder, and platform-stress jobs run only when the changed paths require
+them.
+
+The allowlist for documentation-only pull requests is deliberately narrow:
+`docs/**`, `adr/**`, non-governing `specs/**`, and the repository's top-level
+documentation files. Any other path — including contracts, examples, Cargo
+files, CI scripts, GitHub workflows, and `specs/governance/**` — runs full CI.
+This conservative default means a new artifact type cannot silently bypass
+validation. The classifier and its executable checks live in
+`scripts/ci/pr_change_classification.sh` and
+`scripts/ci/pr_change_classification_test.sh`.
+
 ### Phased Coverage Floors
 
 The constitution target for core logic remains 100% line coverage. When a crate
