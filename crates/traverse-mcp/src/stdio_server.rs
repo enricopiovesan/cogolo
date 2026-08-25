@@ -52,6 +52,8 @@ struct StdioCommandEnvelope {
     version: Option<String>,
     #[serde(default)]
     request_path: Option<String>,
+    #[serde(default)]
+    query: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -303,6 +305,7 @@ impl CanonicalExecutionContext {
 pub struct TraverseMcpStdioServer<'a, E> {
     mcp: &'a TraverseMcp<'a, E>,
     catalog: &'a McpDiscoveryCatalog,
+    public_metadata_cache: Option<traverse_embedder::HostRegistryCache>,
 }
 
 impl<'a, E> TraverseMcpStdioServer<'a, E>
@@ -311,7 +314,20 @@ where
 {
     #[must_use]
     pub fn new(mcp: &'a TraverseMcp<'a, E>, catalog: &'a McpDiscoveryCatalog) -> Self {
-        Self { mcp, catalog }
+        Self {
+            mcp,
+            catalog,
+            public_metadata_cache: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_public_metadata_cache(
+        mut self,
+        cache: traverse_embedder::HostRegistryCache,
+    ) -> Self {
+        self.public_metadata_cache = Some(cache);
+        self
     }
 
     #[must_use]
@@ -832,6 +848,38 @@ where
                             )
                         },
                     )?;
+                }
+                "search_capabilities" => {
+                    let Some(query) = command.query.as_deref() else {
+                        let failure = StdioServerFailure::new(
+                            "invalid_query",
+                            "search_capabilities requires query.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+                    let Some(cache) = self.public_metadata_cache.as_ref() else {
+                        let failure = StdioServerFailure::new(
+                            "registry_sync_missing",
+                            "verified public metadata cache is not configured.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+                    let result = crate::tools::capabilities::search_capabilities(cache, query)
+                        .map_err(|error| {
+                            StdioServerFailure::new(error.message, "capability search failed")
+                        })?;
+                    write_json_line(
+                        stdout,
+                        &json!({"records": result.records, "stale": result.stale}),
+                    )
+                    .map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write capability search envelope: {error}"),
+                        )
+                    })?;
                 }
                 "describe_entrypoint" => {
                     let Some(entrypoint_kind) = command.entrypoint_kind.as_deref() else {

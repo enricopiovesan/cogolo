@@ -12,6 +12,51 @@ use traverse_registry::{
 };
 
 use crate::{McpError, McpErrorCode};
+use traverse_embedder::{HostRegistryCache, read_public_metadata};
+
+/// Offline search result from the verified public metadata cache.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicCapabilitySearchResult {
+    pub records: Vec<traverse_embedder::PublicCapabilityMetadata>,
+    pub stale: bool,
+}
+
+/// Search verified public metadata without touching the network or private registry.
+///
+/// # Errors
+///
+/// Returns `InvalidRequest` for an empty query and a stable cache error when
+/// the verified public metadata generation is unavailable or invalid.
+pub fn search_capabilities(
+    cache: &HostRegistryCache,
+    query: &str,
+) -> Result<PublicCapabilitySearchResult, McpError> {
+    let tokens = query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Err(McpError {
+            code: McpErrorCode::InvalidRequest,
+            message: "invalid_query".to_string(),
+        });
+    }
+    let (mut records, stale) = read_public_metadata(cache).map_err(|error| McpError {
+        code: McpErrorCode::InvalidRequest,
+        message: error.code.as_str().to_string(),
+    })?;
+    records.retain(|record| {
+        let haystack =
+            format!("{} {}", record.description, record.scenarios.join(" ")).to_lowercase();
+        tokens.iter().all(|token| haystack.contains(token))
+    });
+    records.sort_by(|left, right| {
+        left.id
+            .cmp(&right.id)
+            .then_with(|| right.version.cmp(&left.version))
+    });
+    Ok(PublicCapabilitySearchResult { records, stale })
+}
 
 /// Optional filter for [`list_capabilities`].
 #[derive(Debug, Clone, Default)]
@@ -159,4 +204,18 @@ pub fn get_capability(
         code: McpErrorCode::InvalidRequest,
         message: e.to_string(),
     })
+}
+
+#[cfg(test)]
+mod search_tests {
+    use super::*;
+    use std::path::PathBuf;
+
+    #[test]
+    fn search_rejects_whitespace_before_reading_cache() {
+        let cache = HostRegistryCache::new(PathBuf::from("/definitely-not-a-cache"));
+        let error = search_capabilities(&cache, " \t\n ").expect_err("invalid query");
+        assert_eq!(error.code, McpErrorCode::InvalidRequest);
+        assert_eq!(error.message, "invalid_query");
+    }
 }

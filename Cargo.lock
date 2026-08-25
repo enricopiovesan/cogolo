@@ -2681,6 +2681,7 @@ dependencies = [
  "serde",
  "serde_json",
  "traverse-contracts",
+ "traverse-embedder",
  "traverse-registry",
  "traverse-runtime",
 ]
