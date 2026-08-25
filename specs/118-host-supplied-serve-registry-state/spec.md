@@ -1,6 +1,6 @@
 # Host-Supplied Verified Registry State for `serve`
 
-**Status**: Draft
+**Status**: Approved (2026-08-25)
 **Canonical governing ID**: `118-host-supplied-serve-registry-state`
 **Version**: 0.1.0
 **Input**: Traverse #1142; unblocks #1105.
