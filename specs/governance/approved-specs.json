@@ -1557,6 +1557,17 @@
         "traverse-framework/registry#312",
         "specs/117-verified-public-registry-metadata-sync/"
       ]
+    },
+    {
+      "id": "118-host-supplied-serve-registry-state",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/118-host-supplied-serve-registry-state/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/118-host-supplied-serve-registry-state/"
+      ]
     }
   ]
 }
