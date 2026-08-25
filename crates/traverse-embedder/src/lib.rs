@@ -85,8 +85,9 @@ mod registry_cache;
 mod test_double;
 
 pub use registry_cache::{
-    HostRegistryCache, RegistryArtifactFetcher, RegistryCacheError, RegistryCacheErrorCode,
-    RegistryPrepareEvidence, VerifiedRegistryDependency, prepare as prepare_registry_dependency,
+    HostRegistryCache, PublicCapabilityMetadata, RegistryArtifactFetcher, RegistryCacheError,
+    RegistryCacheErrorCode, RegistryPrepareEvidence, VerifiedRegistryDependency,
+    prepare as prepare_registry_dependency, publish_public_metadata, read_public_metadata,
     resolve_component as resolve_registry_component,
     resolve_offline as resolve_registry_dependency_offline,
 };
@@ -2267,6 +2268,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn offline_registry_resolver_loads_prepared_contract_and_reports_missing() {
         use crate::registry_cache::{
             HostRegistryCache, RegistryArtifactFetcher, prepare, resolve_component,
@@ -2317,6 +2319,9 @@ mod tests {
             contract_digest: contract_digest.clone(),
             contract_url: "https://example.test/process.json".to_string(),
             deprecated: false,
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
