@@ -8710,6 +8710,10 @@ mod tests {
                     summary: String::new(),
                     description: String::new(),
                     use_cases: Vec::new(),
+                    service_type: "stateless".to_string(),
+                    permitted_targets: Vec::new(),
+                    lifecycle: "active".to_string(),
+                    provenance: None,
                 }],
             },
         )
@@ -9778,6 +9782,10 @@ mod tests {
             summary: String::new(),
             description: String::new(),
             use_cases: Vec::new(),
+            service_type: "stateless".to_string(),
+            permitted_targets: Vec::new(),
+            lifecycle: "active".to_string(),
+            provenance: None,
         };
 
         let registered = load_registered_bundle_with_public_records(&manifest_path, &[public])
@@ -10888,6 +10896,8 @@ mod tests {
                 contract_url: "https://github.com/traverse-framework/registry/releases/download/artifacts/traverse-starter.process-1.0.0/contract.json".to_string(),
                 deprecated: false,
                 summary: String::new(), description: String::new(), use_cases: Vec::new(),
+                service_type: "stateless".to_string(), permitted_targets: Vec::new(),
+                lifecycle: "active".to_string(), provenance: None,
             }],
         }
     }
@@ -10909,6 +10919,10 @@ mod tests {
             summary: String::new(),
             description: String::new(),
             use_cases: Vec::new(),
+            service_type: "stateless".to_string(),
+            permitted_targets: Vec::new(),
+            lifecycle: "active".to_string(),
+            provenance: None,
         }
     }
 

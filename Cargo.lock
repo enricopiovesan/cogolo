@@ -2678,9 +2678,11 @@ name = "traverse-mcp"
 version = "0.9.1"
 dependencies = [
  "ed25519-dalek",
+ "semver",
  "serde",
  "serde_json",
  "traverse-contracts",
+ "traverse-embedder",
  "traverse-registry",
  "traverse-runtime",
 ]
@@ -2695,9 +2697,9 @@ dependencies = [
 
 [[package]]
 name = "traverse-registry"
-version = "0.15.1"
+version = "0.15.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "7cc8dc2e3524d5a839510f3734f37b945e2d554d6e77820baddaba2016bd640a"
+checksum = "2603a807be513d14a21a4898c3da95c88dc5c21c7a24e75784050bd59d6438bf"
 dependencies = [
  "semver",
  "serde",
