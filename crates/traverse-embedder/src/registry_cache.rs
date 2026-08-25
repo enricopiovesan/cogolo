@@ -1558,4 +1558,20 @@ mod tests {
             "registry_metadata_cache_invalid"
         );
     }
+
+    #[test]
+    fn public_metadata_fails_closed_for_missing_and_malformed_generations() {
+        let cache = unique_cache();
+        assert_eq!(
+            read_public_metadata(&cache).expect_err("missing").code,
+            RegistryCacheErrorCode::RegistryMetadataCacheInvalid
+        );
+        let path = cache.public_metadata_path();
+        fs::create_dir_all(path.parent().expect("parent")).expect("directory");
+        fs::write(&path, b"not json").expect("malformed generation");
+        assert_eq!(
+            read_public_metadata(&cache).expect_err("malformed").code,
+            RegistryCacheErrorCode::RegistryMetadataCacheInvalid
+        );
+    }
 }
