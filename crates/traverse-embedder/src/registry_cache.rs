@@ -206,6 +206,11 @@ struct PublicMetadataGeneration {
 
 /// Atomically publish the verified public-only projection of a synced registry state.
 /// This is explicit preparation; it performs neither network I/O nor implicit refresh.
+///
+/// # Errors
+///
+/// Returns a stable registry-cache error when the supplied state is empty or
+/// the complete generation cannot be atomically persisted.
 pub fn publish_public_metadata(
     cache: &HostRegistryCache,
     snapshot: &SyncedPublicRegistryState,
@@ -250,6 +255,11 @@ pub fn publish_public_metadata(
 }
 
 /// Read one complete verified metadata generation without network access.
+///
+/// # Errors
+///
+/// Returns a stable registry-cache error when the generation is missing,
+/// malformed, unsupported, or has invalid digest/provenance bindings.
 pub fn read_public_metadata(
     cache: &HostRegistryCache,
 ) -> Result<(Vec<PublicCapabilityMetadata>, bool), RegistryCacheError> {

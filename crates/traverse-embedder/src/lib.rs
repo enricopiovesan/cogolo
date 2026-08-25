@@ -2268,6 +2268,7 @@ mod tests {
     }
 
     #[test]
+    #[allow(clippy::too_many_lines)]
     fn offline_registry_resolver_loads_prepared_contract_and_reports_missing() {
         use crate::registry_cache::{
             HostRegistryCache, RegistryArtifactFetcher, prepare, resolve_component,
