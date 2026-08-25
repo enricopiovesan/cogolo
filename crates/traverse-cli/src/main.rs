@@ -180,6 +180,7 @@ enum Command {
         grpc_bind_address: Option<String>,
         grpc_tls_cert_path: Option<PathBuf>,
         grpc_tls_key_path: Option<PathBuf>,
+        registry_state_path: Option<PathBuf>,
     },
     TelemetryEnable,
     TelemetryDisable,
@@ -224,6 +225,7 @@ fn main() -> ExitCode {
             grpc_bind_address,
             grpc_tls_cert_path,
             grpc_tls_key_path,
+            registry_state_path,
         }) => {
             if let Err(error) = run_serve(
                 bind_address,
@@ -234,6 +236,7 @@ fn main() -> ExitCode {
                 grpc_bind_address,
                 grpc_tls_cert_path,
                 grpc_tls_key_path,
+                registry_state_path,
             ) {
                 eprintln!("{error}");
                 ExitCode::FAILURE
@@ -1488,10 +1491,12 @@ fn help_serve() -> String {
                                Requires --grpc-tls-cert and --grpc-tls-key.
     --grpc-tls-cert <path>     PEM certificate chain for the gRPC listener.
     --grpc-tls-key <path>      PEM private key for the gRPC listener.
+    --registry-state <path>    Host-supplied verified public registry-state manifest.
     --help                     Print this help text.
 
   Example:
     traverse-cli serve
+    traverse-cli serve --registry-state /srv/traverse/verified-registry.json
     traverse-cli serve --bind 127.0.0.1:9090
     traverse-cli serve --port 9090 --allow-unauthenticated"
         .to_string()
@@ -1506,6 +1511,7 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
     let grpc_bind_address = parse_string_flag(args, "--grpc-bind");
     let grpc_tls_cert_path = parse_string_flag(args, "--grpc-tls-cert").map(PathBuf::from);
     let grpc_tls_key_path = parse_string_flag(args, "--grpc-tls-key").map(PathBuf::from);
+    let registry_state_path = parse_string_flag(args, "--registry-state").map(PathBuf::from);
     let mut allowed_origins = Vec::new();
 
     if bind_flag_pos.is_some() && port_flag_pos.is_some() {
@@ -1567,6 +1573,7 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
         grpc_bind_address,
         grpc_tls_cert_path,
         grpc_tls_key_path,
+        registry_state_path,
     })
 }
 
@@ -1580,9 +1587,12 @@ fn run_serve(
     grpc_bind_address: Option<String>,
     grpc_tls_cert_path: Option<PathBuf>,
     grpc_tls_key_path: Option<PathBuf>,
+    registry_state_path: Option<PathBuf>,
 ) -> Result<(), String> {
+    let registry_state_path = registry_state_path
+        .ok_or_else(|| "registry_sync_missing: --registry-state is required".to_string())?;
     let registered =
-        load_registered_bundle(&canonical_expedition_bundle_path()).map_err(|e| e.to_string())?;
+        load_governed_public_bundle(&registry_state_path).map_err(|e| e.to_string())?;
 
     let config = http_api::ApiServerConfig {
         bind_address,
@@ -6965,8 +6975,8 @@ mod tests {
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
-        registry_sync_failure_json, reject_private_contract_scope, run_command, sha256_hex,
-        surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
+        registry_sync_failure_json, reject_private_contract_scope, run_command, run_serve,
+        sha256_hex, surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
         unresolved_persona_refs, use_case_smoke_coverage_gaps,
         use_case_smoke_coverage_gaps_for_package, validate_component_risk_policy_for_cli,
         validate_registry_path_segment,
@@ -9171,6 +9181,44 @@ mod tests {
             }
             other => assert!(matches!(other, Command::Serve { .. })),
         }
+    }
+
+    #[test]
+    fn parse_serve_accepts_explicit_host_registry_state_path() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "serve".to_string(),
+            "--registry-state".to_string(),
+            "/srv/traverse/verified-registry.json".to_string(),
+        ];
+        let command = parse_command(&args).expect("serve command should parse");
+        match command {
+            Command::Serve {
+                registry_state_path,
+                ..
+            } => assert_eq!(
+                registry_state_path,
+                Some(PathBuf::from("/srv/traverse/verified-registry.json"))
+            ),
+            other => assert!(matches!(other, Command::Serve { .. })),
+        }
+    }
+
+    #[test]
+    fn serve_requires_explicit_host_registry_state_path() {
+        let error = run_serve(
+            "127.0.0.1:0".to_string(),
+            None,
+            false,
+            Vec::new(),
+            false,
+            None,
+            None,
+            None,
+            None,
+        )
+        .expect_err("serve must not fall back to the expedition bundle");
+        assert_eq!(error, "registry_sync_missing: --registry-state is required");
     }
 
     #[test]
@@ -11575,6 +11623,7 @@ mod tests {
             grpc_bind_address: None,
             grpc_tls_cert_path: None,
             grpc_tls_key_path: None,
+            registry_state_path: None,
         };
         assert!(matches!(run_command(serve), Err(CliError::UsageError(_))));
     }
