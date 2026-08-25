@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use traverse_contracts::parse_contract;
 use traverse_registry::{
-    PublicRegistryCapabilityRecord, RegistryReference, ResolvedRegistryComponent,
+    PublicRegistryCapabilityRecord, PublicUseCaseSummary, RegistryReference, ResolvedRegistryComponent,
     SyncedPublicRegistryState,
 };
 
@@ -32,6 +32,8 @@ pub enum RegistryCacheErrorCode {
     RegistryArtifactDigestMismatch,
     /// Offline resolve found no verified cache entry for the reference.
     RegistryCacheEntryMissing,
+    /// Public metadata generation is missing, malformed, incompatible, or unverified.
+    RegistryMetadataCacheInvalid,
 }
 
 impl RegistryCacheErrorCode {
@@ -45,6 +47,7 @@ impl RegistryCacheErrorCode {
             Self::RegistryPrepareFailed => "registry_prepare_failed",
             Self::RegistryArtifactDigestMismatch => "registry_artifact_digest_mismatch",
             Self::RegistryCacheEntryMissing => "registry_cache_entry_missing",
+            Self::RegistryMetadataCacheInvalid => "registry_metadata_cache_invalid",
         }
     }
 }
@@ -172,6 +175,68 @@ impl HostRegistryCache {
         );
         self.root.join("refs").join(format!("{key}.json"))
     }
+
+    fn public_metadata_path(&self) -> PathBuf {
+        self.root.join("public-metadata").join("current.json")
+    }
+}
+
+/// A sanitized, searchable public capability record (Spec 116).
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PublicCapabilityMetadata {
+    pub namespace: String,
+    pub id: String,
+    pub version: String,
+    pub artifact_digest: String,
+    pub source_release: String,
+    pub index_digest: String,
+    pub summary: String,
+    pub description: String,
+    pub scenarios: Vec<String>,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+struct PublicMetadataGeneration {
+    schema_version: u32,
+    stale: bool,
+    source_release: String,
+    index_digest: String,
+    records: Vec<PublicCapabilityMetadata>,
+}
+
+/// Atomically publish the verified public-only projection of a synced registry state.
+/// This is explicit preparation; it performs neither network I/O nor implicit refresh.
+pub fn publish_public_metadata(
+    cache: &HostRegistryCache,
+    snapshot: &SyncedPublicRegistryState,
+    stale: bool,
+) -> Result<(), RegistryCacheError> {
+    if snapshot.capabilities.is_empty() {
+        return Err(RegistryCacheError::new(RegistryCacheErrorCode::RegistrySyncMissing, "synced registry index snapshot contains no capabilities"));
+    }
+    let index_digest = index_snapshot_digest(snapshot);
+    let records = snapshot.capabilities.iter().map(|record| PublicCapabilityMetadata {
+        namespace: record.namespace.clone(), id: record.id.clone(), version: record.version.clone(),
+        artifact_digest: record.digest.clone(), source_release: snapshot.release_tag.clone(),
+        index_digest: index_digest.clone(), summary: record.summary.clone(), description: record.description.clone(),
+        scenarios: record.use_cases.iter().map(|use_case| use_case.scenario.clone()).collect(),
+    }).collect();
+    write_json_atomic(&cache.public_metadata_path(), &PublicMetadataGeneration {
+        schema_version: 1, stale, source_release: snapshot.release_tag.clone(), index_digest, records,
+    })
+}
+
+/// Read one complete verified metadata generation without network access.
+pub fn read_public_metadata(cache: &HostRegistryCache) -> Result<(Vec<PublicCapabilityMetadata>, bool), RegistryCacheError> {
+    let bytes = fs::read(cache.public_metadata_path()).map_err(|_| RegistryCacheError::new(RegistryCacheErrorCode::RegistryMetadataCacheInvalid, "public metadata cache generation is missing"))?;
+    let generation: PublicMetadataGeneration = serde_json::from_slice(&bytes).map_err(|_| RegistryCacheError::new(RegistryCacheErrorCode::RegistryMetadataCacheInvalid, "public metadata cache generation is malformed"))?;
+    if generation.schema_version != 1 || generation.source_release.is_empty() || normalize_digest(&generation.index_digest).is_none() || generation.records.iter().any(|record| {
+        record.namespace.is_empty() || record.id.is_empty() || record.version.is_empty() ||
+        normalize_digest(&record.artifact_digest).is_none() || record.source_release != generation.source_release || record.index_digest != generation.index_digest
+    }) {
+        return Err(RegistryCacheError::new(RegistryCacheErrorCode::RegistryMetadataCacheInvalid, "public metadata cache generation has invalid verification bindings"));
+    }
+    Ok((generation.records, generation.stale))
 }
 
 /// FR-008 resolution evidence retained after a successful prepare.
@@ -684,6 +749,9 @@ mod tests {
             contract_digest,
             contract_url: "https://example.test/greet.json".to_string(),
             deprecated,
+            summary: "Greeting".to_string(),
+            description: "Greets a person".to_string(),
+            use_cases: Vec::new(),
         };
         let older = PublicRegistryCapabilityRecord {
             namespace: "demo".to_string(),
@@ -694,6 +762,9 @@ mod tests {
             contract_digest: digest_for(b"older-contract"),
             contract_url: "https://example.test/older.json".to_string(),
             deprecated: false,
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
@@ -1208,6 +1279,9 @@ mod tests {
                 contract_digest: digest_for(b"other-contract"),
                 contract_url: "https://example.test/other.json".to_string(),
                 deprecated: false,
+                summary: String::new(),
+                description: String::new(),
+                use_cases: Vec::new(),
             },
         );
         let evidence = prepare(&cache, &snapshot, &reference, &fetcher).expect("prepare");
@@ -1298,6 +1372,9 @@ mod tests {
             contract_digest,
             contract_url: "https://example.test/greet.json".to_string(),
             deprecated: false,
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
@@ -1344,6 +1421,9 @@ mod tests {
             contract_digest,
             contract_url: "https://example.test/greet.json".to_string(),
             deprecated: false,
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
@@ -1372,5 +1452,35 @@ mod tests {
         prepare(&cache, &snapshot, &reference, &fetcher).expect("prepare");
         let failure = resolve_component(&cache, &reference).expect_err("utf8");
         assert_eq!(failure.code, RegistryCacheErrorCode::RegistryPrepareFailed);
+    }
+
+    #[test]
+    fn public_metadata_round_trip_is_sanitized_and_can_be_stale() {
+        let cache = unique_cache();
+        let (mut snapshot, _, _) = sample_snapshot(false);
+        let record = snapshot.capabilities.last_mut().expect("record");
+        record.summary = "Greeting capability".to_string();
+        record.description = "Greets a public user".to_string();
+        record.use_cases = vec![PublicUseCaseSummary { scenario: "Greet a new user".to_string() }];
+        publish_public_metadata(&cache, &snapshot, true).expect("publish");
+        let (records, stale) = read_public_metadata(&cache).expect("read");
+        assert!(stale);
+        assert!(records.iter().any(|record| record.description == "Greets a public user" && record.scenarios == ["Greet a new user"]));
+        let encoded = fs::read(cache.public_metadata_path()).expect("generation");
+        let text = String::from_utf8(encoded).expect("utf8");
+        assert!(!text.contains("input_example"));
+        assert!(!text.contains("output_example"));
+    }
+
+    #[test]
+    fn public_metadata_rejects_tampered_generation_binding() {
+        let cache = unique_cache();
+        let (snapshot, _, _) = sample_snapshot(false);
+        publish_public_metadata(&cache, &snapshot, false).expect("publish");
+        let path = cache.public_metadata_path();
+        let mut generation: Value = serde_json::from_slice(&fs::read(&path).expect("read")).expect("json");
+        generation["records"][0]["index_digest"] = json!("sha256:0000000000000000000000000000000000000000000000000000000000000000");
+        write_json_atomic(&path, &generation).expect("tamper");
+        assert_eq!(read_public_metadata(&cache).expect_err("invalid").code, RegistryCacheErrorCode::RegistryMetadataCacheInvalid);
     }
 }

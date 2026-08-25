@@ -86,7 +86,8 @@ mod test_double;
 
 pub use registry_cache::{
     HostRegistryCache, RegistryArtifactFetcher, RegistryCacheError, RegistryCacheErrorCode,
-    RegistryPrepareEvidence, VerifiedRegistryDependency, prepare as prepare_registry_dependency,
+    PublicCapabilityMetadata, RegistryPrepareEvidence, VerifiedRegistryDependency,
+    publish_public_metadata, read_public_metadata, prepare as prepare_registry_dependency,
     resolve_component as resolve_registry_component,
     resolve_offline as resolve_registry_dependency_offline,
 };
@@ -2317,6 +2318,9 @@ mod tests {
             contract_digest: contract_digest.clone(),
             contract_url: "https://example.test/process.json".to_string(),
             deprecated: false,
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
