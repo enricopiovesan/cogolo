@@ -10,6 +10,7 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
+use traverse_embedder::HostRegistryCache;
 use traverse_registry::{
     BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
@@ -28,6 +29,7 @@ const SUPPORTING_COMMANDS: &[&str] = &[
     "list_content_groups",
     "describe_content_group",
     "list_entrypoints",
+    "search_capabilities",
     "describe_entrypoint",
     "validate_entrypoint",
     "execute_entrypoint",
@@ -52,6 +54,8 @@ struct StdioCommandEnvelope {
     version: Option<String>,
     #[serde(default)]
     request_path: Option<String>,
+    #[serde(default)]
+    query: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -303,6 +307,7 @@ impl CanonicalExecutionContext {
 pub struct TraverseMcpStdioServer<'a, E> {
     mcp: &'a TraverseMcp<'a, E>,
     catalog: &'a McpDiscoveryCatalog,
+    public_metadata_cache: Option<HostRegistryCache>,
 }
 
 impl<'a, E> TraverseMcpStdioServer<'a, E>
@@ -311,7 +316,31 @@ where
 {
     #[must_use]
     pub fn new(mcp: &'a TraverseMcp<'a, E>, catalog: &'a McpDiscoveryCatalog) -> Self {
-        Self { mcp, catalog }
+        Self {
+            mcp,
+            catalog,
+            public_metadata_cache: None,
+        }
+    }
+
+    #[must_use]
+    pub fn with_public_metadata_cache(mut self, cache: HostRegistryCache) -> Self {
+        self.public_metadata_cache = Some(cache);
+        self
+    }
+
+    fn search_capabilities_envelope(&self, query: &str) -> Result<Value, StdioServerFailure> {
+        let cache = self.public_metadata_cache.as_ref().ok_or_else(|| {
+            StdioServerFailure::new(
+                "registry_sync_missing",
+                "search requires verified public registry state.",
+            )
+        })?;
+        let result = crate::tools::capabilities::search_capabilities(cache, query)
+            .map_err(|error| StdioServerFailure::new(&error.message, &error.message))?;
+        Ok(
+            json!({"kind":"mcp_capability_search", "records": result.records, "stale": result.stale}),
+        )
     }
 
     #[must_use]
@@ -832,6 +861,29 @@ where
                             )
                         },
                     )?;
+                }
+                "search_capabilities" => {
+                    let Some(query) = command.query.as_deref() else {
+                        let failure = StdioServerFailure::new(
+                            "invalid_query",
+                            "search_capabilities requires query.",
+                        );
+                        let _ = write_json_line(stderr, &failure.envelope());
+                        return Err(failure);
+                    };
+                    let envelope = match self.search_capabilities_envelope(query) {
+                        Ok(envelope) => envelope,
+                        Err(failure) => {
+                            let _ = write_json_line(stderr, &failure.envelope());
+                            return Err(failure);
+                        }
+                    };
+                    write_json_line(stdout, &envelope).map_err(|error| {
+                        StdioServerFailure::new(
+                            "io_error",
+                            format!("Failed to write search envelope: {error}"),
+                        )
+                    })?;
                 }
                 "describe_entrypoint" => {
                     let Some(entrypoint_kind) = command.entrypoint_kind.as_deref() else {
@@ -1809,6 +1861,36 @@ mod tests {
         assert!(output.contains("\"status\":\"rendered\""));
         assert!(output.contains("\"kind\":\"mcp_stdio_server_shutdown\""));
         assert!(stderr.is_empty());
+    }
+
+    #[test]
+    fn search_command_requires_query_and_verified_public_metadata() {
+        let server = build_test_server();
+        let missing = server
+            .search_capabilities_envelope("catalog")
+            .expect_err("server without cache must fail closed");
+        assert_eq!(missing.code, "registry_sync_missing");
+
+        let cache = HostRegistryCache::new(
+            std::env::temp_dir().join(format!("traverse-mcp-stdio-search-{}", std::process::id())),
+        );
+        let server = build_test_server().with_public_metadata_cache(cache);
+        let input = std::io::Cursor::new(
+            br#"{"command":"search_capabilities"}
+{"command":"search_capabilities","query":"catalog"}
+"#,
+        );
+        let mut stdout = Vec::new();
+        let mut stderr = Vec::new();
+        let error = server
+            .run_stdio(input, &mut stdout, &mut stderr, false)
+            .expect_err("missing query must fail");
+        assert_eq!(error.code, "invalid_query");
+        assert!(
+            String::from_utf8(stderr)
+                .expect("stderr utf8")
+                .contains("invalid_query")
+        );
     }
 
     #[test]

@@ -2,6 +2,7 @@
 //!
 //! Governed by spec 015-capability-discovery-mcp
 
+use semver::Version;
 use serde::{Deserialize, Serialize};
 use traverse_contracts::{
     DeterminismClass, EffectClass, EgressPolicy, ExecutionTarget, ReliabilityMetadata, ServiceType,
@@ -12,6 +13,63 @@ use traverse_registry::{
 };
 
 use crate::{McpError, McpErrorCode};
+use traverse_embedder::{HostRegistryCache, PublicCapabilityMetadata, read_public_metadata};
+
+/// Search result from the host-supplied verified public registry cache.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PublicCapabilitySearchResult {
+    pub records: Vec<PublicCapabilityMetadata>,
+    pub stale: bool,
+    pub source_release: String,
+    pub index_digest: String,
+}
+
+/// Search public capability descriptions and declared scenario text offline.
+///
+/// # Errors
+///
+/// Returns stable errors for invalid queries and unavailable verified cache state.
+pub fn search_capabilities(
+    cache: &HostRegistryCache,
+    query: &str,
+) -> Result<PublicCapabilitySearchResult, McpError> {
+    let tokens = query
+        .split_whitespace()
+        .map(str::to_lowercase)
+        .collect::<Vec<_>>();
+    if tokens.is_empty() {
+        return Err(McpError {
+            code: McpErrorCode::InvalidRequest,
+            message: "invalid_query".to_string(),
+        });
+    }
+    let generation = read_public_metadata(cache).map_err(|error| McpError {
+        code: McpErrorCode::InvalidRequest,
+        message: error.code.as_str().to_string(),
+    })?;
+    let mut records = generation.records;
+    records.retain(|record| {
+        let text = format!("{} {}", record.description, record.scenarios.join(" ")).to_lowercase();
+        tokens.iter().all(|token| text.contains(token))
+    });
+    records.sort_by(|left, right| {
+        left.id.cmp(&right.id).then_with(|| {
+            match (
+                Version::parse(&left.version),
+                Version::parse(&right.version),
+            ) {
+                (Ok(left), Ok(right)) => right.cmp(&left),
+                _ => right.version.cmp(&left.version),
+            }
+        })
+    });
+    Ok(PublicCapabilitySearchResult {
+        records,
+        stale: generation.stale,
+        source_release: generation.source_release,
+        index_digest: generation.index_digest,
+    })
+}
 
 /// Optional filter for [`list_capabilities`].
 #[derive(Debug, Clone, Default)]
@@ -159,4 +217,104 @@ pub fn get_capability(
         code: McpErrorCode::InvalidRequest,
         message: e.to_string(),
     })
+}
+
+#[cfg(test)]
+mod search_tests {
+    #![allow(clippy::expect_used)]
+
+    use super::*;
+    use std::sync::atomic::{AtomicU64, Ordering};
+    use traverse_embedder::publish_public_metadata;
+    use traverse_registry::{
+        PublicRegistryCapabilityRecord, PublicUseCaseSummary, SyncedPublicRegistryState,
+    };
+
+    static CACHE_COUNTER: AtomicU64 = AtomicU64::new(0);
+
+    fn cache() -> HostRegistryCache {
+        let sequence = CACHE_COUNTER.fetch_add(1, Ordering::Relaxed);
+        HostRegistryCache::new(std::env::temp_dir().join(format!(
+            "traverse-mcp-search-{}-{sequence}",
+            std::process::id()
+        )))
+    }
+
+    fn record(id: &str, version: &str, description: &str) -> PublicRegistryCapabilityRecord {
+        PublicRegistryCapabilityRecord {
+            namespace: "demo".to_string(),
+            id: id.to_string(),
+            version: version.to_string(),
+            digest: format!("sha256:{}", "a".repeat(64)),
+            artifact_url: format!("https://example.test/{id}.wasm"),
+            contract_digest: format!("sha256:{}", "b".repeat(64)),
+            contract_url: format!("https://example.test/{id}.json"),
+            deprecated: false,
+            summary: format!("{id} summary"),
+            description: description.to_string(),
+            use_cases: vec![PublicUseCaseSummary {
+                scenario: "Find a public capability".to_string(),
+            }],
+            service_type: "stateless".to_string(),
+            permitted_targets: vec!["wasm".to_string()],
+            lifecycle: "active".to_string(),
+            provenance: None,
+        }
+    }
+
+    fn publish(cache: &HostRegistryCache) {
+        let snapshot = SyncedPublicRegistryState {
+            schema_version: "1".to_string(),
+            workspace_id: "workspace".to_string(),
+            state_scope: "public".to_string(),
+            source_repo: "traverse-framework/registry".to_string(),
+            release_tag: "index-v200".to_string(),
+            index_version: 200,
+            generated_at: "2026-08-25T00:00:00Z".to_string(),
+            source_commit: None,
+            synced_at: "2026-08-25T00:00:00Z".to_string(),
+            record_count: 3,
+            validation_status: "valid".to_string(),
+            governing_spec: "114-capability-search".to_string(),
+            capabilities: vec![
+                record("search", "2.0.0", "Search public catalog entries"),
+                record("search", "10.0.0", "Search public catalog entries"),
+                record("alpha", "1.0.0", "Search public catalog entries"),
+            ],
+        };
+        publish_public_metadata(cache, &snapshot, true).expect("publish metadata");
+    }
+
+    #[test]
+    fn search_requires_query_and_fails_closed_without_a_generation() {
+        let cache = cache();
+        let error = search_capabilities(&cache, "   ").expect_err("empty query");
+        assert_eq!(error.message, "invalid_query");
+        let error = search_capabilities(&cache, "catalog").expect_err("missing generation");
+        assert_eq!(error.message, "registry_sync_missing");
+    }
+
+    #[test]
+    fn search_matches_public_text_sorts_semver_and_preserves_provenance() {
+        let cache = cache();
+        publish(&cache);
+        let result = search_capabilities(&cache, "PUBLIC catalog").expect("search");
+        assert!(result.stale);
+        assert_eq!(result.source_release, "index-v200");
+        assert!(result.index_digest.starts_with("sha256:"));
+        assert_eq!(result.records.len(), 3);
+        assert_eq!(result.records[0].id, "alpha");
+        assert_eq!(result.records[1].version, "10.0.0");
+        assert_eq!(result.records[2].version, "2.0.0");
+        assert_eq!(result.records[0].permitted_targets, ["wasm"]);
+    }
+
+    #[test]
+    fn search_keeps_generation_provenance_when_nothing_matches() {
+        let cache = cache();
+        publish(&cache);
+        let result = search_capabilities(&cache, "not-present").expect("search");
+        assert!(result.records.is_empty());
+        assert_eq!(result.source_release, "index-v200");
+    }
 }

@@ -85,10 +85,10 @@ mod registry_cache;
 mod test_double;
 
 pub use registry_cache::{
-    HostRegistryCache, PublicCapabilityMetadata, RegistryArtifactFetcher, RegistryCacheError,
-    RegistryCacheErrorCode, RegistryPrepareEvidence, VerifiedRegistryDependency,
-    prepare as prepare_registry_dependency, publish_public_metadata, read_public_metadata,
-    resolve_component as resolve_registry_component,
+    HostRegistryCache, PublicCapabilityMetadata, PublicMetadataRead, RegistryArtifactFetcher,
+    RegistryCacheError, RegistryCacheErrorCode, RegistryPrepareEvidence,
+    VerifiedRegistryDependency, prepare as prepare_registry_dependency, publish_public_metadata,
+    read_public_metadata, resolve_component as resolve_registry_component,
     resolve_offline as resolve_registry_dependency_offline,
 };
 pub use test_double::EmbedderTestDouble;
@@ -2322,6 +2322,10 @@ mod tests {
             summary: String::new(),
             description: String::new(),
             use_cases: Vec::new(),
+            service_type: String::new(),
+            permitted_targets: Vec::new(),
+            lifecycle: String::new(),
+            provenance: None,
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),

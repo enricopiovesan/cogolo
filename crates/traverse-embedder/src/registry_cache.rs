@@ -193,6 +193,22 @@ pub struct PublicCapabilityMetadata {
     pub summary: String,
     pub description: String,
     pub scenarios: Vec<String>,
+    pub service_type: String,
+    pub permitted_targets: Vec<String>,
+    pub lifecycle: String,
+    pub provenance: Option<Value>,
+}
+
+/// One complete, verified public metadata generation.
+///
+/// The generation-level provenance is retained even when a consumer's query
+/// matches no individual capability records.
+#[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct PublicMetadataRead {
+    pub records: Vec<PublicCapabilityMetadata>,
+    pub stale: bool,
+    pub source_release: String,
+    pub index_digest: String,
 }
 
 #[derive(Debug, Clone, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
@@ -240,6 +256,10 @@ pub fn publish_public_metadata(
                 .iter()
                 .map(|use_case| use_case.scenario.clone())
                 .collect(),
+            service_type: record.service_type.clone(),
+            permitted_targets: record.permitted_targets.clone(),
+            lifecycle: record.lifecycle.clone(),
+            provenance: record.provenance.clone(),
         })
         .collect();
     write_json_atomic(
@@ -262,10 +282,10 @@ pub fn publish_public_metadata(
 /// malformed, unsupported, or has invalid digest/provenance bindings.
 pub fn read_public_metadata(
     cache: &HostRegistryCache,
-) -> Result<(Vec<PublicCapabilityMetadata>, bool), RegistryCacheError> {
+) -> Result<PublicMetadataRead, RegistryCacheError> {
     let bytes = fs::read(cache.public_metadata_path()).map_err(|_| {
         RegistryCacheError::new(
-            RegistryCacheErrorCode::RegistryMetadataCacheInvalid,
+            RegistryCacheErrorCode::RegistrySyncMissing,
             "public metadata cache generation is missing",
         )
     })?;
@@ -285,6 +305,8 @@ pub fn read_public_metadata(
                 || normalize_digest(&record.artifact_digest).is_none()
                 || record.source_release != generation.source_release
                 || record.index_digest != generation.index_digest
+                || record.service_type.is_empty()
+                || record.lifecycle.is_empty()
         })
     {
         return Err(RegistryCacheError::new(
@@ -292,7 +314,12 @@ pub fn read_public_metadata(
             "public metadata cache generation has invalid verification bindings",
         ));
     }
-    Ok((generation.records, generation.stale))
+    Ok(PublicMetadataRead {
+        records: generation.records,
+        stale: generation.stale,
+        source_release: generation.source_release,
+        index_digest: generation.index_digest,
+    })
 }
 
 /// FR-008 resolution evidence retained after a successful prepare.
@@ -808,6 +835,10 @@ mod tests {
             summary: "Greeting".to_string(),
             description: "Greets a person".to_string(),
             use_cases: Vec::new(),
+            service_type: "stateless".to_string(),
+            permitted_targets: Vec::new(),
+            lifecycle: "active".to_string(),
+            provenance: None,
         };
         let older = PublicRegistryCapabilityRecord {
             namespace: "demo".to_string(),
@@ -821,6 +852,10 @@ mod tests {
             summary: String::new(),
             description: String::new(),
             use_cases: Vec::new(),
+            service_type: "stateless".to_string(),
+            permitted_targets: Vec::new(),
+            lifecycle: "active".to_string(),
+            provenance: None,
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
@@ -1338,6 +1373,10 @@ mod tests {
                 summary: String::new(),
                 description: String::new(),
                 use_cases: Vec::new(),
+                service_type: String::new(),
+                permitted_targets: Vec::new(),
+                lifecycle: String::new(),
+                provenance: None,
             },
         );
         let evidence = prepare(&cache, &snapshot, &reference, &fetcher).expect("prepare");
@@ -1431,6 +1470,10 @@ mod tests {
             summary: String::new(),
             description: String::new(),
             use_cases: Vec::new(),
+            service_type: String::new(),
+            permitted_targets: Vec::new(),
+            lifecycle: String::new(),
+            provenance: None,
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
@@ -1480,6 +1523,10 @@ mod tests {
             summary: String::new(),
             description: String::new(),
             use_cases: Vec::new(),
+            service_type: String::new(),
+            permitted_targets: Vec::new(),
+            lifecycle: String::new(),
+            provenance: None,
         };
         let snapshot = SyncedPublicRegistryState {
             schema_version: "1".to_string(),
@@ -1521,10 +1568,13 @@ mod tests {
             scenario: "Greet a new user".to_string(),
         }];
         publish_public_metadata(&cache, &snapshot, true).expect("publish");
-        let (records, stale) = read_public_metadata(&cache).expect("read");
-        assert!(stale);
+        let generation = read_public_metadata(&cache).expect("read");
+        assert!(generation.stale);
+        assert_eq!(generation.source_release, snapshot.release_tag);
+        assert!(!generation.index_digest.is_empty());
         assert!(
-            records
+            generation
+                .records
                 .iter()
                 .any(|record| record.description == "Greets a public user"
                     && record.scenarios == ["Greet a new user"])
@@ -1574,7 +1624,7 @@ mod tests {
         let cache = unique_cache();
         assert_eq!(
             read_public_metadata(&cache).expect_err("missing").code,
-            RegistryCacheErrorCode::RegistryMetadataCacheInvalid
+            RegistryCacheErrorCode::RegistrySyncMissing
         );
         let path = cache.public_metadata_path();
         fs::create_dir_all(path.parent().expect("parent")).expect("directory");
