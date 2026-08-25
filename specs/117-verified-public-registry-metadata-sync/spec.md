@@ -12,6 +12,8 @@ input to the offline public contract-metadata cache. Registry synchronization
 owns creation and publication; downstream MCP and browser readers remain local,
 read-only consumers.
 
+The Registry repository owns implementation and release of this contract.
+
 ## Requirements
 
 - **FR-001**: Each public record MUST include namespace, capability id,
