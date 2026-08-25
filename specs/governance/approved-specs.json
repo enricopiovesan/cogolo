@@ -1546,6 +1546,17 @@
         "crates/traverse-mcp/",
         "specs/116-verified-public-contract-metadata-cache/"
       ]
+    },
+    {
+      "id": "117-verified-public-registry-metadata-sync",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/117-verified-public-registry-metadata-sync/spec.md",
+      "governs": [
+        "traverse-framework/registry#312",
+        "specs/117-verified-public-registry-metadata-sync/"
+      ]
     }
   ]
 }
