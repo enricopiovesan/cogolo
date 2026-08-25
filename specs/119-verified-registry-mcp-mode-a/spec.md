@@ -1,6 +1,6 @@
 # Verified Public-Registry MCP Mode A Host
 
-**Status**: Draft
+**Status**: Approved (2026-08-25)
 **Canonical governing ID**: `119-verified-registry-mcp-mode-a`
 **Version**: 0.1.0
 **Input**: Traverse #865 and #1144.
