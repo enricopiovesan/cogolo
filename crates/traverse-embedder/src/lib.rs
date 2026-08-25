@@ -85,9 +85,9 @@ mod registry_cache;
 mod test_double;
 
 pub use registry_cache::{
-    HostRegistryCache, RegistryArtifactFetcher, RegistryCacheError, RegistryCacheErrorCode,
-    PublicCapabilityMetadata, RegistryPrepareEvidence, VerifiedRegistryDependency,
-    publish_public_metadata, read_public_metadata, prepare as prepare_registry_dependency,
+    HostRegistryCache, PublicCapabilityMetadata, RegistryArtifactFetcher, RegistryCacheError,
+    RegistryCacheErrorCode, RegistryPrepareEvidence, VerifiedRegistryDependency,
+    prepare as prepare_registry_dependency, publish_public_metadata, read_public_metadata,
     resolve_component as resolve_registry_component,
     resolve_offline as resolve_registry_dependency_offline,
 };

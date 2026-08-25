@@ -8707,7 +8707,9 @@ mod tests {
                     contract_digest: contract_digest.clone(),
                     contract_url: format!("file://{}", contract_path.display()),
                     deprecated: false,
-                    summary: String::new(), description: String::new(), use_cases: Vec::new(),
+                    summary: String::new(),
+                    description: String::new(),
+                    use_cases: Vec::new(),
                 }],
             },
         )
@@ -9773,7 +9775,9 @@ mod tests {
             contract_digest: "sha256:contract".to_string(),
             contract_url: "https://example.invalid/contract.json".to_string(),
             deprecated: false,
-            summary: String::new(), description: String::new(), use_cases: Vec::new(),
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         };
 
         let registered = load_registered_bundle_with_public_records(&manifest_path, &[public])
@@ -10902,7 +10906,9 @@ mod tests {
             contract_digest: "sha256:fixture-contract".to_string(),
             contract_url: "https://example.test/contract.json".to_string(),
             deprecated: false,
-            summary: String::new(), description: String::new(), use_cases: Vec::new(),
+            summary: String::new(),
+            description: String::new(),
+            use_cases: Vec::new(),
         }
     }
 
