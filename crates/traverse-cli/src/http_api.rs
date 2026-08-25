@@ -141,6 +141,17 @@ pub(crate) struct ApiState<E> {
     jwt_verification_key: Option<ed25519_dalek::VerifyingKey>,
 }
 
+/// Browser-safe entrypoint selector governed by Spec 115.  The entrypoint
+/// identity stays outside the runtime request so callers cannot accidentally
+/// select a different artifact through a broad runtime lookup.
+#[derive(Debug, Deserialize)]
+struct VerifiedEntrypointRequest {
+    entrypoint_kind: String,
+    id: String,
+    version: String,
+    request: Value,
+}
+
 /// A validated `EventBroker` subscription used by the TLS gRPC transport.
 pub(crate) struct GrpcEventSource {
     broker: Arc<dyn EventBroker>,
@@ -3792,6 +3803,9 @@ fn handle_connection<E: LocalExecutor + Clone>(
         ("POST", "/v1/capabilities/execute") => {
             handle_execute(&mut response, &request, state, trusted_dev_caller)
         }
+        ("POST", "/v1/entrypoints/execute") => {
+            handle_verified_entrypoint_execute(&mut response, &request, state, trusted_dev_caller)
+        }
         (method, path) if workspace_operation_path(method, path).is_some() => {
             handle_workspace_operation(&mut response, &request, state, trusted_dev_caller)
         }
@@ -4924,6 +4938,149 @@ fn handle_execute<W: Write, E: LocalExecutor + Clone>(
             500,
             "Internal Server Error",
             &error_envelope("internal_error", &e),
+        ),
+    }
+}
+
+/// Execute one exact, already-verified host-supplied entrypoint (Spec 115).
+/// This handler deliberately never reads a path or mutates/synchronizes the
+/// registry: the state was atomically validated before `serve` listened.
+#[allow(clippy::too_many_lines)]
+fn handle_verified_entrypoint_execute<W: Write, E: LocalExecutor + Clone>(
+    w: &mut W,
+    request: &HttpRequest,
+    state: &ApiState<E>,
+    loopback: bool,
+) -> Result<(), String> {
+    let envelope: VerifiedEntrypointRequest =
+        match serde_json::from_slice::<VerifiedEntrypointRequest>(&request.body) {
+            Ok(value)
+                if !value.entrypoint_kind.trim().is_empty()
+                    && !value.id.trim().is_empty()
+                    && !value.version.trim().is_empty() =>
+            {
+                value
+            }
+            Ok(_) => {
+                return write_json(
+                    w,
+                    400,
+                    "Bad Request",
+                    &error_envelope(
+                        "invalid_entrypoint_request",
+                        "entrypoint_kind, id, version, and request are required",
+                    ),
+                );
+            }
+            Err(_) => {
+                return write_json(
+                    w,
+                    400,
+                    "Bad Request",
+                    &error_envelope(
+                        "invalid_entrypoint_request",
+                        "request body must be a valid entrypoint JSON envelope",
+                    ),
+                );
+            }
+        };
+    let runtime_request: RuntimeRequest = match serde_json::from_value(envelope.request) {
+        Ok(value) => value,
+        Err(_) => {
+            return write_json(
+                w,
+                400,
+                "Bad Request",
+                &error_envelope(
+                    "invalid_runtime_request",
+                    "request must be a serialized RuntimeRequest",
+                ),
+            );
+        }
+    };
+    if runtime_request.intent.capability_id.as_deref() != Some(envelope.id.as_str())
+        || runtime_request.intent.capability_version.as_deref() != Some(envelope.version.as_str())
+        || runtime_request.intent.version_range.is_some()
+    {
+        return write_json(
+            w,
+            422,
+            "Unprocessable Entity",
+            &error_envelope(
+                "entrypoint_identity_mismatch",
+                "RuntimeRequest must name the exact entrypoint id and version without a version range",
+            ),
+        );
+    }
+    let identity = match subject_from_state(&request.headers, state, loopback) {
+        Ok(identity) => identity,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+    let _ = match ensure_workspace_authorized(
+        &state.registry_root,
+        SYSTEM_WORKSPACE_ID,
+        &identity,
+        SCOPE_RUNTIME_EXECUTE,
+        scopes_optional_for_request(state.allow_unauthenticated, loopback, &identity),
+    ) {
+        Ok(metadata) => metadata,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+    let outcome = state.with_workspace_mut(SYSTEM_WORKSPACE_ID, |ws| {
+        let exact = match envelope.entrypoint_kind.as_str() {
+            "capability" => ws
+                .runtime
+                .capability_registry()
+                .find_exact(LookupScope::PublicOnly, &envelope.id, &envelope.version)
+                .is_some(),
+            "workflow" => ws
+                .runtime
+                .workflow_registry()
+                .find_exact(LookupScope::PublicOnly, &envelope.id, &envelope.version)
+                .is_some(),
+            _ => false,
+        };
+        if !exact {
+            return Err("verified_entrypoint_not_found".to_string());
+        }
+        Ok(crate::telemetry::execute_with_telemetry(
+            &ws.runtime,
+            runtime_request,
+            crate::telemetry::wire_usage_telemetry_sink().as_ref(),
+        ))
+    });
+    match outcome {
+        Ok(outcome) => match serialize_outcome(&outcome) {
+            Ok(body) => write_json_raw(w, 200, "OK", &body),
+            Err(error) => write_json(
+                w,
+                500,
+                "Internal Server Error",
+                &error_envelope("internal_error", &error),
+            ),
+        },
+        Err(_) => write_json(
+            w,
+            404,
+            "Not Found",
+            &error_envelope(
+                "verified_entrypoint_not_found",
+                "no verified entrypoint matches entrypoint_kind, id, and version",
+            ),
         ),
     }
 }
