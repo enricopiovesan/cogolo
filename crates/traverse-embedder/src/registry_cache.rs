@@ -13,7 +13,7 @@ use std::path::{Path, PathBuf};
 use std::time::{SystemTime, UNIX_EPOCH};
 use traverse_contracts::parse_contract;
 use traverse_registry::{
-    PublicRegistryCapabilityRecord, PublicUseCaseSummary, RegistryReference, ResolvedRegistryComponent,
+    PublicRegistryCapabilityRecord, RegistryReference, ResolvedRegistryComponent,
     SyncedPublicRegistryState,
 };
 
@@ -1461,7 +1461,7 @@ mod tests {
         let record = snapshot.capabilities.last_mut().expect("record");
         record.summary = "Greeting capability".to_string();
         record.description = "Greets a public user".to_string();
-        record.use_cases = vec![PublicUseCaseSummary { scenario: "Greet a new user".to_string() }];
+        record.use_cases = vec![traverse_registry::PublicUseCaseSummary { scenario: "Greet a new user".to_string() }];
         publish_public_metadata(&cache, &snapshot, true).expect("publish");
         let (records, stale) = read_public_metadata(&cache).expect("read");
         assert!(stale);
@@ -1482,5 +1482,14 @@ mod tests {
         generation["records"][0]["index_digest"] = json!("sha256:0000000000000000000000000000000000000000000000000000000000000000");
         write_json_atomic(&path, &generation).expect("tamper");
         assert_eq!(read_public_metadata(&cache).expect_err("invalid").code, RegistryCacheErrorCode::RegistryMetadataCacheInvalid);
+    }
+
+    #[test]
+    fn public_metadata_rejects_empty_snapshots_and_has_stable_error_code() {
+        let cache = unique_cache();
+        let (mut snapshot, _, _) = sample_snapshot(false);
+        snapshot.capabilities.clear();
+        assert_eq!(publish_public_metadata(&cache, &snapshot, false).expect_err("empty").code, RegistryCacheErrorCode::RegistrySyncMissing);
+        assert_eq!(RegistryCacheErrorCode::RegistryMetadataCacheInvalid.as_str(), "registry_metadata_cache_invalid");
     }
 }
