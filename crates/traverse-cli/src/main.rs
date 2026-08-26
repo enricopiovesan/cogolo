@@ -14,9 +14,10 @@ use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
 };
 use semver::Version;
-use serde::Deserialize;
+use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
+use std::collections::BTreeMap;
 use std::env;
 use std::fmt::Write as FmtWrite;
 use std::fs;
@@ -97,6 +98,10 @@ enum Command {
         workspace_id: String,
         namespace: Option<String>,
         json_output: bool,
+    },
+    RegistryMaterialize {
+        registry_state_path: PathBuf,
+        output_dir: PathBuf,
     },
     CapabilityPublish {
         contract_path: PathBuf,
@@ -181,9 +186,28 @@ enum Command {
         grpc_tls_cert_path: Option<PathBuf>,
         grpc_tls_key_path: Option<PathBuf>,
         registry_state_path: Option<PathBuf>,
+        artifact_state_path: Option<PathBuf>,
     },
     TelemetryEnable,
     TelemetryDisable,
+}
+
+const ARTIFACT_STATE_SCHEMA_VERSION: &str = "1.0.0";
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ArtifactStateManifest {
+    schema_version: String,
+    capabilities: Vec<ArtifactStateEntry>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ArtifactStateEntry {
+    id: String,
+    version: String,
+    path: String,
+    digest: String,
+    source_url: String,
+    materialized_at: String,
 }
 
 #[derive(Debug)]
@@ -226,6 +250,7 @@ fn main() -> ExitCode {
             grpc_tls_cert_path,
             grpc_tls_key_path,
             registry_state_path,
+            artifact_state_path,
         }) => {
             if let Err(error) = run_serve(
                 bind_address,
@@ -237,6 +262,7 @@ fn main() -> ExitCode {
                 grpc_tls_cert_path,
                 grpc_tls_key_path,
                 registry_state_path,
+                artifact_state_path,
             ) {
                 eprintln!("{error}");
                 ExitCode::FAILURE
@@ -316,7 +342,8 @@ fn run_command(command: Command) -> Result<String, CliError> {
         ),
         command @ (Command::RegistrySync { .. }
         | Command::RegistryList { .. }
-        | Command::RegistrySearch { .. }) => run_registry_command(command),
+        | Command::RegistrySearch { .. }
+        | Command::RegistryMaterialize { .. }) => run_registry_command(command),
         Command::CapabilityPublish {
             contract_path,
             artifact_path,
@@ -434,9 +461,138 @@ fn run_registry_command(command: Command) -> Result<String, CliError> {
             namespace,
             json_output,
         } => registry_search(&query, &workspace_id, namespace.as_deref(), json_output),
+        Command::RegistryMaterialize {
+            registry_state_path,
+            output_dir,
+        } => materialize_registry_artifacts(&registry_state_path, &output_dir),
         _ => Err(CliError::UsageError(
             "expected registry command".to_string(),
         )),
+    }
+}
+
+fn materialize_registry_artifacts(
+    registry_state_path: &Path,
+    output_dir: &Path,
+) -> Result<String, CliError> {
+    let bundle = load_registry_bundle(registry_state_path)
+        .map_err(|failure| CliError::ValidationFailed(failure.errors[0].message.clone()))?;
+    fs::create_dir_all(output_dir).map_err(|error| {
+        CliError::IoError(format!(
+            "artifact_materialize_output_create_failed: {error}"
+        ))
+    })?;
+    let mut capabilities = Vec::new();
+    for capability in &bundle.capabilities {
+        let raw = fs::read_to_string(&capability.path).map_err(|error| {
+            CliError::IoError(format!(
+                "artifact_materialize_contract_read_failed: {}: {error}",
+                capability.path.display()
+            ))
+        })?;
+        let contract: Value = serde_json::from_str(&raw).map_err(|error| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_contract_parse_failed: {}: {error}",
+                capability.path.display()
+            ))
+        })?;
+        let artifact = contract.get("artifact").ok_or_else(|| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_artifact_missing: {}@{}",
+                capability.contract.id, capability.contract.version
+            ))
+        })?;
+        let url = artifact
+            .get("url")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CliError::ValidationFailed(format!(
+                    "artifact_materialize_url_missing: {}@{}",
+                    capability.contract.id, capability.contract.version
+                ))
+            })?;
+        let digest = artifact
+            .get("digest")
+            .and_then(Value::as_str)
+            .filter(|value| !value.is_empty())
+            .ok_or_else(|| {
+                CliError::ValidationFailed(format!(
+                    "artifact_materialize_digest_missing: {}@{}",
+                    capability.contract.id, capability.contract.version
+                ))
+            })?;
+        let bytes = curl_bytes(url).map_err(CliError::IoError)?;
+        let actual = format!("sha256:{}", sha256_hex(&bytes));
+        if digest != actual && digest != sha256_hex(&bytes) {
+            return Err(CliError::ValidationFailed(format!(
+                "artifact_materialize_digest_mismatch: {}@{} expected {digest}, got {actual}",
+                capability.contract.id, capability.contract.version
+            )));
+        }
+        let relative = PathBuf::from("artifacts")
+            .join(safe_artifact_path_component(&capability.contract.id))
+            .join(&capability.contract.version)
+            .join("module.wasm");
+        let destination = output_dir.join(&relative);
+        let parent = destination
+            .parent()
+            .ok_or_else(|| CliError::IoError("artifact_materialize_path_invalid".to_string()))?;
+        fs::create_dir_all(parent).map_err(|error| {
+            CliError::IoError(format!(
+                "artifact_materialize_output_create_failed: {error}"
+            ))
+        })?;
+        fs::write(&destination, bytes).map_err(|error| {
+            CliError::IoError(format!(
+                "artifact_materialize_write_failed: {}: {error}",
+                destination.display()
+            ))
+        })?;
+        capabilities.push(ArtifactStateEntry {
+            id: capability.contract.id.clone(),
+            version: capability.contract.version.clone(),
+            path: relative.display().to_string(),
+            digest: digest.to_string(),
+            source_url: url.to_string(),
+            materialized_at: current_unix_timestamp_string()?,
+        });
+    }
+    let state = ArtifactStateManifest {
+        schema_version: ARTIFACT_STATE_SCHEMA_VERSION.to_string(),
+        capabilities,
+    };
+    let state_path = output_dir.join("artifact-state.json");
+    let json = serde_json::to_string_pretty(&state).map_err(|error| {
+        CliError::IoError(format!(
+            "artifact_materialize_state_serialize_failed: {error}"
+        ))
+    })?;
+    fs::write(&state_path, format!("{json}\n")).map_err(|error| {
+        CliError::IoError(format!("artifact_materialize_state_write_failed: {error}"))
+    })?;
+    Ok(state_path.display().to_string())
+}
+
+fn safe_artifact_path_component(value: &str) -> String {
+    value
+        .chars()
+        .map(|ch| if ch.is_ascii_alphanumeric() { ch } else { '_' })
+        .collect()
+}
+
+fn curl_bytes(url: &str) -> Result<Vec<u8>, String> {
+    let output = std::process::Command::new("curl")
+        .args(["-fsSL", url])
+        .output()
+        .map_err(|error| format!("artifact_materialize_fetch_failed: {url}: {error}"))?;
+    if output.status.success() {
+        Ok(output.stdout)
+    } else {
+        Err(format!(
+            "artifact_materialize_fetch_failed: {url}: {}",
+            String::from_utf8_lossy(&output.stderr).trim()
+        ))
     }
 }
 
@@ -466,6 +622,7 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("registry"), Some("sync")) => parse_registry_sync_command(args),
         (Some("registry"), Some("list")) => parse_registry_list_command(args),
         (Some("registry"), Some("search")) => parse_registry_search_command(args),
+        (Some("registry"), Some("materialize")) => parse_registry_materialize_command(args),
         (Some("component"), Some("new")) => parse_component_new_command(args),
         (Some("capability"), Some("new")) => parse_capability_new_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
@@ -1419,6 +1576,17 @@ fn parse_registry_search_command(args: &[String]) -> Result<Command, String> {
     })
 }
 
+fn parse_registry_materialize_command(args: &[String]) -> Result<Command, String> {
+    let registry_state_path = parse_string_flag(args, "--registry-state")
+        .ok_or_else(|| "registry materialize requires --registry-state <path>".to_string())?;
+    let output_dir = parse_string_flag(args, "--out")
+        .ok_or_else(|| "registry materialize requires --out <dir>".to_string())?;
+    Ok(Command::RegistryMaterialize {
+        registry_state_path: PathBuf::from(registry_state_path),
+        output_dir: PathBuf::from(output_dir),
+    })
+}
+
 fn parse_capability_publish_command(args: &[String]) -> Result<Command, String> {
     let contract_path = parse_string_flag(args, "--contract")
         .ok_or_else(|| "capability publish requires --contract <path>".to_string())?;
@@ -1512,6 +1680,7 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
     let grpc_tls_cert_path = parse_string_flag(args, "--grpc-tls-cert").map(PathBuf::from);
     let grpc_tls_key_path = parse_string_flag(args, "--grpc-tls-key").map(PathBuf::from);
     let registry_state_path = parse_string_flag(args, "--registry-state").map(PathBuf::from);
+    let artifact_state_path = parse_string_flag(args, "--artifact-state").map(PathBuf::from);
     let mut allowed_origins = Vec::new();
 
     if bind_flag_pos.is_some() && port_flag_pos.is_some() {
@@ -1574,6 +1743,7 @@ fn parse_serve_command(args: &[String]) -> Result<Command, String> {
         grpc_tls_cert_path,
         grpc_tls_key_path,
         registry_state_path,
+        artifact_state_path,
     })
 }
 
@@ -1588,11 +1758,17 @@ fn run_serve(
     grpc_tls_cert_path: Option<PathBuf>,
     grpc_tls_key_path: Option<PathBuf>,
     registry_state_path: Option<PathBuf>,
+    artifact_state_path: Option<PathBuf>,
 ) -> Result<(), String> {
     let registry_state_path = registry_state_path
         .ok_or_else(|| "registry_sync_missing: --registry-state is required".to_string())?;
+    let artifact_state = match artifact_state_path {
+        Some(path) => Some(load_artifact_state(&path).map_err(|e| e.to_string())?),
+        None => None,
+    };
     let registered =
-        load_governed_public_bundle(&registry_state_path).map_err(|e| e.to_string())?;
+        load_governed_public_bundle_with_artifacts(&registry_state_path, artifact_state.as_ref())
+            .map_err(|e| e.to_string())?;
 
     let config = http_api::ApiServerConfig {
         bind_address,
@@ -5935,6 +6111,14 @@ fn build_capability_registration(
     bundle: &RegistryBundle,
     capability: &traverse_registry::CapabilityBundleArtifact,
 ) -> Result<CapabilityRegistration, CliError> {
+    build_capability_registration_with_artifacts(bundle, capability, &BTreeMap::new())
+}
+
+fn build_capability_registration_with_artifacts(
+    bundle: &RegistryBundle,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+    artifacts: &BTreeMap<String, &ArtifactStateEntry>,
+) -> Result<CapabilityRegistration, CliError> {
     let raw_contract = read_text_file(&capability.path, "capability contract")?;
     let envelope =
         parse_capability_registration_envelope(&raw_contract, capability.path.as_path())?;
@@ -5942,7 +6126,17 @@ fn build_capability_registration(
     let workflow_ref = derive_workflow_ref(envelope.get("composability"))?;
     let composability =
         derive_composability_metadata(implementation_kind, workflow_ref.as_ref(), capability)?;
-    let artifact = build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
+    let mut artifact =
+        build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
+    if implementation_kind == ImplementationKind::Executable {
+        let key = format!("{}@{}", capability.contract.id, capability.contract.version);
+        if let Some(entry) = artifacts.get(&key) {
+            if let Some(binary) = &mut artifact.binary {
+                binary.location.clone_from(&entry.path);
+            }
+            artifact.digests.binary_digest = Some(entry.digest.clone());
+        }
+    }
 
     Ok(CapabilityRegistration {
         scope: bundle.scope,
@@ -5965,6 +6159,70 @@ fn load_governed_public_bundle(manifest_path: &Path) -> Result<RegisteredBundle,
     load_registered_bundle_with_policy(manifest_path, &[], false)
 }
 
+fn load_governed_public_bundle_with_artifacts(
+    manifest_path: &Path,
+    artifact_state: Option<&ArtifactStateManifest>,
+) -> Result<RegisteredBundle, CliError> {
+    let Some(state) = artifact_state else {
+        return load_governed_public_bundle(manifest_path);
+    };
+    let mut entries = BTreeMap::new();
+    for entry in &state.capabilities {
+        let key = format!("{}@{}", entry.id, entry.version);
+        if entries.insert(key.clone(), entry).is_some() {
+            return Err(CliError::ValidationFailed(format!(
+                "artifact_state_duplicate_entry: {key}"
+            )));
+        }
+    }
+    let bundle = load_registry_bundle(manifest_path)
+        .map_err(|failure| CliError::IoError(failure.errors[0].message.clone()))?;
+    for capability in &bundle.capabilities {
+        let key = format!("{}@{}", capability.contract.id, capability.contract.version);
+        let Some(entry) = entries.get(&key) else {
+            return Err(CliError::ValidationFailed(format!(
+                "artifact_state_missing_entry: {key}"
+            )));
+        };
+        let artifact_path = PathBuf::from(&entry.path);
+        let bytes = fs::read(&artifact_path).map_err(|error| {
+            CliError::ValidationFailed(format!(
+                "artifact_state_artifact_read_failed: {key}: {error}"
+            ))
+        })?;
+        let actual = format!("sha256:{}", sha256_hex(&bytes));
+        if entry.digest != actual && entry.digest != sha256_hex(&bytes) {
+            return Err(CliError::ValidationFailed(format!(
+                "artifact_state_digest_mismatch: {key}"
+            )));
+        }
+    }
+    load_registered_bundle_with_policy_and_artifacts(manifest_path, &[], false, &entries)
+}
+
+fn load_artifact_state(path: &Path) -> Result<ArtifactStateManifest, CliError> {
+    let raw = fs::read_to_string(path).map_err(|error| {
+        CliError::ValidationFailed(format!(
+            "artifact_state_read_failed: {}: {error}",
+            path.display()
+        ))
+    })?;
+    let mut state: ArtifactStateManifest = serde_json::from_str(&raw).map_err(|error| {
+        CliError::ValidationFailed(format!("artifact_state_parse_failed: {error}"))
+    })?;
+    if state.schema_version != ARTIFACT_STATE_SCHEMA_VERSION {
+        return Err(CliError::ValidationFailed(format!(
+            "artifact_state_schema_unsupported: {}",
+            state.schema_version
+        )));
+    }
+    let root = path.parent().unwrap_or_else(|| Path::new("."));
+    for entry in &mut state.capabilities {
+        entry.path = root.join(&entry.path).display().to_string();
+    }
+    Ok(state)
+}
+
 fn load_registered_bundle_with_public_records(
     manifest_path: &Path,
     public_records: &[PublicRegistryCapabilityRecord],
@@ -5976,6 +6234,20 @@ fn load_registered_bundle_with_policy(
     manifest_path: &Path,
     public_records: &[PublicRegistryCapabilityRecord],
     reject_local_public_scope: bool,
+) -> Result<RegisteredBundle, CliError> {
+    load_registered_bundle_with_policy_and_artifacts(
+        manifest_path,
+        public_records,
+        reject_local_public_scope,
+        &BTreeMap::new(),
+    )
+}
+
+fn load_registered_bundle_with_policy_and_artifacts(
+    manifest_path: &Path,
+    public_records: &[PublicRegistryCapabilityRecord],
+    reject_local_public_scope: bool,
+    artifacts: &BTreeMap<String, &ArtifactStateEntry>,
 ) -> Result<RegisteredBundle, CliError> {
     let bundle = load_registry_bundle(manifest_path).map_err(|failure| {
         let msg = failure.errors[0].message.clone();
@@ -6043,7 +6315,7 @@ fn load_registered_bundle_with_policy(
     }
 
     for capability in &bundle.capabilities {
-        let request = build_capability_registration(&bundle, capability)?;
+        let request = build_capability_registration_with_artifacts(&bundle, capability, artifacts)?;
         let outcome = capability_registry.register(request).map_err(|f| {
             let msg = render_registry_failure(f.clone());
             map_registry_failure(&f, msg)
@@ -6965,17 +7237,18 @@ mod tests {
         app_activate_at, app_activation_state_path, app_new_at, app_register_at,
         app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_text, discover_capabilities, enforce_contract_surface_coverage,
+        curl_bytes, curl_text, discover_capabilities, enforce_contract_surface_coverage,
         enforce_persona_refs_resolve, ensure_clean_registry_checkout, execute_capability_package,
         execute_expedition, execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, format_capability_package_execution_summary,
         help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
         inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_capability_package, load_registered_bundle,
-        load_registered_bundle_with_public_records, load_runtime_request, parse_command,
-        publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
-        registry_record_order, registry_sync_at, registry_sync_default_or_override,
-        registry_sync_failure_json, reject_private_contract_scope, run_command, run_serve,
+        load_artifact_state, load_capability_package, load_registered_bundle,
+        load_registered_bundle_with_public_records, load_runtime_request,
+        materialize_registry_artifacts, parse_command, publish_file_sha256_digest, register_bundle,
+        register_generated_app_bundle, registry_record_order, registry_sync_at,
+        registry_sync_default_or_override, registry_sync_failure_json,
+        reject_private_contract_scope, run_command, run_serve, safe_artifact_path_component,
         sha256_hex, surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
         unresolved_persona_refs, use_case_smoke_coverage_gaps,
         use_case_smoke_coverage_gaps_for_package, validate_component_risk_policy_for_cli,
@@ -9212,6 +9485,7 @@ mod tests {
             false,
             Vec::new(),
             false,
+            None,
             None,
             None,
             None,
@@ -11624,6 +11898,7 @@ mod tests {
             grpc_tls_cert_path: None,
             grpc_tls_key_path: None,
             registry_state_path: None,
+            artifact_state_path: None,
         };
         assert!(matches!(run_command(serve), Err(CliError::UsageError(_))));
     }
@@ -11780,5 +12055,121 @@ mod tests {
         let err = ensure_clean_registry_checkout(Path::new("registry"), &DirtyStatusRunner)
             .expect_err("a dirty registry checkout must block publishing");
         assert!(err.contains("uncommitted changes"), "{err}");
+    }
+
+    #[test]
+    fn artifact_state_is_versioned_and_paths_resolve_from_its_own_directory() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(dir.join("artifacts")).expect("fixture directory");
+        let state_path = dir.join("artifact-state.json");
+        fs::write(
+            &state_path,
+            r#"{"schema_version":"1.0.0","capabilities":[{"id":"demo","version":"1.0.0","path":"artifacts/demo.wasm","digest":"sha256:abc","source_url":"https://example.test/demo.wasm","materialized_at":"unix:1"}]}"#,
+        )
+        .expect("fixture state");
+        let state = load_artifact_state(&state_path).expect("supported state");
+        assert_eq!(
+            state.capabilities[0].path,
+            dir.join("artifacts/demo.wasm").display().to_string()
+        );
+
+        fs::write(
+            &state_path,
+            r#"{"schema_version":"9.0.0","capabilities":[]}"#,
+        )
+        .expect("unsupported fixture state");
+        let error = load_artifact_state(&state_path).expect_err("version must fail closed");
+        assert!(
+            error
+                .message()
+                .contains("artifact_state_schema_unsupported")
+        );
+    }
+
+    #[test]
+    fn registry_materialize_requires_both_host_paths() {
+        let missing_state = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "materialize".to_string(),
+            "--out".to_string(),
+            "out".to_string(),
+        ])
+        .expect_err("state path is required");
+        assert!(missing_state.contains("--registry-state"));
+        let missing_out = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "materialize".to_string(),
+            "--registry-state".to_string(),
+            "state.json".to_string(),
+        ])
+        .expect_err("output directory is required");
+        assert!(missing_out.contains("--out"));
+    }
+
+    #[test]
+    fn materialize_writes_verified_state_and_serve_loader_uses_its_local_binary() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let wasm = dir.join("source.wasm");
+        let bytes = b"fixture wasm";
+        fs::write(&wasm, bytes).expect("fixture artifact");
+        let digest = format!("sha256:{}", sha256_hex(bytes));
+        let source = repo_root().join(
+            "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        );
+        let mut contract: Value =
+            serde_json::from_str(&fs::read_to_string(source).expect("source contract"))
+                .expect("contract json");
+        contract["artifact"] =
+            serde_json::json!({"url": format!("file://{}", wasm.display()), "digest": digest});
+        let contract_path = dir.join("contract.json");
+        fs::write(
+            &contract_path,
+            serde_json::to_string(&contract).expect("contract encode"),
+        )
+        .expect("contract write");
+        let bundle_path = dir.join("bundle.json");
+        fs::write(&bundle_path, serde_json::json!({"bundle_id":"fixture","version":"1.0.0","scope":"private","capabilities":[{"id":"expedition.planning.capture-expedition-objective","version":"1.0.0","path":"contract.json"}],"events":[],"workflows":[]}).to_string()).expect("bundle write");
+        let out = dir.join("out");
+        let state_path =
+            PathBuf::from(materialize_registry_artifacts(&bundle_path, &out).expect("materialize"));
+        let state = load_artifact_state(&state_path).expect("materialized state");
+        assert_eq!(state.capabilities.len(), 1);
+        assert!(PathBuf::from(&state.capabilities[0].path).is_file());
+        assert_eq!(state.capabilities[0].digest, digest);
+    }
+
+    #[test]
+    fn artifact_state_and_fetch_failures_are_actionable() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let state_path = dir.join("artifact-state.json");
+        fs::write(&state_path, "not-json").expect("invalid fixture");
+        let malformed = load_artifact_state(&state_path).expect_err("malformed state must fail");
+        assert!(malformed.message().contains("artifact_state_parse_failed"));
+        let missing =
+            load_artifact_state(&dir.join("missing.json")).expect_err("missing state must fail");
+        assert!(missing.message().contains("artifact_state_read_failed"));
+        let fetch = curl_bytes("file:///definitely/not/a/file.wasm")
+            .expect_err("missing file must fail to fetch");
+        assert!(fetch.contains("artifact_materialize_fetch_failed"));
+    }
+
+    #[test]
+    fn materialize_command_parses_and_sanitizes_artifact_directories() {
+        let command = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "materialize".to_string(),
+            "--registry-state".to_string(),
+            "state.json".to_string(),
+            "--out".to_string(),
+            "prepared".to_string(),
+        ])
+        .expect("materialize command");
+        assert!(matches!(command, Command::RegistryMaterialize { .. }));
+        assert_eq!(safe_artifact_path_component("a/b.c-1"), "a_b_c_1");
     }
 }
