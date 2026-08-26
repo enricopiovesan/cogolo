@@ -7248,8 +7248,8 @@ mod tests {
         materialize_registry_artifacts, parse_command, publish_file_sha256_digest, register_bundle,
         register_generated_app_bundle, registry_record_order, registry_sync_at,
         registry_sync_default_or_override, registry_sync_failure_json,
-        reject_private_contract_scope, run_command, run_serve, sha256_hex,
-        surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
+        reject_private_contract_scope, run_command, run_serve, safe_artifact_path_component,
+        sha256_hex, surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
         unresolved_persona_refs, use_case_smoke_coverage_gaps,
         use_case_smoke_coverage_gaps_for_package, validate_component_risk_policy_for_cli,
         validate_registry_path_segment,
@@ -12155,5 +12155,21 @@ mod tests {
         let fetch = curl_bytes("file:///definitely/not/a/file.wasm")
             .expect_err("missing file must fail to fetch");
         assert!(fetch.contains("artifact_materialize_fetch_failed"));
+    }
+
+    #[test]
+    fn materialize_command_parses_and_sanitizes_artifact_directories() {
+        let command = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "materialize".to_string(),
+            "--registry-state".to_string(),
+            "state.json".to_string(),
+            "--out".to_string(),
+            "prepared".to_string(),
+        ])
+        .expect("materialize command");
+        assert!(matches!(command, Command::RegistryMaterialize { .. }));
+        assert_eq!(safe_artifact_path_component("a/b.c-1"), "a_b_c_1");
     }
 }
