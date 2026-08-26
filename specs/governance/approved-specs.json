@@ -1579,6 +1579,19 @@
         "crates/traverse-mcp/",
         "specs/119-verified-registry-mcp-mode-a/"
       ]
+    },
+    {
+      "id": "120-host-owned-artifact-preparation",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/120-host-owned-artifact-preparation/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/120-host-owned-artifact-preparation/",
+        "docs/adr/0051-host-owned-artifact-preparation.md",
+        "docs/decision-log.md"
+      ]
     }
   ]
 }
