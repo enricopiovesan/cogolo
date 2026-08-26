@@ -6111,6 +6111,14 @@ fn build_capability_registration(
     bundle: &RegistryBundle,
     capability: &traverse_registry::CapabilityBundleArtifact,
 ) -> Result<CapabilityRegistration, CliError> {
+    build_capability_registration_with_artifacts(bundle, capability, &BTreeMap::new())
+}
+
+fn build_capability_registration_with_artifacts(
+    bundle: &RegistryBundle,
+    capability: &traverse_registry::CapabilityBundleArtifact,
+    artifacts: &BTreeMap<String, &ArtifactStateEntry>,
+) -> Result<CapabilityRegistration, CliError> {
     let raw_contract = read_text_file(&capability.path, "capability contract")?;
     let envelope =
         parse_capability_registration_envelope(&raw_contract, capability.path.as_path())?;
@@ -6118,7 +6126,17 @@ fn build_capability_registration(
     let workflow_ref = derive_workflow_ref(envelope.get("composability"))?;
     let composability =
         derive_composability_metadata(implementation_kind, workflow_ref.as_ref(), capability)?;
-    let artifact = build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
+    let mut artifact =
+        build_capability_artifact(bundle, capability, implementation_kind, workflow_ref);
+    if implementation_kind == ImplementationKind::Executable {
+        let key = format!("{}@{}", capability.contract.id, capability.contract.version);
+        if let Some(entry) = artifacts.get(&key) {
+            if let Some(binary) = &mut artifact.binary {
+                binary.location = entry.path.clone();
+            }
+            artifact.digests.binary_digest = Some(entry.digest.clone());
+        }
+    }
 
     Ok(CapabilityRegistration {
         scope: bundle.scope,
@@ -6145,11 +6163,9 @@ fn load_governed_public_bundle_with_artifacts(
     manifest_path: &Path,
     artifact_state: Option<&ArtifactStateManifest>,
 ) -> Result<RegisteredBundle, CliError> {
-    let registered = load_governed_public_bundle(manifest_path)?;
     let Some(state) = artifact_state else {
-        return Ok(registered);
+        return load_governed_public_bundle(manifest_path);
     };
-    let root = manifest_path.parent().unwrap_or_else(|| Path::new("."));
     let mut entries = BTreeMap::new();
     for entry in &state.capabilities {
         let key = format!("{}@{}", entry.id, entry.version);
@@ -6159,14 +6175,16 @@ fn load_governed_public_bundle_with_artifacts(
             )));
         }
     }
-    for capability in &registered.bundle.capabilities {
+    let bundle = load_registry_bundle(manifest_path)
+        .map_err(|failure| CliError::IoError(failure.errors[0].message.clone()))?;
+    for capability in &bundle.capabilities {
         let key = format!("{}@{}", capability.contract.id, capability.contract.version);
         let Some(entry) = entries.get(&key) else {
             return Err(CliError::ValidationFailed(format!(
                 "artifact_state_missing_entry: {key}"
             )));
         };
-        let artifact_path = root.join(&entry.path);
+        let artifact_path = PathBuf::from(&entry.path);
         let bytes = fs::read(&artifact_path).map_err(|error| {
             CliError::ValidationFailed(format!(
                 "artifact_state_artifact_read_failed: {key}: {error}"
@@ -6179,7 +6197,7 @@ fn load_governed_public_bundle_with_artifacts(
             )));
         }
     }
-    Ok(registered)
+    load_registered_bundle_with_policy_and_artifacts(manifest_path, &[], false, &entries)
 }
 
 fn load_artifact_state(path: &Path) -> Result<ArtifactStateManifest, CliError> {
@@ -6189,7 +6207,7 @@ fn load_artifact_state(path: &Path) -> Result<ArtifactStateManifest, CliError> {
             path.display()
         ))
     })?;
-    let state: ArtifactStateManifest = serde_json::from_str(&raw).map_err(|error| {
+    let mut state: ArtifactStateManifest = serde_json::from_str(&raw).map_err(|error| {
         CliError::ValidationFailed(format!("artifact_state_parse_failed: {error}"))
     })?;
     if state.schema_version != ARTIFACT_STATE_SCHEMA_VERSION {
@@ -6197,6 +6215,10 @@ fn load_artifact_state(path: &Path) -> Result<ArtifactStateManifest, CliError> {
             "artifact_state_schema_unsupported: {}",
             state.schema_version
         )));
+    }
+    let root = path.parent().unwrap_or_else(|| Path::new("."));
+    for entry in &mut state.capabilities {
+        entry.path = root.join(&entry.path).display().to_string();
     }
     Ok(state)
 }
@@ -6212,6 +6234,20 @@ fn load_registered_bundle_with_policy(
     manifest_path: &Path,
     public_records: &[PublicRegistryCapabilityRecord],
     reject_local_public_scope: bool,
+) -> Result<RegisteredBundle, CliError> {
+    load_registered_bundle_with_policy_and_artifacts(
+        manifest_path,
+        public_records,
+        reject_local_public_scope,
+        &BTreeMap::new(),
+    )
+}
+
+fn load_registered_bundle_with_policy_and_artifacts(
+    manifest_path: &Path,
+    public_records: &[PublicRegistryCapabilityRecord],
+    reject_local_public_scope: bool,
+    artifacts: &BTreeMap<String, &ArtifactStateEntry>,
 ) -> Result<RegisteredBundle, CliError> {
     let bundle = load_registry_bundle(manifest_path).map_err(|failure| {
         let msg = failure.errors[0].message.clone();
@@ -6279,7 +6315,7 @@ fn load_registered_bundle_with_policy(
     }
 
     for capability in &bundle.capabilities {
-        let request = build_capability_registration(&bundle, capability)?;
+        let request = build_capability_registration_with_artifacts(&bundle, capability, artifacts)?;
         let outcome = capability_registry.register(request).map_err(|f| {
             let msg = render_registry_failure(f.clone());
             map_registry_failure(&f, msg)
@@ -7207,7 +7243,7 @@ mod tests {
         execute_traverse_starter_validate, format_capability_package_execution_summary,
         help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
         inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_capability_package, load_registered_bundle,
+        load_artifact_state, load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request, parse_command,
         publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
         registry_record_order, registry_sync_at, registry_sync_default_or_override,
@@ -12018,5 +12054,56 @@ mod tests {
         let err = ensure_clean_registry_checkout(Path::new("registry"), &DirtyStatusRunner)
             .expect_err("a dirty registry checkout must block publishing");
         assert!(err.contains("uncommitted changes"), "{err}");
+    }
+
+    #[test]
+    fn artifact_state_is_versioned_and_paths_resolve_from_its_own_directory() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(dir.join("artifacts")).expect("fixture directory");
+        let state_path = dir.join("artifact-state.json");
+        fs::write(
+            &state_path,
+            r#"{"schema_version":"1.0.0","capabilities":[{"id":"demo","version":"1.0.0","path":"artifacts/demo.wasm","digest":"sha256:abc","source_url":"https://example.test/demo.wasm","materialized_at":"unix:1"}]}"#,
+        )
+        .expect("fixture state");
+        let state = load_artifact_state(&state_path).expect("supported state");
+        assert_eq!(
+            state.capabilities[0].path,
+            dir.join("artifacts/demo.wasm").display().to_string()
+        );
+
+        fs::write(
+            &state_path,
+            r#"{"schema_version":"9.0.0","capabilities":[]}"#,
+        )
+        .expect("unsupported fixture state");
+        let error = load_artifact_state(&state_path).expect_err("version must fail closed");
+        assert!(
+            error
+                .message()
+                .contains("artifact_state_schema_unsupported")
+        );
+    }
+
+    #[test]
+    fn registry_materialize_requires_both_host_paths() {
+        let missing_state = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "materialize".to_string(),
+            "--out".to_string(),
+            "out".to_string(),
+        ])
+        .expect_err("state path is required");
+        assert!(missing_state.contains("--registry-state"));
+        let missing_out = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "materialize".to_string(),
+            "--registry-state".to_string(),
+            "state.json".to_string(),
+        ])
+        .expect_err("output directory is required");
+        assert!(missing_out.contains("--out"));
     }
 }
