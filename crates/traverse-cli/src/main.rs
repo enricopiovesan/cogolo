@@ -7244,11 +7244,12 @@ mod tests {
         help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
         inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
         load_artifact_state, load_capability_package, load_registered_bundle,
-        load_registered_bundle_with_public_records, load_runtime_request, parse_command,
-        publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
-        registry_record_order, registry_sync_at, registry_sync_default_or_override,
-        registry_sync_failure_json, reject_private_contract_scope, run_command, run_serve,
-        sha256_hex, surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
+        load_registered_bundle_with_public_records, load_runtime_request,
+        materialize_registry_artifacts, parse_command, publish_file_sha256_digest, register_bundle,
+        register_generated_app_bundle, registry_record_order, registry_sync_at,
+        registry_sync_default_or_override, registry_sync_failure_json,
+        reject_private_contract_scope, run_command, run_serve, sha256_hex,
+        surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
         unresolved_persona_refs, use_case_smoke_coverage_gaps,
         use_case_smoke_coverage_gaps_for_package, validate_component_risk_policy_for_cli,
         validate_registry_path_segment,
@@ -12105,5 +12106,38 @@ mod tests {
         ])
         .expect_err("output directory is required");
         assert!(missing_out.contains("--out"));
+    }
+
+    #[test]
+    fn materialize_writes_verified_state_and_serve_loader_uses_its_local_binary() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let wasm = dir.join("source.wasm");
+        let bytes = b"fixture wasm";
+        fs::write(&wasm, bytes).expect("fixture artifact");
+        let digest = format!("sha256:{}", sha256_hex(bytes));
+        let source = repo_root().join(
+            "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        );
+        let mut contract: Value =
+            serde_json::from_str(&fs::read_to_string(source).expect("source contract"))
+                .expect("contract json");
+        contract["artifact"] =
+            serde_json::json!({"url": format!("file://{}", wasm.display()), "digest": digest});
+        let contract_path = dir.join("contract.json");
+        fs::write(
+            &contract_path,
+            serde_json::to_string(&contract).expect("contract encode"),
+        )
+        .expect("contract write");
+        let bundle_path = dir.join("bundle.json");
+        fs::write(&bundle_path, serde_json::json!({"bundle_id":"fixture","version":"1.0.0","scope":"private","capabilities":[{"id":"expedition.planning.capture-expedition-objective","version":"1.0.0","path":"contract.json"}],"events":[],"workflows":[]}).to_string()).expect("bundle write");
+        let out = dir.join("out");
+        let state_path =
+            PathBuf::from(materialize_registry_artifacts(&bundle_path, &out).expect("materialize"));
+        let state = load_artifact_state(&state_path).expect("materialized state");
+        assert_eq!(state.capabilities.len(), 1);
+        assert!(PathBuf::from(&state.capabilities[0].path).is_file());
+        assert_eq!(state.capabilities[0].digest, digest);
     }
 }
