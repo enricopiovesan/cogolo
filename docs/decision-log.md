@@ -2637,3 +2637,75 @@ and kept only as historical record of a design that was considered and
 abandoned; spec `532` is removed from `specs/governance/approved-specs.json`.
 No open ticket depends on this decision — `#879` was already closed
 (2026-08-05) against the superseding spec, before this approval happened.
+
+## Decision 66: Host-Owned Artifact Preparation as a Separate, Cross-Referenced Manifest (Spec 120)
+
+- **Date**: 2026-08-26
+- **Status**: Accepted; Spec 120 Approved 2026-08-26
+- **Governing spec**: `120-host-owned-artifact-preparation`; related `115-browser-verified-entrypoint-execution`, `118-host-supplied-serve-registry-state`; ADR-0051
+- **Related issues**: `#1153`
+- **Origin**: `#1153` (found while investigating a real, publicly-hosted `serve` for traverse-framework.com/discover.html — same lineage as `#1097`-`#1100`, `#1105`, specs 113-119) proposed fixing `serve`'s fabricated `bundled://` artifact locations by having `serve` fetch and verify the real artifact itself. A review comment on the ticket established that violates spec 115 FR-004 and spec 118 FR-004/FR-006 (`serve` MUST NOT fetch/sync/mutate during startup or execution), moving the ticket to `needs-spec`/Blocked and requesting this brainstorm.
+
+### Context
+
+`serve --registry-state` (spec 118) registers capabilities from a
+registry-bundle manifest whose entries carry only a `contract.json` path —
+never a real WASM location. `build_capability_artifact` therefore always
+synthesizes `bundled://{id}/{version}/module.wasm`, which `ArtifactRouter`
+can never resolve, so no capability loaded this way can actually execute.
+Fixing this by having `serve` fetch the artifact itself was ruled out as a
+governing-spec violation before this brainstorm started.
+
+### Decision
+
+Real artifact preparation becomes a separate, host-run step, governed by a
+new spec (`120`) rather than a modification to the already-Approved,
+immutable spec 118:
+
+1. **Manifest shape**: a new, separate `artifact-state.json` (new spec),
+   not new fields on spec 118's own manifest.
+2. **Discovery**: a new, independent `serve --artifact-state <path>` flag —
+   never embedded in spec 118's schema, never a default/conventional
+   location.
+3. **Materialized-binary location**: an explicit per-entry `path` field in
+   `artifact-state.json`, not a directory convention.
+4. **Who prepares it**: a new, first-party `traverse-cli registry
+   materialize` subcommand — not an external host script — since digest
+   verification is a real security boundary, not just metadata reshaping.
+5. **Startup verification**: `serve` re-verifies every on-disk artifact's
+   digest against the declared digest before listening; it does not trust
+   `materialize`'s prior verification alone.
+6. **Failure semantics**: whole-manifest fail-closed — any missing or
+   mismatched artifact refuses the entire `serve` startup, never a
+   silently reduced subset.
+7. **Scope**: capabilities only; workflows carry no artifact of their own.
+
+### Alternatives Considered
+
+- Extend spec 118's manifest schema directly — rejected; spec 118 is
+  Approved/immutable, and this org's own precedent (Decision 59/ADR-0043
+  adding a new phase to `108` rather than modifying `109`) favors a new
+  governing artifact over amending an approved one. Spec 118 FR-002's
+  strict unknown-field rejection means even one additive field would
+  require a formal successor version regardless.
+- Fixed-name sibling file discovered by convention, no new flag —
+  rejected; spec 118's own Ownership section already forbids `serve`
+  inventing a default state location.
+- Keep artifact fetch+verification an external, host-authored script
+  (matching how the registry-state manifest generator itself stayed
+  external) — rejected; unlike manifest generation, digest verification is
+  the actual security boundary stopping a tampered/wrong binary from
+  executing, and per-host reimplementation risks a subtly wrong
+  verification nobody audits.
+- Trust `materialize`'s verification without startup re-verification —
+  rejected; no protection against anything mutating the artifacts
+  directory between `materialize` running and `serve` starting.
+
+### Outcome
+
+Spec `120` drafted and Approved same-day; ADR-0051 recorded. `#1153` can
+be rescoped from a design question to "implement `registry materialize`
+and `serve --artifact-state` per spec 120." Hosting a real, live `serve`
+instance for discover.html still needs someone to actually run
+`materialize` and operate the resulting artifacts directory on an ongoing
+basis — an operational decision this spec deliberately leaves open.
