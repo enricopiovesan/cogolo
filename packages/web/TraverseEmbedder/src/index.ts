@@ -100,3 +100,10 @@ export {
   findUnauthorizedImport,
 } from "./hostAbi.js";
 export type { HostAbiImport } from "./hostAbi.js";
+
+export { executeVerifiedEntrypoint, VerifiedEntrypointError } from "./verifiedEntrypoint.js";
+export type {
+  VerifiedEntrypointFetch,
+  VerifiedEntrypointRequest,
+  VerifiedEntrypointResponse,
+} from "./verifiedEntrypoint.js";

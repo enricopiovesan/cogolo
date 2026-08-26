@@ -1,0 +1,5 @@
+body { font-family: system-ui, sans-serif; color: #17212b; margin: 2rem auto; max-width: 760px; padding: 0 1rem; }
+label { display: block; font-weight: 600; margin: 1rem 0; }
+input, textarea { box-sizing: border-box; display: block; font: inherit; margin-top: .35rem; padding: .5rem; width: 100%; }
+button { font: inherit; padding: .55rem .9rem; }
+pre { background: #f4f6f8; border-radius: .4rem; overflow-x: auto; padding: 1rem; white-space: pre-wrap; }

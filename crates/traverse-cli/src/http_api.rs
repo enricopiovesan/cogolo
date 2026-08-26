@@ -5064,7 +5064,7 @@ fn handle_verified_entrypoint_execute<W: Write, E: LocalExecutor + Clone>(
         ))
     });
     match outcome {
-        Ok(outcome) => match serialize_outcome(&outcome) {
+        Ok(outcome) => match serialize_verified_entrypoint_outcome(&outcome) {
             Ok(body) => write_json_raw(w, 200, "OK", &body),
             Err(error) => write_json(
                 w,
@@ -7185,6 +7185,30 @@ fn serialize_outcome(outcome: &RuntimeExecutionOutcome) -> Result<String, String
     });
 
     serde_json::to_string(&response).map_err(|e| format!("failed to serialize outcome: {e}"))
+}
+
+/// Spec 115 exposes a browser-safe receipt, never the internal RuntimeTrace.
+fn serialize_verified_entrypoint_outcome(
+    outcome: &RuntimeExecutionOutcome,
+) -> Result<String, String> {
+    let status = if outcome.result.status == RuntimeResultStatus::Error {
+        "error"
+    } else {
+        "completed"
+    };
+    serde_json::to_string(&json!({
+        "status": status,
+        "request_id": outcome.result.request_id,
+        "execution_id": outcome.result.execution_id,
+        "trace_ref": outcome.result.trace_ref,
+        "output": outcome.result.output,
+        "error": outcome.result.error.as_ref().map(|error| json!({
+            "code": format!("{:?}", error.code).to_lowercase(),
+            "message": error.message,
+        })),
+        "trace": public_trace_envelope(SYSTEM_WORKSPACE_ID, &outcome.trace),
+    }))
+    .map_err(|error| format!("failed to serialize verified entrypoint outcome: {error}"))
 }
 
 pub(crate) fn error_envelope(code: &str, message: &str) -> Value {

@@ -25,7 +25,7 @@
   "scripts": {
     "build": "tsc",
     "prepublishOnly": "npm run build",
-    "test": "npm run build && node --test tests/embedder.test.mjs tests/bundleEmbedder.test.mjs tests/registryCache.test.mjs tests/indexedDbDataStore.test.mjs"
+    "test": "npm run build && node --test tests/embedder.test.mjs tests/bundleEmbedder.test.mjs tests/registryCache.test.mjs tests/indexedDbDataStore.test.mjs tests/verifiedEntrypoint.test.mjs"
   },
   "devDependencies": {
     "@types/node": "^22.20.1",
