@@ -1762,11 +1762,10 @@ fn run_serve(
 ) -> Result<(), String> {
     let registry_state_path = registry_state_path
         .ok_or_else(|| "registry_sync_missing: --registry-state is required".to_string())?;
-    let artifact_state = artifact_state_path
-        .as_deref()
-        .map(load_artifact_state)
-        .transpose()
-        .map_err(|e| e.to_string())?;
+    let artifact_state = match artifact_state_path {
+        Some(path) => Some(load_artifact_state(&path).map_err(|e| e.to_string())?),
+        None => None,
+    };
     let registered =
         load_governed_public_bundle_with_artifacts(&registry_state_path, artifact_state.as_ref())
             .map_err(|e| e.to_string())?;
