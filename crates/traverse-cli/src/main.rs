@@ -6132,7 +6132,7 @@ fn build_capability_registration_with_artifacts(
         let key = format!("{}@{}", capability.contract.id, capability.contract.version);
         if let Some(entry) = artifacts.get(&key) {
             if let Some(binary) = &mut artifact.binary {
-                binary.location = entry.path.clone();
+                binary.location.clone_from(&entry.path);
             }
             artifact.digests.binary_digest = Some(entry.digest.clone());
         }
@@ -7237,7 +7237,7 @@ mod tests {
         app_activate_at, app_activation_state_path, app_new_at, app_register_at,
         app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_text, discover_capabilities, enforce_contract_surface_coverage,
+        curl_bytes, curl_text, discover_capabilities, enforce_contract_surface_coverage,
         enforce_persona_refs_resolve, ensure_clean_registry_checkout, execute_capability_package,
         execute_expedition, execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, format_capability_package_execution_summary,
@@ -12139,5 +12139,21 @@ mod tests {
         assert_eq!(state.capabilities.len(), 1);
         assert!(PathBuf::from(&state.capabilities[0].path).is_file());
         assert_eq!(state.capabilities[0].digest, digest);
+    }
+
+    #[test]
+    fn artifact_state_and_fetch_failures_are_actionable() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let state_path = dir.join("artifact-state.json");
+        fs::write(&state_path, "not-json").expect("invalid fixture");
+        let malformed = load_artifact_state(&state_path).expect_err("malformed state must fail");
+        assert!(malformed.message().contains("artifact_state_parse_failed"));
+        let missing =
+            load_artifact_state(&dir.join("missing.json")).expect_err("missing state must fail");
+        assert!(missing.message().contains("artifact_state_read_failed"));
+        let fetch = curl_bytes("file:///definitely/not/a/file.wasm")
+            .expect_err("missing file must fail to fetch");
+        assert!(fetch.contains("artifact_materialize_fetch_failed"));
     }
 }
