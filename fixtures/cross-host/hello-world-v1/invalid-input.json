@@ -1,0 +1,14 @@
+{
+  "input_id": "missing-required-name",
+  "expected_outcome": "invalid_input",
+  "input": {},
+  "expected_output_projection": {
+    "reason_code": "CONTRACT_INPUT_INVALID",
+    "status": "rejected"
+  },
+  "expected_trace_projection": {
+    "event_kinds": ["rejected"],
+    "failure_category": "invalid_input",
+    "terminal_state": "rejected"
+  }
+}
