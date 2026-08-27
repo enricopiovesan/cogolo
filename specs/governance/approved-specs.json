@@ -1592,6 +1592,18 @@
         "docs/adr/0051-host-owned-artifact-preparation.md",
         "docs/decision-log.md"
       ]
+    },
+    {
+      "id": "121-bounded-native-wasi-profile",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/121-bounded-native-wasi-profile/spec.md",
+      "governs": [
+        "crates/traverse-swift-host/",
+        "scripts/ci/",
+        "specs/121-bounded-native-wasi-profile/"
+      ]
     }
   ]
 }
