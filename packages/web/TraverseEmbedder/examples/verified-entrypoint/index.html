@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Traverse verified capability execution</title>
+    <link rel="stylesheet" href="./styles.css" />
+  </head>
+  <body>
+    <main>
+      <h1>Verified published capability</h1>
+      <p>
+        This page sends an exact capability identity to a separately started
+        <code>traverse-cli serve</code> host. That host must already have
+        verified registry and artifact state; the browser never supplies or
+        executes arbitrary artifact bytes.
+      </p>
+      <form id="execute-form">
+        <label>Server URL <input id="server-url" value="http://127.0.0.1:8787" required /></label>
+        <label>Capability ID <input id="capability-id" required /></label>
+        <label>Version <input id="capability-version" required /></label>
+        <label>RuntimeRequest JSON <textarea id="runtime-request" rows="14" required></textarea></label>
+        <button type="submit">Execute verified capability</button>
+      </form>
+      <section aria-live="polite">
+        <h2>Result and redacted trace receipt</h2>
+        <pre id="result">No execution has been requested.</pre>
+      </section>
+    </main>
+    <script type="module" src="./main.js"></script>
+  </body>
+</html>

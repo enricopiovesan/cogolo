@@ -5064,7 +5064,7 @@ fn handle_verified_entrypoint_execute<W: Write, E: LocalExecutor + Clone>(
         ))
     });
     match outcome {
-        Ok(outcome) => match serialize_outcome(&outcome) {
+        Ok(outcome) => match serialize_verified_entrypoint_outcome(&outcome) {
             Ok(body) => write_json_raw(w, 200, "OK", &body),
             Err(error) => write_json(
                 w,
@@ -7187,6 +7187,30 @@ fn serialize_outcome(outcome: &RuntimeExecutionOutcome) -> Result<String, String
     serde_json::to_string(&response).map_err(|e| format!("failed to serialize outcome: {e}"))
 }
 
+/// Spec 115 exposes a browser-safe receipt, never the internal RuntimeTrace.
+fn serialize_verified_entrypoint_outcome(
+    outcome: &RuntimeExecutionOutcome,
+) -> Result<String, String> {
+    let status = if outcome.result.status == RuntimeResultStatus::Error {
+        "error"
+    } else {
+        "completed"
+    };
+    serde_json::to_string(&json!({
+        "status": status,
+        "request_id": outcome.result.request_id,
+        "execution_id": outcome.result.execution_id,
+        "trace_ref": outcome.result.trace_ref,
+        "output": outcome.result.output,
+        "error": outcome.result.error.as_ref().map(|error| json!({
+            "code": format!("{:?}", error.code).to_lowercase(),
+            "message": error.message,
+        })),
+        "trace": public_trace_envelope(SYSTEM_WORKSPACE_ID, &outcome.trace),
+    }))
+    .map_err(|error| format!("failed to serialize verified entrypoint outcome: {error}"))
+}
+
 pub(crate) fn error_envelope(code: &str, message: &str) -> Value {
     json!({
         "type": format!("https://traverse.dev/problems/{code}"),
@@ -7984,6 +8008,47 @@ mod tests {
 
     fn test_state_with(id: &str, version: &str) -> ApiState<TestExecutor> {
         test_state_with_output(id, version, json!({"result": "ok"}))
+    }
+
+    fn test_system_state_with(id: &str, version: &str) -> ApiState<TestExecutor> {
+        let mut registration = test_registration(id, version);
+        registration.scope = RegistryScope::Public;
+        let mut registry = CapabilityRegistry::new();
+        registry
+            .register(registration)
+            .expect("public test registration must succeed");
+
+        let executor = TestExecutor::ok(json!({"result": "ok"}));
+        let registry_root = test_registry_root();
+        std::fs::create_dir_all(&registry_root).expect("registry root must be created");
+        persist_test_workspace(&registry_root, SYSTEM_WORKSPACE_ID, "admin-user");
+        let mut workspaces = HashMap::new();
+        workspaces.insert(
+            SYSTEM_WORKSPACE_ID.to_string(),
+            new_workspace_state(
+                registry,
+                executor.clone(),
+                WorkflowRegistry::new(),
+                RuntimeSecurityConfig::development(),
+                true,
+            )
+            .expect("test system workspace must construct an app event broker"),
+        );
+
+        ApiState {
+            auth_mode: "dev-loopback".to_string(),
+            allow_unauthenticated: true,
+            allowed_origins: Vec::new(),
+            registry_root,
+            executor,
+            workspaces: Mutex::new(workspaces),
+            idempotency_records: Mutex::new(HashMap::new()),
+            idempotency_retention_seconds: DEFAULT_IDEMPOTENCY_RETENTION_SECONDS,
+            jwt_verification_key: Some(
+                parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
+                    .expect("test verification key must parse"),
+            ),
+        }
     }
 
     fn test_state_with_output(id: &str, version: &str, output: Value) -> ApiState<TestExecutor> {
@@ -9341,6 +9406,69 @@ mod tests {
         assert_eq!(resp["status"], "completed");
         assert!(resp["trace"].is_object(), "trace must be an object");
         assert_eq!(resp["request_id"], "test-req-001");
+    }
+
+    #[test]
+    fn verified_entrypoint_execute_returns_a_public_trace_receipt() {
+        let request: Value =
+            serde_json::from_slice(&make_runtime_request_body("test.api.do-something"))
+                .expect("test runtime request must be JSON");
+        let body = json!({
+            "entrypoint_kind": "capability",
+            "id": "test.api.do-something",
+            "version": "1.0.0",
+            "request": request,
+        })
+        .to_string()
+        .into_bytes();
+        let state = test_system_state_with("test.api.do-something", "1.0.0");
+        let req = with_bearer(
+            make_http_request("POST", "/v1/entrypoints/execute", body),
+            &make_jwt("admin-user", future_exp(), true),
+        );
+
+        let mut out = Vec::new();
+        handle_verified_entrypoint_execute(&mut out, &req, &state, true)
+            .expect("verified entrypoint execution must write a response");
+
+        let resp = parse_response_body(&out);
+        assert_eq!(response_status(&out), 200);
+        assert_eq!(resp["status"], "completed");
+        assert_eq!(resp["output"]["result"], "ok");
+        assert!(resp["trace"]["spans"].is_array());
+        assert!(
+            resp.get("otel_trace").is_none(),
+            "internal trace stays private"
+        );
+    }
+
+    #[test]
+    fn verified_entrypoint_execute_rejects_a_non_exact_runtime_identity() {
+        let request: Value = serde_json::from_slice(&make_runtime_request_body("other.capability"))
+            .expect("test runtime request must be JSON");
+        let body = json!({
+            "entrypoint_kind": "capability",
+            "id": "test.api.do-something",
+            "version": "1.0.0",
+            "request": request,
+        })
+        .to_string()
+        .into_bytes();
+        let state = test_system_state_with("test.api.do-something", "1.0.0");
+        let req = with_bearer(
+            make_http_request("POST", "/v1/entrypoints/execute", body),
+            &make_jwt("admin-user", future_exp(), true),
+        );
+
+        let mut out = Vec::new();
+        handle_verified_entrypoint_execute(&mut out, &req, &state, true)
+            .expect("verified entrypoint rejection must write a response");
+
+        assert_eq!(response_status(&out), 422);
+        assert_eq!(
+            parse_response_body(&out)["traverse_code"],
+            "entrypoint_identity_mismatch"
+        );
     }
 
     #[test]
