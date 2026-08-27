@@ -8,6 +8,8 @@
 
 use sha2::{Digest, Sha256};
 use std::fmt::Write as _;
+#[cfg(test)]
+use wasmi::{Caller, Extern};
 use wasmi::{
     Config, Engine, Instance, Linker, Memory, Module, Store, StoreLimits, StoreLimitsBuilder,
 };
@@ -75,9 +77,133 @@ struct Host {
     limits: Limits,
 }
 
+#[derive(Debug)]
 struct HostError {
     status: i32,
     code: &'static str,
+}
+
+#[cfg(test)]
+struct WasiCommandState {
+    output: Vec<u8>,
+    maximum_output_bytes: usize,
+    store_limits: StoreLimits,
+}
+
+#[cfg(test)]
+fn wasi_fd_write(
+    mut caller: Caller<'_, WasiCommandState>,
+    fd: i32,
+    iovs: i32,
+    count: i32,
+    written: i32,
+) -> i32 {
+    if fd != 1 || count < 0 || iovs < 0 || written < 0 {
+        return 8;
+    }
+    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
+        return 21;
+    };
+    let mut bytes = Vec::new();
+    let Ok(descriptor_count) = usize::try_from(count) else {
+        return 8;
+    };
+    for index in 0..descriptor_count {
+        let Some(offset) = usize::try_from(iovs)
+            .ok()
+            .and_then(|base| base.checked_add(index.saturating_mul(8)))
+        else {
+            return 21;
+        };
+        let mut descriptor = [0_u8; 8];
+        if memory.read(&caller, offset, &mut descriptor).is_err() {
+            return 21;
+        }
+        let pointer =
+            u32::from_le_bytes([descriptor[0], descriptor[1], descriptor[2], descriptor[3]])
+                as usize;
+        let length =
+            u32::from_le_bytes([descriptor[4], descriptor[5], descriptor[6], descriptor[7]])
+                as usize;
+        if bytes.len().saturating_add(length) > caller.data().maximum_output_bytes {
+            return 27;
+        }
+        let start = bytes.len();
+        bytes.resize(start.saturating_add(length), 0);
+        if memory.read(&caller, pointer, &mut bytes[start..]).is_err() {
+            return 21;
+        }
+    }
+    let Ok(total) = u32::try_from(bytes.len()) else {
+        return 27;
+    };
+    let Ok(written_offset) = usize::try_from(written) else {
+        return 8;
+    };
+    if memory
+        .write(&mut caller, written_offset, &total.to_le_bytes())
+        .is_err()
+    {
+        return 21;
+    }
+    caller.data_mut().output.extend(bytes);
+    0
+}
+
+#[cfg(test)]
+fn execute_wasi_command(
+    artifact: &[u8],
+    expected_digest: &[u8],
+    limits: &Limits,
+) -> Result<Vec<u8>, HostError> {
+    if artifact.len() > limits.maximum_artifact_bytes
+        || normalised_digest(expected_digest)? != digest(artifact)
+    {
+        return Err(HostError::new(
+            INVALID_INPUT,
+            "wasi_artifact_identity_failure",
+        ));
+    }
+    let mut config = Config::default();
+    config.consume_fuel(true);
+    let engine = Engine::new(&config);
+    let module = Module::new(&engine, artifact)
+        .map_err(|_| HostError::new(INVALID_INPUT, "wasi_invalid_module"))?;
+    if module
+        .imports()
+        .any(|import| import.module() != "wasi_snapshot_preview1" || import.name() != "fd_write")
+    {
+        return Err(HostError::new(INVALID_INPUT, "wasi_forbidden_import"));
+    }
+    let store_limits = StoreLimitsBuilder::new()
+        .memory_size(limits.maximum_memory_bytes)
+        .trap_on_grow_failure(true)
+        .build();
+    let mut store = Store::new(
+        &engine,
+        WasiCommandState {
+            output: Vec::new(),
+            maximum_output_bytes: limits.maximum_output_bytes,
+            store_limits,
+        },
+    );
+    store.limiter(|state| &mut state.store_limits);
+    store
+        .set_fuel(limits.fuel_per_invocation)
+        .map_err(|_| HostError::new(RESOURCE_LIMIT, "wasi_resource_limit"))?;
+    let mut linker = Linker::new(&engine);
+    linker
+        .func_wrap("wasi_snapshot_preview1", "fd_write", wasi_fd_write)
+        .map_err(|_| HostError::new(INTERNAL_ERROR, "wasi_link_failure"))?;
+    let instance = linker
+        .instantiate_and_start(&mut store, &module)
+        .map_err(|_| HostError::new(INTERNAL_ERROR, "wasi_execution_failed"))?;
+    instance
+        .get_typed_func::<(), ()>(&store, "_start")
+        .map_err(|_| HostError::new(INVALID_DESCRIPTOR, "wasi_missing_start"))?
+        .call(&mut store, ())
+        .map_err(|_| HostError::new(INTERNAL_ERROR, "wasi_execution_failed"))?;
+    Ok(store.into_data().output)
 }
 
 impl HostError {
@@ -501,8 +627,8 @@ mod tests {
 
     use super::{
         ABI_VERSION, BUFFER_TOO_SMALL, OK, RESOURCE_LIMIT, TraverseSwiftHostLimits, digest,
-        traverse_swift_host_abi_version, traverse_swift_host_create, traverse_swift_host_destroy,
-        traverse_swift_host_invoke,
+        execute_wasi_command, traverse_swift_host_abi_version, traverse_swift_host_create,
+        traverse_swift_host_destroy, traverse_swift_host_invoke,
     };
 
     #[test]
@@ -597,10 +723,29 @@ mod tests {
         assert_eq!(traverse_swift_host_destroy(handle), OK);
     }
 
+    #[test]
+    fn executes_the_pinned_cross_host_wasi_fixture() {
+        let artifact = include_bytes!(
+            "../../../examples/hello-world/say-hello-agent/artifacts/say-hello-agent.wasm"
+        );
+        let output = execute_wasi_command(
+            artifact,
+            digest(artifact).as_bytes(),
+            &limits().checked().expect("limits are valid"),
+        )
+        .expect("fixture must execute under the bounded native profile");
+        let actual: serde_json::Value =
+            serde_json::from_slice(&output).expect("fixture stdout is JSON");
+        assert_eq!(
+            actual,
+            serde_json::json!({"greeting": "Hello, Traverse!", "name": "Traverse"})
+        );
+    }
+
     fn limits() -> TraverseSwiftHostLimits {
         TraverseSwiftHostLimits {
             maximum_artifact_bytes: 1024 * 1024,
-            maximum_memory_bytes: 1024 * 1024,
+            maximum_memory_bytes: 2 * 1024 * 1024,
             fuel_per_invocation: 10_000,
             maximum_input_bytes: 1024,
             maximum_output_bytes: 1024,
