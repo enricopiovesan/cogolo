@@ -1,0 +1,24 @@
+{
+  "fixture_version": "1.0.0",
+  "capability": {
+    "id": "hello.world.say-hello",
+    "version": "1.0.0",
+    "contract": {
+      "id": "hello.world.say-hello",
+      "version": "1.0.0",
+      "digest": "sha256:42fa0111aa735bc4cfbfbb2bbba413856c409329124ed8872693fc08d076779f",
+      "source": "contracts/examples/hello-world/capabilities/say-hello/contract.json"
+    },
+    "artifact": {
+      "digest": "sha256:79804d32fc2ee77266c85c1fe243bfd0c8f27bb444245a6e1782acf1bd237d40",
+      "source": "examples/hello-world/say-hello-agent/artifacts/say-hello-agent.wasm",
+      "build_command": "bash examples/hello-world/say-hello-agent/build-fixture.sh"
+    }
+  },
+  "expected_projection_version": "1.0.0",
+  "cases": [
+    "valid-execution.json",
+    "invalid-input.json",
+    "artifact-identity-failure.json"
+  ]
+}

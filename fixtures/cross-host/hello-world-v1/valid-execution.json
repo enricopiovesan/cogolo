@@ -1,0 +1,13 @@
+{
+  "input_id": "valid-traverse-name",
+  "expected_outcome": "success",
+  "input": { "name": "Traverse" },
+  "expected_output_projection": {
+    "greeting": "Hello, Traverse!",
+    "name": "Traverse"
+  },
+  "expected_trace_projection": {
+    "event_kinds": ["started", "completed"],
+    "terminal_state": "completed"
+  }
+}

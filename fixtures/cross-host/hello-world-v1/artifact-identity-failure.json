@@ -1,0 +1,15 @@
+{
+  "input_id": "artifact-digest-mismatch",
+  "expected_outcome": "artifact_identity_failure",
+  "input": { "name": "Traverse" },
+  "observed_artifact_digest": "sha256:0000000000000000000000000000000000000000000000000000000000000000",
+  "expected_output_projection": {
+    "reason_code": "ARTIFACT_DIGEST_MISMATCH",
+    "status": "rejected"
+  },
+  "expected_trace_projection": {
+    "event_kinds": ["rejected"],
+    "failure_category": "artifact_identity_failure",
+    "terminal_state": "rejected"
+  }
+}
