@@ -96,6 +96,15 @@ Any other outcome, an execution after an expected rejection, missing evidence,
 or unequal projection is `not_equal` / fail. A host implementation failure that
 prevents a record from being emitted is also fail; it is not silently skipped.
 
+## Native profile evidence
+
+The selected native host is `traverse-swift-host` using Wasmi 1.1.0 under
+ADR-0014 and approved Spec 121. `scripts/ci/cross_host_native_fixture.sh`
+executes the pinned artifact with the bounded WASI command profile, verifies
+the artifact and contract digests, validates the two rejection fixtures, and
+emits the required safe success record. CI runs it on macOS; it deliberately
+does not claim or imply conformance for additional native platforms.
+
 ## Redaction requirements
 
 Evidence is safe by construction. It must exclude raw request and output

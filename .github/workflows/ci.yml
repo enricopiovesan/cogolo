@@ -227,6 +227,9 @@ jobs:
       - name: Certify generated artifact across native packages
         run: bash scripts/ci/native_artifact_certification.sh
 
+      - name: Run bounded native cross-host fixture
+        run: bash scripts/ci/cross_host_native_fixture.sh
+
   coverage-gate:
     needs: classify-changes
     if: needs.classify-changes.outputs.full_ci == 'true'
