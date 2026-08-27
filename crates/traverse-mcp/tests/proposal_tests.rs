@@ -716,6 +716,66 @@ fn execute_proposal_via_mcp_denies_a_cross_validation_invalid_proposal() -> Resu
 }
 
 #[test]
+fn corrected_reproposal_requires_a_new_explicit_execution_after_rejection() -> Result<(), String> {
+    let manifest = manifest_declaring(&[("test.single", "1.0.0")], &automatic_risk());
+    let registry = registry_with(vec![(
+        contract("test.single", "1.0.0", automatic_risk()),
+        artifact("digest-a"),
+    )]);
+    let runtime = Runtime::new(registry.clone(), EchoExecutor)
+        .with_security_config(RuntimeSecurityConfig::development());
+    let token_store = ApprovalTokenStore::new();
+    let quota_tracker = QuotaTracker::new();
+    let keys = HashMap::new();
+    let rejected_json = structurally_invalid_proposal_json("proposal-recovery-rejected");
+    let corrected_json = linear_proposal_json("proposal-recovery-corrected");
+
+    let rejected = execute_proposal_via_mcp(
+        &runtime,
+        &execution_context(
+            &rejected_json,
+            &manifest,
+            &registry,
+            &ProposalLimits::default(),
+            &snapshots(),
+            None,
+            &keys,
+        ),
+        &token_store,
+        &quota_tracker,
+        &QuotaLimits::default(),
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    let ProposalExecutionResponse::Denied { code, .. } = rejected else {
+        return Err("expected rejected proposal to be denied".to_string());
+    };
+    assert_eq!(code, "invalid_proposal");
+
+    let corrected = execute_proposal_via_mcp(
+        &runtime,
+        &execution_context(
+            &corrected_json,
+            &manifest,
+            &registry,
+            &ProposalLimits::default(),
+            &snapshots(),
+            None,
+            &keys,
+        ),
+        &token_store,
+        &quota_tracker,
+        &QuotaLimits::default(),
+    )
+    .map_err(|error| format!("{error:?}"))?;
+    let ProposalExecutionResponse::Trace(trace) = corrected else {
+        return Err("expected corrected re-proposal to execute".to_string());
+    };
+    assert_eq!(trace.terminal_state, ProposalTerminalState::Succeeded);
+    assert_eq!(trace.node_outcomes[0].status, ProposalNodeStatus::Succeeded);
+    Ok(())
+}
+
+#[test]
 fn execute_proposal_via_mcp_denies_when_the_approval_token_use_count_is_already_exhausted()
 -> Result<(), String> {
     let manifest = manifest_declaring(&[("test.single", "1.0.0")], &non_automatic_risk());
