@@ -1,6 +1,6 @@
 # Feature Specification: Bounded Native WASI Profile
 
-**Status**: Draft — requires maintainer approval before implementation
+**Status**: Approved
 **Canonical governing ID**: `121-bounded-native-wasi-profile`
 **Extends**: `071-native-runtime-wasm-bridge`, `090-governed-wasi-stdio-ffi`, and ADR-0014
 **Tracks**: #1180; unblocks #1165
