@@ -17,7 +17,7 @@ use semver::Version;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use sha2::{Digest, Sha256};
-use std::collections::BTreeMap;
+use std::collections::{BTreeMap, BTreeSet};
 use std::env;
 use std::fmt::Write as FmtWrite;
 use std::fs;
@@ -50,6 +50,15 @@ use traverse_runtime::{
     LocalExecutor, Runtime, RuntimeExecutionOutcome, RuntimeRequest, RuntimeResultStatus,
     RuntimeTrace, parse_runtime_request,
 };
+
+const AUTHORING_OUTCOME_TELEMETRY_POLICY_KEYS: &[&str] = &["eligible", "profile", "allowed_fields"];
+const AUTHORING_OUTCOME_TELEMETRY_AGGREGATE_V1_FIELDS: &[&str] = &[
+    "authoring_route",
+    "terminal_outcome",
+    "revision_count_bucket",
+    "elapsed_time_bucket",
+    "finding_category_counts",
+];
 
 #[derive(Debug)]
 enum Command {
@@ -5133,15 +5142,10 @@ fn validate_authoring_outcome_telemetry_for_cli(
             message: "authoring telemetry must be a policy object".to_string(),
         });
     };
-    const KEYS: &[&str] = &["eligible", "profile", "allowed_fields"];
-    const FIELDS: &[&str] = &[
-        "authoring_route",
-        "terminal_outcome",
-        "revision_count_bucket",
-        "elapsed_time_bucket",
-        "finding_category_counts",
-    ];
-    if object.keys().any(|key| !KEYS.contains(&key.as_str())) {
+    if object
+        .keys()
+        .any(|key| !AUTHORING_OUTCOME_TELEMETRY_POLICY_KEYS.contains(&key.as_str()))
+    {
         return Some(AppValidationError {
             code: "authoring_telemetry_host_override".to_string(),
             path: format!("{path}.authoring_outcome_telemetry"),
@@ -5166,13 +5170,13 @@ fn validate_authoring_outcome_telemetry_for_cli(
                 .to_string(),
         });
     };
-    let mut seen = std::collections::BTreeSet::new();
+    let mut seen = BTreeSet::new();
     if fields.is_empty()
         || fields.iter().any(|field| {
             let Some(field) = field.as_str() else {
                 return true;
             };
-            !FIELDS.contains(&field) || !seen.insert(field)
+            !AUTHORING_OUTCOME_TELEMETRY_AGGREGATE_V1_FIELDS.contains(&field) || !seen.insert(field)
         })
     {
         return Some(AppValidationError {
@@ -7324,8 +7328,8 @@ mod tests {
         reject_private_contract_scope, run_command, run_serve, safe_artifact_path_component,
         sha256_hex, surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
         unresolved_persona_refs, use_case_smoke_coverage_gaps,
-        use_case_smoke_coverage_gaps_for_package, validate_component_risk_policy_for_cli,
-        validate_registry_path_segment,
+        use_case_smoke_coverage_gaps_for_package, validate_authoring_outcome_telemetry_for_cli,
+        validate_component_risk_policy_for_cli, validate_registry_path_segment,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
@@ -11140,6 +11144,61 @@ mod tests {
         );
 
         let _ = fs::remove_dir_all(&dir);
+    }
+
+    #[test]
+    fn authoring_telemetry_accepts_the_closed_aggregate_v1_policy() {
+        let manifest = serde_json::json!({
+            "authoring_outcome_telemetry": {
+                "eligible": true,
+                "profile": "aggregate-v1",
+                "allowed_fields": ["authoring_route", "terminal_outcome"]
+            }
+        });
+
+        assert_eq!(
+            validate_authoring_outcome_telemetry_for_cli("$", &manifest),
+            None
+        );
+    }
+
+    #[test]
+    fn authoring_telemetry_rejects_host_owned_overrides() {
+        let manifest = serde_json::json!({
+            "authoring_outcome_telemetry": {
+                "eligible": true,
+                "profile": "aggregate-v1",
+                "allowed_fields": ["authoring_route"],
+                "endpoint": "https://metrics.example.test"
+            }
+        });
+
+        let result = validate_authoring_outcome_telemetry_for_cli("$", &manifest);
+        assert_eq!(
+            result.as_ref().map(|error| error.code.as_str()),
+            Some("authoring_telemetry_host_override")
+        );
+    }
+
+    #[test]
+    fn authoring_telemetry_rejects_prohibited_and_duplicate_fields() {
+        for allowed_fields in [
+            serde_json::json!(["authoring_route", "actor_id"]),
+            serde_json::json!(["authoring_route", "authoring_route"]),
+        ] {
+            let manifest = serde_json::json!({
+                "authoring_outcome_telemetry": {
+                    "eligible": true,
+                    "profile": "aggregate-v1",
+                    "allowed_fields": allowed_fields
+                }
+            });
+            let result = validate_authoring_outcome_telemetry_for_cli("$", &manifest);
+            assert_eq!(
+                result.as_ref().map(|error| error.code.as_str()),
+                Some("authoring_telemetry_prohibited_field")
+            );
+        }
     }
 
     fn unique_temp_dir() -> PathBuf {
