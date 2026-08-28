@@ -7,6 +7,7 @@ use crate::app_runtime_events::{
 };
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
+use sha2::{Digest, Sha256};
 use std::collections::{HashMap, HashSet};
 use std::fmt::Write as FmtWrite;
 use std::io::{Read, Write};
@@ -17,6 +18,11 @@ use std::sync::{Arc, Mutex, PoisonError};
 use std::thread;
 use std::time::{Duration, Instant, SystemTime, UNIX_EPOCH};
 use traverse_contracts::{CapabilityContract, EventContract, parse_contract, parse_event_contract};
+use traverse_contracts::{ProposalLimits, SnapshotDigests};
+use traverse_mcp::tools::proposals::{
+    ProposalExecutionRequest, ProposalExecutionResponse, authorization_state,
+    execute_proposal_via_mcp, submit_proposal, validate_proposal,
+};
 use traverse_registry::{
     ApplicationStateMachine, ApplicationStateTransition, ApplicationStateTransitionCondition,
     ApplicationStateTransitionConditionOp, ArtifactDigests, BinaryFormat, BinaryReference,
@@ -26,6 +32,7 @@ use traverse_registry::{
     SourceReference, WorkflowDefinition, WorkflowRegistration, WorkflowRegistry,
     WorkspaceAppStateErrorCode, load_application_bundle_manifest,
 };
+use traverse_runtime::proposal::{ApprovalTokenStore, QuotaLimits, QuotaTracker};
 use traverse_runtime::security::RuntimeSecurityConfig;
 use traverse_runtime::{
     LocalExecutor, PlacementTarget, Runtime, RuntimeContext, RuntimeExecutionOutcome,
@@ -139,6 +146,8 @@ pub(crate) struct ApiState<E> {
     idempotency_records: Mutex<HashMap<String, IdempotencyRecord>>,
     idempotency_retention_seconds: u64,
     jwt_verification_key: Option<ed25519_dalek::VerifyingKey>,
+    proposal_token_store: ApprovalTokenStore,
+    proposal_quota_tracker: QuotaTracker,
 }
 
 /// Browser-safe entrypoint selector governed by Spec 115.  The entrypoint
@@ -423,6 +432,7 @@ enum WorkspaceOperation {
     AppEvents(String, String),
     AppSessions(String, String),
     AppCommands(String, String),
+    AppProposals(String, String),
 }
 
 /// Start the HTTP/JSON API server, blocking until the listener fails.
@@ -553,6 +563,8 @@ where
             config.idempotency_retention_seconds,
         ),
         jwt_verification_key,
+        proposal_token_store: ApprovalTokenStore::new(),
+        proposal_quota_tracker: QuotaTracker::new(),
     });
     if let Some(grpc_config) = grpc_config {
         crate::grpc_event_transport::spawn_event_server(Arc::clone(&state), &grpc_config)
@@ -815,6 +827,8 @@ where
                     config.idempotency_retention_seconds,
                 ),
                 jwt_verification_key: None,
+                proposal_token_store: ApprovalTokenStore::new(),
+                proposal_quota_tracker: QuotaTracker::new(),
             },
         })
     }
@@ -3902,6 +3916,9 @@ fn handle_workspace_operation<W: Write, E: LocalExecutor + Clone>(
         WorkspaceOperation::AppCommands(workspace_id, app_id) => {
             handle_app_commands(w, request, state, loopback, &workspace_id, &app_id)
         }
+        WorkspaceOperation::AppProposals(workspace_id, app_id) => {
+            handle_app_proposals(w, request, state, loopback, &workspace_id, &app_id)
+        }
     }
 }
 
@@ -5433,6 +5450,11 @@ fn workspace_operation_path(method: &str, path: &str) -> Option<WorkspaceOperati
                 workspace_app_commands_path(path).map(|(workspace_id, app_id)| {
                     WorkspaceOperation::AppCommands(workspace_id, app_id)
                 })
+            })
+            .or_else(|| {
+                workspace_app_proposals_path(path).map(|(workspace_id, app_id)| {
+                    WorkspaceOperation::AppProposals(workspace_id, app_id)
+                })
             }),
         "GET" => workspace_execution_status_path(path)
             .map(|(workspace_id, execution_id)| {
@@ -5493,6 +5515,20 @@ fn workspace_app_commands_path(path: &str) -> Option<(String, String)> {
     let suffix = path.strip_prefix("/v1/workspaces/")?;
     let (workspace_id, tail) = suffix.split_once("/apps/")?;
     let app_id = tail.strip_suffix("/commands")?;
+    if workspace_id.trim().is_empty()
+        || app_id.trim().is_empty()
+        || workspace_id.contains('/')
+        || app_id.contains('/')
+    {
+        return None;
+    }
+    Some((workspace_id.to_string(), app_id.to_string()))
+}
+
+fn workspace_app_proposals_path(path: &str) -> Option<(String, String)> {
+    let suffix = path.strip_prefix("/v1/workspaces/")?;
+    let (workspace_id, tail) = suffix.split_once("/apps/")?;
+    let app_id = tail.strip_suffix("/proposals")?;
     if workspace_id.trim().is_empty()
         || app_id.trim().is_empty()
         || workspace_id.contains('/')
@@ -5744,6 +5780,253 @@ fn handle_app_commands<W: Write, E: LocalExecutor + Clone>(
         dispatch_app_command(ws, workspace_id, app_id, &parsed)
     })?;
     write_json(w, status, reason, &body)
+}
+
+/// Browser-reachable, host-owned adapter for the governed workflow proposal
+/// lifecycle (spec 109). The browser supplies only an immutable proposal and
+/// an optional approval token; manifests, registry state, limits, quota, and
+/// token verification remain owned by this server.
+#[allow(clippy::too_many_lines)]
+fn handle_app_proposals<W: Write, E: LocalExecutor + Clone>(
+    w: &mut W,
+    request: &HttpRequest,
+    state: &ApiState<E>,
+    loopback: bool,
+    workspace_id: &str,
+    app_id: &str,
+) -> Result<(), String> {
+    let identity = match subject_from_state(&request.headers, state, loopback) {
+        Ok(identity) => identity,
+        Err(err) => {
+            return write_json(
+                w,
+                err.status,
+                err.reason,
+                &error_envelope(err.code, &err.message),
+            );
+        }
+    };
+    if let Err(err) = ensure_workspace_authorized(
+        &state.registry_root,
+        workspace_id,
+        &identity,
+        SCOPE_RUNTIME_EXECUTE,
+        scopes_optional_for_request(state.allow_unauthenticated, loopback, &identity),
+    ) {
+        return write_json(
+            w,
+            err.status,
+            err.reason,
+            &error_envelope(err.code, &err.message),
+        );
+    }
+
+    let parsed = match parse_app_proposal_request(&request.body) {
+        Ok(parsed) => parsed,
+        Err(message) => {
+            return write_json(
+                w,
+                400,
+                "Bad Request",
+                &error_envelope("invalid_request", &message),
+            );
+        }
+    };
+
+    let result = state.with_workspace_mut(workspace_id, |ws| {
+        let Some(app) = ws
+            .runtime
+            .workspace_applications()
+            .iter()
+            .find(|app| app.app_id == app_id)
+        else {
+            return Ok((
+                404,
+                "Not Found",
+                error_envelope(
+                    "app_not_registered",
+                    "app is not registered in this workspace",
+                ),
+            ));
+        };
+        let manifest_path = PathBuf::from(&app.manifest_path);
+        let workspace_root = state
+            .registry_root
+            .parent()
+            .and_then(Path::parent)
+            .unwrap_or_else(|| Path::new("."));
+        let manifest_path = if manifest_path.is_absolute() {
+            manifest_path
+        } else {
+            workspace_root.join(manifest_path)
+        };
+        let manifest = load_application_bundle_manifest(&manifest_path)
+            .map_err(|_| "registered application manifest is unavailable".to_string())?;
+        let proposal_json = parsed.proposal.to_string();
+        let limits = ProposalLimits::default();
+        let snapshots = proposal_snapshots(&manifest_path, ws.runtime.capability_registry());
+        let body = match parsed.action.as_str() {
+            "validate" => serde_json::to_value(
+                validate_proposal(
+                    &proposal_json,
+                    &manifest,
+                    ws.runtime.capability_registry(),
+                    &limits,
+                )
+                .map_err(|_| "proposal must be valid JSON".to_string())?,
+            )
+            .map_err(|e| e.to_string())?,
+            "submit" => {
+                let submitted = submit_proposal(
+                    &proposal_json,
+                    &manifest,
+                    ws.runtime.capability_registry(),
+                    &limits,
+                    &snapshots,
+                )
+                .map_err(|_| "proposal must be valid JSON".to_string())?;
+                let authorization = authorization_state(
+                    &proposal_json,
+                    &manifest,
+                    ws.runtime.capability_registry(),
+                    &limits,
+                )
+                .map_err(|_| "proposal must be valid JSON".to_string())?;
+                json!({ "submission": submitted, "authorization": authorization })
+            }
+            "execute" => {
+                let mut keys = HashMap::new();
+                if let Some(key) = &state.jwt_verification_key {
+                    // The host's configured Ed25519 verifier is the trust
+                    // anchor for browser-visible approval tokens. A token is
+                    // still scoped by the proposal engine to this app,
+                    // workspace, proposal digest, and pinned snapshots.
+                    keys.insert("default".to_string(), *key);
+                }
+                let execution = execute_proposal_via_mcp(
+                    &ws.runtime,
+                    &ProposalExecutionRequest {
+                        proposal_json: &proposal_json,
+                        manifest: &manifest,
+                        registry: ws.runtime.capability_registry(),
+                        limits: &limits,
+                        snapshots: &snapshots,
+                        approval_token: parsed.approval_token.as_deref(),
+                        expected_token_issuer: "traverse-host",
+                        expected_token_audience: app_id,
+                        token_verifying_keys_by_key_id: &keys,
+                        principal: &identity.subject_id,
+                        app_id,
+                    },
+                    &state.proposal_token_store,
+                    &state.proposal_quota_tracker,
+                    &QuotaLimits::default(),
+                )
+                .map_err(|_| "proposal must be valid JSON".to_string())?;
+                redacted_proposal_execution_response(execution)
+            }
+            _ => unreachable!("request parser admits known proposal actions"),
+        };
+        Ok((200, "OK", body))
+    });
+    match result {
+        Ok((status, reason, body)) => write_json(w, status, reason, &body),
+        Err(message) if message == "proposal must be valid JSON" => write_json(
+            w,
+            400,
+            "Bad Request",
+            &error_envelope(
+                "invalid_proposal",
+                "proposal does not match the governed proposal shape",
+            ),
+        ),
+        Err(_) => write_json(
+            w,
+            503,
+            "Service Unavailable",
+            &error_envelope(
+                "proposal_host_unavailable",
+                "proposal host state is unavailable",
+            ),
+        ),
+    }
+}
+
+struct AppProposalRequest {
+    action: String,
+    proposal: Value,
+    approval_token: Option<String>,
+}
+
+fn parse_app_proposal_request(body: &[u8]) -> Result<AppProposalRequest, String> {
+    let value: Value =
+        serde_json::from_slice(body).map_err(|_| "request body is not valid JSON".to_string())?;
+    let object = value
+        .as_object()
+        .ok_or_else(|| "request body must be a JSON object".to_string())?;
+    for forbidden in [
+        "planner_prompt",
+        "credentials",
+        "catalog",
+        "runtime_mutation",
+    ] {
+        if object.contains_key(forbidden) {
+            return Err(format!(
+                "'{forbidden}' is not accepted by the browser proposal surface"
+            ));
+        }
+    }
+    let action = object
+        .get("action")
+        .and_then(Value::as_str)
+        .filter(|action| matches!(*action, "validate" | "submit" | "execute"))
+        .ok_or_else(|| "'action' must be validate, submit, or execute".to_string())?
+        .to_string();
+    let proposal = object
+        .get("proposal")
+        .cloned()
+        .ok_or_else(|| "'proposal' is required".to_string())?;
+    let approval_token = match object.get("approval_token") {
+        None | Some(Value::Null) => None,
+        Some(Value::String(token)) if !token.trim().is_empty() => Some(token.clone()),
+        _ => return Err("'approval_token' must be a non-empty string when present".to_string()),
+    };
+    Ok(AppProposalRequest {
+        action,
+        proposal,
+        approval_token,
+    })
+}
+
+fn proposal_snapshots(manifest_path: &Path, registry: &CapabilityRegistry) -> SnapshotDigests {
+    let manifest_bytes = std::fs::read(manifest_path).unwrap_or_default();
+    let digest = |bytes: &[u8]| {
+        let digest = Sha256::digest(bytes);
+        let mut hex = String::with_capacity(digest.len() * 2);
+        for byte in digest {
+            let _ = write!(hex, "{byte:02x}");
+        }
+        format!("sha256:{hex}")
+    };
+    let manifest_digest = digest(&manifest_bytes);
+    let registry_digest = digest(format!("{registry:?}").as_bytes());
+    SnapshotDigests {
+        manifest_digest,
+        registry_digest,
+        binding_digest: "host-bound-v1".to_string(),
+        policy_digest: "host-policy-v1".to_string(),
+        budget_digest: "host-budget-v1".to_string(),
+    }
+}
+
+fn redacted_proposal_execution_response(response: ProposalExecutionResponse) -> Value {
+    match response {
+        ProposalExecutionResponse::Trace(trace) => json!({ "status": "completed", "trace": trace }),
+        ProposalExecutionResponse::Denied { code, .. } => json!({
+            "status": "denied",
+            "evidence": { "code": code, "detail": "proposal execution was not authorized or validated" }
+        }),
+    }
 }
 
 struct AppCommandRequest {
@@ -8048,6 +8331,8 @@ mod tests {
                 parse_ed25519_verifying_key(&test_jwt_verifying_key_hex())
                     .expect("test verification key must parse"),
             ),
+            proposal_token_store: ApprovalTokenStore::new(),
+            proposal_quota_tracker: QuotaTracker::new(),
         }
     }
 
@@ -8086,6 +8371,8 @@ mod tests {
             idempotency_records: Mutex::new(HashMap::new()),
             idempotency_retention_seconds: DEFAULT_IDEMPOTENCY_RETENTION_SECONDS,
             jwt_verification_key: None,
+            proposal_token_store: ApprovalTokenStore::new(),
+            proposal_quota_tracker: QuotaTracker::new(),
         }
     }
 
@@ -8132,6 +8419,8 @@ mod tests {
             idempotency_records: Mutex::new(HashMap::new()),
             idempotency_retention_seconds: DEFAULT_IDEMPOTENCY_RETENTION_SECONDS,
             jwt_verification_key: None,
+            proposal_token_store: ApprovalTokenStore::new(),
+            proposal_quota_tracker: QuotaTracker::new(),
         }
     }
 
@@ -8165,6 +8454,8 @@ mod tests {
             idempotency_records: Mutex::new(HashMap::new()),
             idempotency_retention_seconds: DEFAULT_IDEMPOTENCY_RETENTION_SECONDS,
             jwt_verification_key: None,
+            proposal_token_store: ApprovalTokenStore::new(),
+            proposal_quota_tracker: QuotaTracker::new(),
         }
     }
 
@@ -10229,6 +10520,87 @@ mod tests {
         assert!(
             workspace_app_commands_path("/v1/workspaces/ws-test/apps/traverse-starter/other")
                 .is_none()
+        );
+    }
+
+    #[test]
+    fn app_proposals_path_parses_workspace_and_app_id() {
+        assert_eq!(
+            workspace_app_proposals_path("/v1/workspaces/ws-test/apps/traverse-starter/proposals"),
+            Some(("ws-test".to_string(), "traverse-starter".to_string()))
+        );
+        assert!(workspace_app_proposals_path("/v1/workspaces/ws-test/apps//proposals").is_none());
+        assert!(
+            workspace_app_proposals_path("/v1/workspaces/ws-test/apps/traverse-starter/commands")
+                .is_none()
+        );
+    }
+
+    #[test]
+    fn browser_proposal_request_rejects_planner_and_credentials() {
+        let planner = parse_app_proposal_request(
+            br#"{"action":"validate","proposal":{},"planner_prompt":"choose a path"}"#,
+        );
+        assert!(planner.is_err());
+        let credentials = parse_app_proposal_request(
+            br#"{"action":"validate","proposal":{},"credentials":"secret"}"#,
+        );
+        assert!(credentials.is_err());
+    }
+
+    #[test]
+    fn browser_proposal_request_requires_known_action_and_well_formed_token() {
+        assert!(parse_app_proposal_request(br#"{"action":"plan","proposal":{}}"#).is_err());
+        assert!(
+            parse_app_proposal_request(
+                br#"{"action":"execute","proposal":{},"approval_token":42}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn browser_proposal_denial_has_redacted_evidence() {
+        let body = redacted_proposal_execution_response(ProposalExecutionResponse::Denied {
+            code: "approval_required".to_string(),
+            message: "an approval token is required".to_string(),
+        });
+        assert_eq!(body["status"], "denied");
+        assert_eq!(body["evidence"]["code"], "approval_required");
+        assert!(!body.to_string().contains("approval token"));
+    }
+
+    #[test]
+    fn app_proposals_reject_invalid_browser_request_before_runtime_access() {
+        let state = empty_state();
+        let req = make_http_request(
+            "POST",
+            "/v1/workspaces/ws-test/apps/missing/proposals",
+            br#"{"action":"validate","proposal":{},"credentials":"secret"}"#.to_vec(),
+        );
+        let mut out = Vec::new();
+        handle_workspace_operation(&mut out, &req, &state, true).expect("response");
+        assert_eq!(response_status(&out), 400);
+        assert_eq!(
+            parse_response_body(&out)["traverse_code"],
+            "invalid_request"
+        );
+    }
+
+    #[test]
+    fn app_proposals_require_a_registered_application() {
+        let state = empty_state();
+        let req = make_http_request(
+            "POST",
+            "/v1/workspaces/ws-test/apps/missing/proposals",
+            br#"{"action":"validate","proposal":{}}"#.to_vec(),
+        );
+        let mut out = Vec::new();
+        handle_workspace_operation(&mut out, &req, &state, true).expect("response");
+        assert_eq!(response_status(&out), 404);
+        assert_eq!(
+            parse_response_body(&out)["traverse_code"],
+            "app_not_registered"
         );
     }
 
