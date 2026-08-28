@@ -1,6 +1,6 @@
 # Feature Specification: Privacy-Preserving Authoring Outcome Telemetry
 
-**Status**: Draft — approval required before implementation
+**Status**: Approved
 **Canonical governing ID**: `1183-privacy-preserving-authoring-telemetry`
 **Extends**: `088-runtime-usage-telemetry` only for its default-off,
 provider-neutral collection precedent; it does not extend runtime usage fields.

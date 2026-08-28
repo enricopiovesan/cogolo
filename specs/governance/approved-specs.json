@@ -1604,6 +1604,17 @@
         "scripts/ci/",
         "specs/121-bounded-native-wasi-profile/"
       ]
+    },
+    {
+      "id": "1183-privacy-preserving-authoring-telemetry",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/1183-privacy-preserving-authoring-telemetry/spec.md",
+      "governs": [
+        "specs/1183-privacy-preserving-authoring-telemetry/",
+        "docs/adr/0052-privacy-preserving-authoring-outcome-telemetry.md"
+      ]
     }
   ]
 }
