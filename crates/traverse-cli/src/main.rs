@@ -7349,6 +7349,31 @@ mod tests {
     };
 
     #[test]
+    fn cli_error_messages_and_display_cover_every_exit_class() {
+        let cases = [
+            (
+                CliError::ExecutionFailed("execution".to_string()),
+                "execution",
+            ),
+            (
+                CliError::ValidationFailed("validation".to_string()),
+                "validation",
+            ),
+            (
+                CliError::RegistrationConflict("registration".to_string()),
+                "registration",
+            ),
+            (CliError::IoError("io".to_string()), "io"),
+            (CliError::UsageError("usage".to_string()), "usage"),
+        ];
+
+        for (error, expected) in cases {
+            assert_eq!(error.message(), expected);
+            assert_eq!(error.to_string(), expected);
+        }
+    }
+
+    #[test]
     fn parse_command_accepts_supported_inspect_commands() {
         let bundle = vec![
             "traverse-cli".to_string(),
