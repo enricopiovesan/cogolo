@@ -43,3 +43,5 @@ input {
   padding: 0.4rem;
   width: 60%;
 }
+
+textarea { width: 100%; font-family: ui-monospace, monospace; margin-bottom: 0.75rem; }
