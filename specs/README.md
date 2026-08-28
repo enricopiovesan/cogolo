@@ -26,6 +26,7 @@ Traverse uses split, focused governing specs instead of one giant spec file. Thi
 | Security model, trust boundaries, identity direction | `030-security-identity-model` |
 | Supply chain hardening, provenance, artifact trust | `031-supply-chain-hardening` |
 | Portable state and data access constraints | `032-universal-data-access` |
+| Materialized governed-artifact signature handoff | `124-materialized-artifact-signatures` |
 | Event delivery, replay, and missed-event recovery | `036-event-subscription-replay` |
 | Semver range matching and compatible version selection | `037-semver-range-resolution` |
 | WASI and host ABI insulation from standards churn | `038-wasi-host-insulation` |
