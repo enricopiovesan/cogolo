@@ -5786,6 +5786,7 @@ fn handle_app_commands<W: Write, E: LocalExecutor + Clone>(
 /// lifecycle (spec 109). The browser supplies only an immutable proposal and
 /// an optional approval token; manifests, registry state, limits, quota, and
 /// token verification remain owned by this server.
+#[allow(clippy::too_many_lines)]
 fn handle_app_proposals<W: Write, E: LocalExecutor + Clone>(
     w: &mut W,
     request: &HttpRequest,
@@ -5900,7 +5901,7 @@ fn handle_app_proposals<W: Write, E: LocalExecutor + Clone>(
                     // anchor for browser-visible approval tokens. A token is
                     // still scoped by the proposal engine to this app,
                     // workspace, proposal digest, and pinned snapshots.
-                    keys.insert("default".to_string(), key.clone());
+                    keys.insert("default".to_string(), *key);
                 }
                 let execution = execute_proposal_via_mcp(
                     &ws.runtime,
@@ -10556,6 +10557,40 @@ mod tests {
         assert_eq!(body["status"], "denied");
         assert_eq!(body["evidence"]["code"], "approval_required");
         assert!(!body.to_string().contains("approval token"));
+    }
+
+    #[test]
+    fn app_proposals_reject_invalid_browser_request_before_runtime_access() {
+        let state = empty_state();
+        let req = make_http_request(
+            "POST",
+            "/v1/workspaces/ws-test/apps/missing/proposals",
+            br#"{"action":"validate","proposal":{},"credentials":"secret"}"#.to_vec(),
+        );
+        let mut out = Vec::new();
+        handle_workspace_operation(&mut out, &req, &state, true).expect("response");
+        assert_eq!(response_status(&out), 400);
+        assert_eq!(
+            parse_response_body(&out)["traverse_code"],
+            "invalid_request"
+        );
+    }
+
+    #[test]
+    fn app_proposals_require_a_registered_application() {
+        let state = empty_state();
+        let req = make_http_request(
+            "POST",
+            "/v1/workspaces/ws-test/apps/missing/proposals",
+            br#"{"action":"validate","proposal":{}}"#.to_vec(),
+        );
+        let mut out = Vec::new();
+        handle_workspace_operation(&mut out, &req, &state, true).expect("response");
+        assert_eq!(response_status(&out), 404);
+        assert_eq!(
+            parse_response_body(&out)["traverse_code"],
+            "app_not_registered"
+        );
     }
 
     #[test]
