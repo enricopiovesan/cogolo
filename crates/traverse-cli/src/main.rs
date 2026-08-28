@@ -2,6 +2,7 @@
 
 mod app_events_websocket;
 mod app_runtime_events;
+mod authoring_telemetry;
 mod capability_packages;
 mod federation_operator;
 mod grpc_event_transport;
