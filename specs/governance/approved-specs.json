@@ -1626,6 +1626,18 @@
         "specs/122-manifest-governed-authoring-outcome-telemetry/",
         "docs/adr/0053-manifest-governed-authoring-outcome-telemetry.md"
       ]
+    },
+    {
+      "id": "123-host-owned-authoring-telemetry-aggregation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/123-host-owned-authoring-telemetry-aggregation/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/123-host-owned-authoring-telemetry-aggregation/",
+        "docs/adr/0054-host-owned-authoring-telemetry-aggregation.md"
+      ]
     }
   ]
 }
