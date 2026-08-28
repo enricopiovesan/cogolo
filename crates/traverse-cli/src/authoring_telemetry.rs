@@ -135,6 +135,11 @@ impl AuthoringAggregateBucket {
 
     /// Records only aggregate categories. The opaque ticket is hashed before
     /// it reaches bucket state and never appears in an export.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuthoringTelemetryError::EmptyTicket`] when the host did not
+    /// supply an opaque contributor ticket.
     pub fn record(
         &mut self,
         opaque_ticket: &str,
@@ -170,6 +175,12 @@ impl AuthoringAggregateBucket {
         !self.is_expired(now) && self.ticket_hashes.len() >= MIN_DISTINCT_CONTRIBUTORS
     }
 
+    /// Produces the bounded aggregate that a separately configured host may export.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`AuthoringTelemetryError::UnpublishedBucket`] below the exact
+    /// threshold or after the retention window has expired.
     pub fn remote_aggregate(
         &self,
         now: DateTime<Utc>,
@@ -192,6 +203,11 @@ impl AuthoringAggregateBucket {
 
 /// Host opt-out deletes the complete unpublished bucket, preserving the
 /// aggregate-only storage guarantee.
+///
+/// # Errors
+///
+/// Returns [`AuthoringTelemetryError::UnpublishedBucket`] when the bucket is
+/// already eligible for publication and must instead follow export handling.
 pub fn delete_unpublished_bucket_on_opt_out(
     bucket: &mut Option<AuthoringAggregateBucket>,
     now: DateTime<Utc>,
@@ -206,6 +222,12 @@ pub fn delete_unpublished_bucket_on_opt_out(
     Ok(())
 }
 
+/// Appends a separate JSON-lines audit record for an analytics access attempt.
+///
+/// # Errors
+///
+/// Returns [`AuthoringTelemetryError::Io`] when the host-owned audit sink
+/// cannot serialize or append the evidence record.
 pub fn append_analytics_access_audit(
     path: &Path,
     record: &AnalyticsAccessAuditRecord,
