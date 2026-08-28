@@ -10549,6 +10549,17 @@ mod tests {
     }
 
     #[test]
+    fn browser_proposal_request_requires_known_action_and_well_formed_token() {
+        assert!(parse_app_proposal_request(br#"{"action":"plan","proposal":{}}"#).is_err());
+        assert!(
+            parse_app_proposal_request(
+                br#"{"action":"execute","proposal":{},"approval_token":42}"#,
+            )
+            .is_err()
+        );
+    }
+
+    #[test]
     fn browser_proposal_denial_has_redacted_evidence() {
         let body = redacted_proposal_execution_response(ProposalExecutionResponse::Denied {
             code: "approval_required".to_string(),
