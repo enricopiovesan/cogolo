@@ -1,7 +1,7 @@
 # ADR-0052: Privacy-Preserving Authoring Outcome Telemetry
 
-- Status: Proposed — approval required
-- Governing spec: `1183-privacy-preserving-authoring-telemetry` (Draft)
+- Status: Accepted
+- Governing spec: `1183-privacy-preserving-authoring-telemetry`
 - Decision evidence: Traverse #1169
 
 ## Context
@@ -26,8 +26,7 @@ quarterly.
 ## Consequences
 
 This permits carefully bounded aggregate evidence while prohibiting content and
-identity collection. The collector retention period and access-control owner
-remain explicit approval prerequisites, not implementation assumptions.
+identity collection.
 
 ## Alternatives Considered
 
