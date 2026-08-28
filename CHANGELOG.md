@@ -2,6 +2,24 @@
 
 ## Unreleased
 
+## v0.10.0 — 2026-08-28
+
+- Added governed runtime workflow proposals: lifecycle operations, bounded
+  deterministic parallel scheduling, declarative planning, and promotion
+  through the MCP host.
+- Added a governed browser proposal journey, verified browser capability
+  execution with receipts, and the server-side verified entrypoint endpoint.
+- Added standalone capability-package discovery and activation-time executable
+  artifact resolution, with stricter artifact-metadata validation.
+- Added universal local connector contracts, mediated connector invocation,
+  application connector bindings, and native verified-registry metadata caches.
+- Added durable orchestration controls and a durable trace journal, alongside
+  cross-host fixture evidence and browser/CLI comparison coverage.
+- Added host-owned, privacy-preserving authoring telemetry configuration and
+  aggregation, disabled by default.
+- Updated the registry dependency to 0.15.2 and refreshed selected Rust
+  dependencies.
+
 ## v0.9.1 — 2026-08-09
 
 - Capability packages can be scaffolded, inspected, validated, and published through
