@@ -112,11 +112,65 @@ pub struct AnalyticsAccessAuditRecord {
     pub allowed: bool,
 }
 
+/// Host-owned switch for authoring telemetry. It is independent of generic
+/// usage telemetry and defaults to disabled on every read failure.
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct AuthoringTelemetryHostConfig {
+    #[serde(default)]
+    pub enabled: bool,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum AuthoringTelemetryError {
     EmptyTicket,
     UnpublishedBucket,
     Io(String),
+}
+
+#[must_use]
+pub fn load_host_config(path: &Path) -> AuthoringTelemetryHostConfig {
+    std::fs::read_to_string(path)
+        .ok()
+        .and_then(|contents| serde_json::from_str(&contents).ok())
+        .unwrap_or_default()
+}
+
+/// # Errors
+///
+/// Returns [`AuthoringTelemetryError::Io`] when host configuration cannot be persisted.
+pub fn save_host_config(
+    path: &Path,
+    config: &AuthoringTelemetryHostConfig,
+) -> Result<(), AuthoringTelemetryError> {
+    if let Some(parent) = path.parent() {
+        std::fs::create_dir_all(parent)
+            .map_err(|error| AuthoringTelemetryError::Io(error.to_string()))?;
+    }
+    let value = serde_json::to_string_pretty(config)
+        .map_err(|error| AuthoringTelemetryError::Io(error.to_string()))?;
+    std::fs::write(path, format!("{value}\n"))
+        .map_err(|error| AuthoringTelemetryError::Io(error.to_string()))
+}
+
+/// Stable host entry point: disabled or unreadable configuration performs no
+/// collection and leaves the supplied aggregate bucket unchanged.
+///
+/// # Errors
+///
+/// Returns [`AuthoringTelemetryError::EmptyTicket`] only when explicit host
+/// opt-in is enabled but the trusted host supplies no opaque ticket.
+pub fn record_from_host_config(
+    config: &AuthoringTelemetryHostConfig,
+    bucket: &mut Option<AuthoringAggregateBucket>,
+    opaque_ticket: &str,
+    event: &AuthoringOutcomeEvent,
+    now: DateTime<Utc>,
+) -> Result<(), AuthoringTelemetryError> {
+    if !config.enabled {
+        return Ok(());
+    }
+    let active = bucket.get_or_insert_with(|| AuthoringAggregateBucket::new(now));
+    active.record(opaque_ticket, event)
 }
 
 impl AuthoringAggregateBucket {
@@ -341,6 +395,39 @@ mod tests {
         append_analytics_access_audit(&path, &record).expect("audit append");
         let line = fs::read_to_string(&path).expect("audit read");
         assert!(line.contains("traverse-analytics"));
+        let _ = fs::remove_file(path);
+    }
+
+    #[test]
+    fn host_config_defaults_off_and_records_only_after_explicit_opt_in() {
+        let path = std::env::temp_dir().join("traverse-authoring-telemetry-config-test.json");
+        let _ = fs::remove_file(&path);
+        assert_eq!(
+            load_host_config(&path),
+            AuthoringTelemetryHostConfig::default()
+        );
+        let now = Utc::now();
+        let mut bucket = None;
+        record_from_host_config(
+            &AuthoringTelemetryHostConfig::default(),
+            &mut bucket,
+            "ticket",
+            &event(),
+            now,
+        )
+        .expect("disabled record");
+        assert_eq!(bucket, None);
+        let enabled = AuthoringTelemetryHostConfig { enabled: true };
+        save_host_config(&path, &enabled).expect("save config");
+        record_from_host_config(
+            &load_host_config(&path),
+            &mut bucket,
+            "ticket",
+            &event(),
+            now,
+        )
+        .expect("enabled record");
+        assert!(bucket.is_some());
         let _ = fs::remove_file(path);
     }
 }
