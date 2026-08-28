@@ -1615,6 +1615,17 @@
         "specs/1183-privacy-preserving-authoring-telemetry/",
         "docs/adr/0052-privacy-preserving-authoring-outcome-telemetry.md"
       ]
+    },
+    {
+      "id": "122-manifest-governed-authoring-outcome-telemetry",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/122-manifest-governed-authoring-outcome-telemetry/spec.md",
+      "governs": [
+        "specs/122-manifest-governed-authoring-outcome-telemetry/",
+        "docs/adr/0053-manifest-governed-authoring-outcome-telemetry.md"
+      ]
     }
   ]
 }
