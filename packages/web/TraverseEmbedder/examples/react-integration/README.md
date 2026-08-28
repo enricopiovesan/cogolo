@@ -50,3 +50,14 @@ here with zero code changes to this example.
 A doc-approval integration will be added once the `doc-approval.pipeline`
 workflow (traverse-framework/Traverse#555) lands on `main`, to demonstrate
 the multi-node case end to end as well.
+
+## Governed proposal review
+
+The page also includes a deliberately planner-free review panel for the
+browser-reachable host endpoint at `http://127.0.0.1:8787`. Start a registered
+`traverse-cli serve` host for `local-default` before using it. The browser only
+submits immutable proposal JSON for validation, authorization review, or a
+separately requested execution. It never sends prompts, credentials, catalog
+mutations, or a runtime mutation request. Validation feedback makes rejected
+or ambiguous candidates visible; mappings are not treated as confirmed until
+the runtime accepts them. Execution output is the host's redacted evidence.
