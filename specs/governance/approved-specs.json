@@ -1665,7 +1665,7 @@
     },
     {
       "id": "126-synced-public-registry-event-preparation",
-      "version": "0.1.0",
+      "version": "0.2.0",
       "status": "approved",
       "immutable": true,
       "path": "specs/126-synced-public-registry-event-preparation/spec.md",
