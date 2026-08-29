@@ -1638,6 +1638,19 @@
         "specs/123-host-owned-authoring-telemetry-aggregation/",
         "docs/adr/0054-host-owned-authoring-telemetry-aggregation.md"
       ]
+    },
+    {
+      "id": "124-materialized-artifact-signatures",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/124-materialized-artifact-signatures/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "crates/traverse-runtime/",
+        "specs/124-materialized-artifact-signatures/",
+        "docs/adr/0055-materialized-artifact-signatures.md"
+      ]
     }
   ]
 }

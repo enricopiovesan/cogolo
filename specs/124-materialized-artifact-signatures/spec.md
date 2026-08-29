@@ -1,6 +1,6 @@
 # Feature Specification: Materialized Artifact Signatures
 
-**Status**: Draft
+**Status**: Approved
 **Canonical governing ID**: `124-materialized-artifact-signatures`
 **Extends**: `030-security-identity-model`, `120-host-owned-artifact-preparation`, and ADR-0051
 **Tracks**: #1203; depends on `traverse-framework/registry` #333, #334, and #335.
