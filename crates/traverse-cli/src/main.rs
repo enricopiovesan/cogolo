@@ -41,8 +41,8 @@ use traverse_registry::{
     ExecutableArtifactCandidate, ImplementationKind, InstalledConnector, LookupScope,
     PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryBundle, RegistryComponentResolver,
     RegistryProvenance, RegistryReference, RegistryScope, ResolvedRegistryComponent, SourceKind,
-    SourceReference, WorkflowReference, WorkflowRegistration, WorkflowRegistry,
-    cache_verified_public_registry_bytes, load_application_bundle_manifest,
+    SourceReference, SyncedPublicRegistryState, WorkflowReference, WorkflowRegistration,
+    WorkflowRegistry, cache_verified_public_registry_bytes, load_application_bundle_manifest,
     load_application_bundle_manifest_with_resolver, load_registry_bundle,
     public_registry_cache_path, resolve_executable_artifact, validate_connector_activation,
     write_synced_public_registry_state,
@@ -113,6 +113,10 @@ enum Command {
     },
     RegistryMaterialize {
         registry_state_path: PathBuf,
+        output_dir: PathBuf,
+    },
+    RegistryPreparePublicBundle {
+        synced_state_path: PathBuf,
         output_dir: PathBuf,
     },
     CapabilityPublish {
@@ -365,7 +369,8 @@ fn run_command(command: Command) -> Result<String, CliError> {
         command @ (Command::RegistrySync { .. }
         | Command::RegistryList { .. }
         | Command::RegistrySearch { .. }
-        | Command::RegistryMaterialize { .. }) => run_registry_command(command),
+        | Command::RegistryMaterialize { .. }
+        | Command::RegistryPreparePublicBundle { .. }) => run_registry_command(command),
         Command::CapabilityPublish {
             contract_path,
             artifact_path,
@@ -487,6 +492,10 @@ fn run_registry_command(command: Command) -> Result<String, CliError> {
             registry_state_path,
             output_dir,
         } => materialize_registry_artifacts(&registry_state_path, &output_dir),
+        Command::RegistryPreparePublicBundle {
+            synced_state_path,
+            output_dir,
+        } => prepare_public_registry_bundle(&synced_state_path, &output_dir),
         _ => Err(CliError::UsageError(
             "expected registry command".to_string(),
         )),
@@ -602,6 +611,259 @@ fn materialize_registry_artifacts(
         CliError::IoError(format!("artifact_materialize_state_write_failed: {error}"))
     })?;
     Ok(state_path.display().to_string())
+}
+
+/// Prepares the explicitly synced public index as an offline registry bundle.
+/// Network access is confined to this host-invoked preparation boundary.
+#[allow(clippy::too_many_lines)] // Coordinates the fail-closed per-capability preparation boundary.
+fn prepare_public_registry_bundle(
+    synced_state_path: &Path,
+    output_dir: &Path,
+) -> Result<String, CliError> {
+    let raw = fs::read(synced_state_path).map_err(|_| {
+        CliError::ValidationFailed("registry_prepare_synced_state_read_failed".to_string())
+    })?;
+    let state: SyncedPublicRegistryState = serde_json::from_slice(&raw).map_err(|_| {
+        CliError::ValidationFailed("registry_prepare_synced_state_invalid".to_string())
+    })?;
+    if state.schema_version != "1.0.0"
+        || state.state_scope != "public_registry_synced"
+        || state.validation_status != "passed"
+        || state.governing_spec != "055-registry-sync"
+    {
+        return Err(CliError::ValidationFailed(
+            "registry_prepare_synced_state_unverified".to_string(),
+        ));
+    }
+
+    let staging = output_dir.with_extension(format!("prepare-{}", std::process::id()));
+    if staging.exists() {
+        fs::remove_dir_all(&staging).map_err(|_| {
+            CliError::IoError("registry_prepare_staging_cleanup_failed".to_string())
+        })?;
+    }
+    fs::create_dir_all(&staging)
+        .map_err(|_| CliError::IoError("registry_prepare_staging_create_failed".to_string()))?;
+
+    let result = (|| {
+        let mut capabilities = Vec::new();
+        for record in state
+            .capabilities
+            .iter()
+            .filter(|record| !record.deprecated)
+        {
+            validate_registry_path_segment(&record.id, "capability id").map_err(|_| {
+                CliError::ValidationFailed(format!(
+                    "registry_prepare_path_invalid: {}@{}",
+                    record.id, record.version
+                ))
+            })?;
+            validate_registry_path_segment(&record.version, "capability version").map_err(
+                |_| {
+                    CliError::ValidationFailed(format!(
+                        "registry_prepare_path_invalid: {}@{}",
+                        record.id, record.version
+                    ))
+                },
+            )?;
+            let contract_bytes = curl_bytes(&record.contract_url).map_err(|_| {
+                CliError::IoError(format!(
+                    "registry_prepare_contract_fetch_failed: {}@{}",
+                    record.id, record.version
+                ))
+            })?;
+            let actual_digest = format!("sha256:{}", sha256_hex(&contract_bytes));
+            if record.contract_digest != actual_digest
+                && record.contract_digest != sha256_hex(&contract_bytes)
+            {
+                return Err(CliError::ValidationFailed(format!(
+                    "registry_prepare_contract_digest_mismatch: {}@{}",
+                    record.id, record.version
+                )));
+            }
+            let contract_text = std::str::from_utf8(&contract_bytes).map_err(|_| {
+                CliError::ValidationFailed(format!(
+                    "registry_prepare_contract_invalid: {}@{}",
+                    record.id, record.version
+                ))
+            })?;
+            let contract = parse_contract(contract_text).map_err(|_| {
+                CliError::ValidationFailed(format!(
+                    "registry_prepare_contract_invalid: {}@{}",
+                    record.id, record.version
+                ))
+            })?;
+            if contract.id != record.id || contract.version != record.version {
+                return Err(CliError::ValidationFailed(format!(
+                    "registry_prepare_contract_identity_mismatch: {}@{}",
+                    record.id, record.version
+                )));
+            }
+            let signature_url = signature_sibling_url(&record.contract_url).ok_or_else(|| {
+                CliError::ValidationFailed(format!(
+                    "registry_prepare_signature_url_invalid: {}@{}",
+                    record.id, record.version
+                ))
+            })?;
+            let signature_bytes =
+                fetch_signature_with_head_fallback(&signature_url).map_err(|_| {
+                    CliError::IoError(format!(
+                        "registry_prepare_signature_fetch_failed: {}@{}",
+                        record.id, record.version
+                    ))
+                })?;
+            validate_signature_evidence(&signature_bytes, &record.id, &record.version)?;
+            let relative_dir = PathBuf::from("capabilities")
+                .join(&record.id)
+                .join(&record.version);
+            let destination = staging.join(&relative_dir);
+            fs::create_dir_all(&destination)
+                .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+            fs::write(destination.join("contract.json"), contract_bytes)
+                .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+            fs::write(destination.join("signature.json"), signature_bytes)
+                .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+            capabilities.push(serde_json::json!({
+                "id": record.id, "version": record.version,
+                "path": relative_dir.join("contract.json").display().to_string()
+            }));
+        }
+        let bundle = serde_json::json!({
+            "bundle_id": "synced-public-registry", "version": "1.0.0", "scope": "public",
+            "capabilities": capabilities, "events": [], "workflows": []
+        });
+        fs::write(
+            staging.join("bundle.json"),
+            format!(
+                "{}\n",
+                serde_json::to_string_pretty(&bundle).map_err(|_| CliError::IoError(
+                    "registry_prepare_bundle_serialize_failed".to_string()
+                ))?
+            ),
+        )
+        .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+        Ok::<usize, CliError>(
+            state
+                .capabilities
+                .iter()
+                .filter(|record| !record.deprecated)
+                .count(),
+        )
+    })();
+    let count = match result {
+        Ok(count) => count,
+        Err(error) => {
+            let _ = fs::remove_dir_all(&staging);
+            return Err(error);
+        }
+    };
+    replace_prepared_bundle(&staging, output_dir)?;
+    serde_json::to_string_pretty(&serde_json::json!({
+        "status": "prepared", "synced_state_path": synced_state_path.display().to_string(),
+        "source": state.source_repo, "release_tag": state.release_tag,
+        "bundle_path": output_dir.join("bundle.json").display().to_string(),
+        "prepared_capability_count": count
+    }))
+    .map_err(|_| CliError::IoError("registry_prepare_evidence_serialize_failed".to_string()))
+}
+
+fn signature_sibling_url(contract_url: &str) -> Option<String> {
+    contract_url
+        .rsplit_once('/')
+        .map(|(parent, _)| format!("{parent}/signature.json"))
+}
+
+fn fetch_signature_with_head_fallback(url: &str) -> Result<Vec<u8>, String> {
+    curl_bytes(url).or_else(|_| {
+        let mut parts = url.split('/');
+        let missing = || "signature fetch failed".to_string();
+        let scheme = parts.next().ok_or_else(missing)?;
+        let empty = parts.next().ok_or_else(missing)?;
+        let host = parts.next().ok_or_else(missing)?;
+        if host != "raw.githubusercontent.com" {
+            return Err("signature fetch failed".to_string());
+        }
+        let owner = parts.next().ok_or_else(missing)?;
+        let repo = parts.next().ok_or_else(missing)?;
+        let _pinned_ref = parts.next().ok_or_else(missing)?;
+        let remainder = parts.collect::<Vec<_>>().join("/");
+        curl_bytes(&format!(
+            "{scheme}/{empty}/{host}/{owner}/{repo}/HEAD/{remainder}"
+        ))
+    })
+}
+
+fn validate_signature_evidence(bytes: &[u8], id: &str, version: &str) -> Result<(), CliError> {
+    let value: Value = serde_json::from_slice(bytes).map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "registry_prepare_signature_invalid: {id}@{version}"
+        ))
+    })?;
+    if value.get("scheme").and_then(Value::as_str) != Some("ed25519") {
+        return Err(CliError::ValidationFailed(format!(
+            "registry_prepare_signature_scheme_unsupported: {id}@{version}"
+        )));
+    }
+    let key = value
+        .get("public_key_hex")
+        .and_then(Value::as_str)
+        .and_then(decode_hex)
+        .ok_or_else(|| {
+            CliError::ValidationFailed(format!(
+                "registry_prepare_signature_public_key_invalid: {id}@{version}"
+            ))
+        })?;
+    let signature = value
+        .get("signature_hex")
+        .and_then(Value::as_str)
+        .and_then(decode_hex)
+        .ok_or_else(|| {
+            CliError::ValidationFailed(format!(
+                "registry_prepare_signature_invalid: {id}@{version}"
+            ))
+        })?;
+    let key: [u8; 32] = key.try_into().map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "registry_prepare_signature_public_key_invalid: {id}@{version}"
+        ))
+    })?;
+    let _: [u8; 64] = signature.try_into().map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "registry_prepare_signature_invalid: {id}@{version}"
+        ))
+    })?;
+    VerifyingKey::from_bytes(&key).map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "registry_prepare_signature_public_key_invalid: {id}@{version}"
+        ))
+    })?;
+    Ok(())
+}
+
+fn replace_prepared_bundle(staging: &Path, output: &Path) -> Result<(), CliError> {
+    let backup = output.with_extension(format!("previous-{}", std::process::id()));
+    if backup.exists() {
+        fs::remove_dir_all(&backup)
+            .map_err(|_| CliError::IoError("registry_prepare_replace_failed".to_string()))?;
+    }
+    let had_output = output.exists();
+    if had_output {
+        fs::rename(output, &backup)
+            .map_err(|_| CliError::IoError("registry_prepare_replace_failed".to_string()))?;
+    }
+    if fs::rename(staging, output).is_err() {
+        if had_output {
+            let _ = fs::rename(&backup, output);
+        }
+        return Err(CliError::IoError(
+            "registry_prepare_replace_failed".to_string(),
+        ));
+    }
+    if had_output {
+        fs::remove_dir_all(&backup)
+            .map_err(|_| CliError::IoError("registry_prepare_replace_failed".to_string()))?;
+    }
+    Ok(())
 }
 
 fn materialize_ed25519_signature(
@@ -773,6 +1035,9 @@ fn parse_command(args: &[String]) -> Result<Command, String> {
         (Some("registry"), Some("list")) => parse_registry_list_command(args),
         (Some("registry"), Some("search")) => parse_registry_search_command(args),
         (Some("registry"), Some("materialize")) => parse_registry_materialize_command(args),
+        (Some("registry"), Some("prepare-public-bundle")) => {
+            parse_registry_prepare_public_bundle_command(args)
+        }
         (Some("component"), Some("new")) => parse_component_new_command(args),
         (Some("capability"), Some("new")) => parse_capability_new_command(args),
         (Some("federation"), Some(_)) => parse_federation_command(args),
@@ -1733,6 +1998,18 @@ fn parse_registry_materialize_command(args: &[String]) -> Result<Command, String
         .ok_or_else(|| "registry materialize requires --out <dir>".to_string())?;
     Ok(Command::RegistryMaterialize {
         registry_state_path: PathBuf::from(registry_state_path),
+        output_dir: PathBuf::from(output_dir),
+    })
+}
+
+fn parse_registry_prepare_public_bundle_command(args: &[String]) -> Result<Command, String> {
+    let synced_state_path = parse_string_flag(args, "--synced-state").ok_or_else(|| {
+        "registry prepare-public-bundle requires --synced-state <path>".to_string()
+    })?;
+    let output_dir = parse_string_flag(args, "--out")
+        .ok_or_else(|| "registry prepare-public-bundle requires --out <dir>".to_string())?;
+    Ok(Command::RegistryPreparePublicBundle {
+        synced_state_path: PathBuf::from(synced_state_path),
         output_dir: PathBuf::from(output_dir),
     })
 }
@@ -7499,19 +7776,22 @@ mod tests {
         enforce_contract_surface_coverage, enforce_persona_refs_resolve,
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
-        execute_traverse_starter_validate, format_capability_package_execution_summary,
-        help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
-        inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
-        load_artifact_state, load_capability_package, load_registered_bundle,
-        load_registered_bundle_with_public_records, load_runtime_request,
+        execute_traverse_starter_validate, fetch_signature_with_head_fallback,
+        format_capability_package_execution_summary, help_expedition_execute, help_serve,
+        inspect_bundle, inspect_capability, inspect_capability_package, inspect_event,
+        inspect_trace, latest_index_release_asset, load_artifact_state, load_capability_package,
+        load_registered_bundle, load_registered_bundle_with_public_records, load_runtime_request,
         materialize_ed25519_signature, materialize_registry_artifacts, parse_command,
-        publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
-        registry_record_order, registry_sync_at, registry_sync_default_or_override,
-        registry_sync_failure_json, reject_private_contract_scope, run_command, run_serve,
-        safe_artifact_path_component, sha256_hex, surface_coverage_gap_messages, telemetry,
-        uncovered_action_enum_values, unresolved_persona_refs, use_case_smoke_coverage_gaps,
+        prepare_public_registry_bundle, publish_file_sha256_digest, register_bundle,
+        register_generated_app_bundle, registry_record_order, registry_sync_at,
+        registry_sync_default_or_override, registry_sync_failure_json,
+        reject_private_contract_scope, replace_prepared_bundle, run_command, run_serve,
+        safe_artifact_path_component, sha256_hex, signature_sibling_url,
+        surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
+        unresolved_persona_refs, use_case_smoke_coverage_gaps,
         use_case_smoke_coverage_gaps_for_package, validate_authoring_outcome_telemetry_for_cli,
         validate_component_risk_policy_for_cli, validate_registry_path_segment,
+        validate_signature_evidence,
     };
     use crate::capability_packages::fnv1a64;
     use serde_json::Value;
@@ -7525,8 +7805,9 @@ mod tests {
     use traverse_contracts::parse_contract;
     use traverse_contracts::{UsageEvent, UsageEventKind, UsageTelemetrySink};
     use traverse_registry::{
-        PublicRegistryCapabilityRecord, PublicRegistryIndex, load_application_bundle_manifest,
-        load_synced_public_registry_state, write_synced_public_registry_state,
+        PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryScope,
+        load_application_bundle_manifest, load_registry_bundle, load_synced_public_registry_state,
+        write_synced_public_registry_state,
     };
 
     #[test]
@@ -12445,6 +12726,222 @@ mod tests {
         ])
         .expect_err("output directory is required");
         assert!(missing_out.contains("--out"));
+
+        let prepared = parse_command(&[
+            "traverse-cli".to_string(),
+            "registry".to_string(),
+            "prepare-public-bundle".to_string(),
+            "--synced-state".to_string(),
+            "index.json".to_string(),
+            "--out".to_string(),
+            "prepared".to_string(),
+        ])
+        .expect("preparation command should parse");
+        assert!(matches!(
+            prepared,
+            Command::RegistryPreparePublicBundle { .. }
+        ));
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // Covers complete success and atomic failure preservation.
+    fn registry_prepare_public_bundle_writes_public_local_bundle_and_preserves_prior_on_failure() {
+        let state_root = unique_temp_dir();
+        let source_dir = unique_temp_dir();
+        fs::create_dir_all(&source_dir).expect("source directory");
+        let contract_source = repo_root().join(
+            "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        );
+        let contract = fs::read(&contract_source).expect("contract fixture");
+        fs::write(source_dir.join("contract.json"), &contract).expect("contract source");
+        fs::write(
+            source_dir.join("signature.json"),
+            serde_json::json!({
+                "scheme": "ed25519",
+                "public_key_hex": "00".repeat(32),
+                "signature_hex": "00".repeat(64)
+            })
+            .to_string(),
+        )
+        .expect("signature source");
+        let id = "expedition.planning.capture-expedition-objective";
+        write_synced_public_registry_state(
+            &state_root,
+            "local",
+            "fixture-registry",
+            "fixture-v1",
+            "2026-08-29T00:00:00Z",
+            PublicRegistryIndex {
+                index_version: 1,
+                generated_at: "2026-08-29T00:00:00Z".to_string(),
+                source_commit: None,
+                capabilities: vec![PublicRegistryCapabilityRecord {
+                    namespace: "fixture".to_string(),
+                    id: id.to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: "sha256:artifact".to_string(),
+                    artifact_url: "https://example.test/artifact".to_string(),
+                    contract_digest: format!("sha256:{}", sha256_hex(&contract)),
+                    contract_url: format!("file://{}", source_dir.join("contract.json").display()),
+                    deprecated: false,
+                    summary: String::new(),
+                    description: String::new(),
+                    use_cases: Vec::new(),
+                    service_type: "stateless".to_string(),
+                    permitted_targets: Vec::new(),
+                    lifecycle: "active".to_string(),
+                    provenance: None,
+                }],
+            },
+        )
+        .expect("synced state");
+        let state_path = traverse_registry::synced_public_registry_state_path(&state_root, "local");
+        let out = state_root.join("prepared");
+        let evidence = prepare_public_registry_bundle(&state_path, &out).expect("prepare bundle");
+        let evidence: Value = serde_json::from_str(&evidence).expect("evidence JSON");
+        assert_eq!(evidence["prepared_capability_count"], 1);
+        let bundle = load_registry_bundle(&out.join("bundle.json")).expect("prepared bundle loads");
+        assert_eq!(bundle.scope, RegistryScope::Public);
+        assert_eq!(bundle.capabilities.len(), 1);
+        assert!(
+            out.join("capabilities")
+                .join(id)
+                .join("1.0.0/signature.json")
+                .is_file()
+        );
+        write_synced_public_registry_state(
+            &state_root,
+            "local",
+            "fixture-registry",
+            "fixture-v2",
+            "2026-08-29T00:01:00Z",
+            PublicRegistryIndex {
+                index_version: 2,
+                generated_at: "2026-08-29T00:01:00Z".to_string(),
+                source_commit: None,
+                capabilities: vec![PublicRegistryCapabilityRecord {
+                    namespace: "fixture".to_string(),
+                    id: id.to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: "sha256:artifact".to_string(),
+                    artifact_url: "https://example.test/artifact".to_string(),
+                    contract_digest: "sha256:wrong".to_string(),
+                    contract_url: format!("file://{}", source_dir.join("contract.json").display()),
+                    deprecated: false,
+                    summary: String::new(),
+                    description: String::new(),
+                    use_cases: Vec::new(),
+                    service_type: "stateless".to_string(),
+                    permitted_targets: Vec::new(),
+                    lifecycle: "active".to_string(),
+                    provenance: None,
+                }],
+            },
+        )
+        .expect("invalid-digest state persists before preparation validates it");
+        let failure = prepare_public_registry_bundle(&state_path, &out)
+            .expect_err("digest mismatch must fail preparation");
+        assert!(
+            failure
+                .message()
+                .contains("registry_prepare_contract_digest_mismatch")
+        );
+        assert!(load_registry_bundle(&out.join("bundle.json")).is_ok());
+    }
+
+    #[test]
+    fn registry_prepare_helper_failures_are_fail_closed() {
+        assert_eq!(
+            signature_sibling_url("file:///tmp/contract.json"),
+            Some("file:///tmp/signature.json".to_string())
+        );
+        assert_eq!(signature_sibling_url("contract.json"), None);
+        assert!(fetch_signature_with_head_fallback("file:///missing/signature.json").is_err());
+        for value in [
+            b"not-json".as_slice(),
+            br#"{"scheme":"sigstore"}"#.as_slice(),
+            br#"{"scheme":"ed25519","public_key_hex":"zz","signature_hex":"00"}"#.as_slice(),
+            br#"{"scheme":"ed25519","public_key_hex":"00","signature_hex":"00"}"#.as_slice(),
+        ] {
+            assert!(validate_signature_evidence(value, "demo", "1.0.0").is_err());
+        }
+        let valid_signature = serde_json::json!({
+            "scheme": "ed25519", "public_key_hex": "01".repeat(32), "signature_hex": "00".repeat(64)
+        });
+        validate_signature_evidence(valid_signature.to_string().as_bytes(), "demo", "1.0.0")
+            .expect("well-formed evidence is accepted");
+        let root = unique_temp_dir();
+        let missing_state = root.join("missing-index.json");
+        assert!(
+            prepare_public_registry_bundle(&missing_state, &root.join("missing-output")).is_err()
+        );
+        let malformed_state = root.join("malformed-index.json");
+        fs::write(&malformed_state, "{}").expect("malformed state fixture");
+        assert!(
+            prepare_public_registry_bundle(&malformed_state, &root.join("malformed-output"))
+                .is_err()
+        );
+        write_synced_public_registry_state(
+            &root,
+            "blocked",
+            "fixture",
+            "v1",
+            "2026-08-29T00:00:00Z",
+            PublicRegistryIndex {
+                index_version: 1,
+                generated_at: "2026-08-29T00:00:00Z".to_string(),
+                source_commit: None,
+                capabilities: Vec::new(),
+            },
+        )
+        .expect("valid state");
+        let unverified = traverse_registry::synced_public_registry_state_path(&root, "blocked");
+        let mut changed: Value =
+            serde_json::from_str(&fs::read_to_string(&unverified).expect("state read"))
+                .expect("state JSON");
+        changed["validation_status"] = Value::String("failed".to_string());
+        fs::write(&unverified, changed.to_string()).expect("state mark unverified");
+        assert!(
+            prepare_public_registry_bundle(&unverified, &root.join("unverified-output")).is_err()
+        );
+        let mut restored: Value =
+            serde_json::from_str(&fs::read_to_string(&unverified).expect("state read"))
+                .expect("state JSON");
+        restored["validation_status"] = Value::String("passed".to_string());
+        fs::write(&unverified, restored.to_string()).expect("state restore");
+        let empty_evidence =
+            prepare_public_registry_bundle(&unverified, &root.join("empty-output"))
+                .expect("empty verified state prepares a public bundle");
+        assert!(empty_evidence.contains("prepared_capability_count"));
+        let mut invalid_path: Value =
+            serde_json::from_str(&fs::read_to_string(&unverified).expect("state read"))
+                .expect("state JSON");
+        invalid_path["capabilities"] = serde_json::json!([{
+            "namespace":"fixture", "id":"../invalid", "version":"1.0.0", "digest":"sha256:x",
+            "artifact_url":"https://example.test/artifact", "contract_digest":"sha256:x",
+            "contract_url":"file:///missing/contract.json", "deprecated":false
+        }]);
+        fs::write(&unverified, invalid_path.to_string()).expect("unsafe state write");
+        assert!(prepare_public_registry_bundle(&unverified, &root.join("unsafe-output")).is_err());
+        let mut missing_contract: Value =
+            serde_json::from_str(&fs::read_to_string(&unverified).expect("state read"))
+                .expect("state JSON");
+        missing_contract["capabilities"][0]["id"] = Value::String("fixture.capability".to_string());
+        fs::write(&unverified, missing_contract.to_string()).expect("missing-contract state write");
+        assert!(prepare_public_registry_bundle(&unverified, &root.join("fetch-output")).is_err());
+        let staging = root.join("staging");
+        let output = root.join("output");
+        fs::create_dir_all(&staging).expect("staging");
+        fs::write(staging.join("bundle.json"), "{}").expect("bundle");
+        replace_prepared_bundle(&staging, &output).expect("initial replacement");
+        let second = root.join("second");
+        fs::create_dir_all(&second).expect("second staging");
+        fs::write(second.join("bundle.json"), "{\"next\":true}").expect("next bundle");
+        replace_prepared_bundle(&second, &output).expect("replacement preserves atomic output");
+        assert_eq!(
+            fs::read_to_string(output.join("bundle.json")).expect("output"),
+            "{\"next\":true}"
+        );
     }
 
     #[test]
