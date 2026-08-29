@@ -2,7 +2,7 @@
 
 **Feature Branch**: `codex/issue-1211-synced-registry-bridge`
 **Created**: 2026-08-29
-**Status**: Draft — successor specification requiring maintainer approval before implementation.
+**Status**: Approved
 **Input**: Traverse #1211; Specs 055, 118, 120, and 124.
 
 ## Purpose
@@ -102,5 +102,7 @@ is the only registry-side location rule in this slice.
 
 ## Approval Note
 
-This draft MUST not be registered in `approved-specs.json` or used for a
-merged implementation without explicit maintainer approval.
+Approved by the maintainer on 2026-08-29 (standalone instruction, re: Traverse
+#1211), reviewed against `traverse-framework/registry`'s live synced-index and
+published `signature.json` shape. Registered in `approved-specs.json` at
+`version 0.1.0`, governing `crates/traverse-cli/` and this spec directory.
