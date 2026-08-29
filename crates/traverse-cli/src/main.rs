@@ -12573,7 +12573,11 @@ mod tests {
         let malformed_public_key =
             materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
                 .expect_err("malformed public key must fail");
-        assert!(malformed_public_key.message().contains("public_key_invalid"));
+        assert!(
+            malformed_public_key
+                .message()
+                .contains("public_key_invalid")
+        );
 
         fs::write(&sig_path, sibling("00", &valid_signature)).expect("short key fixture");
         let short_public_key =
@@ -12581,7 +12585,8 @@ mod tests {
                 .expect_err("short public key must fail");
         assert!(short_public_key.message().contains("public_key_invalid"));
 
-        fs::write(&sig_path, sibling(&valid_public_key, "zz")).expect("malformed signature fixture");
+        fs::write(&sig_path, sibling(&valid_public_key, "zz"))
+            .expect("malformed signature fixture");
         let malformed_signature =
             materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
                 .expect_err("malformed signature must fail");
