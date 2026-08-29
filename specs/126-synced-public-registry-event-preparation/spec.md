@@ -3,7 +3,18 @@
 **Feature Branch**: `claude/spec-126-event-preparation`
 **Created**: 2026-08-29
 **Status**: Approved
+**Version**: 0.2.0 (amended 2026-08-29)
 **Input**: Traverse #1215; Specs 055, 118, 124, 125, and 534.
+
+> **Amendment (v0.1.0 -> v0.2.0, 2026-08-29)**: FR-003 / FR-004 and
+> acceptance scenario 1 revised. A registry `product.json` is an
+> `EventProductDescriptor` wrapper (`{ contract: EventContract, ... }`),
+> but `traverse-registry::load_registry_bundle` parses each
+> `bundle.json.events[]` path as a bare `EventContract`. Preparation now
+> extracts `descriptor.contract` and writes that as the bundle-referenced
+> artifact (symmetric with Spec 125's capability-contract handling), and
+> retains the full `product.json` alongside as separate digest-verified
+> evidence. No `traverse-registry` change required.
 
 ## Purpose
 
@@ -71,13 +82,25 @@ pub struct PublicRegistryEventRecord {
   with no matching non-deprecated event record MUST fail closed with a stable,
   capability-qualified, secret-free error.
 - **FR-003**: For each referenced event, preparation MUST fetch its
-  `product_url`, verify the downloaded bytes against `product_digest`, validate
-  that the product's identity and version match the pointer, and write the
-  product to a local `events/<id>/<version>/product.json` inside `--out`.
+  `product_url` and verify the downloaded bytes against `product_digest`. The
+  fetched document is an `EventProductDescriptor` (`{ contract: EventContract,
+  ... }`); preparation MUST validate that the descriptor's `contract` identity
+  and version match the pointer. It MUST then write **the descriptor's nested
+  `EventContract` (`descriptor.contract`), not the descriptor wrapper**, to a
+  local `events/<id>/<version>/contract.json` inside `--out` -- this is the
+  file `traverse-registry::load_registry_bundle` loads for each bundle
+  `events[]` path (it parses that path as a bare `EventContract`). Preparation
+  MUST also retain the full fetched `product.json` at
+  `events/<id>/<version>/product.json` as digest-verified provenance evidence;
+  that file is not referenced by `bundle.json`. A missing, malformed, or
+  identity-mismatched descriptor MUST fail closed with a capability-qualified
+  error.
 - **FR-004**: The generated `bundle.json` MUST list every prepared event under
-  `events` with one local, relative product path, preserving exact event
-  identity and version. Events not referenced by any prepared capability MUST
-  NOT be fetched or included. `workflows` remains empty (its own spec).
+  `events` with one local, relative path pointing at the extracted
+  `events/<id>/<version>/contract.json` (never the `product.json`), preserving
+  exact event identity and version. Events not referenced by any prepared
+  capability MUST NOT be fetched or included. `workflows` remains empty (its
+  own spec).
 - **FR-005**: A failed fetch, digest mismatch, identity mismatch, invalid path
   segment, or output-write failure MUST leave no partial bundle usable at
   `--out` and MUST preserve any prior complete output generation.
@@ -118,9 +141,10 @@ traverse-cli serve \
 
 1. Given a synced state whose `events[]` contains `core.status-transitioned@1.0.0`
    and a prepared `core.transition-action-status@1.4.0` that emits it,
-   preparation writes `events/core.status-transitioned/1.0.0/product.json` and a
-   matching `bundle.json` `events` entry; `serve` registers the bundle with no
-   unresolved-event error.
+   preparation writes `events/core.status-transitioned/1.0.0/contract.json` (the
+   extracted `EventContract`), retains `.../product.json` as digest-verified
+   evidence, and adds a `bundle.json` `events` entry pointing at the
+   `contract.json`; `serve` registers the bundle with no unresolved-event error.
 2. Given a prepared capability whose `emits[]` names an event absent from
    `events[]` (or matched only by a deprecated record), preparation fails closed
    with a capability-qualified error and preserves the prior output.
@@ -151,6 +175,6 @@ Approved on creation — this traces to an owner-participated decision on Traver
 #1215, where option 1 (extend the synced index, prepare referenced event
 contracts) was selected explicitly by the maintainer, and the
 `PublicRegistryEventRecord` shape was set in that thread. Registered in
-`approved-specs.json` at `version 0.1.0`, governing `crates/traverse-cli/` and
-this spec directory (the registry-side crate change is governed in
+`approved-specs.json` (`version 0.2.0` after the 2026-08-29 amendment),
+governing `crates/traverse-cli/` and this spec directory (the registry-side crate change is governed in
 `traverse-framework/registry` under its own `055`/`019` lineage, not here).
