@@ -554,7 +554,7 @@ fn materialize_registry_artifacts(
             )));
         }
         let signature = materialize_ed25519_signature(
-            artifact,
+            &capability.path,
             &bytes,
             &capability.contract.id,
             &capability.contract.version,
@@ -605,19 +605,33 @@ fn materialize_registry_artifacts(
 }
 
 fn materialize_ed25519_signature(
-    artifact: &Value,
+    contract_path: &Path,
     bytes: &[u8],
     id: &str,
     version: &str,
 ) -> Result<ArtifactStateSignature, CliError> {
-    let signature = artifact
-        .get("signature")
-        .and_then(Value::as_object)
+    // Spec 124 FR-001/FR-002: the signature is an additive sibling file next to
+    // contract.json, carrying inline hex (never a URL, never inside the
+    // immutable contract). Read it locally; no network fetch for signature
+    // evidence.
+    let sibling = contract_path
+        .parent()
+        .map(|dir| dir.join("signature.json"))
         .ok_or_else(|| {
             CliError::ValidationFailed(format!(
                 "artifact_materialize_signature_missing: {id}@{version}"
             ))
         })?;
+    let raw = fs::read_to_string(&sibling).map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_missing: {id}@{version}"
+        ))
+    })?;
+    let signature: Value = serde_json::from_str(&raw).map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_invalid: {id}@{version}"
+        ))
+    })?;
     let scheme = signature
         .get("scheme")
         .and_then(Value::as_str)
@@ -627,39 +641,27 @@ fn materialize_ed25519_signature(
             "artifact_materialize_signature_scheme_unsupported: {id}@{version}"
         )));
     }
-    let public_key_url = signature
-        .get("public_key_url")
+    let public_key_hex = signature
+        .get("public_key_hex")
         .and_then(Value::as_str)
+        .map(str::trim)
         .filter(|value| !value.is_empty())
         .ok_or_else(|| {
-            CliError::ValidationFailed(format!(
-                "artifact_materialize_signature_public_key_url_missing: {id}@{version}"
-            ))
-        })?;
-    let signature_url = signature
-        .get("signature_url")
-        .and_then(Value::as_str)
-        .filter(|value| !value.is_empty())
-        .ok_or_else(|| {
-            CliError::ValidationFailed(format!(
-                "artifact_materialize_signature_url_missing: {id}@{version}"
-            ))
-        })?;
-    let public_key_hex = String::from_utf8(curl_bytes(public_key_url).map_err(CliError::IoError)?)
-        .map_err(|_| {
             CliError::ValidationFailed(format!(
                 "artifact_materialize_signature_public_key_invalid: {id}@{version}"
             ))
         })?
-        .trim()
         .to_string();
-    let signature_hex = String::from_utf8(curl_bytes(signature_url).map_err(CliError::IoError)?)
-        .map_err(|_| {
+    let signature_hex = signature
+        .get("signature_hex")
+        .and_then(Value::as_str)
+        .map(str::trim)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
             CliError::ValidationFailed(format!(
                 "artifact_materialize_signature_invalid: {id}@{version}"
             ))
         })?
-        .trim()
         .to_string();
     let key_bytes = decode_hex(&public_key_hex).ok_or_else(|| {
         CliError::ValidationFailed(format!(
@@ -686,8 +688,8 @@ fn materialize_ed25519_signature(
             "artifact_materialize_signature_public_key_invalid: {id}@{version}"
         ))
     })?;
-    let signature = Signature::from_bytes(&signature_array);
-    key.verify(bytes, &signature).map_err(|_| {
+    let signature_value = Signature::from_bytes(&signature_array);
+    key.verify(bytes, &signature_value).map_err(|_| {
         CliError::ValidationFailed(format!(
             "artifact_materialize_signature_mismatch: {id}@{version}"
         ))
@@ -12456,10 +12458,6 @@ mod tests {
         let signing_key = SigningKey::from_bytes(&[7; 32]);
         let public_key_hex = encode_hex(signing_key.verifying_key().as_bytes());
         let signature_hex = encode_hex(&signing_key.sign(bytes).to_bytes());
-        let public_key = dir.join("public-key.hex");
-        let signature = dir.join("module.wasm.sig");
-        fs::write(&public_key, &public_key_hex).expect("public key fixture");
-        fs::write(&signature, &signature_hex).expect("signature fixture");
         let source = repo_root().join(
             "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
         );
@@ -12469,11 +12467,6 @@ mod tests {
         contract["artifact"] = serde_json::json!({
             "url": format!("file://{}", wasm.display()),
             "digest": digest,
-            "signature": {
-                "scheme": "ed25519",
-                "public_key_url": format!("file://{}", public_key.display()),
-                "signature_url": format!("file://{}", signature.display())
-            }
         });
         let contract_path = dir.join("contract.json");
         fs::write(
@@ -12481,6 +12474,18 @@ mod tests {
             serde_json::to_string(&contract).expect("contract encode"),
         )
         .expect("contract write");
+        fs::write(
+            dir.join("signature.json"),
+            serde_json::json!({
+                "scheme": "ed25519",
+                "public_key_hex": public_key_hex,
+                "signature_hex": signature_hex,
+                "sigstore_bundle_ref": null,
+                "signed_at": "2026-08-29T00:00:00Z",
+            })
+            .to_string(),
+        )
+        .expect("signature sibling write");
         let bundle_path = dir.join("bundle.json");
         fs::write(&bundle_path, serde_json::json!({"bundle_id":"fixture","version":"1.0.0","scope":"private","capabilities":[{"id":"expedition.planning.capture-expedition-objective","version":"1.0.0","path":"contract.json"}],"events":[],"workflows":[]}).to_string()).expect("bundle write");
         let out = dir.join("out");
@@ -12501,114 +12506,103 @@ mod tests {
 
     #[test]
     fn materialization_signature_metadata_fails_closed_before_fetching() {
-        let missing =
-            materialize_ed25519_signature(&serde_json::json!({}), b"bytes", "demo", "1.0.0")
-                .expect_err("signature is required");
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let contract_path = dir.join("contract.json");
+        fs::write(&contract_path, "{}").expect("contract fixture");
+        let sig_path = dir.join("signature.json");
+
+        let missing = materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+            .expect_err("signature sibling is required");
         assert!(missing.message().contains("signature_missing"));
-        let unsupported = materialize_ed25519_signature(
-            &serde_json::json!({"signature":{"scheme":"sigstore"}}),
-            b"bytes",
-            "demo",
-            "1.0.0",
+
+        fs::write(&sig_path, "{ not json").expect("bad json fixture");
+        let invalid = materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+            .expect_err("malformed signature.json must fail");
+        assert!(invalid.message().contains("signature_invalid"));
+
+        fs::write(
+            &sig_path,
+            serde_json::json!({ "scheme": "sigstore" }).to_string(),
         )
-        .expect_err("only Ed25519 is supported");
+        .expect("scheme fixture");
+        let unsupported = materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+            .expect_err("only Ed25519 is supported");
         assert!(unsupported.message().contains("scheme_unsupported"));
-        let missing_key_url = materialize_ed25519_signature(
-            &serde_json::json!({"signature":{"scheme":"ed25519"}}),
-            b"bytes",
-            "demo",
-            "1.0.0",
+
+        fs::write(
+            &sig_path,
+            serde_json::json!({ "scheme": "ed25519", "signature_hex": "00" }).to_string(),
         )
-        .expect_err("public key URL is required");
-        assert!(missing_key_url.message().contains("public_key_url_missing"));
-        let missing_signature_url = materialize_ed25519_signature(
-            &serde_json::json!({"signature":{"scheme":"ed25519","public_key_url":"file:///unused"}}), b"bytes", "demo", "1.0.0",
-        ).expect_err("signature URL is required");
-        assert!(
-            missing_signature_url
-                .message()
-                .contains("signature_url_missing")
-        );
+        .expect("missing key fixture");
+        let missing_key = materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+            .expect_err("public_key_hex is required");
+        assert!(missing_key.message().contains("public_key_invalid"));
+
+        fs::write(
+            &sig_path,
+            serde_json::json!({ "scheme": "ed25519", "public_key_hex": "00" }).to_string(),
+        )
+        .expect("missing signature fixture");
+        let missing_sig = materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+            .expect_err("signature_hex is required");
+        assert!(missing_sig.message().contains("signature_invalid"));
     }
 
     #[test]
     fn materialization_rejects_invalid_signature_evidence() {
         let dir = unique_temp_dir();
         fs::create_dir_all(&dir).expect("fixture directory");
-        let public_key_path = dir.join("public-key.hex");
-        let signature_path = dir.join("module.wasm.sig");
+        let contract_path = dir.join("contract.json");
+        fs::write(&contract_path, "{}").expect("contract fixture");
+        let sig_path = dir.join("signature.json");
         let signing_key = SigningKey::from_bytes(&[9; 32]);
         let valid_public_key = encode_hex(signing_key.verifying_key().as_bytes());
         let valid_signature = encode_hex(&signing_key.sign(b"bytes").to_bytes());
 
-        let artifact = |public_key_path: &Path, signature_path: &Path| {
-            serde_json::json!({"signature":{
-                "scheme":"ed25519",
-                "public_key_url":format!("file://{}", public_key_path.display()),
-                "signature_url":format!("file://{}", signature_path.display())
-            }})
+        let sibling = |public_key_hex: &str, signature_hex: &str| {
+            serde_json::json!({
+                "scheme": "ed25519",
+                "public_key_hex": public_key_hex,
+                "signature_hex": signature_hex,
+            })
+            .to_string()
         };
 
-        fs::write(&public_key_path, [0xff]).expect("non-UTF-8 public key fixture");
-        fs::write(&signature_path, &valid_signature).expect("signature fixture");
-        let invalid_public_key = materialize_ed25519_signature(
-            &artifact(&public_key_path, &signature_path),
-            b"bytes",
-            "demo",
-            "1.0.0",
-        )
-        .expect_err("non-UTF-8 public key must fail");
-        assert!(invalid_public_key.message().contains("public_key_invalid"));
+        fs::write(&sig_path, sibling("zz", &valid_signature)).expect("malformed key fixture");
+        let malformed_public_key =
+            materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+                .expect_err("malformed public key must fail");
+        assert!(malformed_public_key.message().contains("public_key_invalid"));
 
-        fs::write(&public_key_path, &valid_public_key).expect("public key fixture");
-        fs::write(&signature_path, [0xff]).expect("non-UTF-8 signature fixture");
-        let invalid_signature = materialize_ed25519_signature(
-            &artifact(&public_key_path, &signature_path),
-            b"bytes",
-            "demo",
-            "1.0.0",
-        )
-        .expect_err("non-UTF-8 signature must fail");
-        assert!(invalid_signature.message().contains("signature_invalid"));
-
-        fs::write(&public_key_path, "zz").expect("malformed public key fixture");
-        fs::write(&signature_path, &valid_signature).expect("signature fixture");
-        let malformed_public_key = materialize_ed25519_signature(
-            &artifact(&public_key_path, &signature_path),
-            b"bytes",
-            "demo",
-            "1.0.0",
-        )
-        .expect_err("malformed public key must fail");
-        assert!(
-            malformed_public_key
-                .message()
-                .contains("public_key_invalid")
-        );
-
-        fs::write(&public_key_path, "00").expect("short public key fixture");
-        let short_public_key = materialize_ed25519_signature(
-            &artifact(&public_key_path, &signature_path),
-            b"bytes",
-            "demo",
-            "1.0.0",
-        )
-        .expect_err("short public key must fail");
+        fs::write(&sig_path, sibling("00", &valid_signature)).expect("short key fixture");
+        let short_public_key =
+            materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+                .expect_err("short public key must fail");
         assert!(short_public_key.message().contains("public_key_invalid"));
 
-        fs::write(&public_key_path, &valid_public_key).expect("public key fixture");
+        fs::write(&sig_path, sibling(&valid_public_key, "zz")).expect("malformed signature fixture");
+        let malformed_signature =
+            materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+                .expect_err("malformed signature must fail");
+        assert!(malformed_signature.message().contains("signature_invalid"));
+
+        fs::write(&sig_path, sibling(&valid_public_key, "00")).expect("short signature fixture");
+        let short_signature =
+            materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+                .expect_err("short signature must fail");
+        assert!(short_signature.message().contains("signature_invalid"));
+
         fs::write(
-            &signature_path,
-            encode_hex(&signing_key.sign(b"other").to_bytes()),
+            &sig_path,
+            sibling(
+                &valid_public_key,
+                &encode_hex(&signing_key.sign(b"other").to_bytes()),
+            ),
         )
         .expect("mismatched signature fixture");
-        let mismatch = materialize_ed25519_signature(
-            &artifact(&public_key_path, &signature_path),
-            b"bytes",
-            "demo",
-            "1.0.0",
-        )
-        .expect_err("mismatched signature must fail");
+        let mismatch = materialize_ed25519_signature(&contract_path, b"bytes", "demo", "1.0.0")
+            .expect_err("mismatched signature must fail");
         assert!(mismatch.message().contains("signature_mismatch"));
     }
 
