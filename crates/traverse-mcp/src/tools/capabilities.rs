@@ -281,6 +281,7 @@ mod search_tests {
                 record("search", "10.0.0", "Search public catalog entries"),
                 record("alpha", "1.0.0", "Search public catalog entries"),
             ],
+            events: Vec::new(),
         };
         publish_public_metadata(cache, &snapshot, true).expect("publish metadata");
     }

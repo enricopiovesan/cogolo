@@ -37,12 +37,13 @@ use traverse_registry::{
     ArtifactResolutionRequest, ArtifactSignature, ArtifactSignatureScheme, BinaryFormat,
     BinaryReference, CapabilityArtifactRecord, CapabilityRegistration, CapabilityRegistry,
     ComposabilityMetadata, CompositionKind, CompositionPattern, ConnectorActivationRequest,
-    ConnectorRegistration, DiscoveryQuery, EventRegistration, EventRegistry,
-    ExecutableArtifactCandidate, ImplementationKind, InstalledConnector, LookupScope,
-    PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryBundle, RegistryComponentResolver,
-    RegistryProvenance, RegistryReference, RegistryScope, ResolvedRegistryComponent, SourceKind,
-    SourceReference, SyncedPublicRegistryState, WorkflowReference, WorkflowRegistration,
-    WorkflowRegistry, cache_verified_public_registry_bytes, load_application_bundle_manifest,
+    ConnectorRegistration, DiscoveryQuery, EventProductDescriptor, EventRegistration,
+    EventRegistry, ExecutableArtifactCandidate, ImplementationKind, InstalledConnector,
+    LookupScope, PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryBundle,
+    RegistryComponentResolver, RegistryProvenance, RegistryReference, RegistryScope,
+    ResolvedRegistryComponent, SourceKind, SourceReference, SyncedPublicRegistryState,
+    WorkflowReference, WorkflowRegistration, WorkflowRegistry,
+    cache_verified_public_registry_bytes, load_application_bundle_manifest,
     load_application_bundle_manifest_with_resolver, load_registry_bundle,
     public_registry_cache_path, resolve_executable_artifact, validate_connector_activation,
     write_synced_public_registry_state,
@@ -647,6 +648,7 @@ fn prepare_public_registry_bundle(
 
     let result = (|| {
         let mut capabilities = Vec::new();
+        let mut event_refs = BTreeSet::new();
         for record in state
             .capabilities
             .iter()
@@ -699,6 +701,13 @@ fn prepare_public_registry_bundle(
                     record.id, record.version
                 )));
             }
+            for event in &contract.emits {
+                event_refs.insert((
+                    record.id.clone(),
+                    event.event_id.clone(),
+                    event.version.clone(),
+                ));
+            }
             let signature_url = signature_sibling_url(&record.contract_url).ok_or_else(|| {
                 CliError::ValidationFailed(format!(
                     "registry_prepare_signature_url_invalid: {}@{}",
@@ -728,9 +737,65 @@ fn prepare_public_registry_bundle(
                 "path": relative_dir.join("contract.json").display().to_string()
             }));
         }
+        let mut events = Vec::new();
+        for (capability_id, event_id, event_version) in event_refs {
+            let record = state.events.iter().find(|record| {
+                !record.deprecated && record.id == event_id && record.version == event_version
+            }).ok_or_else(|| CliError::ValidationFailed(format!(
+                "registry_prepare_event_missing: {capability_id}: {event_id}@{event_version}"
+            )))?;
+            validate_registry_path_segment(&record.id, "event id").map_err(|_| CliError::ValidationFailed(format!(
+                "registry_prepare_event_path_invalid: {capability_id}: {event_id}@{event_version}"
+            )))?;
+            validate_registry_path_segment(&record.version, "event version").map_err(|_| CliError::ValidationFailed(format!(
+                "registry_prepare_event_path_invalid: {capability_id}: {event_id}@{event_version}"
+            )))?;
+            let product = curl_bytes(&record.product_url).map_err(|_| CliError::IoError(format!(
+                "registry_prepare_event_fetch_failed: {capability_id}: {event_id}@{event_version}"
+            )))?;
+            let actual = format!("sha256:{}", sha256_hex(&product));
+            if record.product_digest != actual && record.product_digest != sha256_hex(&product) {
+                return Err(CliError::ValidationFailed(format!(
+                    "registry_prepare_event_digest_mismatch: {capability_id}: {event_id}@{event_version}"
+                )));
+            }
+            let descriptor: EventProductDescriptor = serde_json::from_slice(&product).map_err(|_| {
+                CliError::ValidationFailed(format!(
+                    "registry_prepare_event_invalid: {capability_id}: {event_id}@{event_version}"
+                ))
+            })?;
+            let contract_json =
+                serde_json::to_string_pretty(&descriptor.contract).map_err(|_| {
+                    CliError::IoError("registry_prepare_event_serialize_failed".to_string())
+                })?;
+            let event_contract = parse_event_contract(&contract_json).map_err(|_| {
+                CliError::ValidationFailed(format!(
+                    "registry_prepare_event_invalid: {capability_id}: {event_id}@{event_version}"
+                ))
+            })?;
+            if event_contract.id != record.id || event_contract.version != record.version {
+                return Err(CliError::ValidationFailed(format!(
+                    "registry_prepare_event_identity_mismatch: {capability_id}: {event_id}@{event_version}"
+                )));
+            }
+            let relative_dir = PathBuf::from("events")
+                .join(&record.id)
+                .join(&record.version);
+            let destination = staging.join(&relative_dir);
+            fs::create_dir_all(&destination)
+                .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+            fs::write(destination.join("product.json"), &product)
+                .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+            fs::write(
+                destination.join("contract.json"),
+                format!("{contract_json}\n"),
+            )
+            .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
+            events.push(serde_json::json!({"id": record.id, "version": record.version, "path": relative_dir.join("contract.json").display().to_string()}));
+        }
         let bundle = serde_json::json!({
             "bundle_id": "synced-public-registry", "version": "1.0.0", "scope": "public",
-            "capabilities": capabilities, "events": [], "workflows": []
+            "capabilities": capabilities, "events": events, "workflows": []
         });
         fs::write(
             staging.join("bundle.json"),
@@ -742,15 +807,16 @@ fn prepare_public_registry_bundle(
             ),
         )
         .map_err(|_| CliError::IoError("registry_prepare_write_failed".to_string()))?;
-        Ok::<usize, CliError>(
+        Ok::<(usize, usize), CliError>((
             state
                 .capabilities
                 .iter()
                 .filter(|record| !record.deprecated)
                 .count(),
-        )
+            events.len(),
+        ))
     })();
-    let count = match result {
+    let (count, event_count) = match result {
         Ok(count) => count,
         Err(error) => {
             let _ = fs::remove_dir_all(&staging);
@@ -762,7 +828,7 @@ fn prepare_public_registry_bundle(
         "status": "prepared", "synced_state_path": synced_state_path.display().to_string(),
         "source": state.source_repo, "release_tag": state.release_tag,
         "bundle_path": output_dir.join("bundle.json").display().to_string(),
-        "prepared_capability_count": count
+        "prepared_capability_count": count, "prepared_event_count": event_count
     }))
     .map_err(|_| CliError::IoError("registry_prepare_evidence_serialize_failed".to_string()))
 }
@@ -7805,9 +7871,9 @@ mod tests {
     use traverse_contracts::parse_contract;
     use traverse_contracts::{UsageEvent, UsageEventKind, UsageTelemetrySink};
     use traverse_registry::{
-        PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryScope,
-        load_application_bundle_manifest, load_registry_bundle, load_synced_public_registry_state,
-        write_synced_public_registry_state,
+        PublicRegistryCapabilityRecord, PublicRegistryEventRecord, PublicRegistryIndex,
+        RegistryScope, load_application_bundle_manifest, load_registry_bundle,
+        load_synced_public_registry_state, write_synced_public_registry_state,
     };
 
     #[test]
@@ -9563,6 +9629,7 @@ mod tests {
                     lifecycle: "active".to_string(),
                     provenance: None,
                 }],
+                events: Vec::new(),
             },
         )
         .expect("synced fixture state should persist");
@@ -9657,6 +9724,7 @@ mod tests {
                 generated_at: "2026-07-22T00:00:00Z".to_string(),
                 source_commit: None,
                 capabilities: vec![deprecated, active],
+                events: Vec::new(),
             },
         )
         .expect("synced fixture state should persist");
@@ -11841,6 +11909,7 @@ mod tests {
                 service_type: "stateless".to_string(), permitted_targets: Vec::new(),
                 lifecycle: "active".to_string(), provenance: None,
             }],
+            events: Vec::new(),
         }
     }
 
@@ -12752,7 +12821,11 @@ mod tests {
         let contract_source = repo_root().join(
             "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
         );
-        let contract = fs::read(&contract_source).expect("contract fixture");
+        let mut contract: Value =
+            serde_json::from_slice(&fs::read(&contract_source).expect("contract fixture"))
+                .expect("contract JSON");
+        contract["emits"] = serde_json::json!([]);
+        let contract = serde_json::to_vec(&contract).expect("contract encode");
         fs::write(source_dir.join("contract.json"), &contract).expect("contract source");
         fs::write(
             source_dir.join("signature.json"),
@@ -12792,6 +12865,7 @@ mod tests {
                     lifecycle: "active".to_string(),
                     provenance: None,
                 }],
+                events: Vec::new(),
             },
         )
         .expect("synced state");
@@ -12836,6 +12910,7 @@ mod tests {
                     lifecycle: "active".to_string(),
                     provenance: None,
                 }],
+                events: Vec::new(),
             },
         )
         .expect("invalid-digest state persists before preparation validates it");
@@ -12847,6 +12922,91 @@ mod tests {
                 .contains("registry_prepare_contract_digest_mismatch")
         );
         assert!(load_registry_bundle(&out.join("bundle.json")).is_ok());
+    }
+
+    #[test]
+    fn registry_prepare_public_bundle_materializes_referenced_event_contract() {
+        let root = unique_temp_dir();
+        let source = unique_temp_dir();
+        fs::create_dir_all(&source).expect("source directory");
+        let capability_path = repo_root().join(
+            "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        );
+        let event_path = repo_root().join(
+            "contracts/examples/expedition/events/expedition-objective-captured/contract.json",
+        );
+        let capability = fs::read(&capability_path).expect("capability contract");
+        let event: Value = serde_json::from_slice(&fs::read(&event_path).expect("event contract"))
+            .expect("event contract JSON");
+        let mut product: Value = serde_json::from_slice(
+            &fs::read(
+                repo_root()
+                    .join("crates/traverse-runtime/tests/fixtures/ecca-event-products/valid.json"),
+            )
+            .expect("event product fixture"),
+        )
+        .expect("event product JSON");
+        product["contract"] = event;
+        let product = serde_json::to_vec(&product).expect("event product encode");
+        fs::write(source.join("contract.json"), &capability).expect("capability source");
+        fs::write(source.join("signature.json"), serde_json::json!({
+            "scheme": "ed25519", "public_key_hex": "00".repeat(32), "signature_hex": "00".repeat(64)
+        }).to_string()).expect("signature source");
+        fs::write(source.join("product.json"), &product).expect("event product source");
+        write_synced_public_registry_state(
+            &root,
+            "local",
+            "fixture-registry",
+            "fixture-v1",
+            "2026-08-29T00:00:00Z",
+            PublicRegistryIndex {
+                index_version: 1,
+                generated_at: "2026-08-29T00:00:00Z".to_string(),
+                source_commit: None,
+                capabilities: vec![PublicRegistryCapabilityRecord {
+                    namespace: "fixture".to_string(),
+                    id: "expedition.planning.capture-expedition-objective".to_string(),
+                    version: "1.0.0".to_string(),
+                    digest: "sha256:artifact".to_string(),
+                    artifact_url: "https://example.test/artifact".to_string(),
+                    contract_digest: format!("sha256:{}", sha256_hex(&capability)),
+                    contract_url: format!("file://{}", source.join("contract.json").display()),
+                    deprecated: false,
+                    summary: String::new(),
+                    description: String::new(),
+                    use_cases: Vec::new(),
+                    service_type: "stateless".to_string(),
+                    permitted_targets: Vec::new(),
+                    lifecycle: "active".to_string(),
+                    provenance: None,
+                }],
+                events: vec![PublicRegistryEventRecord {
+                    namespace: "fixture".to_string(),
+                    id: "expedition.planning.expedition-objective-captured".to_string(),
+                    version: "1.0.0".to_string(),
+                    product_digest: format!("sha256:{}", sha256_hex(&product)),
+                    product_url: format!("file://{}", source.join("product.json").display()),
+                    deprecated: false,
+                }],
+            },
+        )
+        .expect("synced state");
+        let state = traverse_registry::synced_public_registry_state_path(&root, "local");
+        let output = root.join("prepared");
+        let evidence: Value = serde_json::from_str(
+            &prepare_public_registry_bundle(&state, &output).expect("prepare bundle"),
+        )
+        .expect("evidence JSON");
+        assert_eq!(evidence["prepared_event_count"], 1);
+        let bundle = load_registry_bundle(&output.join("bundle.json")).expect("bundle loads");
+        assert_eq!(bundle.events.len(), 1);
+        let event_dir =
+            output.join("events/expedition.planning.expedition-objective-captured/1.0.0");
+        assert!(event_dir.join("contract.json").is_file());
+        assert_eq!(
+            fs::read(event_dir.join("product.json")).expect("product evidence"),
+            product
+        );
     }
 
     #[test]
@@ -12892,6 +13052,7 @@ mod tests {
                 generated_at: "2026-08-29T00:00:00Z".to_string(),
                 source_commit: None,
                 capabilities: Vec::new(),
+                events: Vec::new(),
             },
         )
         .expect("valid state");

@@ -2341,6 +2341,7 @@ mod tests {
             validation_status: "valid".to_string(),
             governing_spec: "055-registry-sync".to_string(),
             capabilities: vec![record.clone()],
+            events: Vec::new(),
         };
         let mut assets = HashMap::new();
         assets.insert(record.artifact_url.clone(), artifact);
