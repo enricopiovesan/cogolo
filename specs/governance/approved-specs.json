@@ -1651,6 +1651,17 @@
         "specs/124-materialized-artifact-signatures/",
         "docs/adr/0055-materialized-artifact-signatures.md"
       ]
+    },
+    {
+      "id": "125-synced-public-registry-preparation",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/125-synced-public-registry-preparation/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/125-synced-public-registry-preparation/"
+      ]
     }
   ]
 }
