@@ -11,6 +11,7 @@ mod supply_chain;
 mod telemetry;
 
 use capability_packages::load_capability_package;
+use ed25519_dalek::{Signature, Verifier, VerifyingKey};
 use federation_operator::{
     render_federation_peers, render_federation_status, render_federation_sync,
 };
@@ -33,17 +34,18 @@ use traverse_contracts::{Lifecycle, ViolationRecord, reference_connector_contrac
 use traverse_registry::{
     ApplicationManifestError, ApplicationManifestErrorCode, ApplicationManifestFailure,
     ApplicationRegistrationRequest, ApplicationRegistry, ArtifactDigests,
-    ArtifactResolutionRequest, BinaryFormat, BinaryReference, CapabilityArtifactRecord,
-    CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
-    CompositionPattern, ConnectorActivationRequest, ConnectorRegistration, DiscoveryQuery,
-    EventRegistration, EventRegistry, ExecutableArtifactCandidate, ImplementationKind,
-    InstalledConnector, LookupScope, PublicRegistryCapabilityRecord, PublicRegistryIndex,
-    RegistryBundle, RegistryComponentResolver, RegistryProvenance, RegistryReference,
-    RegistryScope, ResolvedRegistryComponent, SourceKind, SourceReference, WorkflowReference,
-    WorkflowRegistration, WorkflowRegistry, cache_verified_public_registry_bytes,
-    load_application_bundle_manifest, load_application_bundle_manifest_with_resolver,
-    load_registry_bundle, public_registry_cache_path, resolve_executable_artifact,
-    validate_connector_activation, write_synced_public_registry_state,
+    ArtifactResolutionRequest, ArtifactSignature, ArtifactSignatureScheme, BinaryFormat,
+    BinaryReference, CapabilityArtifactRecord, CapabilityRegistration, CapabilityRegistry,
+    ComposabilityMetadata, CompositionKind, CompositionPattern, ConnectorActivationRequest,
+    ConnectorRegistration, DiscoveryQuery, EventRegistration, EventRegistry,
+    ExecutableArtifactCandidate, ImplementationKind, InstalledConnector, LookupScope,
+    PublicRegistryCapabilityRecord, PublicRegistryIndex, RegistryBundle, RegistryComponentResolver,
+    RegistryProvenance, RegistryReference, RegistryScope, ResolvedRegistryComponent, SourceKind,
+    SourceReference, WorkflowReference, WorkflowRegistration, WorkflowRegistry,
+    cache_verified_public_registry_bytes, load_application_bundle_manifest,
+    load_application_bundle_manifest_with_resolver, load_registry_bundle,
+    public_registry_cache_path, resolve_executable_artifact, validate_connector_activation,
+    write_synced_public_registry_state,
 };
 use traverse_runtime::executor::{SUPPORTED_HOST_ABI_VERSION, verify_wasm_host_abi_bytes};
 use traverse_runtime::{
@@ -202,7 +204,8 @@ enum Command {
     TelemetryDisable,
 }
 
-const ARTIFACT_STATE_SCHEMA_VERSION: &str = "1.0.0";
+const ARTIFACT_STATE_SCHEMA_VERSION: &str = "1.1.0";
+const ARTIFACT_STATE_SCHEMA_VERSION_LEGACY: &str = "1.0.0";
 
 #[derive(Debug, Clone, Deserialize, Serialize)]
 struct ArtifactStateManifest {
@@ -218,6 +221,15 @@ struct ArtifactStateEntry {
     digest: String,
     source_url: String,
     materialized_at: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    signature: Option<ArtifactStateSignature>,
+}
+
+#[derive(Debug, Clone, Deserialize, Serialize)]
+struct ArtifactStateSignature {
+    scheme: String,
+    public_key_hex: String,
+    signature_hex: String,
 }
 
 #[derive(Debug)]
@@ -481,6 +493,7 @@ fn run_registry_command(command: Command) -> Result<String, CliError> {
     }
 }
 
+#[allow(clippy::too_many_lines)] // Coordinates the fail-closed, per-artifact preparation boundary.
 fn materialize_registry_artifacts(
     registry_state_path: &Path,
     output_dir: &Path,
@@ -540,6 +553,12 @@ fn materialize_registry_artifacts(
                 capability.contract.id, capability.contract.version
             )));
         }
+        let signature = materialize_ed25519_signature(
+            artifact,
+            &bytes,
+            &capability.contract.id,
+            &capability.contract.version,
+        )?;
         let relative = PathBuf::from("artifacts")
             .join(safe_artifact_path_component(&capability.contract.id))
             .join(&capability.contract.version)
@@ -566,6 +585,7 @@ fn materialize_registry_artifacts(
             digest: digest.to_string(),
             source_url: url.to_string(),
             materialized_at: current_unix_timestamp_string()?,
+            signature: Some(signature),
         });
     }
     let state = ArtifactStateManifest {
@@ -582,6 +602,124 @@ fn materialize_registry_artifacts(
         CliError::IoError(format!("artifact_materialize_state_write_failed: {error}"))
     })?;
     Ok(state_path.display().to_string())
+}
+
+fn materialize_ed25519_signature(
+    artifact: &Value,
+    bytes: &[u8],
+    id: &str,
+    version: &str,
+) -> Result<ArtifactStateSignature, CliError> {
+    let signature = artifact
+        .get("signature")
+        .and_then(Value::as_object)
+        .ok_or_else(|| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_signature_missing: {id}@{version}"
+            ))
+        })?;
+    let scheme = signature
+        .get("scheme")
+        .and_then(Value::as_str)
+        .unwrap_or_default();
+    if scheme != "ed25519" {
+        return Err(CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_scheme_unsupported: {id}@{version}"
+        )));
+    }
+    let public_key_url = signature
+        .get("public_key_url")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_signature_public_key_url_missing: {id}@{version}"
+            ))
+        })?;
+    let signature_url = signature
+        .get("signature_url")
+        .and_then(Value::as_str)
+        .filter(|value| !value.is_empty())
+        .ok_or_else(|| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_signature_url_missing: {id}@{version}"
+            ))
+        })?;
+    let public_key_hex = String::from_utf8(curl_bytes(public_key_url).map_err(CliError::IoError)?)
+        .map_err(|_| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_signature_public_key_invalid: {id}@{version}"
+            ))
+        })?
+        .trim()
+        .to_string();
+    let signature_hex = String::from_utf8(curl_bytes(signature_url).map_err(CliError::IoError)?)
+        .map_err(|_| {
+            CliError::ValidationFailed(format!(
+                "artifact_materialize_signature_invalid: {id}@{version}"
+            ))
+        })?
+        .trim()
+        .to_string();
+    let key_bytes = decode_hex(&public_key_hex).ok_or_else(|| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_public_key_invalid: {id}@{version}"
+        ))
+    })?;
+    let signature_bytes = decode_hex(&signature_hex).ok_or_else(|| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_invalid: {id}@{version}"
+        ))
+    })?;
+    let key_array: [u8; 32] = key_bytes.try_into().map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_public_key_invalid: {id}@{version}"
+        ))
+    })?;
+    let signature_array: [u8; 64] = signature_bytes.try_into().map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_invalid: {id}@{version}"
+        ))
+    })?;
+    let key = VerifyingKey::from_bytes(&key_array).map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_public_key_invalid: {id}@{version}"
+        ))
+    })?;
+    let signature = Signature::from_bytes(&signature_array);
+    key.verify(bytes, &signature).map_err(|_| {
+        CliError::ValidationFailed(format!(
+            "artifact_materialize_signature_mismatch: {id}@{version}"
+        ))
+    })?;
+    Ok(ArtifactStateSignature {
+        scheme: scheme.to_string(),
+        public_key_hex,
+        signature_hex,
+    })
+}
+
+fn decode_hex(value: &str) -> Option<Vec<u8>> {
+    if !value.len().is_multiple_of(2) {
+        return None;
+    }
+    value
+        .as_bytes()
+        .chunks_exact(2)
+        .map(|pair| {
+            let text = std::str::from_utf8(pair).ok()?;
+            u8::from_str_radix(text, 16).ok()
+        })
+        .collect()
+}
+
+#[cfg(test)]
+fn encode_hex(bytes: &[u8]) -> String {
+    let mut encoded = String::with_capacity(bytes.len() * 2);
+    for byte in bytes {
+        let _ = write!(&mut encoded, "{byte:02x}");
+    }
+    encoded
 }
 
 fn safe_artifact_path_component(value: &str) -> String {
@@ -6211,6 +6349,12 @@ fn build_capability_registration_with_artifacts(
         if let Some(entry) = artifacts.get(&key) {
             if let Some(binary) = &mut artifact.binary {
                 binary.location.clone_from(&entry.path);
+                binary.signature = entry.signature.as_ref().map(|signature| ArtifactSignature {
+                    scheme: ArtifactSignatureScheme::Ed25519,
+                    public_key_hex: Some(signature.public_key_hex.clone()),
+                    signature_hex: Some(signature.signature_hex.clone()),
+                    sigstore_bundle_ref: None,
+                });
             }
             artifact.digests.binary_digest = Some(entry.digest.clone());
         }
@@ -6288,7 +6432,9 @@ fn load_artifact_state(path: &Path) -> Result<ArtifactStateManifest, CliError> {
     let mut state: ArtifactStateManifest = serde_json::from_str(&raw).map_err(|error| {
         CliError::ValidationFailed(format!("artifact_state_parse_failed: {error}"))
     })?;
-    if state.schema_version != ARTIFACT_STATE_SCHEMA_VERSION {
+    if state.schema_version != ARTIFACT_STATE_SCHEMA_VERSION
+        && state.schema_version != ARTIFACT_STATE_SCHEMA_VERSION_LEGACY
+    {
         return Err(CliError::ValidationFailed(format!(
             "artifact_state_schema_unsupported: {}",
             state.schema_version
@@ -6296,9 +6442,39 @@ fn load_artifact_state(path: &Path) -> Result<ArtifactStateManifest, CliError> {
     }
     let root = path.parent().unwrap_or_else(|| Path::new("."));
     for entry in &mut state.capabilities {
+        if state.schema_version == ARTIFACT_STATE_SCHEMA_VERSION {
+            validate_artifact_state_signature(entry)?;
+        }
         entry.path = root.join(&entry.path).display().to_string();
     }
     Ok(state)
+}
+
+fn validate_artifact_state_signature(entry: &ArtifactStateEntry) -> Result<(), CliError> {
+    let key = format!("{}@{}", entry.id, entry.version);
+    let signature = entry.signature.as_ref().ok_or_else(|| {
+        CliError::ValidationFailed(format!("artifact_state_signature_missing: {key}"))
+    })?;
+    if signature.scheme != "ed25519"
+        || signature.public_key_hex.is_empty()
+        || signature.signature_hex.is_empty()
+    {
+        return Err(CliError::ValidationFailed(format!(
+            "artifact_state_signature_invalid: {key}"
+        )));
+    }
+    let key_bytes = decode_hex(&signature.public_key_hex).ok_or_else(|| {
+        CliError::ValidationFailed(format!("artifact_state_signature_invalid: {key}"))
+    })?;
+    let signature_bytes = decode_hex(&signature.signature_hex).ok_or_else(|| {
+        CliError::ValidationFailed(format!("artifact_state_signature_invalid: {key}"))
+    })?;
+    if <[u8; 32]>::try_from(key_bytes).is_err() || <[u8; 64]>::try_from(signature_bytes).is_err() {
+        return Err(CliError::ValidationFailed(format!(
+            "artifact_state_signature_invalid: {key}"
+        )));
+    }
+    Ok(())
 }
 
 fn load_registered_bundle_with_public_records(
@@ -7307,6 +7483,8 @@ fn slug(value: &str) -> String {
 mod tests {
     #![allow(clippy::expect_used)]
 
+    use ed25519_dalek::{Signer, SigningKey};
+
     use super::{
         AppValidationError, ArtifactRouter, CapabilityPublishRequest, CapabilityRegistry, CliError,
         Command, DEFAULT_PUBLIC_REGISTRY_SOURCE, ExpeditionExampleExecutor, FetchedRegistryIndex,
@@ -7315,20 +7493,21 @@ mod tests {
         app_activate_at, app_activation_state_path, app_new_at, app_register_at,
         app_registration_state_path, app_validate, app_validate_at,
         canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_bytes, curl_text, discover_capabilities, enforce_contract_surface_coverage,
-        enforce_persona_refs_resolve, ensure_clean_registry_checkout, execute_capability_package,
-        execute_expedition, execute_traverse_starter_process, execute_traverse_starter_summarize,
+        curl_bytes, curl_text, discover_capabilities, encode_hex,
+        enforce_contract_surface_coverage, enforce_persona_refs_resolve,
+        ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
+        execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, format_capability_package_execution_summary,
         help_expedition_execute, help_serve, inspect_bundle, inspect_capability,
         inspect_capability_package, inspect_event, inspect_trace, latest_index_release_asset,
         load_artifact_state, load_capability_package, load_registered_bundle,
         load_registered_bundle_with_public_records, load_runtime_request,
-        materialize_registry_artifacts, parse_command, publish_file_sha256_digest, register_bundle,
-        register_generated_app_bundle, registry_record_order, registry_sync_at,
-        registry_sync_default_or_override, registry_sync_failure_json,
-        reject_private_contract_scope, run_command, run_serve, safe_artifact_path_component,
-        sha256_hex, surface_coverage_gap_messages, telemetry, uncovered_action_enum_values,
-        unresolved_persona_refs, use_case_smoke_coverage_gaps,
+        materialize_ed25519_signature, materialize_registry_artifacts, parse_command,
+        publish_file_sha256_digest, register_bundle, register_generated_app_bundle,
+        registry_record_order, registry_sync_at, registry_sync_default_or_override,
+        registry_sync_failure_json, reject_private_contract_scope, run_command, run_serve,
+        safe_artifact_path_component, sha256_hex, surface_coverage_gap_messages, telemetry,
+        uncovered_action_enum_values, unresolved_persona_refs, use_case_smoke_coverage_gaps,
         use_case_smoke_coverage_gaps_for_package, validate_authoring_outcome_telemetry_for_cli,
         validate_component_risk_policy_for_cli, validate_registry_path_segment,
     };
@@ -12274,14 +12453,28 @@ mod tests {
         let bytes = b"fixture wasm";
         fs::write(&wasm, bytes).expect("fixture artifact");
         let digest = format!("sha256:{}", sha256_hex(bytes));
+        let signing_key = SigningKey::from_bytes(&[7; 32]);
+        let public_key_hex = encode_hex(signing_key.verifying_key().as_bytes());
+        let signature_hex = encode_hex(&signing_key.sign(bytes).to_bytes());
+        let public_key = dir.join("public-key.hex");
+        let signature = dir.join("module.wasm.sig");
+        fs::write(&public_key, &public_key_hex).expect("public key fixture");
+        fs::write(&signature, &signature_hex).expect("signature fixture");
         let source = repo_root().join(
             "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
         );
         let mut contract: Value =
             serde_json::from_str(&fs::read_to_string(source).expect("source contract"))
                 .expect("contract json");
-        contract["artifact"] =
-            serde_json::json!({"url": format!("file://{}", wasm.display()), "digest": digest});
+        contract["artifact"] = serde_json::json!({
+            "url": format!("file://{}", wasm.display()),
+            "digest": digest,
+            "signature": {
+                "scheme": "ed25519",
+                "public_key_url": format!("file://{}", public_key.display()),
+                "signature_url": format!("file://{}", signature.display())
+            }
+        });
         let contract_path = dir.join("contract.json");
         fs::write(
             &contract_path,
@@ -12297,6 +12490,126 @@ mod tests {
         assert_eq!(state.capabilities.len(), 1);
         assert!(PathBuf::from(&state.capabilities[0].path).is_file());
         assert_eq!(state.capabilities[0].digest, digest);
+        assert_eq!(
+            state.capabilities[0]
+                .signature
+                .as_ref()
+                .map(|value| &value.scheme),
+            Some(&"ed25519".to_string())
+        );
+    }
+
+    #[test]
+    fn materialization_signature_metadata_fails_closed_before_fetching() {
+        let missing =
+            materialize_ed25519_signature(&serde_json::json!({}), b"bytes", "demo", "1.0.0")
+                .expect_err("signature is required");
+        assert!(missing.message().contains("signature_missing"));
+        let unsupported = materialize_ed25519_signature(
+            &serde_json::json!({"signature":{"scheme":"sigstore"}}),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("only Ed25519 is supported");
+        assert!(unsupported.message().contains("scheme_unsupported"));
+        let missing_key_url = materialize_ed25519_signature(
+            &serde_json::json!({"signature":{"scheme":"ed25519"}}),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("public key URL is required");
+        assert!(missing_key_url.message().contains("public_key_url_missing"));
+        let missing_signature_url = materialize_ed25519_signature(
+            &serde_json::json!({"signature":{"scheme":"ed25519","public_key_url":"file:///unused"}}), b"bytes", "demo", "1.0.0",
+        ).expect_err("signature URL is required");
+        assert!(
+            missing_signature_url
+                .message()
+                .contains("signature_url_missing")
+        );
+    }
+
+    #[test]
+    fn materialization_rejects_invalid_signature_evidence() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let public_key_path = dir.join("public-key.hex");
+        let signature_path = dir.join("module.wasm.sig");
+        let signing_key = SigningKey::from_bytes(&[9; 32]);
+        let valid_public_key = encode_hex(signing_key.verifying_key().as_bytes());
+        let valid_signature = encode_hex(&signing_key.sign(b"bytes").to_bytes());
+
+        let artifact = |public_key_path: &Path, signature_path: &Path| {
+            serde_json::json!({"signature":{
+                "scheme":"ed25519",
+                "public_key_url":format!("file://{}", public_key_path.display()),
+                "signature_url":format!("file://{}", signature_path.display())
+            }})
+        };
+
+        fs::write(&public_key_path, [0xff]).expect("non-UTF-8 public key fixture");
+        fs::write(&signature_path, &valid_signature).expect("signature fixture");
+        let invalid_public_key = materialize_ed25519_signature(
+            &artifact(&public_key_path, &signature_path),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("non-UTF-8 public key must fail");
+        assert!(invalid_public_key.message().contains("public_key_invalid"));
+
+        fs::write(&public_key_path, &valid_public_key).expect("public key fixture");
+        fs::write(&signature_path, [0xff]).expect("non-UTF-8 signature fixture");
+        let invalid_signature = materialize_ed25519_signature(
+            &artifact(&public_key_path, &signature_path),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("non-UTF-8 signature must fail");
+        assert!(invalid_signature.message().contains("signature_invalid"));
+
+        fs::write(&public_key_path, "zz").expect("malformed public key fixture");
+        fs::write(&signature_path, &valid_signature).expect("signature fixture");
+        let malformed_public_key = materialize_ed25519_signature(
+            &artifact(&public_key_path, &signature_path),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("malformed public key must fail");
+        assert!(
+            malformed_public_key
+                .message()
+                .contains("public_key_invalid")
+        );
+
+        fs::write(&public_key_path, "00").expect("short public key fixture");
+        let short_public_key = materialize_ed25519_signature(
+            &artifact(&public_key_path, &signature_path),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("short public key must fail");
+        assert!(short_public_key.message().contains("public_key_invalid"));
+
+        fs::write(&public_key_path, &valid_public_key).expect("public key fixture");
+        fs::write(
+            &signature_path,
+            encode_hex(&signing_key.sign(b"other").to_bytes()),
+        )
+        .expect("mismatched signature fixture");
+        let mismatch = materialize_ed25519_signature(
+            &artifact(&public_key_path, &signature_path),
+            b"bytes",
+            "demo",
+            "1.0.0",
+        )
+        .expect_err("mismatched signature must fail");
+        assert!(mismatch.message().contains("signature_mismatch"));
     }
 
     #[test]
@@ -12313,6 +12626,38 @@ mod tests {
         let fetch = curl_bytes("file:///definitely/not/a/file.wasm")
             .expect_err("missing file must fail to fetch");
         assert!(fetch.contains("artifact_materialize_fetch_failed"));
+    }
+
+    #[test]
+    fn artifact_state_v1_1_requires_well_formed_signature_evidence() {
+        let dir = unique_temp_dir();
+        fs::create_dir_all(&dir).expect("fixture directory");
+        let state_path = dir.join("artifact-state.json");
+        fs::write(
+            &state_path,
+            r#"{"schema_version":"1.1.0","capabilities":[{"id":"demo","version":"1.0.0","path":"module.wasm","digest":"sha256:abc","source_url":"https://example.test/module.wasm","materialized_at":"unix:1"}]}"#,
+        ).expect("missing signature fixture");
+        let missing = load_artifact_state(&state_path).expect_err("signature is required");
+        assert!(
+            missing
+                .message()
+                .contains("artifact_state_signature_missing")
+        );
+
+        let public_key = "00".repeat(32);
+        let signature = "00".repeat(64);
+        fs::write(
+            &state_path,
+            serde_json::json!({"schema_version":"1.1.0","capabilities":[{"id":"demo","version":"1.0.0","path":"module.wasm","digest":"sha256:abc","source_url":"https://example.test/module.wasm","materialized_at":"unix:1","signature":{"scheme":"ed25519","public_key_hex":public_key,"signature_hex":signature}}]}).to_string(),
+        ).expect("valid signature fixture");
+        let state = load_artifact_state(&state_path).expect("valid signature state");
+        assert_eq!(
+            state.capabilities[0]
+                .signature
+                .as_ref()
+                .map(|value| value.scheme.as_str()),
+            Some("ed25519")
+        );
     }
 
     #[test]
