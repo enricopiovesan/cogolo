@@ -1662,6 +1662,17 @@
         "crates/traverse-cli/",
         "specs/125-synced-public-registry-preparation/"
       ]
+    },
+    {
+      "id": "126-synced-public-registry-event-preparation",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/126-synced-public-registry-event-preparation/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/126-synced-public-registry-event-preparation/"
+      ]
     }
   ]
 }
