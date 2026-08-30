@@ -2,7 +2,8 @@
 
 **Feature Branch**: `claude/spec-127-host-load-trust-boundary`
 **Created**: 2026-08-29
-**Status**: Draft — architectural trust decision requiring maintainer approval before implementation.
+**Status**: Approved
+**Version**: 0.1.0 (approved 2026-08-29)
 **Input**: Traverse #1219; Specs 030, 118, 120, 124, 125, 126; `traverse-framework/registry` decision-log entries 74–79.
 
 ## Purpose
@@ -105,8 +106,12 @@ carried through the public sync path.
 
 ## Approval Note
 
-This draft MUST NOT be registered in `approved-specs.json` or used for a merged
-implementation without explicit maintainer approval. Unlike Specs 125 / 126
-(mechanical follow-ons from decisions already made), this defines an
-architectural trust boundary — what a host is entitled to assume about content
-from a governed registry — and should be reviewed as such.
+Approved by the maintainer on 2026-08-29 after review as an architectural trust
+decision (not a mechanical follow-on): a host that syncs a signed public index
+from a governed registry is entitled to assume that registry's publish-time
+governance already holds, and re-verifies only integrity, authenticity, and
+executability. Registered in `approved-specs.json` at `version 0.1.0`, governing
+`crates/traverse-cli/` and this spec directory (the `load_registry_bundle`
+scope gate lands in the published `traverse-registry` crate, governed in
+`traverse-framework/registry` under its `055` / `037` lineage; FR-004's index
+metadata is `traverse-framework/registry` scope).

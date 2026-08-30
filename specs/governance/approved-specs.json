@@ -1673,6 +1673,17 @@
         "crates/traverse-cli/",
         "specs/126-synced-public-registry-event-preparation/"
       ]
+    },
+    {
+      "id": "127-host-load-trust-boundary",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/127-host-load-trust-boundary/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/127-host-load-trust-boundary/"
+      ]
     }
   ]
 }
