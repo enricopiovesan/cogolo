@@ -7846,7 +7846,8 @@ mod tests {
         format_capability_package_execution_summary, help_expedition_execute, help_serve,
         inspect_bundle, inspect_capability, inspect_capability_package, inspect_event,
         inspect_trace, latest_index_release_asset, load_artifact_state, load_capability_package,
-        load_registered_bundle, load_registered_bundle_with_public_records, load_runtime_request,
+        load_governed_public_bundle_with_artifacts, load_registered_bundle,
+        load_registered_bundle_with_public_records, load_runtime_request,
         materialize_ed25519_signature, materialize_registry_artifacts, parse_command,
         prepare_public_registry_bundle, publish_file_sha256_digest, register_bundle,
         register_generated_app_bundle, registry_record_order, registry_sync_at,
@@ -13106,7 +13107,7 @@ mod tests {
     }
 
     #[test]
-    fn materialize_writes_verified_state_and_serve_loader_uses_its_local_binary() {
+    fn materialize_writes_verified_public_state_and_serve_loader_uses_its_local_binary() {
         let dir = unique_temp_dir();
         fs::create_dir_all(&dir).expect("fixture directory");
         let wasm = dir.join("source.wasm");
@@ -13122,6 +13123,7 @@ mod tests {
         let mut contract: Value =
             serde_json::from_str(&fs::read_to_string(source).expect("source contract"))
                 .expect("contract json");
+        contract["emits"] = serde_json::json!([]);
         contract["artifact"] = serde_json::json!({
             "url": format!("file://{}", wasm.display()),
             "digest": digest,
@@ -13145,7 +13147,7 @@ mod tests {
         )
         .expect("signature sibling write");
         let bundle_path = dir.join("bundle.json");
-        fs::write(&bundle_path, serde_json::json!({"bundle_id":"fixture","version":"1.0.0","scope":"private","capabilities":[{"id":"expedition.planning.capture-expedition-objective","version":"1.0.0","path":"contract.json"}],"events":[],"workflows":[]}).to_string()).expect("bundle write");
+        fs::write(&bundle_path, serde_json::json!({"bundle_id":"fixture","version":"1.0.0","scope":"public","capabilities":[{"id":"expedition.planning.capture-expedition-objective","version":"1.0.0","path":"contract.json"}],"events":[],"workflows":[]}).to_string()).expect("bundle write");
         let out = dir.join("out");
         let state_path =
             PathBuf::from(materialize_registry_artifacts(&bundle_path, &out).expect("materialize"));
@@ -13160,6 +13162,9 @@ mod tests {
                 .map(|value| &value.scheme),
             Some(&"ed25519".to_string())
         );
+        let registered = load_governed_public_bundle_with_artifacts(&bundle_path, Some(&state))
+            .expect("serve loader accepts materialized signed public content");
+        assert_eq!(registered.capability_records.len(), 1);
     }
 
     #[test]
