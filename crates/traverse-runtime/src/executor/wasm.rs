@@ -771,13 +771,7 @@ impl WasmExecutor {
         let metadata = fs::metadata(wasm_path).map_err(|e| {
             ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}"))
         })?;
-        let modified = metadata.modified().map_err(|e| {
-            ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}"))
-        })?;
-        let identity = BinaryFileIdentity {
-            len: metadata.len(),
-            modified,
-        };
+        let identity = binary_file_identity(wasm_path, metadata.len(), metadata.modified())?;
 
         let mut cache = self
             .binary_cache
@@ -799,6 +793,16 @@ impl WasmExecutor {
         cache.insert(wasm_path.to_string(), cached.clone());
         Ok(cached)
     }
+}
+
+fn binary_file_identity(
+    wasm_path: &str,
+    len: u64,
+    modified: Result<SystemTime, std::io::Error>,
+) -> Result<BinaryFileIdentity, ExecutorError> {
+    let modified = modified
+        .map_err(|e| ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}")))?;
+    Ok(BinaryFileIdentity { len, modified })
 }
 
 /// Host implementation of `traverse_host::emit_event` (spec
@@ -1244,4 +1248,20 @@ fn host_abi_whitelist(abi_version: &str) -> Result<HostAbiWhitelist, ExecutorErr
         .as_ref()
         .cloned()
         .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("invalid ABI whitelist: {e}")))
+}
+
+#[cfg(test)]
+mod binary_cache_tests {
+    use super::*;
+
+    #[test]
+    fn binary_file_identity_preserves_modified_time_failures() {
+        let result = binary_file_identity(
+            "unreadable-metadata.wasm",
+            0,
+            Err(std::io::Error::other("modified time unavailable")),
+        );
+
+        assert!(matches!(result, Err(ExecutorError::BinaryLoadFailed(_))));
+    }
 }
