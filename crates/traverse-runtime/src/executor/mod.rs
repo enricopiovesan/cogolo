@@ -21,8 +21,8 @@ pub use thread_pool::{ConfigError, ThreadPoolExecutor, ThreadPoolExecutorConfig}
 pub use wasm::{
     ActivatedConnector, ConnectorInvokeRequest, ConnectorInvokeResponse, HostAbiImport,
     HostAbiValidation, MediatedConnector, MediatedConnectorContext, SUPPORTED_HOST_ABI_VERSION,
-    WasmExecutionLimits, WasmExecutor, WasmModuleCacheConfig, WasmModuleCacheStats,
-    supported_host_abi_versions, verify_wasm_host_abi_bytes,
+    WasmBinaryCacheStats, WasmExecutionLimits, WasmExecutor, WasmModuleCacheConfig,
+    WasmModuleCacheStats, supported_host_abi_versions, verify_wasm_host_abi_bytes,
 };
 
 use crate::events::types::TraverseEvent;
