@@ -13167,6 +13167,158 @@ mod tests {
         assert_eq!(registered.capability_records.len(), 1);
     }
 
+    /// Spec 127 FR-005: cover the whole host-owned public execution pipeline
+    /// with offline, signed fixture data. The four versions deliberately carry
+    /// distinct input representations, as found in the published registry.
+    #[test]
+    fn public_execution_pipeline_conformance() {
+        let root = unique_temp_dir();
+        let source = root.join("published");
+        fs::create_dir_all(&source).expect("fixture directory");
+        let wasm = repo_root().join(
+            "examples/capabilities/capture-expedition-objective-agent/artifacts/capture-expedition-objective-agent.wasm",
+        );
+        let wasm_bytes = fs::read(&wasm).expect("fixture wasm");
+        let digest = format!("sha256:{}", sha256_hex(&wasm_bytes));
+        let signing_key = SigningKey::from_bytes(&[17; 32]);
+        let signature = serde_json::json!({
+            "scheme": "ed25519",
+            "public_key_hex": encode_hex(signing_key.verifying_key().as_bytes()),
+            "signature_hex": encode_hex(&signing_key.sign(&wasm_bytes).to_bytes()),
+            "signed_at": "2026-09-04T00:00:00Z",
+        });
+        let base: Value = serde_json::from_str(&fs::read_to_string(repo_root().join(
+            "contracts/examples/expedition/capabilities/capture-expedition-objective/contract.json",
+        )).expect("capability contract")).expect("capability JSON");
+        let mut capabilities = Vec::new();
+        for (index, version) in ["1.0.0", "1.1.0", "1.2.0", "1.3.0"].iter().enumerate() {
+            let directory = source.join(format!("capture-{version}"));
+            fs::create_dir_all(&directory).expect("capability directory");
+            let mut contract = base.clone();
+            contract["version"] = Value::String((*version).to_string());
+            contract["artifact"] = serde_json::json!({
+                "url": format!("file://{}", wasm.display()), "digest": digest,
+            });
+            contract["inputs"]["schema"]["properties"]["notes"]["description"] =
+                Value::String(format!("published representation {index}"));
+            let bytes = serde_json::to_vec(&contract).expect("contract encode");
+            fs::write(directory.join("contract.json"), &bytes).expect("contract write");
+            fs::write(directory.join("signature.json"), signature.to_string())
+                .expect("signature write");
+            capabilities.push(PublicRegistryCapabilityRecord {
+                namespace: "expedition.planning".to_string(),
+                id: "expedition.planning.capture-expedition-objective".to_string(),
+                version: (*version).to_string(),
+                digest: digest.clone(),
+                artifact_url: format!("file://{}", wasm.display()),
+                contract_digest: format!("sha256:{}", sha256_hex(&bytes)),
+                contract_url: format!("file://{}", directory.join("contract.json").display()),
+                deprecated: false,
+                summary: String::new(),
+                description: String::new(),
+                use_cases: Vec::new(),
+                service_type: "stateless".to_string(),
+                permitted_targets: Vec::new(),
+                lifecycle: "active".to_string(),
+                provenance: None,
+            });
+        }
+        let obsolete = capabilities[0].clone();
+        capabilities.push(PublicRegistryCapabilityRecord {
+            version: "0.9.0".to_string(),
+            deprecated: true,
+            ..obsolete
+        });
+        let event_contract: Value = serde_json::from_str(
+            &fs::read_to_string(repo_root().join(
+                "contracts/examples/expedition/events/expedition-objective-captured/contract.json",
+            ))
+            .expect("event contract"),
+        )
+        .expect("event JSON");
+        let mut product: Value = serde_json::from_str(
+            &fs::read_to_string(
+                repo_root()
+                    .join("crates/traverse-runtime/tests/fixtures/ecca-event-products/valid.json"),
+            )
+            .expect("event product"),
+        )
+        .expect("event product JSON");
+        product["contract"] = event_contract;
+        let product_bytes = serde_json::to_vec(&product).expect("product encode");
+        let product_path = source.join("event-product.json");
+        fs::write(&product_path, &product_bytes).expect("product write");
+        let fetcher = StaticRegistryFetcher {
+            result: Ok(FetchedRegistryIndex {
+                source_repo: "fixture/public-registry".to_string(),
+                release_tag: "fixture-v1".to_string(),
+                index: PublicRegistryIndex {
+                    index_version: 1,
+                    generated_at: "2026-09-04T00:00:00Z".to_string(),
+                    source_commit: Some("fixture".to_string()),
+                    capabilities,
+                    events: vec![PublicRegistryEventRecord {
+                        namespace: "expedition.planning".to_string(),
+                        id: "expedition.planning.expedition-objective-captured".to_string(),
+                        version: "1.0.0".to_string(),
+                        product_digest: format!("sha256:{}", sha256_hex(&product_bytes)),
+                        product_url: format!("file://{}", product_path.display()),
+                        deprecated: false,
+                    }],
+                },
+            }),
+        };
+        let sync: Value = serde_json::from_str(
+            &registry_sync_at(&root, "conformance", true, &fetcher).expect("registry sync"),
+        )
+        .expect("sync evidence");
+        let state = PathBuf::from(sync["state_path"].as_str().expect("state path"));
+        let prepared = root.join("prepared");
+        let preparation: Value = serde_json::from_str(
+            &prepare_public_registry_bundle(&state, &prepared).expect("public preparation"),
+        )
+        .expect("preparation evidence");
+        assert_eq!(preparation["prepared_capability_count"], 4);
+        assert_eq!(preparation["prepared_event_count"], 1);
+        let artifact_state = PathBuf::from(
+            materialize_registry_artifacts(&prepared.join("bundle.json"), &root.join("artifacts"))
+                .expect("materialization"),
+        );
+        let artifacts = load_artifact_state(&artifact_state).expect("artifact state");
+        assert_eq!(artifacts.capabilities.len(), 4);
+        let registered = load_governed_public_bundle_with_artifacts(
+            &prepared.join("bundle.json"),
+            Some(&artifacts),
+        )
+        .expect("serve registration");
+        assert_eq!(registered.capability_records.len(), 4);
+        assert_eq!(registered.event_records.len(), 1);
+        assert!(
+            registered
+                .capability_records
+                .iter()
+                .all(|record| !record.contains("@0.9.0"))
+        );
+        let runtime = Runtime::new(
+            registered.capability_registry,
+            ArtifactRouter::new().expect("artifact router"),
+        )
+        .with_workflow_registry(registered.workflow_registry)
+        .with_security_config(traverse_runtime::security::RuntimeSecurityConfig::development());
+        let outcome =
+            runtime.execute(
+                load_runtime_request(&repo_root().join(
+                    "examples/capabilities/runtime-requests/capture-expedition-objective.json",
+                ))
+                .expect("runtime request"),
+            );
+        assert_eq!(outcome.result.status, RuntimeResultStatus::Completed);
+        assert!(
+            outcome.result.output.is_some(),
+            "verified capability executes"
+        );
+    }
+
     #[test]
     fn materialization_signature_metadata_fails_closed_before_fetching() {
         let dir = unique_temp_dir();
