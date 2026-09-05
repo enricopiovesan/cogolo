@@ -13170,6 +13170,7 @@ mod tests {
     /// Spec 127 FR-005: cover the whole host-owned public execution pipeline
     /// with offline, signed fixture data. The four versions deliberately carry
     /// distinct input representations, as found in the published registry.
+    #[allow(clippy::too_many_lines)] // The fixture deliberately makes every pipeline hop explicit.
     #[test]
     fn public_execution_pipeline_conformance() {
         let root = unique_temp_dir();
