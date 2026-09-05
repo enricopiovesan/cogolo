@@ -13,6 +13,7 @@ use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
 use std::fs;
 use std::sync::{Arc, LazyLock, Mutex};
+use std::time::SystemTime;
 use uuid::Uuid;
 use wasmtime::{
     Caller, Config, Engine, Extern, Linker, Module, Store, StoreLimits, StoreLimitsBuilder,
@@ -182,6 +183,7 @@ pub struct WasmExecutor {
     engine: Engine,
     limits: WasmExecutionLimits,
     module_cache: Mutex<CompiledModuleCache>,
+    binary_cache: Mutex<LoadedBinaryCache>,
 }
 
 impl WasmExecutor {
@@ -220,6 +222,7 @@ impl WasmExecutor {
             engine,
             limits,
             module_cache: Mutex::new(CompiledModuleCache::new(cache_config.max_entries)),
+            binary_cache: Mutex::new(LoadedBinaryCache::new(cache_config.max_entries)),
         })
     }
 
@@ -228,6 +231,16 @@ impl WasmExecutor {
     pub fn module_cache_stats(&self) -> WasmModuleCacheStats {
         let cache = self
             .module_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        cache.stats()
+    }
+
+    /// Return current on-disk binary cache counters.
+    #[must_use]
+    pub fn binary_cache_stats(&self) -> WasmBinaryCacheStats {
+        let cache = self
+            .binary_cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
         cache.stats()
@@ -288,6 +301,21 @@ pub struct WasmModuleCacheStats {
     pub hits: u64,
     /// Number of executions that compiled a module before insertion.
     pub misses: u64,
+    /// Number of deterministic oldest-entry evictions.
+    pub evictions: u64,
+}
+
+/// Snapshot of on-disk WASM binary cache counters.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct WasmBinaryCacheStats {
+    /// Current retained binary entries.
+    pub entries: usize,
+    /// Number of executions served without a binary read or hash.
+    pub hits: u64,
+    /// Number of executions that required a binary read.
+    pub loads: u64,
+    /// Number of SHA-256 computations required to load binaries.
+    pub hashes: u64,
     /// Number of deterministic oldest-entry evictions.
     pub evictions: u64,
 }
@@ -353,6 +381,86 @@ impl CompiledModuleCache {
     }
 }
 
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct BinaryFileIdentity {
+    len: u64,
+    modified: SystemTime,
+}
+
+#[derive(Debug, Clone)]
+struct CachedBinary {
+    identity: BinaryFileIdentity,
+    bytes: Arc<[u8]>,
+    checksum: String,
+}
+
+#[derive(Debug)]
+struct LoadedBinaryCache {
+    max_entries: usize,
+    entries: HashMap<String, CachedBinary>,
+    insertion_order: VecDeque<String>,
+    hits: u64,
+    loads: u64,
+    hashes: u64,
+    evictions: u64,
+}
+
+impl LoadedBinaryCache {
+    fn new(max_entries: usize) -> Self {
+        Self {
+            max_entries: max_entries.max(1),
+            entries: HashMap::new(),
+            insertion_order: VecDeque::new(),
+            hits: 0,
+            loads: 0,
+            hashes: 0,
+            evictions: 0,
+        }
+    }
+
+    fn get(&mut self, path: &str, identity: &BinaryFileIdentity) -> Option<CachedBinary> {
+        let cached = self.entries.get(path)?;
+        if cached.identity != *identity {
+            return None;
+        }
+        self.hits += 1;
+        Some(cached.clone())
+    }
+
+    fn insert(&mut self, path: String, cached: CachedBinary) {
+        if let std::collections::hash_map::Entry::Occupied(mut entry) =
+            self.entries.entry(path.clone())
+        {
+            entry.insert(cached);
+            return;
+        }
+        while self.entries.len() >= self.max_entries {
+            if let Some(oldest) = self.insertion_order.pop_front()
+                && self.entries.remove(&oldest).is_some()
+            {
+                self.evictions += 1;
+            }
+        }
+        self.insertion_order.push_back(path.clone());
+        self.entries.insert(path, cached);
+    }
+
+    fn record_load(&mut self) {
+        self.loads += 1;
+        self.hashes += 1;
+    }
+
+    fn stats(&self) -> WasmBinaryCacheStats {
+        WasmBinaryCacheStats {
+            entries: self.entries.len(),
+            hits: self.hits,
+            loads: self.loads,
+            hashes: self.hashes,
+            evictions: self.evictions,
+        }
+    }
+}
+
 struct WasmStoreState {
     wasi: WasiP1Ctx,
     limits: StoreLimits,
@@ -384,19 +492,16 @@ impl CapabilityExecutor for WasmExecutor {
             ExecutorError::BinaryLoadFailed("no wasm_binary_path set".to_string())
         })?;
 
-        let binary = fs::read(wasm_path).map_err(|e| {
-            ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}"))
-        })?;
+        let binary = self.load_binary(wasm_path)?;
 
         // --- Checksum validation ---
-        if let Some(expected) = capability.wasm_checksum.as_deref() {
-            let actual = sha256_hex(&binary);
-            if actual != expected {
-                return Err(ExecutorError::ChecksumMismatch {
-                    expected: expected.to_string(),
-                    actual,
-                });
-            }
+        if let Some(expected) = capability.wasm_checksum.as_deref()
+            && binary.checksum != expected
+        {
+            return Err(ExecutorError::ChecksumMismatch {
+                expected: expected.to_string(),
+                actual: binary.checksum.clone(),
+            });
         }
 
         let abi_version = capability
@@ -404,13 +509,15 @@ impl CapabilityExecutor for WasmExecutor {
             .as_deref()
             .unwrap_or(SUPPORTED_HOST_ABI_VERSION);
 
-        self.run_wasm(
-            &binary,
+        self.run_wasm_with_connectors(
+            &binary.bytes,
             input,
             abi_version,
             &capability.capability_id,
             &capability.emits,
             capability.service_type.clone(),
+            None,
+            Some(&binary.checksum),
         )
     }
 }
@@ -502,6 +609,7 @@ impl WasmExecutor {
             &[],
             ServiceType::Stateless,
             Some(connector_context),
+            None,
         )
     }
 
@@ -523,6 +631,7 @@ impl WasmExecutor {
             emits,
             service_type,
             None,
+            None,
         )
     }
 
@@ -536,11 +645,13 @@ impl WasmExecutor {
         emits: &[EventReference],
         service_type: ServiceType,
         connector_context: Option<MediatedConnectorContext>,
+        checksum: Option<&str>,
     ) -> Result<ExecutorOutput, ExecutorError> {
         let input_json = serde_json::to_string(input)
             .map_err(|e| ExecutorError::ExecutionFailed(format!("input serialization: {e}")))?;
 
-        let cached_module = self.compiled_module(wasm_bytes, abi_version)?;
+        let checksum = checksum.map_or_else(|| sha256_hex(wasm_bytes), str::to_string);
+        let cached_module = self.compiled_module(wasm_bytes, &checksum, abi_version)?;
 
         // Clone pipe reference before passing to builder — needed to read output after execution
         let stdout_pipe = MemoryOutputPipe::new(65536);
@@ -626,15 +737,15 @@ impl WasmExecutor {
     fn compiled_module(
         &self,
         wasm_bytes: &[u8],
+        checksum: &str,
         abi_version: &str,
     ) -> Result<CachedModule, ExecutorError> {
-        let checksum = sha256_hex(wasm_bytes);
         {
             let mut cache = self
                 .module_cache
                 .lock()
                 .unwrap_or_else(std::sync::PoisonError::into_inner);
-            if let Some(cached) = cache.get(&checksum, abi_version) {
+            if let Some(cached) = cache.get(checksum, abi_version) {
                 return Ok(cached);
             }
         }
@@ -652,7 +763,40 @@ impl WasmExecutor {
             .module_cache
             .lock()
             .unwrap_or_else(std::sync::PoisonError::into_inner);
-        cache.insert(checksum, cached.clone());
+        cache.insert(checksum.to_string(), cached.clone());
+        Ok(cached)
+    }
+
+    fn load_binary(&self, wasm_path: &str) -> Result<CachedBinary, ExecutorError> {
+        let metadata = fs::metadata(wasm_path).map_err(|e| {
+            ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}"))
+        })?;
+        let modified = metadata.modified().map_err(|e| {
+            ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}"))
+        })?;
+        let identity = BinaryFileIdentity {
+            len: metadata.len(),
+            modified,
+        };
+
+        let mut cache = self
+            .binary_cache
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        if let Some(cached) = cache.get(wasm_path, &identity) {
+            return Ok(cached);
+        }
+
+        let bytes: Arc<[u8]> = fs::read(wasm_path)
+            .map_err(|e| ExecutorError::BinaryLoadFailed(format!("cannot read {wasm_path}: {e}")))?
+            .into();
+        let cached = CachedBinary {
+            identity,
+            checksum: sha256_hex(&bytes),
+            bytes,
+        };
+        cache.record_load();
+        cache.insert(wasm_path.to_string(), cached.clone());
         Ok(cached)
     }
 }

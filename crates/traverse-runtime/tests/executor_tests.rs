@@ -1925,6 +1925,53 @@ fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String>
 }
 
 #[test]
+fn wasm_executor_reuses_unchanged_binary_without_reading_or_hashing_again() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let wasm_bytes = wat::parse_str(echo_wat()).map_err(|e| format!("WAT parse: {e}"))?;
+    let tmp = tempfile_path();
+    std::fs::write(&tmp, &wasm_bytes).map_err(|e| format!("write: {e}"))?;
+
+    let cap = ExecutorCapability {
+        capability_id: "cached-disk-echo".to_string(),
+        artifact_type: ArtifactType::Wasm,
+        wasm_binary_path: Some(tmp.clone()),
+        wasm_checksum: None,
+        host_abi_version: None,
+        emits: Vec::new(),
+        service_type: ServiceType::Stateless,
+    };
+
+    let first_input = json!({ "call": 1 });
+    let first = executor
+        .execute(&cap, &first_input)
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(first.value, first_input);
+    assert_eq!(
+        executor.binary_cache_stats(),
+        traverse_runtime::executor::WasmBinaryCacheStats {
+            entries: 1,
+            hits: 0,
+            loads: 1,
+            hashes: 1,
+            evictions: 0,
+        }
+    );
+
+    let second_input = json!({ "call": 2 });
+    let second = executor
+        .execute(&cap, &second_input)
+        .map_err(|e| format!("{e:?}"))?;
+    std::fs::remove_file(&tmp).ok();
+
+    assert_eq!(second.value, second_input);
+    let stats = executor.binary_cache_stats();
+    assert_eq!(stats.hits, 1);
+    assert_eq!(stats.loads, 1, "cache hit must skip a disk read");
+    assert_eq!(stats.hashes, 1, "cache hit must skip SHA-256");
+    Ok(())
+}
+
+#[test]
 fn wasm_executor_cached_module_does_not_bypass_checksum_mismatch() -> Result<(), String> {
     let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
     let wasm_bytes = wat::parse_str(echo_wat()).map_err(|e| format!("WAT parse: {e}"))?;
