@@ -1684,6 +1684,20 @@
         "crates/traverse-cli/",
         "specs/127-host-load-trust-boundary/"
       ]
+    },
+    {
+      "id": "128-wasm-file-binary-cache",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/128-wasm-file-binary-cache/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/executor/mod.rs",
+        "crates/traverse-runtime/src/executor/wasm.rs",
+        "crates/traverse-runtime/tests/executor_tests.rs",
+        "docs/adr/0057-wasm-file-binary-cache.md",
+        "specs/128-wasm-file-binary-cache/"
+      ]
     }
   ]
 }
