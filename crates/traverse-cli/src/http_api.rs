@@ -1814,9 +1814,13 @@ fn identity_has_scope(identity: &DerivedIdentity, required_scope: &str) -> bool 
 fn scopes_optional_for_request(
     _allow_unauthenticated: bool,
     loopback: bool,
-    identity: &DerivedIdentity,
+    _identity: &DerivedIdentity,
 ) -> bool {
-    loopback || identity.subject_id == "local"
+    // Scope exemptions are a property of the verified transport peer, never
+    // of a caller-controlled identity claim. The loopback fallback uses the
+    // `local` subject only for attribution; a signed JWT may legitimately use
+    // that same subject and must still satisfy every required scope remotely.
+    loopback
 }
 
 /// Validates a gRPC event request before its stream is established, then binds
@@ -9172,6 +9176,27 @@ mod tests {
     fn non_loopback_rejects_valid_bearer_without_required_scope() {
         let state = empty_state();
         let token = make_scoped_jwt("alice", future_exp(), &["runtime:execute"]);
+        let req = with_bearer(
+            with_workspace_query(
+                make_http_request("GET", "/v1/capabilities", Vec::new()),
+                "ws-prod",
+            ),
+            &token,
+        );
+
+        let mut out = Vec::new();
+        handle_list_capabilities(&mut out, &req, &state, false)
+            .expect("list must write a response");
+
+        assert_eq!(response_status(&out), 403);
+        assert_eq!(response_content_type(&out), "application/problem+json");
+        assert_eq!(parse_response_body(&out)["traverse_code"], "unauthorized");
+    }
+
+    #[test]
+    fn non_loopback_local_subject_jwt_requires_the_requested_scope() {
+        let state = empty_state();
+        let token = make_jwt("local", future_exp(), false);
         let req = with_bearer(
             with_workspace_query(
                 make_http_request("GET", "/v1/capabilities", Vec::new()),
