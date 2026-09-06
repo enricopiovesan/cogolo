@@ -54,6 +54,11 @@ struct StdioCommandEnvelope {
     version: Option<String>,
     #[serde(default)]
     request_path: Option<String>,
+    /// Spec 119 FR-002: inline `RuntimeRequest` object, mutually exclusive with
+    /// `request_path`. When present the server never touches the filesystem to
+    /// materialize the request.
+    #[serde(default)]
+    request: Option<Value>,
     #[serde(default)]
     query: Option<String>,
 }
@@ -527,6 +532,7 @@ where
             "governing_spec": GOVERNING_SPEC,
             "status": "valid",
             "request_path": artifacts.request_path,
+            "request_source": artifacts.request_source,
             "entrypoint": artifacts.entrypoint,
             "request": runtime_request_summary(&artifacts.request),
         }))
@@ -560,6 +566,7 @@ where
             "governing_spec": GOVERNING_SPEC,
             "status": "completed",
             "request_path": artifacts.request_path,
+            "request_source": artifacts.request_source,
             "entrypoint": artifacts.entrypoint,
             "request_id": request_id,
             "execution_id": execution_id,
@@ -598,6 +605,7 @@ where
             "governing_spec": GOVERNING_SPEC,
             "status": "rendered",
             "request_path": artifacts.request_path,
+            "request_source": artifacts.request_source,
             "entrypoint": artifacts.entrypoint,
             "execution": {
                 "request_id": request_id.clone(),
@@ -633,14 +641,35 @@ where
         let version = command.version.as_deref().ok_or_else(|| {
             StdioServerFailure::new("invalid_request", "command requires version.")
         })?;
-        let request_path = command.request_path.as_deref().ok_or_else(|| {
-            StdioServerFailure::new("invalid_request", "command requires request_path.")
-        })?;
-        let request = load_runtime_request(request_path)?;
+
+        // Spec 119 FR-002: exactly one of `request` (inline) or `request_path`
+        // (legacy compatibility) must be supplied.
+        let (request, request_path, request_source) =
+            match (command.request.as_ref(), command.request_path.as_deref()) {
+                (Some(_), Some(_)) => {
+                    return Err(StdioServerFailure::new(
+                        "invalid_request",
+                        "command accepts either request or request_path, not both.",
+                    ));
+                }
+                (None, None) => {
+                    return Err(StdioServerFailure::new(
+                        "invalid_request",
+                        "command requires request or request_path.",
+                    ));
+                }
+                (Some(inline), None) => (parse_inline_runtime_request(inline)?, None, "inline"),
+                (None, Some(path)) => (
+                    load_runtime_request(path)?,
+                    Some(path.to_string()),
+                    "request_path",
+                ),
+            };
         self.validate_runtime_request(entrypoint_kind, id, version, &request)?;
 
         Ok(EntrypointArtifacts {
-            request_path: request_path.to_string(),
+            request_path,
+            request_source,
             entrypoint: self.describe_entrypoint_envelope(entrypoint_kind, id, version)?,
             request,
         })
@@ -1000,7 +1029,12 @@ where
 
 #[derive(Debug)]
 struct EntrypointArtifacts {
-    request_path: String,
+    /// `Some` only when the legacy `request_path` compatibility input was used;
+    /// `None` for a Spec 119 FR-002 inline `request`.
+    request_path: Option<String>,
+    /// `"inline"` or `"request_path"` — surfaced in every response envelope so
+    /// a client can confirm no filesystem materialization occurred.
+    request_source: &'static str,
     entrypoint: Value,
     request: RuntimeRequest,
 }
@@ -1328,6 +1362,30 @@ fn load_runtime_request(request_path: &str) -> Result<RuntimeRequest, StdioServe
                 path.display(),
                 error.message
             ),
+        )
+    })
+}
+
+/// Parse a Spec 119 FR-002 inline `request` object into a [`RuntimeRequest`],
+/// applying the exact same validation as the legacy `request_path` load and
+/// without any filesystem access.
+fn parse_inline_runtime_request(inline: &Value) -> Result<RuntimeRequest, StdioServerFailure> {
+    if !inline.is_object() {
+        return Err(StdioServerFailure::new(
+            "invalid_request",
+            "inline request must be a JSON object serialized as a RuntimeRequest.",
+        ));
+    }
+    let serialized = serde_json::to_string(inline).map_err(|error| {
+        StdioServerFailure::new(
+            "invalid_request",
+            format!("failed to serialize inline runtime request: {error}"),
+        )
+    })?;
+    parse_runtime_request(&serialized).map_err(|error| {
+        StdioServerFailure::new(
+            "invalid_request",
+            format!("failed to parse inline runtime request: {}", error.message),
         )
     })
 }
@@ -2079,11 +2137,82 @@ mod tests {
         .expect("command must parse");
         assert!(server.entrypoint_artifacts(&missing_version).is_err());
 
-        let missing_request_path = parse_command(
+        let missing_request_and_path = parse_command(
             r#"{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}"#,
         )
         .expect("command must parse");
-        assert!(server.entrypoint_artifacts(&missing_request_path).is_err());
+        let error = server
+            .entrypoint_artifacts(&missing_request_and_path)
+            .expect_err("neither request nor request_path must fail");
+        assert_eq!(error.code, "invalid_request");
+        assert!(error.message.contains("request or request_path"));
+    }
+
+    fn plan_expedition_inline_request() -> String {
+        std::fs::read_to_string(resolve_relative_path(PLAN_EXPEDITION_REQUEST_PATH))
+            .expect("plan-expedition fixture must be readable")
+    }
+
+    #[test]
+    fn entrypoint_artifacts_accepts_an_inline_runtime_request_without_touching_the_filesystem() {
+        let server = build_test_server();
+        let command = parse_command(&format!(
+            r#"{{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request":{}}}"#,
+            plan_expedition_inline_request()
+        ))
+        .expect("command must parse");
+
+        let artifacts = server
+            .entrypoint_artifacts(&command)
+            .expect("inline request must resolve");
+        assert_eq!(artifacts.request_source, "inline");
+        assert!(artifacts.request_path.is_none());
+    }
+
+    #[test]
+    fn entrypoint_artifacts_rejects_supplying_both_request_and_request_path() {
+        let server = build_test_server();
+        let command = parse_command(&format!(
+            r#"{{"command":"execute_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"{PLAN_EXPEDITION_REQUEST_PATH}","request":{}}}"#,
+            plan_expedition_inline_request()
+        ))
+        .expect("command must parse");
+
+        let error = server
+            .entrypoint_artifacts(&command)
+            .expect_err("request + request_path must be mutually exclusive");
+        assert_eq!(error.code, "invalid_request");
+        assert!(error.message.contains("not both"));
+    }
+
+    #[test]
+    fn parse_inline_runtime_request_rejects_non_object_and_malformed_payloads() {
+        let not_object = parse_inline_runtime_request(&json!("just a string"))
+            .expect_err("non-object inline request must be rejected");
+        assert_eq!(not_object.code, "invalid_request");
+        assert!(not_object.message.contains("JSON object"));
+
+        let malformed = parse_inline_runtime_request(&json!({"kind": "not-a-runtime-request"}))
+            .expect_err("malformed inline request must be rejected");
+        assert_eq!(malformed.code, "invalid_request");
+        assert!(malformed.message.contains("inline runtime request"));
+    }
+
+    #[test]
+    fn validate_entrypoint_envelope_reports_the_inline_request_source() {
+        let server = build_test_server();
+        let command = parse_command(&format!(
+            r#"{{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request":{}}}"#,
+            plan_expedition_inline_request()
+        ))
+        .expect("command must parse");
+
+        let envelope = server
+            .validate_entrypoint_envelope(&command)
+            .expect("inline validation must succeed");
+        assert_eq!(envelope["request_source"], json!("inline"));
+        assert_eq!(envelope["request_path"], Value::Null);
+        assert_eq!(envelope["status"], json!("valid"));
     }
 
     #[test]
