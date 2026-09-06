@@ -1698,6 +1698,19 @@
         "docs/adr/0057-wasm-file-binary-cache.md",
         "specs/128-wasm-file-binary-cache/"
       ]
+    },
+    {
+      "id": "129-governed-workflow-reliability",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/129-governed-workflow-reliability/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-mcp/",
+        "docs/adr/0058-governed-workflow-reliability.md",
+        "specs/129-governed-workflow-reliability/"
+      ]
     }
   ]
 }
