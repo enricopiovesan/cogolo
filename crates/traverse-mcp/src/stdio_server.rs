@@ -10,19 +10,30 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use traverse_embedder::HostRegistryCache;
+use traverse_embedder::{
+    HostRegistryCache, PublicCapabilityMetadata, PublicMetadataRead, RegistryCacheError,
+    read_public_metadata, resolve_registry_component,
+};
 use traverse_registry::{
-    BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
+    ArtifactDigests, BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
     CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
     CompositionPattern, EventRegistration, EventRegistry, ImplementationKind, RegistryBundle,
-    RegistryProvenance, SourceKind, SourceReference, WorkflowReference, WorkflowRegistration,
-    WorkflowRegistry, load_registry_bundle,
+    RegistryProvenance, RegistryReference, RegistryScope, ResolvedRegistryComponent, SourceKind,
+    SourceReference, WorkflowReference, WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
 };
-use traverse_runtime::{LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request};
+use traverse_runtime::security::RuntimeSecurityConfig;
+use traverse_runtime::{ArtifactRouter, LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request};
 
 const SERVER_NAME: &str = "traverse-mcp";
 const HOST_MODE: &str = "stdio";
 const GOVERNING_SPEC: &str = "022-mcp-wasm-server";
+/// Governing spec for the verified public-registry Mode A discovery/execution
+/// surface (env `TRAVERSE_MCP_REGISTRY_CACHE`).
+const MODE_A_GOVERNING_SPEC: &str = "119-verified-registry-mcp-mode-a";
+/// Environment variable naming the host-owned, digest-verified registry cache
+/// root that Mode A consumes. When unset, the server runs the contributor-only
+/// expedition example path.
+const MODE_A_CACHE_ENV: &str = "TRAVERSE_MCP_REGISTRY_CACHE";
 const PUBLIC_SURFACE_ID: &str = "traverse.mcp.stdio-server";
 const SUPPORTING_COMMANDS: &[&str] = &[
     "describe_server",
@@ -308,11 +319,54 @@ impl CanonicalExecutionContext {
     }
 }
 
+/// Spec 119 Mode A: verified public-registry discovery and execution state.
+///
+/// Holds the host-owned, digest-verified registry cache and its published
+/// public-metadata generation. All discovery reads come from this generation;
+/// every execution resolves the exact digest-verified WASM artifact from the
+/// same cache. There is no expedition, private, in-process, or network
+/// fallback (FR-001, FR-003, FR-004).
+#[derive(Debug)]
+pub struct ModeAContext {
+    cache: HostRegistryCache,
+    metadata: PublicMetadataRead,
+}
+
+impl ModeAContext {
+    /// Load Mode A state from a host-owned verified registry cache root.
+    ///
+    /// # Errors
+    ///
+    /// Returns a stable `registry_sync_missing` / `registry_metadata_cache_invalid`
+    /// failure when the prepared verified state is absent, malformed, or carries
+    /// invalid verification bindings. A prepared-but-empty generation is valid
+    /// state and yields an empty catalog rather than an error.
+    pub fn load(cache_root: impl Into<PathBuf>) -> Result<Self, StdioServerFailure> {
+        let cache = HostRegistryCache::new(cache_root);
+        let metadata = read_public_metadata(&cache).map_err(mode_a_cache_failure)?;
+        Ok(Self { cache, metadata })
+    }
+
+    /// Exact-identity lookup against the verified public-metadata generation.
+    fn record(&self, id: &str, version: &str) -> Option<&PublicCapabilityMetadata> {
+        self.metadata
+            .records
+            .iter()
+            .find(|record| record.id == id && record.version == version)
+    }
+}
+
+/// Map a verified-registry-cache failure to a stable, secret-free stdio failure.
+fn mode_a_cache_failure(error: RegistryCacheError) -> StdioServerFailure {
+    StdioServerFailure::new(error.code.as_str(), error.message)
+}
+
 #[derive(Debug)]
 pub struct TraverseMcpStdioServer<'a, E> {
     mcp: &'a TraverseMcp<'a, E>,
     catalog: &'a McpDiscoveryCatalog,
     public_metadata_cache: Option<HostRegistryCache>,
+    mode_a: Option<&'a ModeAContext>,
 }
 
 impl<'a, E> TraverseMcpStdioServer<'a, E>
@@ -325,6 +379,7 @@ where
             mcp,
             catalog,
             public_metadata_cache: None,
+            mode_a: None,
         }
     }
 
@@ -334,13 +389,43 @@ where
         self
     }
 
+    /// Engage Spec 119 Mode A: discovery and execution are served exclusively
+    /// from the supplied verified public-registry state.
+    #[must_use]
+    pub fn with_mode_a(mut self, context: &'a ModeAContext) -> Self {
+        self.mode_a = Some(context);
+        self
+    }
+
+    /// The governing spec reported in envelopes — Mode A when engaged.
+    fn governing_spec(&self) -> &'static str {
+        if self.mode_a.is_some() {
+            MODE_A_GOVERNING_SPEC
+        } else {
+            GOVERNING_SPEC
+        }
+    }
+
+    /// The active discovery/execution mode label.
+    fn mode_label(&self) -> &'static str {
+        if self.mode_a.is_some() {
+            "verified_public"
+        } else {
+            "expedition_contributor"
+        }
+    }
+
     fn search_capabilities_envelope(&self, query: &str) -> Result<Value, StdioServerFailure> {
-        let cache = self.public_metadata_cache.as_ref().ok_or_else(|| {
-            StdioServerFailure::new(
-                "registry_sync_missing",
-                "search requires verified public registry state.",
-            )
-        })?;
+        let cache = self
+            .mode_a
+            .map(|context| &context.cache)
+            .or(self.public_metadata_cache.as_ref())
+            .ok_or_else(|| {
+                StdioServerFailure::new(
+                    "registry_sync_missing",
+                    "search requires verified public registry state.",
+                )
+            })?;
         let result = crate::tools::capabilities::search_capabilities(cache, query)
             .map_err(|error| StdioServerFailure::new(&error.message, &error.message))?;
         Ok(
@@ -354,7 +439,8 @@ where
             "kind": "mcp_stdio_server_startup",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
             "status": "ready",
             "supported_commands": SUPPORTING_COMMANDS,
             "public_surface_id": PUBLIC_SURFACE_ID,
@@ -363,18 +449,68 @@ where
                 "required_token_env": "TRAVERSE_MCP_STDIO_BEARER_TOKEN",
                 "required_commands": ["execute_entrypoint", "render_execution_report"],
             },
-            "content_group_count": McpDiscoveryCatalog::content_group_count(),
+            "discovery_source": self.discovery_source_summary(),
+            "content_group_count": self.content_group_count(),
         })
+    }
+
+    /// Provenance of the active discovery surface.
+    fn discovery_source_summary(&self) -> Value {
+        match self.mode_a {
+            Some(context) => json!({
+                "kind": "host_verified_public_registry",
+                "source_release": context.metadata.source_release,
+                "index_digest": context.metadata.index_digest,
+                "stale": context.metadata.stale,
+                "capability_count": context.metadata.records.len(),
+            }),
+            None => json!({
+                "kind": "bundled_expedition_example",
+                "note": "contributor-only source-run catalog; not a Mode A product surface",
+            }),
+        }
+    }
+
+    /// Content-group count — always zero under Mode A (FR-007: no hard-coded or
+    /// inferred content groups before registry-governed grouping metadata).
+    fn content_group_count(&self) -> usize {
+        if self.mode_a.is_some() {
+            0
+        } else {
+            McpDiscoveryCatalog::content_group_count()
+        }
+    }
+
+    /// Content-group summaries — empty under Mode A (FR-007).
+    fn content_group_summaries(&self) -> Value {
+        if self.mode_a.is_some() {
+            json!([])
+        } else {
+            json!(McpDiscoveryCatalog::content_group_summaries())
+        }
     }
 
     #[must_use]
     pub fn describe_envelope(&self) -> Value {
         let validation_path = youaskm3_mcp_consumption_validation_path();
+        let governed_surface_counts = match self.mode_a {
+            Some(context) => json!({
+                "capabilities": context.metadata.records.len(),
+                "events": 0,
+                "workflows": 0,
+            }),
+            None => json!({
+                "capabilities": self.catalog.capability_count(),
+                "events": self.catalog.event_count(),
+                "workflows": self.catalog.workflow_count(),
+            }),
+        };
         json!({
             "kind": "mcp_stdio_server_description",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
             "runtime_authority": "Traverse runtime authority",
             "public_surface_id": PUBLIC_SURFACE_ID,
             "supported_commands": SUPPORTING_COMMANDS,
@@ -384,12 +520,9 @@ where
                 "required_commands": ["execute_entrypoint", "render_execution_report"],
                 "token_output_policy": "never_echo_raw_token",
             },
-            "governed_surface_counts": {
-                "capabilities": self.catalog.capability_count(),
-                "events": self.catalog.event_count(),
-                "workflows": self.catalog.workflow_count(),
-            },
-            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
+            "discovery_source": self.discovery_source_summary(),
+            "governed_surface_counts": governed_surface_counts,
+            "content_groups": self.content_group_summaries(),
             "downstream_validation_path": {
                 "consumer_name": validation_path.consumer_name,
                 "validated_flow_id": validation_path.validated_flow_id,
@@ -401,6 +534,9 @@ where
 
     #[must_use]
     pub fn list_entrypoints_envelope(&self) -> Value {
+        if let Some(context) = self.mode_a {
+            return self.mode_a_list_entrypoints_envelope(context);
+        }
         let capability_entries = self
             .catalog
             .bundle
@@ -427,7 +563,7 @@ where
             "kind": "mcp_stdio_server_entrypoint_list",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "content_groups": McpDiscoveryCatalog::content_group_summaries(),
             "entrypoints": {
                 "capabilities": capability_entries,
@@ -443,8 +579,9 @@ where
             "kind": "mcp_stdio_server_content_group_list",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
-            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
+            "content_groups": self.content_group_summaries(),
         })
     }
 
@@ -455,13 +592,18 @@ where
         &self,
         content_group_id: &str,
     ) -> Result<Value, StdioServerFailure> {
+        if self.mode_a.is_some() {
+            // FR-007: Mode A exposes no content groups until registry-governed
+            // grouping metadata exists.
+            return Err(not_found("content group", content_group_id, "1.0.0"));
+        }
         McpDiscoveryCatalog::content_group_detail(content_group_id)
             .map(|content_group| {
                 json!({
                     "kind": "mcp_stdio_server_content_group_description",
                     "server_name": SERVER_NAME,
                     "host_mode": HOST_MODE,
-                    "governing_spec": GOVERNING_SPEC,
+                    "governing_spec": self.governing_spec(),
                     "content_group": content_group,
                 })
             })
@@ -478,6 +620,9 @@ where
         id: &str,
         version: &str,
     ) -> Result<Value, StdioServerFailure> {
+        if let Some(context) = self.mode_a {
+            return self.mode_a_describe_entrypoint_envelope(context, entrypoint_kind, id, version);
+        }
         match entrypoint_kind {
             "capability" => self
                 .catalog
@@ -490,7 +635,7 @@ where
                         "kind": "mcp_stdio_server_entrypoint_description",
                         "server_name": SERVER_NAME,
                         "host_mode": HOST_MODE,
-                        "governing_spec": GOVERNING_SPEC,
+                        "governing_spec": self.governing_spec(),
                         "entrypoint": capability_entrypoint_detail(artifact),
                     })
                 })
@@ -508,7 +653,7 @@ where
                         "kind": "mcp_stdio_server_entrypoint_description",
                         "server_name": SERVER_NAME,
                         "host_mode": HOST_MODE,
-                        "governing_spec": GOVERNING_SPEC,
+                        "governing_spec": self.governing_spec(),
                         "entrypoint": workflow_entrypoint_detail(artifact),
                     })
                 })
@@ -524,12 +669,15 @@ where
         &self,
         command: &StdioCommandEnvelope,
     ) -> Result<Value, StdioServerFailure> {
+        if let Some(context) = self.mode_a {
+            return self.mode_a_run(context, command, ModeAAction::Validate);
+        }
         let artifacts = self.entrypoint_artifacts(command)?;
         Ok(json!({
             "kind": "mcp_stdio_server_entrypoint_validation",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "valid",
             "request_path": artifacts.request_path,
             "request_source": artifacts.request_source,
@@ -544,6 +692,9 @@ where
         auth_config: &StdioAuthConfig,
     ) -> Result<Value, StdioServerFailure> {
         auth_config.verify_execute_command(command)?;
+        if let Some(context) = self.mode_a {
+            return self.mode_a_run(context, command, ModeAAction::Execute { auth_config });
+        }
         let artifacts = self.entrypoint_artifacts(command)?;
         let response = self
             .mcp
@@ -563,7 +714,7 @@ where
             "kind": "mcp_stdio_server_entrypoint_execution",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "completed",
             "request_path": artifacts.request_path,
             "request_source": artifacts.request_source,
@@ -583,6 +734,9 @@ where
         auth_config: &StdioAuthConfig,
     ) -> Result<Value, StdioServerFailure> {
         auth_config.verify_execute_command(command)?;
+        if let Some(context) = self.mode_a {
+            return self.mode_a_run(context, command, ModeAAction::Report { auth_config });
+        }
         let artifacts = self.entrypoint_artifacts(command)?;
         let response = self
             .mcp
@@ -602,7 +756,7 @@ where
             "kind": "mcp_stdio_server_execution_report",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "rendered",
             "request_path": artifacts.request_path,
             "request_source": artifacts.request_source,
@@ -627,6 +781,250 @@ where
         }))
     }
 
+    // --- Spec 119 Mode A: verified public-registry discovery and execution ---
+
+    fn mode_a_list_entrypoints_envelope(&self, context: &ModeAContext) -> Value {
+        let capabilities = context
+            .metadata
+            .records
+            .iter()
+            .map(mode_a_entrypoint_summary)
+            .collect::<Vec<_>>();
+        json!({
+            "kind": "mcp_stdio_server_entrypoint_list",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
+            "discovery_source": self.discovery_source_summary(),
+            "content_groups": [],
+            "entrypoints": {
+                "capabilities": capabilities,
+                "events": [],
+                "workflows": [],
+            },
+        })
+    }
+
+    fn mode_a_describe_entrypoint_envelope(
+        &self,
+        context: &ModeAContext,
+        entrypoint_kind: &str,
+        id: &str,
+        version: &str,
+    ) -> Result<Value, StdioServerFailure> {
+        if entrypoint_kind != "capability" {
+            return Err(StdioServerFailure::new(
+                "invalid_request",
+                format!(
+                    "Mode A exposes verified capability entrypoints only; got entrypoint_kind {entrypoint_kind}"
+                ),
+            ));
+        }
+        let record = context
+            .record(id, version)
+            .ok_or_else(|| not_found("capability entrypoint", id, version))?;
+        Ok(json!({
+            "kind": "mcp_stdio_server_entrypoint_description",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
+            "entrypoint": mode_a_entrypoint_detail(record),
+        }))
+    }
+
+    /// Shared validate / execute / render-report path for Mode A. Discovery,
+    /// artifact selection, and execution all come from the verified public
+    /// state and its digest-verified cache — never the expedition bundle.
+    #[allow(clippy::too_many_lines)]
+    fn mode_a_run(
+        &self,
+        context: &ModeAContext,
+        command: &StdioCommandEnvelope,
+        action: ModeAAction<'_>,
+    ) -> Result<Value, StdioServerFailure> {
+        let entrypoint_kind = command.entrypoint_kind.as_deref().ok_or_else(|| {
+            StdioServerFailure::new("invalid_request", "command requires entrypoint_kind.")
+        })?;
+        if entrypoint_kind != "capability" {
+            return Err(StdioServerFailure::new(
+                "invalid_request",
+                "Mode A executes verified capability entrypoints only.",
+            ));
+        }
+        let id = command
+            .id
+            .as_deref()
+            .ok_or_else(|| StdioServerFailure::new("invalid_request", "command requires id."))?;
+        let version = command.version.as_deref().ok_or_else(|| {
+            StdioServerFailure::new("invalid_request", "command requires version.")
+        })?;
+
+        let RequestInput {
+            request,
+            request_path,
+            request_source,
+        } = resolve_runtime_request_input(command)?;
+        self.validate_runtime_request("capability", id, version, &request)?;
+
+        // Discovery guard (FR-001): the target must be present in the verified
+        // public-metadata generation.
+        let record = context
+            .record(id, version)
+            .ok_or_else(|| not_found("capability entrypoint", id, version))?;
+
+        // Artifact selection (FR-004): resolve the exact digest-verified WASM
+        // and contract from the host-owned cache. Offline only; fails closed.
+        let reference = RegistryReference {
+            namespace: record.namespace.clone(),
+            id: id.to_string(),
+            version_range: format!("={version}"),
+        };
+        let component =
+            resolve_registry_component(&context.cache, &reference).map_err(mode_a_cache_failure)?;
+        if component.contract.id != id || component.contract.version != version {
+            return Err(StdioServerFailure::new(
+                "invalid_request",
+                format!(
+                    "verified artifact identity {}@{} does not match requested entrypoint {id}@{version}",
+                    component.contract.id, component.contract.version
+                ),
+            ));
+        }
+
+        let entrypoint = mode_a_entrypoint_detail(record);
+        let artifact = mode_a_artifact_summary(context, record, &component);
+
+        match action {
+            ModeAAction::Validate => Ok(json!({
+                "kind": "mcp_stdio_server_entrypoint_validation",
+                "server_name": SERVER_NAME,
+                "host_mode": HOST_MODE,
+                "governing_spec": self.governing_spec(),
+                "mode": self.mode_label(),
+                "status": "valid",
+                "request_path": request_path,
+                "request_source": request_source,
+                "entrypoint": entrypoint,
+                "artifact": artifact,
+                "request": runtime_request_summary(&request),
+            })),
+            ModeAAction::Execute { auth_config } => {
+                let response = Self::mode_a_execute_component(&component, request)?;
+                let ExecutionParts {
+                    result,
+                    trace,
+                    request_id,
+                    execution_id,
+                    observation_messages,
+                } = ExecutionParts::from_response(response);
+                Ok(json!({
+                    "kind": "mcp_stdio_server_entrypoint_execution",
+                    "server_name": SERVER_NAME,
+                    "host_mode": HOST_MODE,
+                    "governing_spec": self.governing_spec(),
+                    "mode": self.mode_label(),
+                    "status": "completed",
+                    "request_path": request_path,
+                    "request_source": request_source,
+                    "entrypoint": entrypoint,
+                    "artifact": artifact,
+                    "request_id": request_id,
+                    "execution_id": execution_id,
+                    "result": result,
+                    "trace": public_trace_summary(&trace),
+                    "trace_redaction": trace_redaction_policy(auth_config),
+                    "observation_messages": observation_messages,
+                }))
+            }
+            ModeAAction::Report { auth_config } => {
+                let response = Self::mode_a_execute_component(&component, request)?;
+                let ExecutionParts {
+                    result,
+                    trace,
+                    request_id,
+                    execution_id,
+                    observation_messages,
+                } = ExecutionParts::from_response(response);
+                Ok(json!({
+                    "kind": "mcp_stdio_server_execution_report",
+                    "server_name": SERVER_NAME,
+                    "host_mode": HOST_MODE,
+                    "governing_spec": self.governing_spec(),
+                    "mode": self.mode_label(),
+                    "status": "rendered",
+                    "request_path": request_path,
+                    "request_source": request_source,
+                    "entrypoint": entrypoint,
+                    "artifact": artifact,
+                    "execution": {
+                        "request_id": request_id.clone(),
+                        "execution_id": execution_id.clone(),
+                        "result": result,
+                        "trace": public_trace_summary(&trace),
+                        "trace_redaction": trace_redaction_policy(auth_config),
+                        "observation_messages": observation_messages,
+                    },
+                    "report": {
+                        "summary": "Rendered execution report from governed runtime output",
+                        "execution_id": execution_id,
+                        "request_id": request_id,
+                        "result_status": result.status,
+                        "trace_kind": trace.kind,
+                        "trace_redacted": true,
+                        "observation_message_count": observation_messages.len(),
+                    },
+                }))
+            }
+        }
+    }
+
+    /// Execute one verified component through a freshly built runtime whose only
+    /// registered capability is the digest-verified artifact. Uses the real
+    /// [`ArtifactRouter`] WASM executor — never the expedition Rust executor
+    /// (FR-004).
+    fn mode_a_execute_component(
+        component: &ResolvedRegistryComponent,
+        request: RuntimeRequest,
+    ) -> Result<crate::McpExecutionResponse, StdioServerFailure> {
+        let registration = mode_a_capability_registration(component);
+        let mut capability_registry = CapabilityRegistry::new();
+        capability_registry.register(registration).map_err(|failure| {
+            StdioServerFailure::new(
+                "registry_registration_failed",
+                failure
+                    .errors
+                    .first()
+                    .map_or("verified capability registration failed", |error| {
+                        error.message.as_str()
+                    }),
+            )
+        })?;
+
+        let router = ArtifactRouter::new().map_err(|failure| {
+            StdioServerFailure::new("execution_failed", format!("{failure:?}"))
+        })?;
+        // v0.1.0 posture: the Spec 080 verified registry cache is digest-based
+        // and carries no artifact signature, so execution runs in development
+        // security mode with the digest checked twice (cache resolve + WASM
+        // executor checksum). Ed25519 provenance is a tracked follow-up.
+        let runtime = Runtime::new(capability_registry, router)
+            .with_security_config(RuntimeSecurityConfig::development());
+        let event_registry = EventRegistry::new();
+        let workflow_registry = WorkflowRegistry::new();
+        let discovery_registry = CapabilityRegistry::new();
+        let mcp = TraverseMcp::new(
+            &discovery_registry,
+            &event_registry,
+            &workflow_registry,
+            &runtime,
+        );
+        mcp.execute(request).map_err(|error| {
+            StdioServerFailure::new("execution_failed", format!("{error:?}"))
+        })
+    }
+
     fn entrypoint_artifacts(
         &self,
         command: &StdioCommandEnvelope,
@@ -642,29 +1040,11 @@ where
             StdioServerFailure::new("invalid_request", "command requires version.")
         })?;
 
-        // Spec 119 FR-002: exactly one of `request` (inline) or `request_path`
-        // (legacy compatibility) must be supplied.
-        let (request, request_path, request_source) =
-            match (command.request.as_ref(), command.request_path.as_deref()) {
-                (Some(_), Some(_)) => {
-                    return Err(StdioServerFailure::new(
-                        "invalid_request",
-                        "command accepts either request or request_path, not both.",
-                    ));
-                }
-                (None, None) => {
-                    return Err(StdioServerFailure::new(
-                        "invalid_request",
-                        "command requires request or request_path.",
-                    ));
-                }
-                (Some(inline), None) => (parse_inline_runtime_request(inline)?, None, "inline"),
-                (None, Some(path)) => (
-                    load_runtime_request(path)?,
-                    Some(path.to_string()),
-                    "request_path",
-                ),
-            };
+        let RequestInput {
+            request,
+            request_path,
+            request_source,
+        } = resolve_runtime_request_input(command)?;
         self.validate_runtime_request(entrypoint_kind, id, version, &request)?;
 
         Ok(EntrypointArtifacts {
@@ -753,7 +1133,7 @@ where
             "kind": "mcp_stdio_server_shutdown",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "complete",
             "reason": reason,
         })
@@ -1134,7 +1514,15 @@ pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServe
         runtime,
     )));
     let catalog = Box::leak(Box::new(catalog));
-    let server = TraverseMcpStdioServer::new(mcp, catalog);
+    let mut server = TraverseMcpStdioServer::new(mcp, catalog);
+
+    // Spec 119: engage Mode A when the host names a verified registry cache.
+    // Loading fails closed — a missing or invalid prepared state stops startup
+    // rather than silently falling back to the expedition catalog (FR-003).
+    if let Some(cache_root) = std::env::var_os(MODE_A_CACHE_ENV) {
+        let mode_a = Box::leak(Box::new(ModeAContext::load(PathBuf::from(cache_root))?));
+        server = server.with_mode_a(mode_a);
+    }
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -1366,6 +1754,42 @@ fn load_runtime_request(request_path: &str) -> Result<RuntimeRequest, StdioServe
     })
 }
 
+/// Resolved runtime request plus how it was supplied.
+struct RequestInput {
+    request: RuntimeRequest,
+    /// `Some` only for the legacy `request_path` input.
+    request_path: Option<String>,
+    /// `"inline"` or `"request_path"`.
+    request_source: &'static str,
+}
+
+/// Spec 119 FR-002: resolve exactly one of the mutually exclusive `request`
+/// (inline) or `request_path` (legacy compatibility) inputs.
+fn resolve_runtime_request_input(
+    command: &StdioCommandEnvelope,
+) -> Result<RequestInput, StdioServerFailure> {
+    match (command.request.as_ref(), command.request_path.as_deref()) {
+        (Some(_), Some(_)) => Err(StdioServerFailure::new(
+            "invalid_request",
+            "command accepts either request or request_path, not both.",
+        )),
+        (None, None) => Err(StdioServerFailure::new(
+            "invalid_request",
+            "command requires request or request_path.",
+        )),
+        (Some(inline), None) => Ok(RequestInput {
+            request: parse_inline_runtime_request(inline)?,
+            request_path: None,
+            request_source: "inline",
+        }),
+        (None, Some(path)) => Ok(RequestInput {
+            request: load_runtime_request(path)?,
+            request_path: Some(path.to_string()),
+            request_source: "request_path",
+        }),
+    }
+}
+
 /// Parse a Spec 119 FR-002 inline `request` object into a [`RuntimeRequest`],
 /// applying the exact same validation as the legacy `request_path` load and
 /// without any filesystem access.
@@ -1388,6 +1812,143 @@ fn parse_inline_runtime_request(inline: &Value) -> Result<RuntimeRequest, StdioS
             format!("failed to parse inline runtime request: {}", error.message),
         )
     })
+}
+
+/// Which Mode A operation `mode_a_run` should perform.
+#[derive(Clone, Copy)]
+enum ModeAAction<'a> {
+    Validate,
+    Execute { auth_config: &'a StdioAuthConfig },
+    Report { auth_config: &'a StdioAuthConfig },
+}
+
+/// Flattened, already-redaction-safe pieces of one runtime execution.
+struct ExecutionParts {
+    result: traverse_runtime::RuntimeResult,
+    trace: traverse_runtime::RuntimeTrace,
+    request_id: String,
+    execution_id: String,
+    observation_messages: Vec<Value>,
+}
+
+impl ExecutionParts {
+    fn from_response(response: crate::McpExecutionResponse) -> Self {
+        let result = response.result.clone();
+        let trace = response.trace.clone();
+        let request_id = result.request_id.clone();
+        let execution_id = result.execution_id.clone();
+        let observation_messages = response
+            .observation_messages
+            .into_iter()
+            .map(observation_message_summary)
+            .collect::<Vec<_>>();
+        Self {
+            result,
+            trace,
+            request_id,
+            execution_id,
+            observation_messages,
+        }
+    }
+}
+
+/// Flat discovery-list entry for one verified public capability.
+fn mode_a_entrypoint_summary(record: &PublicCapabilityMetadata) -> Value {
+    json!({
+        "kind": "capability",
+        "namespace": record.namespace,
+        "id": record.id,
+        "version": record.version,
+        "service_type": record.service_type,
+        "lifecycle": record.lifecycle,
+        "summary": record.summary,
+        "artifact_digest": record.artifact_digest,
+    })
+}
+
+/// Redacted detail for one verified public capability. Never exposes the raw
+/// contract, private records, request paths, or credentials (FR-005).
+fn mode_a_entrypoint_detail(record: &PublicCapabilityMetadata) -> Value {
+    json!({
+        "artifact_kind": "capability",
+        "namespace": record.namespace,
+        "id": record.id,
+        "version": record.version,
+        "service_type": record.service_type,
+        "permitted_targets": record.permitted_targets,
+        "lifecycle": record.lifecycle,
+        "summary": record.summary,
+        "description": record.description,
+        "scenarios": record.scenarios,
+        "artifact_digest": record.artifact_digest,
+        "source_release": record.source_release,
+        "index_digest": record.index_digest,
+        "provenance": record.provenance,
+    })
+}
+
+/// Verification evidence surfaced alongside every Mode A validate/execute
+/// response — the digest handed to the executor and where it was selected from.
+fn mode_a_artifact_summary(
+    context: &ModeAContext,
+    record: &PublicCapabilityMetadata,
+    component: &ResolvedRegistryComponent,
+) -> Value {
+    json!({
+        "digest": component.wasm_digest,
+        "digest_matches_public_state": component.wasm_digest == record.artifact_digest,
+        "verified": true,
+        "verification": "digest",
+        "source_release": context.metadata.source_release,
+        "index_digest": context.metadata.index_digest,
+        "stale": context.metadata.stale,
+    })
+}
+
+/// Build a one-capability registration bound to the digest-verified WASM path.
+fn mode_a_capability_registration(component: &ResolvedRegistryComponent) -> CapabilityRegistration {
+    let contract = component.contract.clone();
+    let id = contract.id.clone();
+    let version = contract.version.clone();
+    let binary_location = component.wasm_binary_path.display().to_string();
+    CapabilityRegistration {
+        scope: RegistryScope::Public,
+        contract_path: component.contract_path.display().to_string(),
+        artifact: CapabilityArtifactRecord {
+            artifact_ref: format!("verified-registry:{id}:{version}"),
+            implementation_kind: ImplementationKind::Executable,
+            source: SourceReference {
+                kind: SourceKind::Local,
+                location: binary_location.clone(),
+            },
+            binary: Some(BinaryReference {
+                format: RegistryBinaryFormat::Wasm,
+                location: binary_location,
+                signature: None,
+            }),
+            workflow_ref: None,
+            digests: ArtifactDigests {
+                source_digest: format!("verified-registry-contract:{id}:{version}"),
+                binary_digest: Some(component.wasm_digest.clone()),
+            },
+            provenance: RegistryProvenance {
+                source: provenance_source_label(&contract.provenance.source),
+                author: contract.provenance.author.clone(),
+                created_at: contract.provenance.created_at.clone(),
+            },
+        },
+        registered_at: format!("verified-registry:{id}@{version}"),
+        tags: Vec::new(),
+        composability: ComposabilityMetadata {
+            kind: CompositionKind::Atomic,
+            patterns: Vec::new(),
+            provides: Vec::new(),
+            requires: Vec::new(),
+        },
+        governing_spec: MODE_A_GOVERNING_SPEC.to_string(),
+        validator_version: env!("CARGO_PKG_VERSION").to_string(),
+        contract,
+    }
 }
 
 fn runtime_request_summary(runtime_request: &RuntimeRequest) -> Value {
