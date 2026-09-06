@@ -15,14 +15,17 @@ use traverse_embedder::{
     read_public_metadata, resolve_registry_component,
 };
 use traverse_registry::{
-    ArtifactDigests, BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
-    CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
-    CompositionPattern, EventRegistration, EventRegistry, ImplementationKind, RegistryBundle,
-    RegistryProvenance, RegistryReference, RegistryScope, ResolvedRegistryComponent, SourceKind,
-    SourceReference, WorkflowReference, WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
+    ArtifactDigests, BinaryFormat as RegistryBinaryFormat, BinaryReference,
+    CapabilityArtifactRecord, CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata,
+    CompositionKind, CompositionPattern, EventRegistration, EventRegistry, ImplementationKind,
+    RegistryBundle, RegistryProvenance, RegistryReference, RegistryScope,
+    ResolvedRegistryComponent, SourceKind, SourceReference, WorkflowReference,
+    WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
 };
 use traverse_runtime::security::RuntimeSecurityConfig;
-use traverse_runtime::{ArtifactRouter, LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request};
+use traverse_runtime::{
+    ArtifactRouter, LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request,
+};
 
 const SERVER_NAME: &str = "traverse-mcp";
 const HOST_MODE: &str = "stdio";
@@ -990,17 +993,19 @@ where
     ) -> Result<crate::McpExecutionResponse, StdioServerFailure> {
         let registration = mode_a_capability_registration(component);
         let mut capability_registry = CapabilityRegistry::new();
-        capability_registry.register(registration).map_err(|failure| {
-            StdioServerFailure::new(
-                "registry_registration_failed",
-                failure
-                    .errors
-                    .first()
-                    .map_or("verified capability registration failed", |error| {
-                        error.message.as_str()
-                    }),
-            )
-        })?;
+        capability_registry
+            .register(registration)
+            .map_err(|failure| {
+                StdioServerFailure::new(
+                    "registry_registration_failed",
+                    failure
+                        .errors
+                        .first()
+                        .map_or("verified capability registration failed", |error| {
+                            error.message.as_str()
+                        }),
+                )
+            })?;
 
         let router = ArtifactRouter::new().map_err(|failure| {
             StdioServerFailure::new("execution_failed", format!("{failure:?}"))
@@ -1020,9 +1025,8 @@ where
             &workflow_registry,
             &runtime,
         );
-        mcp.execute(request).map_err(|error| {
-            StdioServerFailure::new("execution_failed", format!("{error:?}"))
-        })
+        mcp.execute(request)
+            .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))
     }
 
     fn entrypoint_artifacts(
@@ -1516,20 +1520,28 @@ pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServe
     let catalog = Box::leak(Box::new(catalog));
     let mut server = TraverseMcpStdioServer::new(mcp, catalog);
 
-    // Spec 119: engage Mode A when the host names a verified registry cache.
-    // Loading fails closed — a missing or invalid prepared state stops startup
-    // rather than silently falling back to the expedition catalog (FR-003).
-    if let Some(cache_root) = std::env::var_os(MODE_A_CACHE_ENV) {
-        let mode_a = Box::leak(Box::new(ModeAContext::load(PathBuf::from(cache_root))?));
-        server = server.with_mode_a(mode_a);
-    }
-
     let stdin = io::stdin();
     let stdout = io::stdout();
     let stderr = io::stderr();
 
     let mut stdout = stdout.lock();
     let mut stderr = stderr.lock();
+
+    // Spec 119: engage Mode A when the host names a verified registry cache.
+    // Loading fails closed — a missing or invalid prepared state stops startup
+    // with a stable error envelope rather than silently falling back to the
+    // expedition catalog (FR-003).
+    if let Some(cache_root) = std::env::var_os(MODE_A_CACHE_ENV) {
+        match ModeAContext::load(PathBuf::from(cache_root)) {
+            Ok(context) => {
+                server = server.with_mode_a(Box::leak(Box::new(context)));
+            }
+            Err(failure) => {
+                let _ = write_json_line(&mut stderr, &failure.envelope());
+                return Err(failure);
+            }
+        }
+    }
     server.run_stdio_with_auth(
         stdin.lock(),
         &mut stdout,
@@ -1941,8 +1953,8 @@ fn mode_a_capability_registration(component: &ResolvedRegistryComponent) -> Capa
         tags: Vec::new(),
         composability: ComposabilityMetadata {
             kind: CompositionKind::Atomic,
-            patterns: Vec::new(),
-            provides: Vec::new(),
+            patterns: vec![CompositionPattern::Sequential],
+            provides: vec![id.clone()],
             requires: Vec::new(),
         },
         governing_spec: MODE_A_GOVERNING_SPEC.to_string(),
@@ -3140,5 +3152,611 @@ mod tests {
             missing_field.code,
             traverse_runtime::LocalExecutionFailureCode::ExecutionFailed
         );
+    }
+
+    // ----------------------------------------------------------------------
+    // Spec 119 Mode A: verified public-registry discovery and execution
+    // ----------------------------------------------------------------------
+
+    mod mode_a {
+        #![allow(clippy::unwrap_used, clippy::panic)]
+
+        use super::*;
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write as _;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use traverse_embedder::{
+            RegistryArtifactFetcher, prepare_registry_dependency, publish_public_metadata,
+        };
+        use traverse_registry::{
+            PublicRegistryCapabilityRecord, PublicUseCaseSummary, SyncedPublicRegistryState,
+        };
+
+        const KIT_ID: &str = "core.normalize-participants";
+        const KIT_NAMESPACE: &str = "core";
+        const KIT_VERSION: &str = "1.1.0";
+        const KIT_ARTIFACT_URL: &str =
+            "https://registry.test/core/normalize-participants/1.1.0/module.wasm";
+        const KIT_CONTRACT_URL: &str =
+            "https://registry.test/core/normalize-participants/1.1.0/contract.json";
+
+        fn repo_root() -> PathBuf {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .and_then(Path::parent)
+                .expect("workspace root")
+                .to_path_buf()
+        }
+
+        fn sha256_prefixed(bytes: &[u8]) -> String {
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            let mut out = String::from("sha256:");
+            for byte in hasher.finalize() {
+                write!(out, "{byte:02x}").expect("writing to a String cannot fail");
+            }
+            out
+        }
+
+        fn kit_wasm_bytes() -> Vec<u8> {
+            fs::read(repo_root().join(
+                "examples/core-normalize-participants/artifacts/core-normalize-participants.wasm",
+            ))
+            .expect("kit wasm fixture must exist")
+        }
+
+        fn kit_contract_bytes() -> Vec<u8> {
+            fs::read(repo_root().join("examples/core-normalize-participants/contract.json"))
+                .expect("kit contract fixture must exist")
+        }
+
+        fn kit_request_json() -> String {
+            let value: Value = serde_json::from_slice(
+                &fs::read(repo_root().join(
+                    "examples/core-normalize-participants/runtime-requests/uc01-mixed-match.json",
+                ))
+                .expect("kit runtime request fixture must exist"),
+            )
+            .expect("kit runtime request must be valid json");
+            value.to_string()
+        }
+
+        fn kit_reference() -> RegistryReference {
+            RegistryReference {
+                namespace: KIT_NAMESPACE.to_string(),
+                id: KIT_ID.to_string(),
+                version_range: format!("={KIT_VERSION}"),
+            }
+        }
+
+        fn kit_snapshot() -> SyncedPublicRegistryState {
+            let record = PublicRegistryCapabilityRecord {
+                namespace: KIT_NAMESPACE.to_string(),
+                id: KIT_ID.to_string(),
+                version: KIT_VERSION.to_string(),
+                digest: sha256_prefixed(&kit_wasm_bytes()),
+                artifact_url: KIT_ARTIFACT_URL.to_string(),
+                contract_digest: sha256_prefixed(&kit_contract_bytes()),
+                contract_url: KIT_CONTRACT_URL.to_string(),
+                deprecated: false,
+                summary: "Normalize raw participants into canonical records.".to_string(),
+                description: "Verified public kit fixture for Mode A tests.".to_string(),
+                use_cases: vec![PublicUseCaseSummary {
+                    scenario: "Resolve extracted names and emails to workspace members."
+                        .to_string(),
+                }],
+                service_type: "stateless".to_string(),
+                permitted_targets: vec!["wasm".to_string()],
+                lifecycle: "active".to_string(),
+                provenance: None,
+            };
+            SyncedPublicRegistryState {
+                schema_version: "1.0.0".to_string(),
+                workspace_id: "mode-a-fixture".to_string(),
+                state_scope: "public_registry_synced".to_string(),
+                source_repo: "traverse-framework/registry".to_string(),
+                release_tag: "index-v1".to_string(),
+                index_version: 1,
+                generated_at: "2026-08-25T00:00:00Z".to_string(),
+                source_commit: None,
+                synced_at: "2026-08-25T00:00:00Z".to_string(),
+                record_count: 1,
+                validation_status: "valid".to_string(),
+                governing_spec: "055-registry-sync".to_string(),
+                capabilities: vec![record],
+                events: Vec::new(),
+            }
+        }
+
+        struct LocalKitFetcher;
+        impl RegistryArtifactFetcher for LocalKitFetcher {
+            fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
+                match url {
+                    KIT_ARTIFACT_URL => Ok(kit_wasm_bytes()),
+                    KIT_CONTRACT_URL => Ok(kit_contract_bytes()),
+                    other => Err(format!("unexpected fetch url {other}")),
+                }
+            }
+        }
+
+        fn fresh_cache_root(tag: &str) -> PathBuf {
+            static SEQ: AtomicU64 = AtomicU64::new(0);
+            let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "traverse-mcp-mode-a-{tag}-{}-{seq}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&root);
+            root
+        }
+
+        /// A fully prepared, digest-verified Mode A cache in a fresh temp dir.
+        fn build_verified_cache(tag: &str) -> PathBuf {
+            let root = fresh_cache_root(tag);
+            let cache = HostRegistryCache::new(&root);
+            let snapshot = kit_snapshot();
+            prepare_registry_dependency(&cache, &snapshot, &kit_reference(), &LocalKitFetcher)
+                .expect("prepare verified kit");
+            publish_public_metadata(&cache, &snapshot, false).expect("publish public metadata");
+            root
+        }
+
+        fn mode_a_context(root: &Path) -> &'static ModeAContext {
+            Box::leak(Box::new(
+                ModeAContext::load(root).expect("verified cache must load"),
+            ))
+        }
+
+        fn mode_a_server(
+            root: &Path,
+        ) -> TraverseMcpStdioServer<'static, ExpeditionExampleExecutor> {
+            build_test_server().with_mode_a(mode_a_context(root))
+        }
+
+        /// Drive one command line through the server and return every stdout
+        /// envelope as parsed JSON.
+        fn drive(
+            server: &TraverseMcpStdioServer<'_, ExpeditionExampleExecutor>,
+            line: &str,
+            auth: &StdioAuthConfig,
+        ) -> (Vec<Value>, String, Result<(), StdioServerFailure>) {
+            let input = std::io::Cursor::new(format!("{line}\n").into_bytes());
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let outcome = server.run_stdio_with_auth(input, &mut stdout, &mut stderr, false, auth);
+            let envelopes = String::from_utf8(stdout)
+                .expect("stdout utf-8")
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str::<Value>(l).expect("stdout line json"))
+                .collect();
+            (
+                envelopes,
+                String::from_utf8(stderr).expect("stderr utf-8"),
+                outcome,
+            )
+        }
+
+        fn envelope<'a>(envelopes: &'a [Value], kind: &str) -> &'a Value {
+            envelopes
+                .iter()
+                .find(|value| value["kind"] == json!(kind))
+                .unwrap_or_else(|| panic!("missing {kind} envelope in {envelopes:?}"))
+        }
+
+        #[test]
+        #[ignore = "regenerates the committed Mode A fixture cache under tests/fixtures"]
+        fn regenerate_committed_fixture() {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mode-a-cache");
+            let _ = fs::remove_dir_all(&root);
+            let cache = HostRegistryCache::new(&root);
+            let snapshot = kit_snapshot();
+            prepare_registry_dependency(&cache, &snapshot, &kit_reference(), &LocalKitFetcher)
+                .expect("prepare verified kit");
+            publish_public_metadata(&cache, &snapshot, false).expect("publish public metadata");
+        }
+
+        #[test]
+        fn startup_reports_verified_public_mode_and_no_content_groups() {
+            let root = build_verified_cache("startup");
+            let server = mode_a_server(&root);
+            let (envelopes, stderr, outcome) = drive(
+                &server,
+                r#"{"command":"describe_server"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            assert!(stderr.is_empty());
+            let startup = envelope(&envelopes, "mcp_stdio_server_startup");
+            assert_eq!(startup["mode"], json!("verified_public"));
+            assert_eq!(startup["governing_spec"], json!(MODE_A_GOVERNING_SPEC));
+            assert_eq!(startup["content_group_count"], json!(0));
+            assert_eq!(
+                startup["discovery_source"]["kind"],
+                json!("host_verified_public_registry")
+            );
+            assert_eq!(startup["discovery_source"]["capability_count"], json!(1));
+        }
+
+        #[test]
+        fn discovery_lists_only_verified_public_entries_without_expedition_records() {
+            let root = build_verified_cache("discovery");
+            let server = mode_a_server(&root);
+            let (envelopes, _, outcome) = drive(
+                &server,
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            let list = envelope(&envelopes, "mcp_stdio_server_entrypoint_list");
+            assert_eq!(list["governing_spec"], json!(MODE_A_GOVERNING_SPEC));
+            assert_eq!(list["content_groups"], json!([]));
+            let capabilities = list["entrypoints"]["capabilities"]
+                .as_array()
+                .expect("capabilities array");
+            assert_eq!(capabilities.len(), 1);
+            assert_eq!(capabilities[0]["id"], json!(KIT_ID));
+            assert_eq!(capabilities[0]["version"], json!(KIT_VERSION));
+            assert_eq!(list["entrypoints"]["workflows"], json!([]));
+            let serialized = serde_json::to_string(list).unwrap();
+            assert!(!serialized.contains("expedition"));
+        }
+
+        #[test]
+        fn describe_entrypoint_returns_redacted_public_detail() {
+            let root = build_verified_cache("describe");
+            let server = mode_a_server(&root);
+            let (envelopes, _, outcome) = drive(
+                &server,
+                &format!(
+                    r#"{{"command":"describe_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}"}}"#
+                ),
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            let detail = envelope(&envelopes, "mcp_stdio_server_entrypoint_description");
+            let entrypoint = &detail["entrypoint"];
+            assert_eq!(entrypoint["id"], json!(KIT_ID));
+            assert_eq!(entrypoint["artifact_kind"], json!("capability"));
+            assert!(entrypoint.get("input_schema").is_none());
+            assert!(entrypoint.get("contract").is_none());
+        }
+
+        #[test]
+        fn describe_unknown_entrypoint_and_content_group_fail_closed() {
+            let root = build_verified_cache("unknown");
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"describe_entrypoint","entrypoint_kind":"capability","id":"core.missing","version":"9.9.9"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(
+                outcome.expect_err("unknown entrypoint must fail").code,
+                "not_found"
+            );
+
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"describe_content_group","content_group_id":"core-runtime-example"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(
+                outcome.expect_err("no content groups in Mode A").code,
+                "not_found"
+            );
+        }
+
+        #[test]
+        fn inline_execute_runs_the_exact_digest_verified_wasm_artifact() {
+            let root = build_verified_cache("execute");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            let execution = envelope(&envelopes, "mcp_stdio_server_entrypoint_execution");
+            assert_eq!(execution["mode"], json!("verified_public"));
+            assert_eq!(execution["status"], json!("completed"));
+            assert_eq!(execution["request_source"], json!("inline"));
+            assert_eq!(execution["request_path"], Value::Null);
+            assert_eq!(execution["artifact"]["verified"], json!(true));
+            assert_eq!(
+                execution["artifact"]["digest_matches_public_state"],
+                json!(true)
+            );
+            assert_eq!(execution["result"]["status"], json!("completed"));
+            assert!(execution["result"].get("error").is_none_or(Value::is_null));
+            // FR-005: redacted public trace only — the private trace fields are
+            // named in `private_fields_omitted` and are absent as trace keys.
+            let trace = &execution["trace"];
+            assert!(trace["private_fields_omitted"].is_array());
+            for private_key in ["decision_evidence", "otel_trace", "selection", "execution"] {
+                assert!(
+                    trace.get(private_key).is_none(),
+                    "redacted trace must not carry {private_key}"
+                );
+            }
+        }
+
+        #[test]
+        fn execute_rejects_supplying_both_request_and_request_path() {
+            let root = build_verified_cache("xor");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request_path":"examples/core-normalize-participants/runtime-requests/uc01-mixed-match.json","request":{}}}"#,
+                kit_request_json()
+            );
+            let (_, stderr, outcome) = drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_err());
+            assert!(stderr.contains("not both"));
+        }
+
+        #[test]
+        fn execute_rejects_an_identity_mismatch_between_request_and_entrypoint() {
+            let root = build_verified_cache("identity");
+            let server = mode_a_server(&root);
+            let mut request: Value = serde_json::from_str(&kit_request_json()).unwrap();
+            request["intent"]["capability_version"] = json!("2.0.0");
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{request}}}"#
+            );
+            let (_, stderr, outcome) = drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_err());
+            assert!(stderr.contains("does not match"));
+        }
+
+        #[test]
+        fn workflow_entrypoint_kind_is_rejected_in_mode_a() {
+            let root = build_verified_cache("workflow");
+            let server = mode_a_server(&root);
+            let (_, stderr, outcome) = drive(
+                &server,
+                r#"{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"x","version":"1.0.0","request_path":"examples/core-normalize-participants/runtime-requests/uc01-mixed-match.json"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_err());
+            assert!(stderr.contains("capability"));
+        }
+
+        #[test]
+        fn missing_prepared_state_fails_closed_without_a_fallback_catalog() {
+            let root = fresh_cache_root("absent");
+            let failure = ModeAContext::load(&root).expect_err("absent state must fail closed");
+            assert_eq!(failure.code, "registry_sync_missing");
+        }
+
+        #[test]
+        fn malformed_public_metadata_generation_fails_closed() {
+            let root = build_verified_cache("malformed");
+            let generation = root.join("public-metadata").join("current.json");
+            fs::write(&generation, b"{ not valid json").expect("overwrite generation");
+            let failure = ModeAContext::load(&root).expect_err("malformed state must fail closed");
+            assert_eq!(failure.code, "registry_metadata_cache_invalid");
+        }
+
+        #[test]
+        fn execute_fails_closed_when_the_verified_artifact_entry_is_missing() {
+            let root = build_verified_cache("tampered");
+            // Remove the digest-verified artifact bytes but keep discovery state.
+            let sha_dir = root.join("sha256");
+            for entry in fs::read_dir(&sha_dir).expect("sha256 dir") {
+                fs::remove_file(entry.expect("dir entry").path()).expect("remove artifact");
+            }
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (_, stderr, outcome) = drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_err());
+            assert!(
+                stderr.contains("registry_cache_entry_missing")
+                    || stderr.contains("registry_prepare_failed")
+            );
+        }
+
+        #[test]
+        fn committed_fixture_cache_serves_discovery_and_inline_execute() {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mode-a-cache");
+            assert!(
+                root.join("public-metadata/current.json").is_file(),
+                "run `cargo test -p traverse-mcp -- --ignored regenerate_committed_fixture` to rebuild the fixture"
+            );
+            let server = mode_a_server(&root);
+            let (discovery, _, discovery_outcome) = drive(
+                &server,
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(discovery_outcome.is_ok());
+            assert_eq!(
+                envelope(&discovery, "mcp_stdio_server_entrypoint_list")["entrypoints"]["capabilities"]
+                    [0]["id"],
+                json!(KIT_ID)
+            );
+
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (execution, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            assert_eq!(
+                envelope(&execution, "mcp_stdio_server_entrypoint_execution")["result"]["status"],
+                json!("completed")
+            );
+        }
+
+        #[test]
+        fn validate_entrypoint_reports_verified_artifact_evidence_without_executing() {
+            let root = build_verified_cache("validate");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"validate_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            let validation = envelope(&envelopes, "mcp_stdio_server_entrypoint_validation");
+            assert_eq!(validation["status"], json!("valid"));
+            assert_eq!(validation["mode"], json!("verified_public"));
+            assert_eq!(validation["request_source"], json!("inline"));
+            assert_eq!(
+                validation["artifact"]["digest_matches_public_state"],
+                json!(true)
+            );
+            assert_eq!(
+                validation["request"]["intent"]["capability_id"],
+                json!(KIT_ID)
+            );
+        }
+
+        #[test]
+        fn render_execution_report_returns_a_redacted_report_from_the_verified_artifact() {
+            let root = build_verified_cache("report");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"render_execution_report","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            let report = envelope(&envelopes, "mcp_stdio_server_execution_report");
+            assert_eq!(report["status"], json!("rendered"));
+            assert_eq!(report["mode"], json!("verified_public"));
+            assert_eq!(report["report"]["trace_redacted"], json!(true));
+            assert_eq!(report["report"]["result_status"], json!("completed"));
+            assert_eq!(report["execution"]["result"]["status"], json!("completed"));
+        }
+
+        #[test]
+        fn execute_requires_the_local_bearer_token_when_configured() {
+            let root = build_verified_cache("auth");
+            let auth = StdioAuthConfig::bearer_required("mode-a-secret");
+            let denied_line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (_, _, outcome) = drive(&mode_a_server(&root), &denied_line, &auth);
+            assert_eq!(outcome.expect_err("missing token").code, "auth_required");
+
+            let allowed_line = format!(
+                r#"{{"command":"execute_entrypoint","auth":{{"type":"bearer","token":"mode-a-secret"}},"entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) = drive(&mode_a_server(&root), &allowed_line, &auth);
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            assert_eq!(
+                envelope(&envelopes, "mcp_stdio_server_entrypoint_execution")["status"],
+                json!("completed")
+            );
+        }
+
+        #[test]
+        fn mode_a_commands_reject_missing_id_or_version() {
+            let root = build_verified_cache("fields");
+            for line in [
+                r#"{"command":"execute_entrypoint","entrypoint_kind":"capability","request":{}}"#,
+                r#"{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"core.x","request":{}}"#,
+            ] {
+                let (_, _, outcome) =
+                    drive(&mode_a_server(&root), line, &StdioAuthConfig::local_trust());
+                assert_eq!(outcome.expect_err("missing field").code, "invalid_request");
+            }
+        }
+
+        #[test]
+        fn mode_a_requires_request_or_request_path() {
+            let root = build_verified_cache("norequest");
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                &format!(
+                    r#"{{"command":"validate_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}"}}"#
+                ),
+                &StdioAuthConfig::local_trust(),
+            );
+            let failure = outcome.expect_err("no request must fail");
+            assert_eq!(failure.code, "invalid_request");
+        }
+
+        #[test]
+        fn search_capabilities_runs_against_the_verified_public_generation() {
+            let root = build_verified_cache("search");
+            let (envelopes, _, outcome) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"search_capabilities","query":"resolve extracted names"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            let search = envelope(&envelopes, "mcp_capability_search");
+            let records = search["records"].as_array().expect("records array");
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0]["id"], json!(KIT_ID));
+        }
+
+        #[test]
+        fn describe_server_and_list_content_groups_reflect_mode_a() {
+            let root = build_verified_cache("describe-server");
+            let (describe, _, _) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"describe_server"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            let description = envelope(&describe, "mcp_stdio_server_description");
+            assert_eq!(description["mode"], json!("verified_public"));
+            assert_eq!(
+                description["governed_surface_counts"]["capabilities"],
+                json!(1)
+            );
+            assert_eq!(description["content_groups"], json!([]));
+
+            let (groups, _, _) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"list_content_groups"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(
+                envelope(&groups, "mcp_stdio_server_content_group_list")["content_groups"],
+                json!([])
+            );
+        }
+
+        #[test]
+        fn describe_entrypoint_rejects_a_non_capability_kind() {
+            let root = build_verified_cache("describe-kind");
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                &format!(
+                    r#"{{"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"{KIT_ID}","version":"{KIT_VERSION}"}}"#
+                ),
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(outcome.expect_err("workflow kind").code, "invalid_request");
+        }
+
+        #[test]
+        fn repeated_discovery_from_unchanged_state_is_deterministic() {
+            let root = build_verified_cache("deterministic");
+            let first = drive(
+                &mode_a_server(&root),
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            )
+            .0;
+            let second = drive(
+                &mode_a_server(&root),
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            )
+            .0;
+            assert_eq!(first, second);
+        }
     }
 }

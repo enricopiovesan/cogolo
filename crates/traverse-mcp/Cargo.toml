@@ -21,5 +21,8 @@ traverse-registry = { workspace = true }
 traverse-embedder = { workspace = true }
 traverse-runtime = { workspace = true }
 
+[dev-dependencies]
+sha2 = "0.11"
+
 [lints]
 workspace = true
