@@ -4,7 +4,63 @@ set -euo pipefail
 
 repo="traverse-framework/traverse"
 
-project_items_json=$(gh project item-list 1 --owner traverse-framework --format json --limit 500)
+project_items_query='query {
+  organization(login: "traverse-framework") {
+    projectV2(number: 1) {
+      items(first: 100) {
+        nodes {
+          content { ... on Issue { number repository { nameWithOwner } } }
+          status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          note: fieldValueByName(name: "Note") { ... on ProjectV2ItemFieldTextValue { text } }
+        }
+        pageInfo { endCursor hasNextPage }
+      }
+    }
+  }
+}'
+
+project_items_after_query='query($after: String!) {
+  organization(login: "traverse-framework") {
+    projectV2(number: 1) {
+      items(first: 100, after: $after) {
+        nodes {
+          content { ... on Issue { number repository { nameWithOwner } } }
+          status: fieldValueByName(name: "Status") { ... on ProjectV2ItemFieldSingleSelectValue { name } }
+          note: fieldValueByName(name: "Note") { ... on ProjectV2ItemFieldTextValue { text } }
+        }
+        pageInfo { endCursor hasNextPage }
+      }
+    }
+  }
+}'
+
+project_items_json='{"items":[]}'
+after=''
+has_next_page=true
+while [[ "$has_next_page" == "true" ]]; do
+  if [[ -z "$after" ]]; then
+    page_json=$(gh api graphql -f query="$project_items_query")
+  else
+    page_json=$(gh api graphql -f query="$project_items_after_query" -f after="$after")
+  fi
+
+  page_items=$(jq '[
+    .data.organization.projectV2.items.nodes[]
+    | select(.content.number != null)
+    | {
+        content: {
+          type: "Issue",
+          repository: .content.repository.nameWithOwner,
+          number: .content.number
+        },
+        status: (.status.name // ""),
+        note: (.note.text // "")
+      }
+  ]' <<<"$page_json")
+  project_items_json=$(jq --argjson page_items "$page_items" '.items += $page_items' <<<"$project_items_json")
+  after=$(jq -r '.data.organization.projectV2.items.pageInfo.endCursor // empty' <<<"$page_json")
+  has_next_page=$(jq -r '.data.organization.projectV2.items.pageInfo.hasNextPage' <<<"$page_json")
+done
 
 failures=0
 
@@ -40,8 +96,7 @@ for issue_number in $blocked_without_note_issue_numbers; do
 done
 
 open_pr_bodies=$(
-  gh pr list --repo "$repo" --state open --json body \
-    | jq -r '.[] | .body'
+  gh api "repos/$repo/pulls?state=open&per_page=100" --jq '.[].body'
 )
 
 while IFS= read -r pr_body; do
