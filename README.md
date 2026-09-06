@@ -14,9 +14,9 @@
 
 Traverse is a contract-driven WebAssembly runtime for portable business
 capabilities. You write a piece of business logic once — as a capability with a
-machine-readable contract — and the same signed WASM binary runs natively, in
-the browser, and inside an AI agent, producing a verifiable execution trace
-every time.
+machine-readable contract — and the same signed WASM binary runs on Linux,
+macOS, and Windows, on iOS and Android, in the browser, and inside an AI agent
+— producing a verifiable execution trace every time.
 
 No reimplementation per environment. No agent free-handing your pricing rules.
 One behavior, governed, everywhere it needs to run.
@@ -114,17 +114,34 @@ here:
 
 ## Where it runs
 
-The same capability contract and WASM artifact, four ways — none of them
-privileged over the others:
+One capability contract and one WASM artifact, executed the same way on every
+target through a platform embedder that speaks `embedder-api/1.0.0`. Each
+embedder digest-verifies the runtime, rejects ambient imports, and enforces the
+same Host ABI — the browser is one target among several, not the default.
 
-| Target | How | Guide |
-|---|---|---|
-| **Native / server** | Embed the Rust runtime (`traverse-embedder`, `embedder-api/1.0.0`) or invoke `traverse-cli` per request | [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) |
-| **AI agent** | `traverse-mcp` stdio server — agents discover and call governed capabilities over MCP | [docs/mcp-stdio-server.md](docs/mcp-stdio-server.md) · [docs/mcp-real-agent-exercise.md](docs/mcp-real-agent-exercise.md) |
-| **Browser** | The runtime compiles to WASM; the app owns the UI, Traverse owns execution, state, and trace | [quickstart.md](quickstart.md) |
-| **Your own app bundle** | `traverse-cli app new <id>` scaffolds a governed bundle of contracts, workflows, and components | [docs/expedition-example-authoring.md](docs/expedition-example-authoring.md) |
+| Platform | Embedder | WASM host | Status |
+|---|---|---|---|
+| **Linux / server / CLI** | `traverse-embedder` (Rust) · `traverse-cli` | Wasmtime | Published on crates.io |
+| **Browser** | `traverse-embedder-web` (TypeScript) | the browser's own `WebAssembly` | Published (npm) |
+| **iOS / macOS** | `packages/swift` — `TraverseEmbedder` Swift Package | WasmKit | In-repo package, CI-conformed; not yet on SwiftPM |
+| **Android** | `packages/kotlin` — `TraverseEmbedder` Android library | Chicory | In-repo package, CI-conformed; not yet on Maven |
+| **Windows / WinUI** | `packages/dotnet` — `TraverseEmbedder` .NET library | Wasmtime .NET | In-repo package, CI-conformed; not yet on NuGet |
+| **AI agent** | `traverse-mcp` stdio server | via the host embedder | Published on crates.io |
 
-Edge and cloud placement targets are on the roadmap, not shipped.
+All five embedders run against one CI-enforced conformance suite (spec
+`068-public-platform-embedder-packages`), so a capability that passes on one
+platform behaves the same on the rest. Desktop targets (Linux x86_64/aarch64,
+macOS x86_64/arm64, Windows x86_64) are covered by the CI matrix on every PR.
+
+**Cloud and edge** placement targets are specified and on the roadmap, not yet
+shipped.
+
+Scaffold your own governed bundle with `traverse-cli app new <id>` —
+[docs/expedition-example-authoring.md](docs/expedition-example-authoring.md).
+Guides: [docs/wasm-microservice-authoring-guide.md](docs/wasm-microservice-authoring-guide.md) ·
+[docs/mcp-stdio-server.md](docs/mcp-stdio-server.md) ·
+[docs/mcp-real-agent-exercise.md](docs/mcp-real-agent-exercise.md) ·
+[quickstart.md](quickstart.md).
 
 ---
 
@@ -136,6 +153,7 @@ real, running, tested code.
 | | |
 |---|---|
 | **Runtime crates** | 8 in this repo; 6 published to [crates.io](https://crates.io/search?q=traverse-) at `0.10.0` (`traverse-contracts`, `traverse-runtime`, `traverse-embedder`, `traverse-mcp`, `traverse-cli-rs`, `traverse-expedition-wasm`). `traverse-native-bridge` and `traverse-swift-host` are newer and not yet published. |
+| **Platform SDKs** | 5 embedders on one `embedder-api/1.0.0` contract and one CI conformance suite — Rust (crates.io) and Web/TypeScript (npm) published; Swift/iOS+macOS (WasmKit), Kotlin/Android (Chicory), and .NET/Windows (Wasmtime) in `packages/` with production runtime bridges, not yet on SwiftPM/Maven/NuGet. |
 | **Registry** | [`traverse-framework/registry`](https://github.com/traverse-framework/registry) — its own repo (spec 051). `traverse-registry` `0.18.0` on crates.io; **46 capabilities / 117 versions / 24 domains** in the live catalog, all signed and CI-validated. |
 | **Governance** | **133 approved, immutable specs** gate the runtime, contracts, registry, MCP surface, WASM execution, native embedding, event delivery, and durable local storage. `jq -r '.specs[].id' specs/governance/approved-specs.json` |
 | **Quality bar** | 100% line coverage enforced on the core crates (`traverse-contracts`, `traverse-runtime`, `traverse-embedder`); `traverse-cli-rs` 87%, `traverse-mcp` 98%. Spec-alignment and supply-chain gates on every PR. 5-target CI matrix: Linux x86_64/aarch64, macOS x86_64/arm64, Windows x86_64. |
