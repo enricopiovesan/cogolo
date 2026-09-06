@@ -23,7 +23,7 @@ At `v1.0.0`, Traverse makes the following stability commitments:
 **Public API (stable — semver guarantees apply):**
 - `traverse-runtime`: `CapabilityExecutor`, `ExecutorCapability`, `ExecutorError`, `ArtifactType`, `PlacementRouter`, `RouterRequest`, `RouterResponse`, `TraceStore`, `TraceOutcome`
 - `traverse-contracts`: all public contract types (`CapabilityContract`, `EventContract`, etc.)
-- `traverse-registry` v0.9.0 is consumed as a separately published registry crate; its public API compatibility is governed in `traverse-framework/registry`.
+- `traverse-registry` (currently v0.18.0) is consumed as a separately published registry crate; its public API compatibility is governed in `traverse-framework/registry`.
 - `traverse-cli`: all documented CLI subcommands and their `--json` output shapes
 - `traverse-mcp`: `discover_capabilities()`, `execute_capability()` library surface
 

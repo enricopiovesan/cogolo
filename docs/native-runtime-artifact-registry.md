@@ -28,7 +28,7 @@ use traverse_registry::{
 };
 
 let record = NativeRuntimeArtifactRecord {
-    runtime_version: "0.9.0".to_string(),
+    runtime_version: "0.10.0".to_string(),
     bridge_version: "1.1.0".to_string(),
     supported_bridge_range: ">=1.1.0,<2.0.0".to_string(),
     sha256: "<runtime.wasm digest>".to_string(),
