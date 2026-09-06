@@ -73,6 +73,45 @@ To simulate a deterministic startup failure for validation:
 cargo run -p traverse-mcp -- stdio --simulate-startup-failure
 ```
 
+## Verified Public-Registry Mode A
+
+Governed by spec [`119-verified-registry-mcp-mode-a`](../specs/119-verified-registry-mcp-mode-a/spec.md).
+
+When `TRAVERSE_MCP_REGISTRY_CACHE` names a host-owned, digest-verified registry
+cache root, the server engages **Mode A**: discovery and execution are served
+exclusively from that prepared verified state — never the expedition bundle,
+private overrides, in-process registrations, or a network refresh.
+
+```bash
+TRAVERSE_MCP_REGISTRY_CACHE=/srv/traverse/verified-registry-cache \
+  cargo run -p traverse-mcp -- stdio
+```
+
+The versioned binary release and its checksum/provenance pin path for
+Claude Desktop and Cursor are documented in
+[docs/mcp-mode-a-release-evidence.md](mcp-mode-a-release-evidence.md).
+
+In Mode A:
+
+- `describe_server` / `describe` report `"mode": "verified_public"`, the Spec 119
+  governing id, and a `discovery_source` block with the verified `source_release`
+  and `index_digest`.
+- `list_entrypoints` and `describe_entrypoint` return only capabilities present
+  in the verified public-metadata generation. There are no content groups until
+  registry-governed grouping metadata exists (FR-007), so `list_content_groups`
+  is empty and `describe_content_group` returns `not_found`.
+- `validate_entrypoint`, `execute_entrypoint`, and `render_execution_report`
+  accept an inline `request` object (a serialized `RuntimeRequest`) that is
+  mutually exclusive with the legacy `request_path`. Every response reports
+  `request_source` and an `artifact` block with the digest handed to the WASM
+  executor and whether it matches the verified public state.
+- Execution resolves the exact digest-verified published WASM from the cache and
+  runs it through the real runtime WASM executor. A missing, malformed,
+  unverified, or unprepared state or artifact fails closed with a stable code
+  (`registry_sync_missing`, `registry_metadata_cache_invalid`,
+  `registry_cache_entry_missing`) — it never degrades to an empty catalog or a
+  demo fallback.
+
 ## Supported Commands
 
 The package emits deterministic JSON envelopes for:
@@ -117,7 +156,15 @@ Run the deterministic smoke test for the package surface:
 bash scripts/ci/mcp_stdio_server_smoke.sh
 bash scripts/ci/mcp_stdio_server_discovery_smoke.sh
 bash scripts/ci/mcp_stdio_server_execution_report_smoke.sh
+bash scripts/ci/mcp_stdio_server_mode_a_smoke.sh
 ```
+
+The `mcp_stdio_server_mode_a_smoke.sh` script drives the released binary against
+the checked-in verified kit fixture at
+`crates/traverse-mcp/tests/fixtures/mode-a-cache` (regenerate it with
+`cargo test -p traverse-mcp --lib -- --ignored --exact stdio_server::tests::mode_a::regenerate_committed_fixture`)
+and asserts Mode A discovery + inline execute succeed and that an unprepared
+cache fails closed.
 
 Run repository checks:
 
