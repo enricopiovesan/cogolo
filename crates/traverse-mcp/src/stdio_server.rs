@@ -10,19 +10,33 @@ use std::fmt;
 use std::fs;
 use std::io::{self, BufRead, Write};
 use std::path::{Path, PathBuf};
-use traverse_embedder::HostRegistryCache;
-use traverse_registry::{
-    BinaryFormat as RegistryBinaryFormat, BinaryReference, CapabilityArtifactRecord,
-    CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata, CompositionKind,
-    CompositionPattern, EventRegistration, EventRegistry, ImplementationKind, RegistryBundle,
-    RegistryProvenance, SourceKind, SourceReference, WorkflowReference, WorkflowRegistration,
-    WorkflowRegistry, load_registry_bundle,
+use traverse_embedder::{
+    HostRegistryCache, PublicCapabilityMetadata, PublicMetadataRead, RegistryCacheError,
+    read_public_metadata, resolve_registry_component,
 };
-use traverse_runtime::{LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request};
+use traverse_registry::{
+    ArtifactDigests, BinaryFormat as RegistryBinaryFormat, BinaryReference,
+    CapabilityArtifactRecord, CapabilityRegistration, CapabilityRegistry, ComposabilityMetadata,
+    CompositionKind, CompositionPattern, EventRegistration, EventRegistry, ImplementationKind,
+    RegistryBundle, RegistryProvenance, RegistryReference, RegistryScope,
+    ResolvedRegistryComponent, SourceKind, SourceReference, WorkflowReference,
+    WorkflowRegistration, WorkflowRegistry, load_registry_bundle,
+};
+use traverse_runtime::security::RuntimeSecurityConfig;
+use traverse_runtime::{
+    ArtifactRouter, LocalExecutor, Runtime, RuntimeRequest, parse_runtime_request,
+};
 
 const SERVER_NAME: &str = "traverse-mcp";
 const HOST_MODE: &str = "stdio";
 const GOVERNING_SPEC: &str = "022-mcp-wasm-server";
+/// Governing spec for the verified public-registry Mode A discovery/execution
+/// surface (env `TRAVERSE_MCP_REGISTRY_CACHE`).
+const MODE_A_GOVERNING_SPEC: &str = "119-verified-registry-mcp-mode-a";
+/// Environment variable naming the host-owned, digest-verified registry cache
+/// root that Mode A consumes. When unset, the server runs the contributor-only
+/// expedition example path.
+const MODE_A_CACHE_ENV: &str = "TRAVERSE_MCP_REGISTRY_CACHE";
 const PUBLIC_SURFACE_ID: &str = "traverse.mcp.stdio-server";
 const SUPPORTING_COMMANDS: &[&str] = &[
     "describe_server",
@@ -54,6 +68,11 @@ struct StdioCommandEnvelope {
     version: Option<String>,
     #[serde(default)]
     request_path: Option<String>,
+    /// Spec 119 FR-002: inline `RuntimeRequest` object, mutually exclusive with
+    /// `request_path`. When present the server never touches the filesystem to
+    /// materialize the request.
+    #[serde(default)]
+    request: Option<Value>,
     #[serde(default)]
     query: Option<String>,
 }
@@ -303,11 +322,54 @@ impl CanonicalExecutionContext {
     }
 }
 
+/// Spec 119 Mode A: verified public-registry discovery and execution state.
+///
+/// Holds the host-owned, digest-verified registry cache and its published
+/// public-metadata generation. All discovery reads come from this generation;
+/// every execution resolves the exact digest-verified WASM artifact from the
+/// same cache. There is no expedition, private, in-process, or network
+/// fallback (FR-001, FR-003, FR-004).
+#[derive(Debug)]
+pub struct ModeAContext {
+    cache: HostRegistryCache,
+    metadata: PublicMetadataRead,
+}
+
+impl ModeAContext {
+    /// Load Mode A state from a host-owned verified registry cache root.
+    ///
+    /// # Errors
+    ///
+    /// Returns a stable `registry_sync_missing` / `registry_metadata_cache_invalid`
+    /// failure when the prepared verified state is absent, malformed, or carries
+    /// invalid verification bindings. A prepared-but-empty generation is valid
+    /// state and yields an empty catalog rather than an error.
+    pub fn load(cache_root: impl Into<PathBuf>) -> Result<Self, StdioServerFailure> {
+        let cache = HostRegistryCache::new(cache_root);
+        let metadata = read_public_metadata(&cache).map_err(mode_a_cache_failure)?;
+        Ok(Self { cache, metadata })
+    }
+
+    /// Exact-identity lookup against the verified public-metadata generation.
+    fn record(&self, id: &str, version: &str) -> Option<&PublicCapabilityMetadata> {
+        self.metadata
+            .records
+            .iter()
+            .find(|record| record.id == id && record.version == version)
+    }
+}
+
+/// Map a verified-registry-cache failure to a stable, secret-free stdio failure.
+fn mode_a_cache_failure(error: RegistryCacheError) -> StdioServerFailure {
+    StdioServerFailure::new(error.code.as_str(), error.message)
+}
+
 #[derive(Debug)]
 pub struct TraverseMcpStdioServer<'a, E> {
     mcp: &'a TraverseMcp<'a, E>,
     catalog: &'a McpDiscoveryCatalog,
     public_metadata_cache: Option<HostRegistryCache>,
+    mode_a: Option<&'a ModeAContext>,
 }
 
 impl<'a, E> TraverseMcpStdioServer<'a, E>
@@ -320,6 +382,7 @@ where
             mcp,
             catalog,
             public_metadata_cache: None,
+            mode_a: None,
         }
     }
 
@@ -329,13 +392,43 @@ where
         self
     }
 
+    /// Engage Spec 119 Mode A: discovery and execution are served exclusively
+    /// from the supplied verified public-registry state.
+    #[must_use]
+    pub fn with_mode_a(mut self, context: &'a ModeAContext) -> Self {
+        self.mode_a = Some(context);
+        self
+    }
+
+    /// The governing spec reported in envelopes — Mode A when engaged.
+    fn governing_spec(&self) -> &'static str {
+        if self.mode_a.is_some() {
+            MODE_A_GOVERNING_SPEC
+        } else {
+            GOVERNING_SPEC
+        }
+    }
+
+    /// The active discovery/execution mode label.
+    fn mode_label(&self) -> &'static str {
+        if self.mode_a.is_some() {
+            "verified_public"
+        } else {
+            "expedition_contributor"
+        }
+    }
+
     fn search_capabilities_envelope(&self, query: &str) -> Result<Value, StdioServerFailure> {
-        let cache = self.public_metadata_cache.as_ref().ok_or_else(|| {
-            StdioServerFailure::new(
-                "registry_sync_missing",
-                "search requires verified public registry state.",
-            )
-        })?;
+        let cache = self
+            .mode_a
+            .map(|context| &context.cache)
+            .or(self.public_metadata_cache.as_ref())
+            .ok_or_else(|| {
+                StdioServerFailure::new(
+                    "registry_sync_missing",
+                    "search requires verified public registry state.",
+                )
+            })?;
         let result = crate::tools::capabilities::search_capabilities(cache, query)
             .map_err(|error| StdioServerFailure::new(&error.message, &error.message))?;
         Ok(
@@ -349,7 +442,8 @@ where
             "kind": "mcp_stdio_server_startup",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
             "status": "ready",
             "supported_commands": SUPPORTING_COMMANDS,
             "public_surface_id": PUBLIC_SURFACE_ID,
@@ -358,18 +452,68 @@ where
                 "required_token_env": "TRAVERSE_MCP_STDIO_BEARER_TOKEN",
                 "required_commands": ["execute_entrypoint", "render_execution_report"],
             },
-            "content_group_count": McpDiscoveryCatalog::content_group_count(),
+            "discovery_source": self.discovery_source_summary(),
+            "content_group_count": self.content_group_count(),
         })
+    }
+
+    /// Provenance of the active discovery surface.
+    fn discovery_source_summary(&self) -> Value {
+        match self.mode_a {
+            Some(context) => json!({
+                "kind": "host_verified_public_registry",
+                "source_release": context.metadata.source_release,
+                "index_digest": context.metadata.index_digest,
+                "stale": context.metadata.stale,
+                "capability_count": context.metadata.records.len(),
+            }),
+            None => json!({
+                "kind": "bundled_expedition_example",
+                "note": "contributor-only source-run catalog; not a Mode A product surface",
+            }),
+        }
+    }
+
+    /// Content-group count — always zero under Mode A (FR-007: no hard-coded or
+    /// inferred content groups before registry-governed grouping metadata).
+    fn content_group_count(&self) -> usize {
+        if self.mode_a.is_some() {
+            0
+        } else {
+            McpDiscoveryCatalog::content_group_count()
+        }
+    }
+
+    /// Content-group summaries — empty under Mode A (FR-007).
+    fn content_group_summaries(&self) -> Value {
+        if self.mode_a.is_some() {
+            json!([])
+        } else {
+            json!(McpDiscoveryCatalog::content_group_summaries())
+        }
     }
 
     #[must_use]
     pub fn describe_envelope(&self) -> Value {
         let validation_path = youaskm3_mcp_consumption_validation_path();
+        let governed_surface_counts = match self.mode_a {
+            Some(context) => json!({
+                "capabilities": context.metadata.records.len(),
+                "events": 0,
+                "workflows": 0,
+            }),
+            None => json!({
+                "capabilities": self.catalog.capability_count(),
+                "events": self.catalog.event_count(),
+                "workflows": self.catalog.workflow_count(),
+            }),
+        };
         json!({
             "kind": "mcp_stdio_server_description",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
             "runtime_authority": "Traverse runtime authority",
             "public_surface_id": PUBLIC_SURFACE_ID,
             "supported_commands": SUPPORTING_COMMANDS,
@@ -379,12 +523,9 @@ where
                 "required_commands": ["execute_entrypoint", "render_execution_report"],
                 "token_output_policy": "never_echo_raw_token",
             },
-            "governed_surface_counts": {
-                "capabilities": self.catalog.capability_count(),
-                "events": self.catalog.event_count(),
-                "workflows": self.catalog.workflow_count(),
-            },
-            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
+            "discovery_source": self.discovery_source_summary(),
+            "governed_surface_counts": governed_surface_counts,
+            "content_groups": self.content_group_summaries(),
             "downstream_validation_path": {
                 "consumer_name": validation_path.consumer_name,
                 "validated_flow_id": validation_path.validated_flow_id,
@@ -396,6 +537,9 @@ where
 
     #[must_use]
     pub fn list_entrypoints_envelope(&self) -> Value {
+        if let Some(context) = self.mode_a {
+            return self.mode_a_list_entrypoints_envelope(context);
+        }
         let capability_entries = self
             .catalog
             .bundle
@@ -422,7 +566,7 @@ where
             "kind": "mcp_stdio_server_entrypoint_list",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "content_groups": McpDiscoveryCatalog::content_group_summaries(),
             "entrypoints": {
                 "capabilities": capability_entries,
@@ -438,8 +582,9 @@ where
             "kind": "mcp_stdio_server_content_group_list",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
-            "content_groups": McpDiscoveryCatalog::content_group_summaries(),
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
+            "content_groups": self.content_group_summaries(),
         })
     }
 
@@ -450,13 +595,18 @@ where
         &self,
         content_group_id: &str,
     ) -> Result<Value, StdioServerFailure> {
+        if self.mode_a.is_some() {
+            // FR-007: Mode A exposes no content groups until registry-governed
+            // grouping metadata exists.
+            return Err(not_found("content group", content_group_id, "1.0.0"));
+        }
         McpDiscoveryCatalog::content_group_detail(content_group_id)
             .map(|content_group| {
                 json!({
                     "kind": "mcp_stdio_server_content_group_description",
                     "server_name": SERVER_NAME,
                     "host_mode": HOST_MODE,
-                    "governing_spec": GOVERNING_SPEC,
+                    "governing_spec": self.governing_spec(),
                     "content_group": content_group,
                 })
             })
@@ -473,6 +623,9 @@ where
         id: &str,
         version: &str,
     ) -> Result<Value, StdioServerFailure> {
+        if let Some(context) = self.mode_a {
+            return self.mode_a_describe_entrypoint_envelope(context, entrypoint_kind, id, version);
+        }
         match entrypoint_kind {
             "capability" => self
                 .catalog
@@ -485,7 +638,7 @@ where
                         "kind": "mcp_stdio_server_entrypoint_description",
                         "server_name": SERVER_NAME,
                         "host_mode": HOST_MODE,
-                        "governing_spec": GOVERNING_SPEC,
+                        "governing_spec": self.governing_spec(),
                         "entrypoint": capability_entrypoint_detail(artifact),
                     })
                 })
@@ -503,7 +656,7 @@ where
                         "kind": "mcp_stdio_server_entrypoint_description",
                         "server_name": SERVER_NAME,
                         "host_mode": HOST_MODE,
-                        "governing_spec": GOVERNING_SPEC,
+                        "governing_spec": self.governing_spec(),
                         "entrypoint": workflow_entrypoint_detail(artifact),
                     })
                 })
@@ -519,14 +672,18 @@ where
         &self,
         command: &StdioCommandEnvelope,
     ) -> Result<Value, StdioServerFailure> {
+        if let Some(context) = self.mode_a {
+            return self.mode_a_run(context, command, ModeAAction::Validate);
+        }
         let artifacts = self.entrypoint_artifacts(command)?;
         Ok(json!({
             "kind": "mcp_stdio_server_entrypoint_validation",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "valid",
             "request_path": artifacts.request_path,
+            "request_source": artifacts.request_source,
             "entrypoint": artifacts.entrypoint,
             "request": runtime_request_summary(&artifacts.request),
         }))
@@ -538,6 +695,9 @@ where
         auth_config: &StdioAuthConfig,
     ) -> Result<Value, StdioServerFailure> {
         auth_config.verify_execute_command(command)?;
+        if let Some(context) = self.mode_a {
+            return self.mode_a_run(context, command, ModeAAction::Execute { auth_config });
+        }
         let artifacts = self.entrypoint_artifacts(command)?;
         let response = self
             .mcp
@@ -557,9 +717,10 @@ where
             "kind": "mcp_stdio_server_entrypoint_execution",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "completed",
             "request_path": artifacts.request_path,
+            "request_source": artifacts.request_source,
             "entrypoint": artifacts.entrypoint,
             "request_id": request_id,
             "execution_id": execution_id,
@@ -576,6 +737,9 @@ where
         auth_config: &StdioAuthConfig,
     ) -> Result<Value, StdioServerFailure> {
         auth_config.verify_execute_command(command)?;
+        if let Some(context) = self.mode_a {
+            return self.mode_a_run(context, command, ModeAAction::Report { auth_config });
+        }
         let artifacts = self.entrypoint_artifacts(command)?;
         let response = self
             .mcp
@@ -595,9 +759,10 @@ where
             "kind": "mcp_stdio_server_execution_report",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "rendered",
             "request_path": artifacts.request_path,
+            "request_source": artifacts.request_source,
             "entrypoint": artifacts.entrypoint,
             "execution": {
                 "request_id": request_id.clone(),
@@ -619,6 +784,251 @@ where
         }))
     }
 
+    // --- Spec 119 Mode A: verified public-registry discovery and execution ---
+
+    fn mode_a_list_entrypoints_envelope(&self, context: &ModeAContext) -> Value {
+        let capabilities = context
+            .metadata
+            .records
+            .iter()
+            .map(mode_a_entrypoint_summary)
+            .collect::<Vec<_>>();
+        json!({
+            "kind": "mcp_stdio_server_entrypoint_list",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
+            "discovery_source": self.discovery_source_summary(),
+            "content_groups": [],
+            "entrypoints": {
+                "capabilities": capabilities,
+                "events": [],
+                "workflows": [],
+            },
+        })
+    }
+
+    fn mode_a_describe_entrypoint_envelope(
+        &self,
+        context: &ModeAContext,
+        entrypoint_kind: &str,
+        id: &str,
+        version: &str,
+    ) -> Result<Value, StdioServerFailure> {
+        if entrypoint_kind != "capability" {
+            return Err(StdioServerFailure::new(
+                "invalid_request",
+                format!(
+                    "Mode A exposes verified capability entrypoints only; got entrypoint_kind {entrypoint_kind}"
+                ),
+            ));
+        }
+        let record = context
+            .record(id, version)
+            .ok_or_else(|| not_found("capability entrypoint", id, version))?;
+        Ok(json!({
+            "kind": "mcp_stdio_server_entrypoint_description",
+            "server_name": SERVER_NAME,
+            "host_mode": HOST_MODE,
+            "governing_spec": self.governing_spec(),
+            "mode": self.mode_label(),
+            "entrypoint": mode_a_entrypoint_detail(record),
+        }))
+    }
+
+    /// Shared validate / execute / render-report path for Mode A. Discovery,
+    /// artifact selection, and execution all come from the verified public
+    /// state and its digest-verified cache — never the expedition bundle.
+    #[allow(clippy::too_many_lines)]
+    fn mode_a_run(
+        &self,
+        context: &ModeAContext,
+        command: &StdioCommandEnvelope,
+        action: ModeAAction<'_>,
+    ) -> Result<Value, StdioServerFailure> {
+        let entrypoint_kind = command.entrypoint_kind.as_deref().ok_or_else(|| {
+            StdioServerFailure::new("invalid_request", "command requires entrypoint_kind.")
+        })?;
+        if entrypoint_kind != "capability" {
+            return Err(StdioServerFailure::new(
+                "invalid_request",
+                "Mode A executes verified capability entrypoints only.",
+            ));
+        }
+        let id = command
+            .id
+            .as_deref()
+            .ok_or_else(|| StdioServerFailure::new("invalid_request", "command requires id."))?;
+        let version = command.version.as_deref().ok_or_else(|| {
+            StdioServerFailure::new("invalid_request", "command requires version.")
+        })?;
+
+        let RequestInput {
+            request,
+            request_path,
+            request_source,
+        } = resolve_runtime_request_input(command)?;
+        self.validate_runtime_request("capability", id, version, &request)?;
+
+        // Discovery guard (FR-001): the target must be present in the verified
+        // public-metadata generation.
+        let record = context
+            .record(id, version)
+            .ok_or_else(|| not_found("capability entrypoint", id, version))?;
+
+        // Artifact selection (FR-004): resolve the exact digest-verified WASM
+        // and contract from the host-owned cache. Offline only; fails closed.
+        let reference = RegistryReference {
+            namespace: record.namespace.clone(),
+            id: id.to_string(),
+            version_range: format!("={version}"),
+        };
+        let component =
+            resolve_registry_component(&context.cache, &reference).map_err(mode_a_cache_failure)?;
+        if component.contract.id != id || component.contract.version != version {
+            return Err(StdioServerFailure::new(
+                "invalid_request",
+                format!(
+                    "verified artifact identity {}@{} does not match requested entrypoint {id}@{version}",
+                    component.contract.id, component.contract.version
+                ),
+            ));
+        }
+
+        let entrypoint = mode_a_entrypoint_detail(record);
+        let artifact = mode_a_artifact_summary(context, record, &component);
+
+        match action {
+            ModeAAction::Validate => Ok(json!({
+                "kind": "mcp_stdio_server_entrypoint_validation",
+                "server_name": SERVER_NAME,
+                "host_mode": HOST_MODE,
+                "governing_spec": self.governing_spec(),
+                "mode": self.mode_label(),
+                "status": "valid",
+                "request_path": request_path,
+                "request_source": request_source,
+                "entrypoint": entrypoint,
+                "artifact": artifact,
+                "request": runtime_request_summary(&request),
+            })),
+            ModeAAction::Execute { auth_config } => {
+                let response = Self::mode_a_execute_component(&component, request)?;
+                let ExecutionParts {
+                    result,
+                    trace,
+                    request_id,
+                    execution_id,
+                    observation_messages,
+                } = ExecutionParts::from_response(response);
+                Ok(json!({
+                    "kind": "mcp_stdio_server_entrypoint_execution",
+                    "server_name": SERVER_NAME,
+                    "host_mode": HOST_MODE,
+                    "governing_spec": self.governing_spec(),
+                    "mode": self.mode_label(),
+                    "status": "completed",
+                    "request_path": request_path,
+                    "request_source": request_source,
+                    "entrypoint": entrypoint,
+                    "artifact": artifact,
+                    "request_id": request_id,
+                    "execution_id": execution_id,
+                    "result": result,
+                    "trace": public_trace_summary(&trace),
+                    "trace_redaction": trace_redaction_policy(auth_config),
+                    "observation_messages": observation_messages,
+                }))
+            }
+            ModeAAction::Report { auth_config } => {
+                let response = Self::mode_a_execute_component(&component, request)?;
+                let ExecutionParts {
+                    result,
+                    trace,
+                    request_id,
+                    execution_id,
+                    observation_messages,
+                } = ExecutionParts::from_response(response);
+                Ok(json!({
+                    "kind": "mcp_stdio_server_execution_report",
+                    "server_name": SERVER_NAME,
+                    "host_mode": HOST_MODE,
+                    "governing_spec": self.governing_spec(),
+                    "mode": self.mode_label(),
+                    "status": "rendered",
+                    "request_path": request_path,
+                    "request_source": request_source,
+                    "entrypoint": entrypoint,
+                    "artifact": artifact,
+                    "execution": {
+                        "request_id": request_id.clone(),
+                        "execution_id": execution_id.clone(),
+                        "result": result,
+                        "trace": public_trace_summary(&trace),
+                        "trace_redaction": trace_redaction_policy(auth_config),
+                        "observation_messages": observation_messages,
+                    },
+                    "report": {
+                        "summary": "Rendered execution report from governed runtime output",
+                        "execution_id": execution_id,
+                        "request_id": request_id,
+                        "result_status": result.status,
+                        "trace_kind": trace.kind,
+                        "trace_redacted": true,
+                        "observation_message_count": observation_messages.len(),
+                    },
+                }))
+            }
+        }
+    }
+
+    /// Execute one verified component through a freshly built runtime whose only
+    /// registered capability is the digest-verified artifact. Uses the real
+    /// [`ArtifactRouter`] WASM executor — never the expedition Rust executor
+    /// (FR-004).
+    fn mode_a_execute_component(
+        component: &ResolvedRegistryComponent,
+        request: RuntimeRequest,
+    ) -> Result<crate::McpExecutionResponse, StdioServerFailure> {
+        let registration = mode_a_capability_registration(component);
+        let mut capability_registry = CapabilityRegistry::new();
+        capability_registry
+            .register(registration)
+            .map_err(|failure| {
+                StdioServerFailure::new(
+                    "registry_registration_failed",
+                    failure
+                        .errors
+                        .first()
+                        .map_or("verified capability registration failed", |error| {
+                            error.message.as_str()
+                        }),
+                )
+            })?;
+
+        let router = ArtifactRouter::new().map_err(|failure| {
+            StdioServerFailure::new("execution_failed", format!("{failure:?}"))
+        })?;
+        // v0.1.0 posture: the Spec 080 verified registry cache is digest-based
+        // and carries no artifact signature, so execution runs in development
+        // security mode with the digest checked twice (cache resolve + WASM
+        // executor checksum). Ed25519 provenance is a tracked follow-up.
+        let runtime = Runtime::new(capability_registry, router)
+            .with_security_config(RuntimeSecurityConfig::development());
+        let event_registry = EventRegistry::new();
+        let workflow_registry = WorkflowRegistry::new();
+        let discovery_registry = CapabilityRegistry::new();
+        let mcp = TraverseMcp::new(
+            &discovery_registry,
+            &event_registry,
+            &workflow_registry,
+            &runtime,
+        );
+        mcp.execute(request)
+            .map_err(|error| StdioServerFailure::new("execution_failed", format!("{error:?}")))
+    }
+
     fn entrypoint_artifacts(
         &self,
         command: &StdioCommandEnvelope,
@@ -633,14 +1043,17 @@ where
         let version = command.version.as_deref().ok_or_else(|| {
             StdioServerFailure::new("invalid_request", "command requires version.")
         })?;
-        let request_path = command.request_path.as_deref().ok_or_else(|| {
-            StdioServerFailure::new("invalid_request", "command requires request_path.")
-        })?;
-        let request = load_runtime_request(request_path)?;
+
+        let RequestInput {
+            request,
+            request_path,
+            request_source,
+        } = resolve_runtime_request_input(command)?;
         self.validate_runtime_request(entrypoint_kind, id, version, &request)?;
 
         Ok(EntrypointArtifacts {
-            request_path: request_path.to_string(),
+            request_path,
+            request_source,
             entrypoint: self.describe_entrypoint_envelope(entrypoint_kind, id, version)?,
             request,
         })
@@ -724,7 +1137,7 @@ where
             "kind": "mcp_stdio_server_shutdown",
             "server_name": SERVER_NAME,
             "host_mode": HOST_MODE,
-            "governing_spec": GOVERNING_SPEC,
+            "governing_spec": self.governing_spec(),
             "status": "complete",
             "reason": reason,
         })
@@ -1000,7 +1413,12 @@ where
 
 #[derive(Debug)]
 struct EntrypointArtifacts {
-    request_path: String,
+    /// `Some` only when the legacy `request_path` compatibility input was used;
+    /// `None` for a Spec 119 FR-002 inline `request`.
+    request_path: Option<String>,
+    /// `"inline"` or `"request_path"` — surfaced in every response envelope so
+    /// a client can confirm no filesystem materialization occurred.
+    request_source: &'static str,
     entrypoint: Value,
     request: RuntimeRequest,
 }
@@ -1100,7 +1518,7 @@ pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServe
         runtime,
     )));
     let catalog = Box::leak(Box::new(catalog));
-    let server = TraverseMcpStdioServer::new(mcp, catalog);
+    let mut server = TraverseMcpStdioServer::new(mcp, catalog);
 
     let stdin = io::stdin();
     let stdout = io::stdout();
@@ -1108,6 +1526,22 @@ pub fn run_stdio_server(simulate_startup_failure: bool) -> Result<(), StdioServe
 
     let mut stdout = stdout.lock();
     let mut stderr = stderr.lock();
+
+    // Spec 119: engage Mode A when the host names a verified registry cache.
+    // Loading fails closed — a missing or invalid prepared state stops startup
+    // with a stable error envelope rather than silently falling back to the
+    // expedition catalog (FR-003).
+    if let Some(cache_root) = std::env::var_os(MODE_A_CACHE_ENV) {
+        match ModeAContext::load(PathBuf::from(cache_root)) {
+            Ok(context) => {
+                server = server.with_mode_a(Box::leak(Box::new(context)));
+            }
+            Err(failure) => {
+                let _ = write_json_line(&mut stderr, &failure.envelope());
+                return Err(failure);
+            }
+        }
+    }
     server.run_stdio_with_auth(
         stdin.lock(),
         &mut stdout,
@@ -1330,6 +1764,203 @@ fn load_runtime_request(request_path: &str) -> Result<RuntimeRequest, StdioServe
             ),
         )
     })
+}
+
+/// Resolved runtime request plus how it was supplied.
+struct RequestInput {
+    request: RuntimeRequest,
+    /// `Some` only for the legacy `request_path` input.
+    request_path: Option<String>,
+    /// `"inline"` or `"request_path"`.
+    request_source: &'static str,
+}
+
+/// Spec 119 FR-002: resolve exactly one of the mutually exclusive `request`
+/// (inline) or `request_path` (legacy compatibility) inputs.
+fn resolve_runtime_request_input(
+    command: &StdioCommandEnvelope,
+) -> Result<RequestInput, StdioServerFailure> {
+    match (command.request.as_ref(), command.request_path.as_deref()) {
+        (Some(_), Some(_)) => Err(StdioServerFailure::new(
+            "invalid_request",
+            "command accepts either request or request_path, not both.",
+        )),
+        (None, None) => Err(StdioServerFailure::new(
+            "invalid_request",
+            "command requires request or request_path.",
+        )),
+        (Some(inline), None) => Ok(RequestInput {
+            request: parse_inline_runtime_request(inline)?,
+            request_path: None,
+            request_source: "inline",
+        }),
+        (None, Some(path)) => Ok(RequestInput {
+            request: load_runtime_request(path)?,
+            request_path: Some(path.to_string()),
+            request_source: "request_path",
+        }),
+    }
+}
+
+/// Parse a Spec 119 FR-002 inline `request` object into a [`RuntimeRequest`],
+/// applying the exact same validation as the legacy `request_path` load and
+/// without any filesystem access.
+fn parse_inline_runtime_request(inline: &Value) -> Result<RuntimeRequest, StdioServerFailure> {
+    if !inline.is_object() {
+        return Err(StdioServerFailure::new(
+            "invalid_request",
+            "inline request must be a JSON object serialized as a RuntimeRequest.",
+        ));
+    }
+    let serialized = serde_json::to_string(inline).map_err(|error| {
+        StdioServerFailure::new(
+            "invalid_request",
+            format!("failed to serialize inline runtime request: {error}"),
+        )
+    })?;
+    parse_runtime_request(&serialized).map_err(|error| {
+        StdioServerFailure::new(
+            "invalid_request",
+            format!("failed to parse inline runtime request: {}", error.message),
+        )
+    })
+}
+
+/// Which Mode A operation `mode_a_run` should perform.
+#[derive(Clone, Copy)]
+enum ModeAAction<'a> {
+    Validate,
+    Execute { auth_config: &'a StdioAuthConfig },
+    Report { auth_config: &'a StdioAuthConfig },
+}
+
+/// Flattened, already-redaction-safe pieces of one runtime execution.
+struct ExecutionParts {
+    result: traverse_runtime::RuntimeResult,
+    trace: traverse_runtime::RuntimeTrace,
+    request_id: String,
+    execution_id: String,
+    observation_messages: Vec<Value>,
+}
+
+impl ExecutionParts {
+    fn from_response(response: crate::McpExecutionResponse) -> Self {
+        let result = response.result.clone();
+        let trace = response.trace.clone();
+        let request_id = result.request_id.clone();
+        let execution_id = result.execution_id.clone();
+        let observation_messages = response
+            .observation_messages
+            .into_iter()
+            .map(observation_message_summary)
+            .collect::<Vec<_>>();
+        Self {
+            result,
+            trace,
+            request_id,
+            execution_id,
+            observation_messages,
+        }
+    }
+}
+
+/// Flat discovery-list entry for one verified public capability.
+fn mode_a_entrypoint_summary(record: &PublicCapabilityMetadata) -> Value {
+    json!({
+        "kind": "capability",
+        "namespace": record.namespace,
+        "id": record.id,
+        "version": record.version,
+        "service_type": record.service_type,
+        "lifecycle": record.lifecycle,
+        "summary": record.summary,
+        "artifact_digest": record.artifact_digest,
+    })
+}
+
+/// Redacted detail for one verified public capability. Never exposes the raw
+/// contract, private records, request paths, or credentials (FR-005).
+fn mode_a_entrypoint_detail(record: &PublicCapabilityMetadata) -> Value {
+    json!({
+        "artifact_kind": "capability",
+        "namespace": record.namespace,
+        "id": record.id,
+        "version": record.version,
+        "service_type": record.service_type,
+        "permitted_targets": record.permitted_targets,
+        "lifecycle": record.lifecycle,
+        "summary": record.summary,
+        "description": record.description,
+        "scenarios": record.scenarios,
+        "artifact_digest": record.artifact_digest,
+        "source_release": record.source_release,
+        "index_digest": record.index_digest,
+        "provenance": record.provenance,
+    })
+}
+
+/// Verification evidence surfaced alongside every Mode A validate/execute
+/// response — the digest handed to the executor and where it was selected from.
+fn mode_a_artifact_summary(
+    context: &ModeAContext,
+    record: &PublicCapabilityMetadata,
+    component: &ResolvedRegistryComponent,
+) -> Value {
+    json!({
+        "digest": component.wasm_digest,
+        "digest_matches_public_state": component.wasm_digest == record.artifact_digest,
+        "verified": true,
+        "verification": "digest",
+        "source_release": context.metadata.source_release,
+        "index_digest": context.metadata.index_digest,
+        "stale": context.metadata.stale,
+    })
+}
+
+/// Build a one-capability registration bound to the digest-verified WASM path.
+fn mode_a_capability_registration(component: &ResolvedRegistryComponent) -> CapabilityRegistration {
+    let contract = component.contract.clone();
+    let id = contract.id.clone();
+    let version = contract.version.clone();
+    let binary_location = component.wasm_binary_path.display().to_string();
+    CapabilityRegistration {
+        scope: RegistryScope::Public,
+        contract_path: component.contract_path.display().to_string(),
+        artifact: CapabilityArtifactRecord {
+            artifact_ref: format!("verified-registry:{id}:{version}"),
+            implementation_kind: ImplementationKind::Executable,
+            source: SourceReference {
+                kind: SourceKind::Local,
+                location: binary_location.clone(),
+            },
+            binary: Some(BinaryReference {
+                format: RegistryBinaryFormat::Wasm,
+                location: binary_location,
+                signature: None,
+            }),
+            workflow_ref: None,
+            digests: ArtifactDigests {
+                source_digest: format!("verified-registry-contract:{id}:{version}"),
+                binary_digest: Some(component.wasm_digest.clone()),
+            },
+            provenance: RegistryProvenance {
+                source: provenance_source_label(&contract.provenance.source),
+                author: contract.provenance.author.clone(),
+                created_at: contract.provenance.created_at.clone(),
+            },
+        },
+        registered_at: format!("verified-registry:{id}@{version}"),
+        tags: Vec::new(),
+        composability: ComposabilityMetadata {
+            kind: CompositionKind::Atomic,
+            patterns: vec![CompositionPattern::Sequential],
+            provides: vec![id.clone()],
+            requires: Vec::new(),
+        },
+        governing_spec: MODE_A_GOVERNING_SPEC.to_string(),
+        validator_version: env!("CARGO_PKG_VERSION").to_string(),
+        contract,
+    }
 }
 
 fn runtime_request_summary(runtime_request: &RuntimeRequest) -> Value {
@@ -2079,11 +2710,82 @@ mod tests {
         .expect("command must parse");
         assert!(server.entrypoint_artifacts(&missing_version).is_err());
 
-        let missing_request_path = parse_command(
+        let missing_request_and_path = parse_command(
             r#"{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0"}"#,
         )
         .expect("command must parse");
-        assert!(server.entrypoint_artifacts(&missing_request_path).is_err());
+        let error = server
+            .entrypoint_artifacts(&missing_request_and_path)
+            .expect_err("neither request nor request_path must fail");
+        assert_eq!(error.code, "invalid_request");
+        assert!(error.message.contains("request or request_path"));
+    }
+
+    fn plan_expedition_inline_request() -> String {
+        std::fs::read_to_string(resolve_relative_path(PLAN_EXPEDITION_REQUEST_PATH))
+            .expect("plan-expedition fixture must be readable")
+    }
+
+    #[test]
+    fn entrypoint_artifacts_accepts_an_inline_runtime_request_without_touching_the_filesystem() {
+        let server = build_test_server();
+        let command = parse_command(&format!(
+            r#"{{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request":{}}}"#,
+            plan_expedition_inline_request()
+        ))
+        .expect("command must parse");
+
+        let artifacts = server
+            .entrypoint_artifacts(&command)
+            .expect("inline request must resolve");
+        assert_eq!(artifacts.request_source, "inline");
+        assert!(artifacts.request_path.is_none());
+    }
+
+    #[test]
+    fn entrypoint_artifacts_rejects_supplying_both_request_and_request_path() {
+        let server = build_test_server();
+        let command = parse_command(&format!(
+            r#"{{"command":"execute_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request_path":"{PLAN_EXPEDITION_REQUEST_PATH}","request":{}}}"#,
+            plan_expedition_inline_request()
+        ))
+        .expect("command must parse");
+
+        let error = server
+            .entrypoint_artifacts(&command)
+            .expect_err("request + request_path must be mutually exclusive");
+        assert_eq!(error.code, "invalid_request");
+        assert!(error.message.contains("not both"));
+    }
+
+    #[test]
+    fn parse_inline_runtime_request_rejects_non_object_and_malformed_payloads() {
+        let not_object = parse_inline_runtime_request(&json!("just a string"))
+            .expect_err("non-object inline request must be rejected");
+        assert_eq!(not_object.code, "invalid_request");
+        assert!(not_object.message.contains("JSON object"));
+
+        let malformed = parse_inline_runtime_request(&json!({"kind": "not-a-runtime-request"}))
+            .expect_err("malformed inline request must be rejected");
+        assert_eq!(malformed.code, "invalid_request");
+        assert!(malformed.message.contains("inline runtime request"));
+    }
+
+    #[test]
+    fn validate_entrypoint_envelope_reports_the_inline_request_source() {
+        let server = build_test_server();
+        let command = parse_command(&format!(
+            r#"{{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"expedition.planning.plan-expedition","version":"1.0.0","request":{}}}"#,
+            plan_expedition_inline_request()
+        ))
+        .expect("command must parse");
+
+        let envelope = server
+            .validate_entrypoint_envelope(&command)
+            .expect("inline validation must succeed");
+        assert_eq!(envelope["request_source"], json!("inline"));
+        assert_eq!(envelope["request_path"], Value::Null);
+        assert_eq!(envelope["status"], json!("valid"));
     }
 
     #[test]
@@ -2450,5 +3152,611 @@ mod tests {
             missing_field.code,
             traverse_runtime::LocalExecutionFailureCode::ExecutionFailed
         );
+    }
+
+    // ----------------------------------------------------------------------
+    // Spec 119 Mode A: verified public-registry discovery and execution
+    // ----------------------------------------------------------------------
+
+    mod mode_a {
+        #![allow(clippy::unwrap_used, clippy::panic)]
+
+        use super::*;
+        use sha2::{Digest, Sha256};
+        use std::fmt::Write as _;
+        use std::sync::atomic::{AtomicU64, Ordering};
+        use traverse_embedder::{
+            RegistryArtifactFetcher, prepare_registry_dependency, publish_public_metadata,
+        };
+        use traverse_registry::{
+            PublicRegistryCapabilityRecord, PublicUseCaseSummary, SyncedPublicRegistryState,
+        };
+
+        const KIT_ID: &str = "core.normalize-participants";
+        const KIT_NAMESPACE: &str = "core";
+        const KIT_VERSION: &str = "1.1.0";
+        const KIT_ARTIFACT_URL: &str =
+            "https://registry.test/core/normalize-participants/1.1.0/module.wasm";
+        const KIT_CONTRACT_URL: &str =
+            "https://registry.test/core/normalize-participants/1.1.0/contract.json";
+
+        fn repo_root() -> PathBuf {
+            Path::new(env!("CARGO_MANIFEST_DIR"))
+                .parent()
+                .and_then(Path::parent)
+                .expect("workspace root")
+                .to_path_buf()
+        }
+
+        fn sha256_prefixed(bytes: &[u8]) -> String {
+            let mut hasher = Sha256::new();
+            hasher.update(bytes);
+            let mut out = String::from("sha256:");
+            for byte in hasher.finalize() {
+                write!(out, "{byte:02x}").expect("writing to a String cannot fail");
+            }
+            out
+        }
+
+        fn kit_wasm_bytes() -> Vec<u8> {
+            fs::read(repo_root().join(
+                "examples/core-normalize-participants/artifacts/core-normalize-participants.wasm",
+            ))
+            .expect("kit wasm fixture must exist")
+        }
+
+        fn kit_contract_bytes() -> Vec<u8> {
+            fs::read(repo_root().join("examples/core-normalize-participants/contract.json"))
+                .expect("kit contract fixture must exist")
+        }
+
+        fn kit_request_json() -> String {
+            let value: Value = serde_json::from_slice(
+                &fs::read(repo_root().join(
+                    "examples/core-normalize-participants/runtime-requests/uc01-mixed-match.json",
+                ))
+                .expect("kit runtime request fixture must exist"),
+            )
+            .expect("kit runtime request must be valid json");
+            value.to_string()
+        }
+
+        fn kit_reference() -> RegistryReference {
+            RegistryReference {
+                namespace: KIT_NAMESPACE.to_string(),
+                id: KIT_ID.to_string(),
+                version_range: format!("={KIT_VERSION}"),
+            }
+        }
+
+        fn kit_snapshot() -> SyncedPublicRegistryState {
+            let record = PublicRegistryCapabilityRecord {
+                namespace: KIT_NAMESPACE.to_string(),
+                id: KIT_ID.to_string(),
+                version: KIT_VERSION.to_string(),
+                digest: sha256_prefixed(&kit_wasm_bytes()),
+                artifact_url: KIT_ARTIFACT_URL.to_string(),
+                contract_digest: sha256_prefixed(&kit_contract_bytes()),
+                contract_url: KIT_CONTRACT_URL.to_string(),
+                deprecated: false,
+                summary: "Normalize raw participants into canonical records.".to_string(),
+                description: "Verified public kit fixture for Mode A tests.".to_string(),
+                use_cases: vec![PublicUseCaseSummary {
+                    scenario: "Resolve extracted names and emails to workspace members."
+                        .to_string(),
+                }],
+                service_type: "stateless".to_string(),
+                permitted_targets: vec!["wasm".to_string()],
+                lifecycle: "active".to_string(),
+                provenance: None,
+            };
+            SyncedPublicRegistryState {
+                schema_version: "1.0.0".to_string(),
+                workspace_id: "mode-a-fixture".to_string(),
+                state_scope: "public_registry_synced".to_string(),
+                source_repo: "traverse-framework/registry".to_string(),
+                release_tag: "index-v1".to_string(),
+                index_version: 1,
+                generated_at: "2026-08-25T00:00:00Z".to_string(),
+                source_commit: None,
+                synced_at: "2026-08-25T00:00:00Z".to_string(),
+                record_count: 1,
+                validation_status: "valid".to_string(),
+                governing_spec: "055-registry-sync".to_string(),
+                capabilities: vec![record],
+                events: Vec::new(),
+            }
+        }
+
+        struct LocalKitFetcher;
+        impl RegistryArtifactFetcher for LocalKitFetcher {
+            fn fetch(&self, url: &str) -> Result<Vec<u8>, String> {
+                match url {
+                    KIT_ARTIFACT_URL => Ok(kit_wasm_bytes()),
+                    KIT_CONTRACT_URL => Ok(kit_contract_bytes()),
+                    other => Err(format!("unexpected fetch url {other}")),
+                }
+            }
+        }
+
+        fn fresh_cache_root(tag: &str) -> PathBuf {
+            static SEQ: AtomicU64 = AtomicU64::new(0);
+            let seq = SEQ.fetch_add(1, Ordering::Relaxed);
+            let root = std::env::temp_dir().join(format!(
+                "traverse-mcp-mode-a-{tag}-{}-{seq}",
+                std::process::id()
+            ));
+            let _ = fs::remove_dir_all(&root);
+            root
+        }
+
+        /// A fully prepared, digest-verified Mode A cache in a fresh temp dir.
+        fn build_verified_cache(tag: &str) -> PathBuf {
+            let root = fresh_cache_root(tag);
+            let cache = HostRegistryCache::new(&root);
+            let snapshot = kit_snapshot();
+            prepare_registry_dependency(&cache, &snapshot, &kit_reference(), &LocalKitFetcher)
+                .expect("prepare verified kit");
+            publish_public_metadata(&cache, &snapshot, false).expect("publish public metadata");
+            root
+        }
+
+        fn mode_a_context(root: &Path) -> &'static ModeAContext {
+            Box::leak(Box::new(
+                ModeAContext::load(root).expect("verified cache must load"),
+            ))
+        }
+
+        fn mode_a_server(
+            root: &Path,
+        ) -> TraverseMcpStdioServer<'static, ExpeditionExampleExecutor> {
+            build_test_server().with_mode_a(mode_a_context(root))
+        }
+
+        /// Drive one command line through the server and return every stdout
+        /// envelope as parsed JSON.
+        fn drive(
+            server: &TraverseMcpStdioServer<'_, ExpeditionExampleExecutor>,
+            line: &str,
+            auth: &StdioAuthConfig,
+        ) -> (Vec<Value>, String, Result<(), StdioServerFailure>) {
+            let input = std::io::Cursor::new(format!("{line}\n").into_bytes());
+            let mut stdout = Vec::new();
+            let mut stderr = Vec::new();
+            let outcome = server.run_stdio_with_auth(input, &mut stdout, &mut stderr, false, auth);
+            let envelopes = String::from_utf8(stdout)
+                .expect("stdout utf-8")
+                .lines()
+                .filter(|l| !l.trim().is_empty())
+                .map(|l| serde_json::from_str::<Value>(l).expect("stdout line json"))
+                .collect();
+            (
+                envelopes,
+                String::from_utf8(stderr).expect("stderr utf-8"),
+                outcome,
+            )
+        }
+
+        fn envelope<'a>(envelopes: &'a [Value], kind: &str) -> &'a Value {
+            envelopes
+                .iter()
+                .find(|value| value["kind"] == json!(kind))
+                .unwrap_or_else(|| panic!("missing {kind} envelope in {envelopes:?}"))
+        }
+
+        #[test]
+        #[ignore = "regenerates the committed Mode A fixture cache under tests/fixtures"]
+        fn regenerate_committed_fixture() {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mode-a-cache");
+            let _ = fs::remove_dir_all(&root);
+            let cache = HostRegistryCache::new(&root);
+            let snapshot = kit_snapshot();
+            prepare_registry_dependency(&cache, &snapshot, &kit_reference(), &LocalKitFetcher)
+                .expect("prepare verified kit");
+            publish_public_metadata(&cache, &snapshot, false).expect("publish public metadata");
+        }
+
+        #[test]
+        fn startup_reports_verified_public_mode_and_no_content_groups() {
+            let root = build_verified_cache("startup");
+            let server = mode_a_server(&root);
+            let (envelopes, stderr, outcome) = drive(
+                &server,
+                r#"{"command":"describe_server"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            assert!(stderr.is_empty());
+            let startup = envelope(&envelopes, "mcp_stdio_server_startup");
+            assert_eq!(startup["mode"], json!("verified_public"));
+            assert_eq!(startup["governing_spec"], json!(MODE_A_GOVERNING_SPEC));
+            assert_eq!(startup["content_group_count"], json!(0));
+            assert_eq!(
+                startup["discovery_source"]["kind"],
+                json!("host_verified_public_registry")
+            );
+            assert_eq!(startup["discovery_source"]["capability_count"], json!(1));
+        }
+
+        #[test]
+        fn discovery_lists_only_verified_public_entries_without_expedition_records() {
+            let root = build_verified_cache("discovery");
+            let server = mode_a_server(&root);
+            let (envelopes, _, outcome) = drive(
+                &server,
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            let list = envelope(&envelopes, "mcp_stdio_server_entrypoint_list");
+            assert_eq!(list["governing_spec"], json!(MODE_A_GOVERNING_SPEC));
+            assert_eq!(list["content_groups"], json!([]));
+            let capabilities = list["entrypoints"]["capabilities"]
+                .as_array()
+                .expect("capabilities array");
+            assert_eq!(capabilities.len(), 1);
+            assert_eq!(capabilities[0]["id"], json!(KIT_ID));
+            assert_eq!(capabilities[0]["version"], json!(KIT_VERSION));
+            assert_eq!(list["entrypoints"]["workflows"], json!([]));
+            let serialized = serde_json::to_string(list).unwrap();
+            assert!(!serialized.contains("expedition"));
+        }
+
+        #[test]
+        fn describe_entrypoint_returns_redacted_public_detail() {
+            let root = build_verified_cache("describe");
+            let server = mode_a_server(&root);
+            let (envelopes, _, outcome) = drive(
+                &server,
+                &format!(
+                    r#"{{"command":"describe_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}"}}"#
+                ),
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            let detail = envelope(&envelopes, "mcp_stdio_server_entrypoint_description");
+            let entrypoint = &detail["entrypoint"];
+            assert_eq!(entrypoint["id"], json!(KIT_ID));
+            assert_eq!(entrypoint["artifact_kind"], json!("capability"));
+            assert!(entrypoint.get("input_schema").is_none());
+            assert!(entrypoint.get("contract").is_none());
+        }
+
+        #[test]
+        fn describe_unknown_entrypoint_and_content_group_fail_closed() {
+            let root = build_verified_cache("unknown");
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"describe_entrypoint","entrypoint_kind":"capability","id":"core.missing","version":"9.9.9"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(
+                outcome.expect_err("unknown entrypoint must fail").code,
+                "not_found"
+            );
+
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"describe_content_group","content_group_id":"core-runtime-example"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(
+                outcome.expect_err("no content groups in Mode A").code,
+                "not_found"
+            );
+        }
+
+        #[test]
+        fn inline_execute_runs_the_exact_digest_verified_wasm_artifact() {
+            let root = build_verified_cache("execute");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            let execution = envelope(&envelopes, "mcp_stdio_server_entrypoint_execution");
+            assert_eq!(execution["mode"], json!("verified_public"));
+            assert_eq!(execution["status"], json!("completed"));
+            assert_eq!(execution["request_source"], json!("inline"));
+            assert_eq!(execution["request_path"], Value::Null);
+            assert_eq!(execution["artifact"]["verified"], json!(true));
+            assert_eq!(
+                execution["artifact"]["digest_matches_public_state"],
+                json!(true)
+            );
+            assert_eq!(execution["result"]["status"], json!("completed"));
+            assert!(execution["result"].get("error").is_none_or(Value::is_null));
+            // FR-005: redacted public trace only — the private trace fields are
+            // named in `private_fields_omitted` and are absent as trace keys.
+            let trace = &execution["trace"];
+            assert!(trace["private_fields_omitted"].is_array());
+            for private_key in ["decision_evidence", "otel_trace", "selection", "execution"] {
+                assert!(
+                    trace.get(private_key).is_none(),
+                    "redacted trace must not carry {private_key}"
+                );
+            }
+        }
+
+        #[test]
+        fn execute_rejects_supplying_both_request_and_request_path() {
+            let root = build_verified_cache("xor");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request_path":"examples/core-normalize-participants/runtime-requests/uc01-mixed-match.json","request":{}}}"#,
+                kit_request_json()
+            );
+            let (_, stderr, outcome) = drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_err());
+            assert!(stderr.contains("not both"));
+        }
+
+        #[test]
+        fn execute_rejects_an_identity_mismatch_between_request_and_entrypoint() {
+            let root = build_verified_cache("identity");
+            let server = mode_a_server(&root);
+            let mut request: Value = serde_json::from_str(&kit_request_json()).unwrap();
+            request["intent"]["capability_version"] = json!("2.0.0");
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{request}}}"#
+            );
+            let (_, stderr, outcome) = drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_err());
+            assert!(stderr.contains("does not match"));
+        }
+
+        #[test]
+        fn workflow_entrypoint_kind_is_rejected_in_mode_a() {
+            let root = build_verified_cache("workflow");
+            let server = mode_a_server(&root);
+            let (_, stderr, outcome) = drive(
+                &server,
+                r#"{"command":"validate_entrypoint","entrypoint_kind":"workflow","id":"x","version":"1.0.0","request_path":"examples/core-normalize-participants/runtime-requests/uc01-mixed-match.json"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_err());
+            assert!(stderr.contains("capability"));
+        }
+
+        #[test]
+        fn missing_prepared_state_fails_closed_without_a_fallback_catalog() {
+            let root = fresh_cache_root("absent");
+            let failure = ModeAContext::load(&root).expect_err("absent state must fail closed");
+            assert_eq!(failure.code, "registry_sync_missing");
+        }
+
+        #[test]
+        fn malformed_public_metadata_generation_fails_closed() {
+            let root = build_verified_cache("malformed");
+            let generation = root.join("public-metadata").join("current.json");
+            fs::write(&generation, b"{ not valid json").expect("overwrite generation");
+            let failure = ModeAContext::load(&root).expect_err("malformed state must fail closed");
+            assert_eq!(failure.code, "registry_metadata_cache_invalid");
+        }
+
+        #[test]
+        fn execute_fails_closed_when_the_verified_artifact_entry_is_missing() {
+            let root = build_verified_cache("tampered");
+            // Remove the digest-verified artifact bytes but keep discovery state.
+            let sha_dir = root.join("sha256");
+            for entry in fs::read_dir(&sha_dir).expect("sha256 dir") {
+                fs::remove_file(entry.expect("dir entry").path()).expect("remove artifact");
+            }
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (_, stderr, outcome) = drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_err());
+            assert!(
+                stderr.contains("registry_cache_entry_missing")
+                    || stderr.contains("registry_prepare_failed")
+            );
+        }
+
+        #[test]
+        fn committed_fixture_cache_serves_discovery_and_inline_execute() {
+            let root = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/mode-a-cache");
+            assert!(
+                root.join("public-metadata/current.json").is_file(),
+                "run `cargo test -p traverse-mcp -- --ignored regenerate_committed_fixture` to rebuild the fixture"
+            );
+            let server = mode_a_server(&root);
+            let (discovery, _, discovery_outcome) = drive(
+                &server,
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(discovery_outcome.is_ok());
+            assert_eq!(
+                envelope(&discovery, "mcp_stdio_server_entrypoint_list")["entrypoints"]["capabilities"]
+                    [0]["id"],
+                json!(KIT_ID)
+            );
+
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (execution, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            assert_eq!(
+                envelope(&execution, "mcp_stdio_server_entrypoint_execution")["result"]["status"],
+                json!("completed")
+            );
+        }
+
+        #[test]
+        fn validate_entrypoint_reports_verified_artifact_evidence_without_executing() {
+            let root = build_verified_cache("validate");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"validate_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            let validation = envelope(&envelopes, "mcp_stdio_server_entrypoint_validation");
+            assert_eq!(validation["status"], json!("valid"));
+            assert_eq!(validation["mode"], json!("verified_public"));
+            assert_eq!(validation["request_source"], json!("inline"));
+            assert_eq!(
+                validation["artifact"]["digest_matches_public_state"],
+                json!(true)
+            );
+            assert_eq!(
+                validation["request"]["intent"]["capability_id"],
+                json!(KIT_ID)
+            );
+        }
+
+        #[test]
+        fn render_execution_report_returns_a_redacted_report_from_the_verified_artifact() {
+            let root = build_verified_cache("report");
+            let server = mode_a_server(&root);
+            let line = format!(
+                r#"{{"command":"render_execution_report","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) =
+                drive(&server, &line, &StdioAuthConfig::local_trust());
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            let report = envelope(&envelopes, "mcp_stdio_server_execution_report");
+            assert_eq!(report["status"], json!("rendered"));
+            assert_eq!(report["mode"], json!("verified_public"));
+            assert_eq!(report["report"]["trace_redacted"], json!(true));
+            assert_eq!(report["report"]["result_status"], json!("completed"));
+            assert_eq!(report["execution"]["result"]["status"], json!("completed"));
+        }
+
+        #[test]
+        fn execute_requires_the_local_bearer_token_when_configured() {
+            let root = build_verified_cache("auth");
+            let auth = StdioAuthConfig::bearer_required("mode-a-secret");
+            let denied_line = format!(
+                r#"{{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (_, _, outcome) = drive(&mode_a_server(&root), &denied_line, &auth);
+            assert_eq!(outcome.expect_err("missing token").code, "auth_required");
+
+            let allowed_line = format!(
+                r#"{{"command":"execute_entrypoint","auth":{{"type":"bearer","token":"mode-a-secret"}},"entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}","request":{}}}"#,
+                kit_request_json()
+            );
+            let (envelopes, stderr, outcome) = drive(&mode_a_server(&root), &allowed_line, &auth);
+            assert!(outcome.is_ok(), "stderr: {stderr}");
+            assert_eq!(
+                envelope(&envelopes, "mcp_stdio_server_entrypoint_execution")["status"],
+                json!("completed")
+            );
+        }
+
+        #[test]
+        fn mode_a_commands_reject_missing_id_or_version() {
+            let root = build_verified_cache("fields");
+            for line in [
+                r#"{"command":"execute_entrypoint","entrypoint_kind":"capability","request":{}}"#,
+                r#"{"command":"execute_entrypoint","entrypoint_kind":"capability","id":"core.x","request":{}}"#,
+            ] {
+                let (_, _, outcome) =
+                    drive(&mode_a_server(&root), line, &StdioAuthConfig::local_trust());
+                assert_eq!(outcome.expect_err("missing field").code, "invalid_request");
+            }
+        }
+
+        #[test]
+        fn mode_a_requires_request_or_request_path() {
+            let root = build_verified_cache("norequest");
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                &format!(
+                    r#"{{"command":"validate_entrypoint","entrypoint_kind":"capability","id":"{KIT_ID}","version":"{KIT_VERSION}"}}"#
+                ),
+                &StdioAuthConfig::local_trust(),
+            );
+            let failure = outcome.expect_err("no request must fail");
+            assert_eq!(failure.code, "invalid_request");
+        }
+
+        #[test]
+        fn search_capabilities_runs_against_the_verified_public_generation() {
+            let root = build_verified_cache("search");
+            let (envelopes, _, outcome) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"search_capabilities","query":"resolve extracted names"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert!(outcome.is_ok());
+            let search = envelope(&envelopes, "mcp_capability_search");
+            let records = search["records"].as_array().expect("records array");
+            assert_eq!(records.len(), 1);
+            assert_eq!(records[0]["id"], json!(KIT_ID));
+        }
+
+        #[test]
+        fn describe_server_and_list_content_groups_reflect_mode_a() {
+            let root = build_verified_cache("describe-server");
+            let (describe, _, _) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"describe_server"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            let description = envelope(&describe, "mcp_stdio_server_description");
+            assert_eq!(description["mode"], json!("verified_public"));
+            assert_eq!(
+                description["governed_surface_counts"]["capabilities"],
+                json!(1)
+            );
+            assert_eq!(description["content_groups"], json!([]));
+
+            let (groups, _, _) = drive(
+                &mode_a_server(&root),
+                r#"{"command":"list_content_groups"}"#,
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(
+                envelope(&groups, "mcp_stdio_server_content_group_list")["content_groups"],
+                json!([])
+            );
+        }
+
+        #[test]
+        fn describe_entrypoint_rejects_a_non_capability_kind() {
+            let root = build_verified_cache("describe-kind");
+            let (_, _, outcome) = drive(
+                &mode_a_server(&root),
+                &format!(
+                    r#"{{"command":"describe_entrypoint","entrypoint_kind":"workflow","id":"{KIT_ID}","version":"{KIT_VERSION}"}}"#
+                ),
+                &StdioAuthConfig::local_trust(),
+            );
+            assert_eq!(outcome.expect_err("workflow kind").code, "invalid_request");
+        }
+
+        #[test]
+        fn repeated_discovery_from_unchanged_state_is_deterministic() {
+            let root = build_verified_cache("deterministic");
+            let first = drive(
+                &mode_a_server(&root),
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            )
+            .0;
+            let second = drive(
+                &mode_a_server(&root),
+                r#"{"command":"list_entrypoints"}"#,
+                &StdioAuthConfig::local_trust(),
+            )
+            .0;
+            assert_eq!(first, second);
+        }
     }
 }

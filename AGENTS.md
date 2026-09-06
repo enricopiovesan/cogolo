@@ -31,7 +31,9 @@ If a `claude/issue-<NUMBER>-*` branch exists → **STOP**. Report:
 gh issue edit <NUMBER> --repo traverse-framework/traverse --add-label "agent:codex"
 
 # Get project item ID with bounded output
-gh project item-list 1 --owner traverse-framework --format json --limit 300 \
+# Keep Project reads in bounded pages: large `project item-list` GraphQL
+# requests can exceed GitHub's per-query cost limit even with account quota.
+gh project item-list 1 --owner traverse-framework --format json --limit 100 \
   --jq '.items[] | select(.content.number == <NUMBER>) | .id'
 
 # Set Status → In Progress
