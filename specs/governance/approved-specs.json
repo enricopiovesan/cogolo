@@ -1722,6 +1722,17 @@
         "specs/1259-portable-authority-contracts/",
         "docs/adr/0060-portable-audio-and-model-runtime-authority.md"
       ]
+    },
+    {
+      "id": "1258-offline-cache-activation",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/1258-offline-cache-activation/spec.md",
+      "governs": [
+        "specs/1258-offline-cache-activation/",
+        "docs/adr/0061-offline-activation-from-verified-cache-evidence.md"
+      ]
     }
   ]
 }
