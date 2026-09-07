@@ -1,0 +1,18 @@
+{
+  "fixture_version": "1.0.0",
+  "governing_specs": ["079-durable-trace-journal", "110-bounded-parallel-workflow-scheduling"],
+  "artifact": {
+    "id": "workload.conformance.native-echo",
+    "version": "1.0.0",
+    "contract_id": "workload.conformance.native-echo",
+    "contract_version": "1.0.0"
+  },
+  "sequential": { "iterations": 128 },
+  "bounded_parallel": { "iterations": 64, "concurrency": 4 },
+  "overload": {
+    "requested_concurrency": 5,
+    "maximum_concurrency": 4,
+    "expected_code": "workflow_concurrency_exceeded"
+  },
+  "expected_projection_version": "1.0.0"
+}
