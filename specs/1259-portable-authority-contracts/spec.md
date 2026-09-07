@@ -1,6 +1,6 @@
 # Feature Specification: Portable Authority Contracts for Audio and Model Runtime
 
-**Status**: Draft
+**Status**: Approved (2026-09-07)
 **Canonical governing ID**: `1259-portable-authority-contracts`
 **Version**: 0.1.0
 **Extends**: `039-connector-plugin-architecture`, `103-application-connector-binding`, and `104-mediated-connector-invocation`.

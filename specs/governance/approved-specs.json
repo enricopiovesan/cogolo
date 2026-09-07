@@ -1711,6 +1711,17 @@
         "docs/adr/0058-governed-workflow-reliability.md",
         "specs/129-governed-workflow-reliability/"
       ]
+    },
+    {
+      "id": "1259-portable-authority-contracts",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/1259-portable-authority-contracts/spec.md",
+      "governs": [
+        "specs/1259-portable-authority-contracts/",
+        "docs/adr/0060-portable-audio-and-model-runtime-authority.md"
+      ]
     }
   ]
 }

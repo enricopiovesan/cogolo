@@ -1,8 +1,8 @@
 # ADR-0060: Portable Audio and Model-Runtime Authority Boundaries
 
-- Status: Proposed
+- Status: Accepted
 - Date: 2026-09-07
-- Governing spec: `1259-portable-authority-contracts` (Draft)
+- Governing spec: `1259-portable-authority-contracts` (Approved)
 - Related issue: #1259
 
 ## Context
