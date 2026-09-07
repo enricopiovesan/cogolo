@@ -20,6 +20,27 @@ A capability contract is a `contract.json` artifact placed under `contracts/`. T
 - `inputs` / `outputs` — JSON Schemas used for deterministic validation
 - `execution` — binary format, entrypoint, preferred targets, and constraints
 
+## Public Registry boundary (Draft)
+
+When authoring for public Registry publication, make the contract describe a
+stable domain operation. `audio-window-plan` and `inference-request-prepare`
+are domain-shaped examples; a microphone capture binding, a provider/model
+selection, or a review-screen workflow is not. The latter belongs respectively
+to a host connector, runtime/connector policy, or application composition.
+
+The proposed `1256-registry-genericity-policy` requires typed, versioned
+configuration with portable defaults separated from host-required references.
+Do not put credential values, endpoints, paths, device IDs, or vendor choices
+in a public capability contract or its evidence. Additive optional
+configuration fields may preserve compatibility; removing or reinterpreting a
+required field, enum member, range, or default requires a major schema version
+and migration/deprecation guidance.
+
+Supply two materially distinct portable fixture/configuration scenarios for
+publication, or a documented reviewed exception for a genuinely new primitive.
+Structural validation can reject unambiguous leakage, but human review decides
+whether the capability is semantically generic.
+
 ## Minimal Working Template
 
 This is a minimal contract you can copy, edit, and validate locally. It intentionally avoids events and dependencies so you can focus on structure first.

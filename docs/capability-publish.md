@@ -40,3 +40,19 @@ persona before opening a registry PR.
 
 The resulting registry PR still requires registry CI and explicit human review
 before the record can become visible to consumers.
+
+## Registry admission policy (Draft)
+
+The proposed `1256-registry-genericity-policy` requires public capabilities to
+name a stable domain operation, not an application, workflow, UI, customer,
+vendor, model, host target, connector implementation, or secret-bearing
+binding. Publish portable fixture/configuration evidence for two materially
+distinct scenarios. A genuinely new primitive may provide a documented,
+reviewed exception rationale instead; two shipping customers are not required.
+
+Configuration must be typed and versioned. Registry evidence may record only
+schema versions, reference names, target limitations, and redacted provenance;
+it must never include values, credentials, endpoints, local paths, or device
+identities. The command's structural checks are not semantic approval: a
+registry reviewer still verifies genericity, ownership boundaries, fixture
+distinctness, and any exception.
