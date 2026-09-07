@@ -387,10 +387,10 @@ fn run_command(command: Command) -> Result<String, CliError> {
             authoring_review,
             json_output,
             dry_run,
-        } => capability_publish(
-            &contract_path,
-            &artifact_path,
-            &registry_repo_path,
+        } => capability_publish(&CapabilityPublishRequest {
+            contract_path,
+            artifact_path,
+            registry_repo_path,
             registry_repo_remote,
             authoring_method,
             authoring_source_revision,
@@ -398,7 +398,7 @@ fn run_command(command: Command) -> Result<String, CliError> {
             authoring_review,
             json_output,
             dry_run,
-        ),
+        }),
         Command::ComponentNew { component_id } => component_new(&component_id),
         Command::CapabilityNew { capability_id } => capability_new(&capability_id),
         Command::Serve { .. } => Err(CliError::UsageError(usage())),
@@ -4048,33 +4048,8 @@ impl PublishProcessRunner for RealPublishProcessRunner {
     }
 }
 
-fn capability_publish(
-    contract_path: &Path,
-    artifact_path: &Path,
-    registry_repo_path: &Path,
-    registry_repo_remote: Option<String>,
-    authoring_method: Option<String>,
-    authoring_source_revision: Option<String>,
-    authoring_test_evidence: Option<String>,
-    authoring_review: Option<String>,
-    json_output: bool,
-    dry_run: bool,
-) -> Result<String, CliError> {
-    capability_publish_at(
-        &CapabilityPublishRequest {
-            contract_path: contract_path.to_path_buf(),
-            artifact_path: artifact_path.to_path_buf(),
-            registry_repo_path: registry_repo_path.to_path_buf(),
-            registry_repo_remote,
-            authoring_method,
-            authoring_source_revision,
-            authoring_test_evidence,
-            authoring_review,
-            json_output,
-            dry_run,
-        },
-        &RealPublishProcessRunner,
-    )
+fn capability_publish(request: &CapabilityPublishRequest) -> Result<String, CliError> {
+    capability_publish_at(request, &RealPublishProcessRunner)
 }
 
 fn capability_publish_at(
