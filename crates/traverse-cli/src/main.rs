@@ -125,6 +125,10 @@ enum Command {
         artifact_path: PathBuf,
         registry_repo_path: PathBuf,
         registry_repo_remote: Option<String>,
+        authoring_method: Option<String>,
+        authoring_source_revision: Option<String>,
+        authoring_test_evidence: Option<String>,
+        authoring_review: Option<String>,
         json_output: bool,
         dry_run: bool,
     },
@@ -377,6 +381,10 @@ fn run_command(command: Command) -> Result<String, CliError> {
             artifact_path,
             registry_repo_path,
             registry_repo_remote,
+            authoring_method,
+            authoring_source_revision,
+            authoring_test_evidence,
+            authoring_review,
             json_output,
             dry_run,
         } => capability_publish(
@@ -384,6 +392,10 @@ fn run_command(command: Command) -> Result<String, CliError> {
             &artifact_path,
             &registry_repo_path,
             registry_repo_remote,
+            authoring_method,
+            authoring_source_revision,
+            authoring_test_evidence,
+            authoring_review,
             json_output,
             dry_run,
         ),
@@ -1418,7 +1430,7 @@ fn help_registry() -> String {
 }
 
 fn help_capability_publish() -> String {
-    "traverse-cli capability publish --contract <path> --artifact <path> --registry-repo <path> --json [--dry-run] [--registry-repo-remote <owner/repo>]
+    "traverse-cli capability publish --contract <path> --artifact <path> --registry-repo <path> --json [--dry-run] [--registry-repo-remote <owner/repo>] [--authoring <human|llm-assisted>]
 
   Purpose:
     Validate a capability contract and artifact, prepare the publication
@@ -1444,6 +1456,12 @@ fn help_capability_publish() -> String {
                                     separate things. Set this to the same repo your
                                     --registry-repo checkout's origin points at when
                                     publishing to your own private registry.
+    --authoring <method>          Declare human (default) or llm-assisted authorship.
+    --authoring-source-revision <ref>
+                                Required with --authoring llm-assisted.
+    --authoring-test-evidence <ref>
+                                Required with --authoring llm-assisted.
+    --authoring-review <ref>      Required with --authoring llm-assisted.
     --help                          Print this help text.
 
   Example:
@@ -2096,6 +2114,10 @@ fn parse_capability_publish_command(args: &[String]) -> Result<Command, String> 
         artifact_path: PathBuf::from(artifact_path),
         registry_repo_path: PathBuf::from(registry_repo_path),
         registry_repo_remote: parse_string_flag(args, "--registry-repo-remote"),
+        authoring_method: parse_string_flag(args, "--authoring"),
+        authoring_source_revision: parse_string_flag(args, "--authoring-source-revision"),
+        authoring_test_evidence: parse_string_flag(args, "--authoring-test-evidence"),
+        authoring_review: parse_string_flag(args, "--authoring-review"),
         json_output: true,
         dry_run: args.iter().any(|a| a == "--dry-run"),
     })
@@ -3960,6 +3982,10 @@ struct CapabilityPublishRequest {
     /// Overrides `DEFAULT_REGISTRY_REPO` as the `gh pr create --repo` target.
     /// `None` publishes against traverse-framework/registry, unchanged.
     registry_repo_remote: Option<String>,
+    authoring_method: Option<String>,
+    authoring_source_revision: Option<String>,
+    authoring_test_evidence: Option<String>,
+    authoring_review: Option<String>,
     json_output: bool,
     dry_run: bool,
 }
@@ -4027,6 +4053,10 @@ fn capability_publish(
     artifact_path: &Path,
     registry_repo_path: &Path,
     registry_repo_remote: Option<String>,
+    authoring_method: Option<String>,
+    authoring_source_revision: Option<String>,
+    authoring_test_evidence: Option<String>,
+    authoring_review: Option<String>,
     json_output: bool,
     dry_run: bool,
 ) -> Result<String, CliError> {
@@ -4036,6 +4066,10 @@ fn capability_publish(
             artifact_path: artifact_path.to_path_buf(),
             registry_repo_path: registry_repo_path.to_path_buf(),
             registry_repo_remote,
+            authoring_method,
+            authoring_source_revision,
+            authoring_test_evidence,
+            authoring_review,
             json_output,
             dry_run,
         },
@@ -4194,6 +4228,7 @@ fn capability_publish_plan(
         )
     })?;
     merge_author_fields_into_publish_contract(&mut contract_value, &raw_contract_value);
+    apply_authoring_metadata(&mut contract_value, &raw_contract_value, request)?;
     // Issue #859: `artifact.digest`/`artifact.url` are always computed here from the real
     // artifact binary (`request.artifact_path`), never taken from the author-supplied
     // contract. `CapabilityContract` intentionally has no `artifact` field for this reason:
@@ -4240,6 +4275,88 @@ fn merge_author_fields_into_publish_contract(
     if let Some(evidence) = raw_contract_value.get("evidence") {
         contract_value["evidence"] = evidence.clone();
     }
+}
+
+/// Registry Spec 023 requires explicit provenance on new published contracts.
+/// Existing author-provided metadata wins so publishing remains a lossless
+/// round trip for contracts that already carry an `authoring` block.
+fn apply_authoring_metadata(
+    contract_value: &mut Value,
+    raw_contract_value: &Value,
+    request: &CapabilityPublishRequest,
+) -> Result<(), (&'static str, String)> {
+    if raw_contract_value.get("authoring").is_some() {
+        if request.authoring_method.is_some()
+            || request.authoring_source_revision.is_some()
+            || request.authoring_test_evidence.is_some()
+            || request.authoring_review.is_some()
+        {
+            return Err((
+                "capability_publish_authoring_conflict",
+                "contract already declares authoring metadata; remove --authoring flags to preserve it"
+                    .to_string(),
+            ));
+        }
+        contract_value["authoring"] = raw_contract_value["authoring"].clone();
+        return Ok(());
+    }
+
+    let method = request.authoring_method.as_deref().unwrap_or("human");
+    match method {
+        "human" => {
+            if request.authoring_source_revision.is_some()
+                || request.authoring_test_evidence.is_some()
+                || request.authoring_review.is_some()
+            {
+                return Err((
+                    "capability_publish_authoring_invalid",
+                    "llm-assisted audit fields require --authoring llm-assisted".to_string(),
+                ));
+            }
+            contract_value["authoring"] = serde_json::json!({ "method": "human" });
+            Ok(())
+        }
+        "llm-assisted" => {
+            let source_revision = required_authoring_value(
+                request.authoring_source_revision.as_deref(),
+                "--authoring-source-revision",
+            )?;
+            let test_evidence = required_authoring_value(
+                request.authoring_test_evidence.as_deref(),
+                "--authoring-test-evidence",
+            )?;
+            let review = required_authoring_value(
+                request.authoring_review.as_deref(),
+                "--authoring-review",
+            )?;
+            contract_value["authoring"] = serde_json::json!({
+                "method": "llm-assisted",
+                "source_revision": source_revision,
+                "test_evidence": test_evidence,
+                "review": review,
+            });
+            Ok(())
+        }
+        _ => Err((
+            "capability_publish_authoring_invalid",
+            "--authoring must be human or llm-assisted".to_string(),
+        )),
+    }
+}
+
+fn required_authoring_value(
+    value: Option<&str>,
+    flag: &str,
+) -> Result<String, (&'static str, String)> {
+    value
+        .filter(|value| !value.trim().is_empty())
+        .map(str::to_string)
+        .ok_or_else(|| {
+            (
+                "capability_publish_authoring_invalid",
+                format!("{flag} is required with --authoring llm-assisted"),
+            )
+        })
 }
 
 fn reject_private_contract_scope(contract_text: &str) -> Result<(), (&'static str, String)> {
@@ -7832,14 +7949,14 @@ mod tests {
 
     use super::{
         AppValidationError, ArtifactRouter, CapabilityPublishRequest, CapabilityRegistry, CliError,
-        Command, DEFAULT_PUBLIC_REGISTRY_SOURCE, ExpeditionExampleExecutor, FetchedRegistryIndex,
-        PublishCommandOutput, PublishProcessRunner, RealPublishProcessRunner, RegistryIndexFetcher,
-        RegistrySyncError, Runtime, RuntimeResultStatus, SUPPORTED_HOST_ABI_VERSION,
-        app_activate_at, app_activation_state_path, app_new_at, app_register_at,
-        app_registration_state_path, app_validate, app_validate_at,
-        canonical_expedition_bundle_path, capability_new_at, capability_publish_at, component_new,
-        curl_bytes, curl_text, discover_capabilities, encode_hex,
-        enforce_contract_surface_coverage, enforce_persona_refs_resolve,
+        Command, DEFAULT_PUBLIC_REGISTRY_SOURCE, DEFAULT_REGISTRY_REPO, ExpeditionExampleExecutor,
+        FetchedRegistryIndex, PublishCommandOutput, PublishProcessRunner, RealPublishProcessRunner,
+        RegistryIndexFetcher, RegistrySyncError, Runtime, RuntimeResultStatus,
+        SUPPORTED_HOST_ABI_VERSION, app_activate_at, app_activation_state_path, app_new_at,
+        app_register_at, app_registration_state_path, app_validate, app_validate_at,
+        canonical_expedition_bundle_path, capability_new_at, capability_publish_at,
+        capability_publish_plan, component_new, curl_bytes, curl_text, discover_capabilities,
+        encode_hex, enforce_contract_surface_coverage, enforce_persona_refs_resolve,
         ensure_clean_registry_checkout, execute_capability_package, execute_expedition,
         execute_traverse_starter_process, execute_traverse_starter_summarize,
         execute_traverse_starter_validate, fetch_signature_with_head_fallback,
@@ -8324,6 +8441,10 @@ mod tests {
                 artifact_path,
                 registry_repo_path,
                 registry_repo_remote,
+                authoring_method,
+                authoring_source_revision,
+                authoring_test_evidence,
+                authoring_review,
                 json_output,
                 dry_run,
             } => {
@@ -8336,6 +8457,10 @@ mod tests {
                 assert_eq!(artifact_path, PathBuf::from("target/traverse-starter.wasm"));
                 assert_eq!(registry_repo_path, PathBuf::from("../registry"));
                 assert_eq!(registry_repo_remote, None);
+                assert_eq!(authoring_method, None);
+                assert_eq!(authoring_source_revision, None);
+                assert_eq!(authoring_test_evidence, None);
+                assert_eq!(authoring_review, None);
                 assert!(json_output);
                 assert!(dry_run);
             }
@@ -8381,6 +8506,53 @@ mod tests {
     }
 
     #[test]
+    fn parse_capability_publish_accepts_explicit_llm_authoring_evidence() {
+        let args = vec![
+            "traverse-cli".to_string(),
+            "capability".to_string(),
+            "publish".to_string(),
+            "--contract".to_string(),
+            "contract.json".to_string(),
+            "--artifact".to_string(),
+            "artifact.wasm".to_string(),
+            "--registry-repo".to_string(),
+            "../registry".to_string(),
+            "--authoring".to_string(),
+            "llm-assisted".to_string(),
+            "--authoring-source-revision".to_string(),
+            "abc123".to_string(),
+            "--authoring-test-evidence".to_string(),
+            "https://ci.example.test/42".to_string(),
+            "--authoring-review".to_string(),
+            "https://github.com/example/repo/pull/7".to_string(),
+            "--json".to_string(),
+        ];
+
+        let command = parse_command(&args).expect("llm-assisted publish should parse");
+        match command {
+            Command::CapabilityPublish {
+                authoring_method,
+                authoring_source_revision,
+                authoring_test_evidence,
+                authoring_review,
+                ..
+            } => {
+                assert_eq!(authoring_method.as_deref(), Some("llm-assisted"));
+                assert_eq!(authoring_source_revision.as_deref(), Some("abc123"));
+                assert_eq!(
+                    authoring_test_evidence.as_deref(),
+                    Some("https://ci.example.test/42")
+                );
+                assert_eq!(
+                    authoring_review.as_deref(),
+                    Some("https://github.com/example/repo/pull/7")
+                );
+            }
+            other => assert!(matches!(other, Command::CapabilityPublish { .. })),
+        }
+    }
+
+    #[test]
     fn capability_publish_dry_run_reports_plan_without_writes() {
         let fixture = capability_publish_fixture();
         let runner = RecordingPublishRunner::default();
@@ -8411,6 +8583,86 @@ mod tests {
         );
         assert!(!fixture.registry_contract_path().exists());
         assert!(runner.commands.borrow().is_empty());
+    }
+
+    #[test]
+    fn capability_publish_defaults_new_contracts_to_human_authoring() {
+        let fixture = capability_publish_fixture();
+        let plan = capability_publish_plan(&fixture.request(true), DEFAULT_REGISTRY_REPO)
+            .expect("default authoring plan should build");
+        let contract: Value =
+            serde_json::from_str(&plan.contract_json).expect("planned contract should parse");
+
+        assert_eq!(
+            contract["authoring"],
+            serde_json::json!({ "method": "human" })
+        );
+    }
+
+    #[test]
+    fn capability_publish_records_complete_llm_assisted_authoring() {
+        let fixture = capability_publish_fixture();
+        let mut request = fixture.request(true);
+        request.authoring_method = Some("llm-assisted".to_string());
+        request.authoring_source_revision = Some("abc123".to_string());
+        request.authoring_test_evidence = Some("https://ci.example.test/runs/42".to_string());
+        request.authoring_review = Some("https://github.com/example/repo/pull/7".to_string());
+
+        let plan = capability_publish_plan(&request, DEFAULT_REGISTRY_REPO)
+            .expect("complete llm-assisted authoring should plan");
+        let contract: Value =
+            serde_json::from_str(&plan.contract_json).expect("planned contract should parse");
+
+        assert_eq!(contract["authoring"]["method"], "llm-assisted");
+        assert_eq!(contract["authoring"]["source_revision"], "abc123");
+        assert_eq!(
+            contract["authoring"]["test_evidence"],
+            "https://ci.example.test/runs/42"
+        );
+        assert_eq!(
+            contract["authoring"]["review"],
+            "https://github.com/example/repo/pull/7"
+        );
+    }
+
+    #[test]
+    fn capability_publish_rejects_incomplete_llm_assisted_authoring() {
+        let fixture = capability_publish_fixture();
+        let mut request = fixture.request(true);
+        request.authoring_method = Some("llm-assisted".to_string());
+
+        let error = capability_publish_plan(&request, DEFAULT_REGISTRY_REPO)
+            .expect_err("llm-assisted authoring must include audit evidence");
+
+        assert_eq!(error.0, "capability_publish_authoring_invalid");
+        assert!(error.1.contains("--authoring-source-revision"));
+    }
+
+    #[test]
+    fn capability_publish_preserves_existing_authoring_metadata() {
+        let fixture = capability_publish_fixture();
+        let mut contract: Value = serde_json::from_str(
+            &fs::read_to_string(&fixture.contract).expect("fixture contract should read"),
+        )
+        .expect("fixture contract should parse");
+        contract["authoring"] = serde_json::json!({
+            "method": "llm-assisted",
+            "source_revision": "existing-source",
+            "test_evidence": "existing-tests",
+            "review": "existing-review"
+        });
+        fs::write(
+            &fixture.contract,
+            serde_json::to_string_pretty(&contract).expect("fixture contract should serialize"),
+        )
+        .expect("fixture contract should write");
+
+        let plan = capability_publish_plan(&fixture.request(true), DEFAULT_REGISTRY_REPO)
+            .expect("existing authoring metadata should be preserved");
+        let published: Value =
+            serde_json::from_str(&plan.contract_json).expect("planned contract should parse");
+
+        assert_eq!(published["authoring"], contract["authoring"]);
     }
 
     #[test]
@@ -11784,6 +12036,10 @@ mod tests {
                 artifact_path: self.artifact.clone(),
                 registry_repo_path: self.registry_repo.clone(),
                 registry_repo_remote: None,
+                authoring_method: None,
+                authoring_source_revision: None,
+                authoring_test_evidence: None,
+                authoring_review: None,
                 json_output: true,
                 dry_run,
             }
