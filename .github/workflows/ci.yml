@@ -318,6 +318,28 @@ jobs:
           TRAVERSE_STRESS_SECONDS: "60"
         run: cargo test -p traverse-runtime --test thread_pool_stress -- --ignored --nocapture
 
+  workload-conformance:
+    needs: classify-changes
+    if: needs.classify-changes.outputs.full_ci == 'true'
+    name: Governed workload conformance
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v7
+
+      - name: Set up Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: 1.94.0
+
+      - name: Cache cargo
+        uses: Swatinem/rust-cache@v2
+
+      - name: Run versioned workload fixture
+        run: cargo test -p traverse-runtime --test workload_conformance -- --nocapture
+
   publish:
     name: Publish to crates.io
     if: github.event_name == 'push' && startsWith(github.ref, 'refs/tags/v')
