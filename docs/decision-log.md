@@ -2709,3 +2709,88 @@ and `serve --artifact-state` per spec 120." Hosting a real, live `serve`
 instance for discover.html still needs someone to actually run
 `materialize` and operate the resulting artifacts directory on an ongoing
 basis — an operational decision this spec deliberately leaves open.
+
+## Decision 67: Rescope #1235 In Place to Implementation of Spec 129 — Spec Work Is Done
+
+- **Date**: 2026-09-06
+- **Status**: Accepted; no spec or ADR change (Spec `129-governed-workflow-reliability` and ADR-0058 already approved via PR #1245)
+- **Governing spec**: `129-governed-workflow-reliability`; ADR-0058; related `109-runtime-workflow-proposals`, `111-durable-dynamic-orchestration`
+- **Related issues**: `#1235`; related `#1239` (spec ticket the approving PR #1245 was filed against)
+- **Origin**: `/brainstorm` on `#1235`. Four hours after Spec 129 + ADR-0058 were approved, the issue was still OPEN, still in project status **Ready**, still labeled `needs-spec` with every DoD box unchecked. PR #1245's body said "Unblocks #1235" but carried no closing reference, so nothing had actually moved the ticket. Owner-participated brainstorm; Enrico deferred each sub-call to the recommendation.
+
+### Context
+
+`#1235` is a spec ticket: its stated DoD is a governing spec plus an ADR, with
+"no runtime implementation starts until the spec and ADR are approved." Both
+now exist and are approved — Spec `129` (immutable, in `approved-specs.json`,
+governing `crates/traverse-runtime/` and `crates/traverse-mcp/`) and ADR-0058
+("Explicit Sequential Workflow Recovery"). A Decision record is already posted
+as a comment on the issue. Five of the seven DoD checkboxes are cleanly
+satisfied by Spec 129's FRs and ADR-0058. Two are soft: checkbox 2 wants
+*placement* named among the per-automatic-action requirements (Spec 129 leans
+on `109`/`111`, which it extends, and does not use the word), and checkbox 4
+wants an explicit *failure matrix* (Spec 129 covers the cases across FR-005,
+FR-006, and Acceptance Scenarios 1-4, but not as a labeled matrix). Spec 129
+is immutable, so neither gap can be closed by editing it. `#1235` also carries
+`future` and `priority:p4` — it is explicitly not the current active slice.
+
+### Decision
+
+1. **Rescope `#1235` in place** into an implementation ticket rather than
+   closing it and opening a fresh one. This follows the repository's own
+   established pattern — Decision 60 rescoped `#1153` from a design question to
+   "implement per spec 120" the moment that spec was approved, and Decision 62 /
+   `#1098` was "retitled and rescoped to match." Keeping one thread keeps the
+   Decision record comment and the full history together.
+2. **Close the two soft DoD checkboxes with a traceability note**, not a spec
+   edit or a successor slice: add
+   `specs/129-governed-workflow-reliability/dod-traceability.md` mapping each of
+   the seven DoD items to its FR/ADR location and stating explicitly that
+   placement is governed by `109`/`111` (which `129` extends) and that the
+   failure matrix is enumerated by FR-005 + FR-006 + Acceptance Scenarios 1-4.
+   This matches the repo's traceability-heavy style and makes the closure
+   auditable outside a GitHub comment.
+3. **Labels and board**: remove `needs-spec` (blocker cleared) and `spec` (no
+   longer a spec ticket); keep `enhancement`, `workflow`, `runtime`, `future`,
+   `priority:p4`; move the project card off **Ready** to the backlog/later
+   column, because `future` + `priority:p4` means it must not sit in a
+   "pull this next" column.
+4. **Implementation DoD points at Spec 129's own gates**: QG-001..QG-003 pass
+   (FR-005 rejection-category tests; integration tests for success-after-retry,
+   reverse-order compensation, compensation failure, interruption recovery;
+   coverage + lint + spec-alignment declaring `129`), Acceptance Scenarios 1-4
+   covered, scoped to `crates/traverse-runtime/` and `crates/traverse-mcp/` per
+   the spec's `governs` list. No bespoke checklist, no split into sub-tickets
+   while the work is `p4` and unscheduled.
+
+### Alternatives Considered
+
+- **Close `#1235` as done, open a separate implementation ticket** — rejected;
+  cuts against the repo's own recent rescope precedent (Decisions 60, 62) and
+  scatters continuity across two tickets for no real gain.
+- **Close `#1235`, open no implementation ticket yet** — rejected as the
+  default, though its point stands: the rescoped ticket keeps `future`/`p4` and
+  moves off Ready, so it does not manufacture active WIP.
+- **Accept the two soft checkboxes as substantively met, recorded only in the
+  closing comment** — rejected; defensible reading, but a future auditor would
+  have to reconstruct it from a comment rather than a spec-adjacent doc.
+- **Draft a Spec 129 successor slice adding an explicit failure-matrix table
+  and a placement clause** — rejected; heavy governance process for two
+  checkboxes already covered in substance, and `priority:p4` does not justify a
+  new governing slice.
+- **Keep the `spec` label / leave the card on Ready** — rejected; `spec` does
+  not describe an implementation ticket and Ready would contradict `future`/`p4`.
+
+### Outcome
+
+The spec work `#1235` asked for is complete. Remaining actions, all on the
+maintainer (none block on the runtime or another ticket):
+
+1. Author `specs/129-governed-workflow-reliability/dod-traceability.md` (the
+   DoD-to-FR/ADR map) and merge it.
+2. On `#1235`: retitle to an implementation framing, replace the DoD body with
+   the Spec 129 QG / Acceptance-Scenario bar from point 4 above, tick the
+   original seven boxes referencing the traceability note, remove `needs-spec`
+   and `spec`, and post a closing-of-spec-phase comment linking Spec 129,
+   ADR-0058, and PR #1245.
+3. Move the `#1235` project card from **Ready** to the backlog/later column.
