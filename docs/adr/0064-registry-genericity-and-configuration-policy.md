@@ -1,9 +1,10 @@
-# ADR-0059: Registry Genericity and Configuration-Evolution Policy
+# ADR-0064: Registry Genericity and Configuration-Evolution Policy
 
-- Status: Proposed
-- Date: 2026-09-07
-- Governing spec: `1256-registry-genericity-policy` (Draft)
+- Status: Accepted
+- Date: 2026-09-08
+- Governing spec: `1256-registry-genericity-policy` (Approved)
 - Related issue: #1256
+- Supersedes numbering: originally filed as ADR-0059, renumbered to 0064 to resolve a collision with `0059-mixed-registry-reference-activation`.
 
 ## Context
 
@@ -46,3 +47,9 @@ records are audited only for confirmed violations.
   portability across materially different contexts.
 - Infer genericity from source code: rejected because it is unreliable and
   would create a false approval signal.
+
+## Approval evidence
+
+The maintainer approved Spec 1256 on 2026-09-08. The approved-spec registry
+records `1256-registry-genericity-policy` at version 0.1.0. This ADR records
+that approved decision; it does not alter the immutable spec.

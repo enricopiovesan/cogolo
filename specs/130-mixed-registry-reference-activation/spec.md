@@ -1,11 +1,11 @@
 # Feature Specification: Mixed Local and Registry-Reference Activation
 
-**Status**: Draft
+**Status**: Approved (2026-09-08)
 **Canonical governing ID**: `130-mixed-registry-reference-activation`
-**Version**: 1.0.0-draft
+**Version**: 1.0.0
 **Extends**: `106-activation-artifact-resolution`,
 `107-cross-host-embedded-registry-cache`
-**Input**: #1258; ADR-0059.
+**Input**: #1258; ADR-0059 (`0059-mixed-registry-reference-activation`).
 
 ## Purpose
 
