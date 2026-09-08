@@ -1,0 +1,130 @@
+{
+  "governing_spec": "1258-offline-cache-activation",
+  "diagnosis_issue": 1273,
+  "implementation_issue": 1272,
+  "description": "Proposed stable, redacted error taxonomy for exact-version registry_ref resolution. `current_code` is what crates/traverse-cli/src/main.rs emits today; every boundary collapses onto the single ApplicationManifestErrorCode::RegistryReferenceRequiresResolution, and the boundaries marked `current_check: none` are not evaluated at all. The successor implementation slice (#1272) MUST surface `proposed_code` per boundary with only `redacted_evidence_fields` in evidence.",
+  "allowed_redacted_evidence_fields": [
+    "namespace",
+    "id",
+    "requested_range",
+    "selected_version",
+    "contract_digest",
+    "artifact_digest",
+    "trust_lifecycle",
+    "abi",
+    "target",
+    "placement",
+    "stage",
+    "code",
+    "summary"
+  ],
+  "forbidden_evidence": [
+    "local cache paths",
+    "artifact or contract URLs",
+    "registry endpoints",
+    "authorization headers or tokens",
+    "connector configuration values",
+    "artifact or contract bytes"
+  ],
+  "boundaries": [
+    {
+      "evaluation_order": 1,
+      "stage": "index_selection",
+      "proposed_code": "registry_index_selection_failed",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "partial",
+      "meaning": "No synced public registry state, unreadable/parse-failed/schema-incompatible state, or no record for the requested namespace/id.",
+      "next_slice_contract": "Distinguish missing-sync from present-but-no-record; never emit the state file path."
+    },
+    {
+      "evaluation_order": 2,
+      "stage": "version_range",
+      "proposed_code": "registry_version_range_unsatisfied",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "full",
+      "meaning": "An exact `==x.y.z` range matches no synced version. Resolver MUST NOT fall back to a different version.",
+      "next_slice_contract": "Report requested_range and the set of available versions by identity only; keep fail-closed, no fallback."
+    },
+    {
+      "evaluation_order": 3,
+      "stage": "lifecycle",
+      "proposed_code": "registry_lifecycle_rejected",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "partial",
+      "meaning": "Selected version is not activatable. Today only the `deprecated` boolean is checked; `lifecycle` in {yanked, draft, inactive} is ignored.",
+      "next_slice_contract": "Gate on the record `lifecycle` field plus `deprecated`; report trust_lifecycle in evidence."
+    },
+    {
+      "evaluation_order": 4,
+      "stage": "contract_retrieval",
+      "proposed_code": "registry_contract_unreachable",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "full",
+      "meaning": "Contract fetch failed at the transport/HTTP layer.",
+      "next_slice_contract": "Consume a prepared verified cache entry (spec 1258 FR-001); if a fetch layer remains, carry the HTTP status class and which asset failed, never the URL."
+    },
+    {
+      "evaluation_order": 5,
+      "stage": "contract_digest",
+      "proposed_code": "registry_contract_digest_mismatch",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "full",
+      "meaning": "Fetched contract bytes do not match `contract_digest` from the index.",
+      "next_slice_contract": "Report contract_digest (expected) only; the current message leaks `.traverse/cache/sha256/<digest>` and MUST be redacted."
+    },
+    {
+      "evaluation_order": 6,
+      "stage": "artifact_retrieval",
+      "proposed_code": "registry_artifact_unreachable",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "full",
+      "meaning": "Artifact fetch failed at the transport/HTTP layer. Today indistinguishable from contract_retrieval: both emit the literal \"registry asset download failed\".",
+      "next_slice_contract": "Separate artifact from contract failures with distinct codes."
+    },
+    {
+      "evaluation_order": 7,
+      "stage": "artifact_digest",
+      "proposed_code": "registry_artifact_digest_mismatch",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "full",
+      "meaning": "Fetched artifact bytes do not match `digest` from the index.",
+      "next_slice_contract": "Report artifact_digest (expected) only; redact the cache path as above."
+    },
+    {
+      "evaluation_order": 8,
+      "stage": "signature",
+      "proposed_code": "registry_signature_unverified",
+      "current_code": null,
+      "current_check": "none",
+      "meaning": "The record's signature / trust bundle is missing or fails verification. Not checked anywhere in the CLI resolver today.",
+      "next_slice_contract": "Verify the signed bundle before the artifact is cached as activatable; report trust_lifecycle only."
+    },
+    {
+      "evaluation_order": 9,
+      "stage": "abi",
+      "proposed_code": "registry_abi_incompatible",
+      "current_code": null,
+      "current_check": "none",
+      "meaning": "Artifact Host ABI major version is not supported by this Traverse build. Not checked in the resolver today.",
+      "next_slice_contract": "Compare against SUPPORTED_HOST_ABI_VERSION; report abi (both sides) only."
+    },
+    {
+      "evaluation_order": 10,
+      "stage": "target",
+      "proposed_code": "registry_target_incompatible",
+      "current_code": null,
+      "current_check": "none",
+      "meaning": "The selected version's `permitted_targets` does not include the requested placement target. Not checked in the resolver today.",
+      "next_slice_contract": "Intersect record `permitted_targets` with the manifest placement target; report target and placement only."
+    },
+    {
+      "evaluation_order": 11,
+      "stage": "cache_persistence",
+      "proposed_code": "registry_cache_commit_failed",
+      "current_code": "registry_reference_requires_resolution",
+      "current_check": "full",
+      "meaning": "Verified bytes could not be committed to the content-addressed cache, or a different byte stream is already stored under the same digest key.",
+      "next_slice_contract": "Report the digest key only; keep the cache immutable and digest-keyed (spec 1258 FR-002)."
+    }
+  ]
+}
