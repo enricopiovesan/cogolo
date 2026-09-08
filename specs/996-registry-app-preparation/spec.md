@@ -1,8 +1,8 @@
 # Feature Specification: Application Registry Reference Preparation
 
-**Feature Branch**: `codex/issue-1274-verified-registry-preparation`  
-**Created**: 2026-09-08  
-**Status**: Draft  
+**Feature Branch**: `codex/issue-1274-verified-registry-preparation`
+**Created**: 2026-09-08
+**Status**: Draft
 **Input**: Explicit host-run preparation for application Registry references; validation, activation, and execution remain offline consumers of verified cache evidence.
 
 ## Purpose
