@@ -1,7 +1,8 @@
 # ADR-0059: Mixed Local and Registry-Reference Activation
 
-- Status: Proposed
-- Proposed governing spec: `130-mixed-registry-reference-activation`
+- Status: Accepted
+- Date: 2026-09-08
+- Governing spec: `130-mixed-registry-reference-activation` (Approved)
 - Related issue: #1258
 
 ## Context
@@ -12,7 +13,7 @@ activation-time artifact selection. Consequently, a mixed application can
 prepare and validate registry dependencies but has no governed offline path to
 activate them alongside local components.
 
-## Proposed Decision
+## Decision
 
 Extend activation with a resolver that treats a prepared verified cache entry
 as the sole admissible candidate for a `registry_ref` component. The host
@@ -39,3 +40,9 @@ certified across the native host matrix.
   obscures provenance and permits an unproven equivalent candidate.
 - Rewrite the application manifest after preparation: rejected because it
   changes portable application intent into host state.
+
+## Approval evidence
+
+The maintainer approved Spec 130 on 2026-09-08. The approved-spec registry
+records `130-mixed-registry-reference-activation` at version 1.0.0. This ADR
+records that approved decision; it does not alter the immutable spec.

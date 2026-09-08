@@ -2794,3 +2794,271 @@ maintainer (none block on the runtime or another ticket):
    and `spec`, and post a closing-of-spec-phase comment linking Spec 129,
    ADR-0058, and PR #1245.
 3. Move the `#1235` project card from **Ready** to the backlog/later column.
+
+## Decision 68: Capability-Side WASM Host ABI for Stateful Persistence — New Spec, Key-Value Trio, Host-Isolated Partitions
+
+- **Date**: 2026-09-08
+- **Status**: Accepted; new governing spec + ADR to be drafted from this log
+- **Governing spec**: new spec (working title "Capability-Side WASM Host ABI for
+  Stateful Persistence"), extends `002-capability-contracts`,
+  `208-service-type-taxonomy` (canonical `014`), `518-durable-local-datastore`;
+  paired new ADR. Precedent: `098-capability-event-host-abi` / ADR-0035 /
+  Decisions 48–49.
+- **Related issues**: `#1285`
+- **Origin**: `/brainstorm` on `#1285` ("Host storage/lifecycle ABI needed for
+  UMA Stateful capabilities"), filed 2026-09-08 with no governing spec, no ADR,
+  no labels, and not on Project 1. Registry decision-log entry 92 (registry
+  repo) mapped ≥10 real Stateful capabilities (cart, ticket workspace, approval
+  packet store, challenge session, …) whose publication is blocked because
+  `host_abi_v1.json` exposes no managed-persistence import — only WASI stdio,
+  `traverse_host` environment/metadata queries, `emit_event`, and
+  `connector_invoke`. Owner-participated brainstorm; Enrico deferred each
+  sub-call to the recommendation.
+
+### Context
+
+`service_type: Stateful` already exists on `CapabilityContract` (spec
+`208`/`014`) and the placement evaluator already excludes `Browser` for it
+(`208` FR-005). What is missing is the runtime surface: a Stateful capability
+has no way to actually persist or read state during execution. The closest
+precedent is the event-publish ABI (`098`): one whitelisted `traverse_host`
+import, a call-time `service_type` gate, synchronous validation, guest-memory
+bounds safety (`098` FR-008), and no back-compat tax (Decision 48). Separately,
+DataStore v2 (`518` + `519`/`528`) is a mature host-side storage subsystem, but
+`518` is explicitly *embedder*-facing and states it does not add a capability
+contract or a global runtime storage policy.
+
+### Decision
+
+1. **Governance vehicle**: a new standalone spec + new ADR, mirroring how
+   `098`/ADR-0035 landed the event ABI. Not an amendment of `098` (tightly
+   scoped to event pub/sub, Approved v1.1.0) and not an addendum to `518`
+   (whose stated boundary explicitly excludes a capability-facing contract).
+2. **ABI surface**: a key-value trio of flat `traverse_host` imports —
+   `state_get`, `state_put`, `state_delete` — whitelisted and documented the
+   same way as existing `traverse_*` imports. No `list`, no batch, no
+   multiplexed single-import. Maps 1:1 onto DataStore v2 and `530` remote-KV.
+   List/batch may be added later as explicit named imports if a real capability
+   needs them.
+3. **Key scoping**: the host always prefixes storage with the calling
+   `capability_id` (guest cannot escape it or read another capability's state).
+   Within that, the guest passes an opaque `partition` (user id, session id, …)
+   per call and the host composes `capability_id / partition / key`. Call
+   signatures are `state_get(partition, key)`, `state_put(partition, key,
+   value)`, `state_delete(partition, key)`. The guest never sees raw storage
+   paths. This lets one `commerce.cart` deployment serve every shopper without
+   per-user activation; a guest partition bug can cross users *within its own
+   namespace* but never outside it.
+4. **Teardown**: per-key `state_delete` only in v1. Partition-wide clear is not
+   in the ABI — wholesale teardown stays with the embedder (retention spec
+   `526`), which is accountable for retention/backup. Roster's real "forget"
+   case (`identity.challenge-session`) writes few keys per partition. A
+   `state_clear(partition)` import may be added later if N-call cleanup proves a
+   problem.
+5. **Backing store**: the spec defines an abstract `StatefulStore`-shaped host
+   trait with a written guarantee floor — integrity-checked, atomic write,
+   read-your-writes within a partition, durable across restart. The embedded
+   host binds it to DataStore v2 by default; a host may substitute (in-memory
+   for tests, `530` remote-KV, Redis) provided the substitute meets the floor.
+   Matches `connector_invoke` mediation and `519`'s embedder-owned framing.
+6. **Bounds & quota**: the spec fixes conservative caps — max key length, max
+   partition length, max value size (≈1 MiB) — and the host validates the
+   guest-supplied pointer/length is within linear memory, rejects oversized
+   input with a stable error code, and never traps or panics (mirrors `098`
+   FR-008). No per-capability key-count or total-bytes quota in v1; an
+   embedder-set quota is a clean follow-up once real workloads exist to size
+   against (same reasoning spec `050` used).
+7. **Browser placement**: `208` FR-005's `Stateful` + `Browser` →
+   `InvalidPlacementConstraint` rule is left untouched in this slice. The
+   IndexedDB-backed relaxation (`Stateful` on `Browser` when a `528` DataStore
+   is bound) is recorded as an explicit follow-up, not done here — the entire
+   `#1285` roster is server/edge-side.
+8. **Concurrency**: the host takes a short-lived per-`(capability_id,
+   partition)` lock around each get/put/delete; the guest sees a plain
+   sequential model and never sees contention. Matches DataStore's single-writer
+   design (`518` US4). No compare-and-swap / version tokens in v1 — a
+   read-modify-write split across two executions still races unless done within
+   one execution; CAS is a follow-up if a capability needs cross-execution
+   optimistic concurrency.
+9. **Trace journal**: each `state_put` / `state_delete` appends a trace entry
+   carrying `capability_id`, digested `partition`, `key`, value `digest`, and
+   `execution_id` — never the value itself. `state_get` is not traced. Gives the
+   audit-sensitive roster items (`doc-approval.packet-store`,
+   `doc-approval.policy-store`) a real record without copying business data into
+   the append-only journal or bringing it under `527` retention/encryption
+   scope.
+10. **Stateful + events (multi-role)**: explicitly out of scope. `service_type`
+    is a single enum and `098` FR-003 gates `emit_event` to `Subscribable`
+    only, so a Stateful capability cannot emit/receive events. The spec gates
+    `state_*` to `service_type: Stateful` and records the multi-role gap
+    (session-flavored capabilities wanting both) as a known limitation deferred
+    to its own decision. The bulk of the roster is pure-Stateful.
+
+Inherited from the `098` precedent and baked into the spec without a separate
+sub-decision: call-time `service_type: Stateful` gate with synchronous
+rejection; stable, secret-free error codes returned to the guest; host never
+traps/panics; whitelist entries documented alongside the existing native-bridge
+ABI whitelist; folded into ABI v1 with no back-compat tax (Decision 48).
+
+### Alternatives Considered
+
+- **Amend `098` to cover storage too** — rejected; `098` is Approved v1.1.0 and
+  tightly scoped to event pub/sub, and widening it mixes two concerns in one
+  amendment of an approved spec.
+- **Fold into `518` as a capability-facing addendum** — rejected; `518`
+  explicitly does not add a capability contract or a global runtime storage
+  policy and is embedder-owned — a direct boundary contradiction.
+- **Handle-based ABI** (`state_open`/`read`/`write`/`close`/`dispose`) —
+  rejected; 5 imports vs 3, a per-execution handle table for the host to
+  manage, and more failure modes (stale/double-close), heavier than any
+  existing capability ABI for no roster need.
+- **Single multiplexed `state_op(request_json)` import** — rejected; opaque to
+  static ABI inspection, which defeats the per-function whitelist that
+  `host_abi_v1.json` exists to provide.
+- **`capability_id` namespace only, no partition** — rejected; no structural
+  per-user boundary, so a capability that forgets to namespace keys silently
+  shares one user's cart with all, and per-user retention/dispose has nothing
+  to target.
+- **Host-pinned scope from `runtime_config`** — rejected; one activation = one
+  scope, so N concurrent users need N activations or per-request rebinding;
+  does not fit a long-lived embedded host.
+- **Add `state_clear(partition)` now** (plain or contract-opt-in) — deferred;
+  overlaps embedder retention responsibility and adds ABI/contract surface the
+  roster does not yet need.
+- **Mandate DataStore v2 as the backing store** — rejected; couples the ABI to
+  the `518`+`528`+`522` surface, leaves no seam for tests or alternative
+  stores, and contradicts the mediation pattern used elsewhere in the runtime.
+- **Leave persistence entirely unspecified in v1** — rejected; no durability /
+  integrity floor means "Stateful" promises nothing portable and registry
+  decision-92's "real managed persistence" bar goes unenforced.
+- **`runtime_config`-driven quota in v1** — deferred; real Stateful workloads
+  do not exist yet to size a quota against.
+- **Relax the `Stateful` + `Browser` ban in this slice** — deferred; widens the
+  slice into an amendment of Approved spec `208`/`014` for a capability class
+  nothing in the roster needs.
+- **Expose contention / add CAS** — deferred; every Stateful capability would
+  have to implement retry/backoff, and CAS widens get/put with version tokens.
+- **Full value in the trace journal** — rejected; doubles storage, brings
+  business data under `527` retention/encryption scope, and cuts against the
+  journal's metadata-not-payload intent.
+- **Gate `state_*` on a contract `uses_storage` flag instead of the enum** —
+  rejected; adds a second axis beside `service_type`, and `208`'s placement
+  constraints are written against `service_type`, so a `Subscribable`+storage
+  capability would not inherit Stateful target rules — a real placement hole.
+- **Address multi-role (Stateful + events) here** — rejected; turns a focused
+  storage-ABI slice into a `service_type` taxonomy change touching Approved
+  specs `208`/`014` and `098`.
+
+### Outcome
+
+The design `#1285` asked for is settled. Remaining actions, all on the
+maintainer (none block on the runtime or another ticket):
+
+1. Draft the new governing spec from points 1–10 above (FRs for the three
+   imports, the `StatefulStore` guarantee floor, bounds, the call-time gate,
+   the trace-entry type) and its paired ADR; assign the canonical governing ID
+   at draft time.
+2. Triage `#1285` into a proper spec ticket: add it to Project 1, label it
+   `spec` / `runtime` / `security`, and give it a real Definition of Done
+   (spec + ADR approved, then the three imports implemented and whitelisted,
+   per-partition serialization, trace entries, negative fixtures for the gate /
+   bounds / wrong-`service_type` / missing-store cases).
+3. File follow-up tickets for the deferred items: `state_clear`, embedder
+   quota, `Stateful`+`Browser` via IndexedDB, cross-execution CAS, and the
+   multi-role (Stateful + events) taxonomy question.
+
+## Decision 69: Approve Specs 131, 130, and 1256; Resolve the ADR-0059 Numbering Collision
+
+- **Date**: 2026-09-08
+- **Status**: Accepted
+- **Governing specs**: `131-stateful-persistence-host-abi` (new, Approved);
+  `130-mixed-registry-reference-activation` (Draft → Approved 1.0.0);
+  `1256-registry-genericity-policy` (Draft → Approved 0.1.0); `004-spec-alignment-gate`
+- **ADRs**: `0063-stateful-persistence-host-abi` (new, Accepted); `0059-mixed-registry-reference-activation` (Proposed → Accepted); `0064-registry-genericity-and-configuration-policy` (renumbered from a second `0059`, Proposed → Accepted)
+- **Related issues**: `#1285` (Project Item), `#1258`, `#1256`
+- **Origin**: Maintainer instruction immediately after the Decision 68
+  `/brainstorm`: author the `#1285` spec + ADR and merge them rather than leave
+  drafts, and approve the outstanding Draft specs and their ADRs in the same
+  pass. Surfaced by the `status-check` run earlier in the same session, which
+  flagged `130` and `1256` as Draft-pending-approval and the duplicate ADR
+  number as an untracked fix.
+
+### Context
+
+Three governance items were open at once:
+
+1. `#1285` needed a governing spec + ADR; Decision 68 settled the full design
+   but left authoring and approval as maintainer to-dos.
+2. `130-mixed-registry-reference-activation` (proposed via `#1258`, ADR-0059)
+   was `Draft` and is the named governing surface in `#1275`'s Definition of
+   Done, which blocks `#1275` → `#1276`.
+3. `1256-registry-genericity-policy` (drafted via `#1263`) was `Draft` with a
+   paired `Proposed` ADR.
+
+Two ADR files both carried the number `0059`
+(`0059-mixed-registry-reference-activation` and
+`0059-registry-genericity-and-configuration-policy`), a real collision on the
+sequential ADR index.
+
+### Decision
+
+1. **Author and approve `131-stateful-persistence-host-abi` (v0.1.0)** directly
+   from Decision 68's ten points, with new ADR `0063-stateful-persistence-host-abi`
+   (Accepted). Recorded in `approved-specs.json` as immutable, governing
+   `crates/traverse-runtime/src/executor/`,
+   `crates/traverse-runtime/src/trace_journal.rs`, `crates/traverse-contracts/`,
+   the spec directory, and the ADR.
+2. **Approve `130-mixed-registry-reference-activation`** as-is at v1.0.0
+   (`1.0.0-draft` → `1.0.0`); flip ADR-0059 (mixed) `Proposed` → `Accepted`
+   with an approval-evidence section. The spec is additive, extends the already
+   approved `106`/`107`, and matches its ADR; no content change on approval.
+3. **Approve `1256-registry-genericity-policy`** as-is at v0.1.0; flip its ADR
+   `Proposed` → `Accepted`. The spec is an additive Registry admission policy
+   with no Traverse-repo code surface, scoped in the manifest to its own spec
+   directory and ADR (the same shape as `1259-portable-authority-contracts`).
+4. **Resolve the ADR-0059 collision** by keeping `0059` for the
+   earlier-committed mixed-registry ADR (`#1258`, commit `26f7d33`, before the
+   genericity draft `86a74ff`) and renumbering the genericity ADR to the next
+   free index, `0064` (0060–0062 already taken). A note in the renumbered file
+   records the original number.
+5. **Bundle all of the above into one PR** rather than three. Every change is a
+   spec header, an ADR status line, a manifest entry, or a decision-log entry;
+   one squashed commit keeps the CI cost and the revert surface to a single
+   unit. The PR declares `004-spec-alignment-gate` plus the three approved spec
+   IDs in its `## Governing Spec` section (the manifest file is governed by
+   `004`).
+
+### Alternatives Considered
+
+- **Leave `131` as an unmerged draft** — rejected; the maintainer explicitly
+  asked for create-and-merge, and Decision 68 already fixed every design point a
+  draft-review would surface.
+- **Three separate PRs (one per spec)** — rejected; each would trip the full CI
+  matrix (the manifest lives under `specs/governance/`, which forces
+  `full_ci=true`), tripling the wall-clock and rate-limit cost for changes that
+  are entirely documentation and a JSON registry.
+- **Renumber the mixed-registry ADR instead of the genericity one** — rejected;
+  the mixed-registry ADR was committed first and is already referenced by name
+  in `130`'s header, so moving it churns more references.
+- **Approve `130`/`1256` without recording a decision-log entry** — rejected;
+  neither had a prior decision-log entry (only issue-comment decision records),
+  so this entry is where their approval and coherence review is captured, in the
+  style of Decisions 63–65.
+- **Hold `130`/`1256` for a fuller re-review** — rejected; both are additive,
+  internally coherent with their ADRs and cited decision records, and `130` is
+  actively blocking `#1275`.
+
+### Outcome
+
+Specs `131`, `130`, and `1256` are Approved and immutable in
+`approved-specs.json`; ADRs `0063`, `0059` (mixed), and `0064` are Accepted; the
+ADR index no longer has a duplicate `0059`. Follow-ups:
+
+1. `#1275` can proceed on its `130` governing-surface Definition-of-Done item;
+   `#1276` unblocks once `#1274`/`#1275` implementation lands.
+2. `#1285` still needs the three imports implemented and whitelisted, the
+   per-partition serialization, the trace-entry type, and negative fixtures —
+   plus triage onto Project 1 with a `spec`/`runtime`/`security` label set and
+   the deferred-item follow-up tickets from Decision 68.
+3. Registry genericity enforcement (`1256`) and its audit of existing records
+   are downstream registry-repo work.

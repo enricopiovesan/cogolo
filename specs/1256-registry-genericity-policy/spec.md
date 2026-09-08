@@ -1,9 +1,9 @@
 # Feature Specification: Registry Genericity, Naming, and Configuration Policy
 
-**Status**: Draft
+**Status**: Approved (2026-09-08)
 **Canonical governing ID**: `1256-registry-genericity-policy`
 **Version**: 0.1.0
-**Decision evidence**: Traverse #1256 decision record (2026-09-07).
+**Decision evidence**: Traverse #1256 decision record (2026-09-07); ADR-0064.
 
 ## Purpose
 

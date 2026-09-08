@@ -1756,6 +1756,45 @@
         "crates/traverse-cli/",
         "specs/996-registry-app-preparation/"
       ]
+    },
+    {
+      "id": "130-mixed-registry-reference-activation",
+      "version": "1.0.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/130-mixed-registry-reference-activation/spec.md",
+      "governs": [
+        "crates/traverse-runtime/",
+        "crates/traverse-embedder/",
+        "crates/traverse-registry/",
+        "specs/130-mixed-registry-reference-activation/",
+        "docs/adr/0059-mixed-registry-reference-activation.md"
+      ]
+    },
+    {
+      "id": "1256-registry-genericity-policy",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/1256-registry-genericity-policy/spec.md",
+      "governs": [
+        "specs/1256-registry-genericity-policy/",
+        "docs/adr/0064-registry-genericity-and-configuration-policy.md"
+      ]
+    },
+    {
+      "id": "131-stateful-persistence-host-abi",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/131-stateful-persistence-host-abi/spec.md",
+      "governs": [
+        "crates/traverse-runtime/src/executor/",
+        "crates/traverse-runtime/src/trace_journal.rs",
+        "crates/traverse-contracts/",
+        "specs/131-stateful-persistence-host-abi/",
+        "docs/adr/0063-stateful-persistence-host-abi.md"
+      ]
     }
   ]
 }
