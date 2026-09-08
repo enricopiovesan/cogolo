@@ -7,6 +7,8 @@ mod capability_packages;
 mod federation_operator;
 mod grpc_event_transport;
 mod http_api;
+#[cfg(test)]
+mod registry_resolution_diagnostics;
 mod supply_chain;
 mod telemetry;
 
@@ -9971,6 +9973,420 @@ mod tests {
             "only deprecated public registry versions for fixture:expedition.planning.validate-team-readiness satisfy >=1.0.0, <1.1.0"
         );
         assert!(!state_root.join(".traverse/workspaces/local/apps").exists());
+    }
+
+    // ---------------------------------------------------------------------
+    // Issue #1273 -- diagnosis of exact-version `registry_ref` resolution
+    // failure (governing spec `1258-offline-cache-activation`).
+    //
+    // These are characterization tests: they pin the *current* behavior of
+    // `SyncedRegistryComponentResolver` so the successor implementation slice
+    // (#1272) can see exactly which boundaries collapse onto one opaque code
+    // and where the message leaks a local path. See
+    // `docs/registry-resolution-diagnosis.md` and
+    // `src/registry_resolution_diagnostics.rs`.
+    // ---------------------------------------------------------------------
+
+    struct ExactVersionRegistrySources {
+        contract_url: String,
+        contract_digest: String,
+        artifact_url: String,
+        artifact_digest: String,
+    }
+
+    /// Reads the checked-in expedition contract/artifact fixtures and returns
+    /// `file://` URLs plus their real digests. No network, fully deterministic.
+    fn exact_version_registry_sources() -> ExactVersionRegistrySources {
+        let repo = repo_root();
+        let contract_src = repo.join(
+            "contracts/examples/expedition/capabilities/validate-team-readiness/contract.json",
+        );
+        let artifact_src = repo.join(
+            "examples/capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
+        );
+        let contract_digest = format!(
+            "sha256:{}",
+            sha256_hex(&fs::read(&contract_src).expect("contract fixture should read"))
+        );
+        let artifact_digest = format!(
+            "sha256:{}",
+            sha256_hex(&fs::read(&artifact_src).expect("artifact fixture should read"))
+        );
+        ExactVersionRegistrySources {
+            contract_url: format!("file://{}", contract_src.display()),
+            contract_digest,
+            artifact_url: format!("file://{}", artifact_src.display()),
+            artifact_digest,
+        }
+    }
+
+    #[allow(clippy::too_many_arguments)]
+    fn write_exact_version_registry_state(
+        state_root: &Path,
+        version: &str,
+        contract_url: &str,
+        contract_digest: &str,
+        artifact_url: &str,
+        artifact_digest: &str,
+        deprecated: bool,
+    ) {
+        write_synced_public_registry_state(
+            state_root,
+            "local",
+            "fixture-registry",
+            "fixture-v1",
+            "2026-07-22T00:00:00Z",
+            PublicRegistryIndex {
+                index_version: 1,
+                generated_at: "2026-07-22T00:00:00Z".to_string(),
+                source_commit: None,
+                capabilities: vec![PublicRegistryCapabilityRecord {
+                    namespace: "fixture".to_string(),
+                    id: "expedition.planning.validate-team-readiness".to_string(),
+                    version: version.to_string(),
+                    digest: artifact_digest.to_string(),
+                    artifact_url: artifact_url.to_string(),
+                    contract_digest: contract_digest.to_string(),
+                    contract_url: contract_url.to_string(),
+                    deprecated,
+                    summary: String::new(),
+                    description: String::new(),
+                    use_cases: Vec::new(),
+                    service_type: "stateless".to_string(),
+                    permitted_targets: Vec::new(),
+                    lifecycle: "active".to_string(),
+                    provenance: None,
+                }],
+                events: Vec::new(),
+            },
+        )
+        .expect("synced fixture state should persist");
+    }
+
+    fn first_error_code(output: &str) -> String {
+        let json: Value = serde_json::from_str(output).expect("cli output must be JSON");
+        assert_eq!(json["status"], "failed", "expected a failed resolution");
+        json["errors"][0]["code"]
+            .as_str()
+            .expect("error code must be a string")
+            .to_string()
+    }
+
+    fn first_error_message(output: &str) -> String {
+        let json: Value = serde_json::from_str(output).expect("cli output must be JSON");
+        json["errors"][0]["message"]
+            .as_str()
+            .expect("error message must be a string")
+            .to_string()
+    }
+
+    #[test]
+    fn exact_version_registry_ref_resolves_when_every_boundary_passes() {
+        // Anchors the fixture: with every boundary satisfied the exact `=1.0.1`
+        // reference validates, so the negative cases below fail only for their
+        // injected reason.
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let sources = exact_version_registry_sources();
+        let manifest_path =
+            write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+        write_exact_version_registry_state(
+            &state_root,
+            "1.0.1",
+            &sources.contract_url,
+            &sources.contract_digest,
+            &sources.artifact_url,
+            &sources.artifact_digest,
+            false,
+        );
+
+        let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+            .expect("exact-version reference should validate");
+        let json: Value = serde_json::from_str(&output).expect("validation output must be JSON");
+        assert_eq!(json["status"], "validated");
+    }
+
+    #[test]
+    fn exact_version_registry_ref_never_falls_back_to_another_version() {
+        // Spec 1258 FR-002 / #1272 AC5: an exact `=1.0.1` request must not
+        // resolve `1.0.0`.
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let sources = exact_version_registry_sources();
+        let manifest_path =
+            write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+        write_exact_version_registry_state(
+            &state_root,
+            "1.0.0",
+            &sources.contract_url,
+            &sources.contract_digest,
+            &sources.artifact_url,
+            &sources.artifact_digest,
+            false,
+        );
+
+        let output = app_register_at(&state_root, &manifest_path, "local", true)
+            .expect("version miss should render stable JSON evidence");
+        assert_eq!(
+            first_error_code(&output),
+            "registry_reference_requires_resolution"
+        );
+        assert!(
+            first_error_message(&output).contains("=1.0.1"),
+            "message should name the requested exact range"
+        );
+        assert!(
+            !state_root.join(".traverse/workspaces/local/apps").exists(),
+            "no registration state may be written when the exact version is absent"
+        );
+    }
+
+    #[test]
+    fn registry_ref_contract_and_artifact_fetch_failures_are_indistinguishable() {
+        // Both a contract-URL failure and an artifact-URL failure surface the
+        // identical code AND the identical literal message, with no HTTP status
+        // and no indication of which asset failed.
+        let sources = exact_version_registry_sources();
+
+        let contract_state_root = unique_temp_dir();
+        let contract_fixture_root = unique_temp_dir();
+        let contract_manifest = write_registry_ref_app_fixture(
+            &contract_fixture_root,
+            &sources.artifact_digest,
+            "=1.0.1",
+        );
+        write_exact_version_registry_state(
+            &contract_state_root,
+            "1.0.1",
+            &format!(
+                "file://{}",
+                contract_fixture_root.join("absent-contract.json").display()
+            ),
+            &sources.contract_digest,
+            &sources.artifact_url,
+            &sources.artifact_digest,
+            false,
+        );
+        let contract_output = app_validate_at(
+            &contract_state_root,
+            &contract_manifest,
+            Some("local"),
+            true,
+        )
+        .expect("contract fetch failure should render JSON evidence");
+
+        let artifact_state_root = unique_temp_dir();
+        let artifact_fixture_root = unique_temp_dir();
+        let artifact_manifest = write_registry_ref_app_fixture(
+            &artifact_fixture_root,
+            &sources.artifact_digest,
+            "=1.0.1",
+        );
+        write_exact_version_registry_state(
+            &artifact_state_root,
+            "1.0.1",
+            &sources.contract_url,
+            &sources.contract_digest,
+            &format!(
+                "file://{}",
+                artifact_fixture_root.join("absent-artifact.wasm").display()
+            ),
+            &sources.artifact_digest,
+            false,
+        );
+        let artifact_output = app_validate_at(
+            &artifact_state_root,
+            &artifact_manifest,
+            Some("local"),
+            true,
+        )
+        .expect("artifact fetch failure should render JSON evidence");
+
+        assert_eq!(
+            first_error_code(&contract_output),
+            "registry_reference_requires_resolution"
+        );
+        assert_eq!(
+            first_error_code(&artifact_output),
+            "registry_reference_requires_resolution"
+        );
+        assert_eq!(
+            first_error_message(&contract_output),
+            "registry asset download failed"
+        );
+        assert_eq!(
+            first_error_message(&contract_output),
+            first_error_message(&artifact_output),
+            "contract-URL and artifact-URL failures must be told apart by the next slice"
+        );
+    }
+
+    #[test]
+    fn registry_ref_digest_mismatch_collapses_and_leaks_cache_path() {
+        // CHARACTERIZATION: a contract digest mismatch collapses onto the same
+        // code as every other boundary, and the message embeds the local
+        // content-addressed cache path -- a redaction defect the successor
+        // slice must close (spec 1258 FR-003).
+        let state_root = unique_temp_dir();
+        let fixture_root = unique_temp_dir();
+        let sources = exact_version_registry_sources();
+        let manifest_path =
+            write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+        let wrong_contract_digest = format!("sha256:{}", "0".repeat(64));
+        write_exact_version_registry_state(
+            &state_root,
+            "1.0.1",
+            &sources.contract_url,
+            &wrong_contract_digest,
+            &sources.artifact_url,
+            &sources.artifact_digest,
+            false,
+        );
+
+        let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+            .expect("digest mismatch should render JSON evidence");
+        assert_eq!(
+            first_error_code(&output),
+            "registry_reference_requires_resolution"
+        );
+        let message = first_error_message(&output);
+        assert!(
+            message.contains("digest mismatch"),
+            "message should mention the digest mismatch: {message}"
+        );
+        assert!(
+            message.contains(".traverse/cache/sha256"),
+            "characterizes the current cache-path leak; the successor slice must redact this: {message}"
+        );
+    }
+
+    #[test]
+    #[allow(clippy::too_many_lines)] // Exercises five distinct resolution boundaries in one place.
+    fn every_registry_resolution_boundary_collapses_to_one_code() {
+        // Five semantically distinct boundaries -> one error code today.
+        let sources = exact_version_registry_sources();
+        let mut codes = std::collections::BTreeSet::new();
+
+        // 1. Index selection: synced state present but no record for the id.
+        {
+            let state_root = unique_temp_dir();
+            let fixture_root = unique_temp_dir();
+            let manifest_path =
+                write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+            write_synced_public_registry_state(
+                &state_root,
+                "local",
+                "fixture-registry",
+                "fixture-v1",
+                "2026-07-22T00:00:00Z",
+                PublicRegistryIndex {
+                    index_version: 1,
+                    generated_at: "2026-07-22T00:00:00Z".to_string(),
+                    source_commit: None,
+                    capabilities: vec![registry_record_fixture(
+                        "fixture",
+                        "expedition.planning.some-other-capability",
+                        "1.0.1",
+                    )],
+                    events: Vec::new(),
+                },
+            )
+            .expect("synced fixture state should persist");
+            let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+                .expect("index miss should render JSON evidence");
+            codes.insert(first_error_code(&output));
+        }
+
+        // 2. Version range: only 1.0.0 present, 1.0.1 requested.
+        {
+            let state_root = unique_temp_dir();
+            let fixture_root = unique_temp_dir();
+            let manifest_path =
+                write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+            write_exact_version_registry_state(
+                &state_root,
+                "1.0.0",
+                &sources.contract_url,
+                &sources.contract_digest,
+                &sources.artifact_url,
+                &sources.artifact_digest,
+                false,
+            );
+            let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+                .expect("version miss should render JSON evidence");
+            codes.insert(first_error_code(&output));
+        }
+
+        // 3. Lifecycle: the only matching version is deprecated.
+        {
+            let state_root = unique_temp_dir();
+            let fixture_root = unique_temp_dir();
+            let manifest_path =
+                write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+            write_exact_version_registry_state(
+                &state_root,
+                "1.0.1",
+                &sources.contract_url,
+                &sources.contract_digest,
+                &sources.artifact_url,
+                &sources.artifact_digest,
+                true,
+            );
+            let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+                .expect("deprecated-only should render JSON evidence");
+            codes.insert(first_error_code(&output));
+        }
+
+        // 4. Contract retrieval: contract URL unreachable.
+        {
+            let state_root = unique_temp_dir();
+            let fixture_root = unique_temp_dir();
+            let manifest_path =
+                write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+            write_exact_version_registry_state(
+                &state_root,
+                "1.0.1",
+                &format!(
+                    "file://{}",
+                    fixture_root.join("absent-contract.json").display()
+                ),
+                &sources.contract_digest,
+                &sources.artifact_url,
+                &sources.artifact_digest,
+                false,
+            );
+            let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+                .expect("contract fetch failure should render JSON evidence");
+            codes.insert(first_error_code(&output));
+        }
+
+        // 5. Contract digest: fetched bytes do not match the declared digest.
+        {
+            let state_root = unique_temp_dir();
+            let fixture_root = unique_temp_dir();
+            let manifest_path =
+                write_registry_ref_app_fixture(&fixture_root, &sources.artifact_digest, "=1.0.1");
+            write_exact_version_registry_state(
+                &state_root,
+                "1.0.1",
+                &sources.contract_url,
+                &format!("sha256:{}", "0".repeat(64)),
+                &sources.artifact_url,
+                &sources.artifact_digest,
+                false,
+            );
+            let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
+                .expect("digest mismatch should render JSON evidence");
+            codes.insert(first_error_code(&output));
+        }
+
+        assert_eq!(
+            codes,
+            std::collections::BTreeSet::from(
+                ["registry_reference_requires_resolution".to_string()]
+            ),
+            "all five boundaries collapse onto one code today: {codes:?}"
+        );
     }
 
     #[test]
