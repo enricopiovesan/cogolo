@@ -2,7 +2,9 @@
 
 **Feature Branch**: `codex/issue-1274-verified-registry-preparation`
 **Created**: 2026-09-08
-**Status**: Draft
+**Status**: Approved (2026-09-08)
+**Canonical governing ID**: `996-registry-app-preparation`
+**Version**: 0.1.0
 **Input**: Explicit host-run preparation for application Registry references; validation, activation, and execution remain offline consumers of verified cache evidence.
 
 ## Purpose
