@@ -1745,6 +1745,17 @@
         "specs/1277-browser-local-workflow-composition/",
         "docs/adr/0062-browser-local-workflow-composition.md"
       ]
+    },
+    {
+      "id": "996-registry-app-preparation",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/996-registry-app-preparation/spec.md",
+      "governs": [
+        "crates/traverse-cli/",
+        "specs/996-registry-app-preparation/"
+      ]
     }
   ]
 }
