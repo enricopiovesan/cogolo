@@ -130,6 +130,7 @@ fn native_executor_capability(capability_id: &str) -> ExecutorCapability {
         // are never consulted for validation (only `WasmExecutor` does).
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     }
 }
 

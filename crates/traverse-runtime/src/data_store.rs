@@ -368,6 +368,51 @@ pub trait DataStore {
     fn list_keys(&self) -> Result<Vec<String>, DataStoreError>;
 }
 
+/// Process-local [`DataStore`] backed by a [`BTreeMap`].
+///
+/// Suitable for tests, CI inject, and local tools that need an explicit
+/// in-memory adapter for Stateful host ABI calls (spec
+/// `1285-capability-state-host-abi` FR-006). Does not validate key shape —
+/// callers that need schema/key rules must go through [`RuntimeDataStore`].
+#[derive(Debug, Clone, Default)]
+pub struct InMemoryDataStore {
+    records: BTreeMap<String, StateRecord>,
+}
+
+impl InMemoryDataStore {
+    /// Creates an empty in-memory store.
+    #[must_use]
+    pub fn new() -> Self {
+        Self::default()
+    }
+
+    /// Returns a snapshot of stored records (test/diagnostic helper).
+    #[must_use]
+    pub fn records(&self) -> &BTreeMap<String, StateRecord> {
+        &self.records
+    }
+}
+
+impl DataStore for InMemoryDataStore {
+    fn read(&self, key: &str) -> Result<Option<StateRecord>, DataStoreError> {
+        Ok(self.records.get(key).cloned())
+    }
+
+    fn write(&mut self, record: StateRecord) -> Result<(), DataStoreError> {
+        self.records.insert(record.key.clone(), record);
+        Ok(())
+    }
+
+    fn delete(&mut self, key: &str) -> Result<(), DataStoreError> {
+        self.records.remove(key);
+        Ok(())
+    }
+
+    fn list_keys(&self) -> Result<Vec<String>, DataStoreError> {
+        Ok(self.records.keys().cloned().collect())
+    }
+}
+
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LamportClock {
     writer_id: String,
@@ -481,6 +526,81 @@ impl<A: DataStore> RuntimeDataStore<A> {
         self.adapter.delete(key)
     }
 
+    /// Validates `relative_key` against `state_schema`, then writes a stamped
+    /// record under `{capability_id}/{relative_key}` (spec
+    /// `1285-capability-state-host-abi` FR-004/FR-005).
+    ///
+    /// Schema lookup uses the relative key; the adapter storage key is namespaced.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreError`] when the relative key is invalid, schema
+    /// validation fails, the Lamport clock overflows, or the adapter write fails.
+    pub fn write_namespaced(
+        &mut self,
+        capability_id: &str,
+        state_schema: &Value,
+        relative_key: &str,
+        value: Value,
+    ) -> Result<StateRecord, DataStoreError> {
+        validate_relative_state_key(relative_key)?;
+        validate_state_write_for_schema(capability_id, Some(state_schema), relative_key, &value)?;
+        let record = StateRecord {
+            key: namespaced_state_key(capability_id, relative_key),
+            value,
+            lamport_clock: self.clock.next()?,
+            writer_id: self.clock.writer_id.clone(),
+        };
+        self.adapter.write(record.clone())?;
+        Ok(record)
+    }
+
+    /// Reads a namespaced capability state value, validating against
+    /// `state_schema` with the relative key.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreError`] when the relative key is invalid, the adapter
+    /// cannot read, or a stored value violates the schema.
+    pub fn read_namespaced(
+        &self,
+        capability_id: &str,
+        state_schema: &Value,
+        relative_key: &str,
+    ) -> Result<Option<Value>, DataStoreError> {
+        validate_relative_state_key(relative_key)?;
+        let storage_key = namespaced_state_key(capability_id, relative_key);
+        self.adapter.read(&storage_key).and_then(|record| {
+            record
+                .map(|record| {
+                    validate_state_write_for_schema(
+                        capability_id,
+                        Some(state_schema),
+                        relative_key,
+                        &record.value,
+                    )?;
+                    Ok(record.value)
+                })
+                .transpose()
+        })
+    }
+
+    /// Deletes a namespaced capability state key after relative-key validation.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`DataStoreError`] when the relative key is invalid or the
+    /// adapter cannot delete the key.
+    pub fn delete_namespaced(
+        &mut self,
+        capability_id: &str,
+        relative_key: &str,
+    ) -> Result<(), DataStoreError> {
+        validate_relative_state_key(relative_key)?;
+        self.adapter
+            .delete(&namespaced_state_key(capability_id, relative_key))
+    }
+
     /// Lists state keys.
     ///
     /// # Errors
@@ -505,6 +625,12 @@ impl<A: DataStore> RuntimeDataStore<A> {
 
     pub fn into_inner(self) -> A {
         self.adapter
+    }
+
+    /// Borrow the underlying adapter (tests and host diagnostics).
+    #[must_use]
+    pub fn adapter(&self) -> &A {
+        &self.adapter
     }
 }
 
@@ -1070,12 +1196,27 @@ pub fn validate_state_write(
     key: &str,
     value: &Value,
 ) -> Result<(), DataStoreError> {
+    validate_state_write_for_schema(&contract.id, contract.state_schema.as_ref(), key, value)
+}
+
+/// Validates a state write using an explicit schema value (host ABI path).
+///
+/// # Errors
+///
+/// Returns [`DataStoreError`] when the key is invalid, no schema is declared,
+/// the key is undeclared, or the value violates the key schema.
+pub fn validate_state_write_for_schema(
+    capability_id: &str,
+    state_schema: Option<&Value>,
+    key: &str,
+    value: &Value,
+) -> Result<(), DataStoreError> {
     validate_key(key)?;
-    let schema = contract.state_schema.as_ref().ok_or_else(|| {
+    let schema = state_schema.ok_or_else(|| {
         data_store_error(
             DataStoreErrorCode::NoStateSchemaDeclared,
             "no_state_schema_declared",
-            json!({ "capability_id": contract.id, "key": key }),
+            json!({ "capability_id": capability_id, "key": key }),
         )
     })?;
     let property_schema = schema
@@ -1100,6 +1241,27 @@ pub fn validate_state_write(
             json!({ "key": key, "violations": violations }),
         ))
     }
+}
+
+/// Relative guest state key rules (spec `1285-capability-state-host-abi` FR-004).
+///
+/// # Errors
+///
+/// Returns [`DataStoreError`] when the key is empty, contains `/` or `..`, or
+/// fails the shared ASCII alphanumeric/`_`/`-` key alphabet.
+pub fn validate_relative_state_key(key: &str) -> Result<(), DataStoreError> {
+    if key.is_empty() || key.contains('/') || key.contains("..") {
+        return Err(data_store_error(
+            DataStoreErrorCode::InvalidKey,
+            "relative state key must be non-empty and must not contain '/' or '..'",
+            json!({ "key": key }),
+        ));
+    }
+    validate_key(key)
+}
+
+fn namespaced_state_key(capability_id: &str, relative_key: &str) -> String {
+    format!("{capability_id}/{relative_key}")
 }
 
 fn sync_adapters(
@@ -1269,7 +1431,7 @@ mod tests {
     use uuid::Uuid;
 
     #[derive(Debug, Clone, Default)]
-    struct MemoryDataStore {
+    struct FailingMemoryDataStore {
         records: BTreeMap<String, StateRecord>,
         fail_writes: Cell<bool>,
     }
@@ -1289,7 +1451,7 @@ mod tests {
         }
     }
 
-    impl DataStore for MemoryDataStore {
+    impl DataStore for FailingMemoryDataStore {
         fn read(&self, key: &str) -> Result<Option<StateRecord>, DataStoreError> {
             Ok(self.records.get(key).cloned())
         }
@@ -1367,8 +1529,66 @@ mod tests {
     }
 
     #[test]
+    fn runtime_data_store_namespaced_round_trip_stamps_metadata() {
+        let adapter = InMemoryDataStore::default();
+        let mut store = RuntimeDataStore::new(adapter, "writer-a");
+        let schema = json!({
+            "type": "object",
+            "properties": {
+                "cart": {"type": "object"}
+            }
+        });
+
+        let record = store
+            .write_namespaced("commerce.cart", &schema, "cart", json!({"items": []}))
+            .expect("namespaced write should succeed");
+        assert_eq!(record.key, "commerce.cart/cart");
+        assert_eq!(record.lamport_clock, 1);
+        assert_eq!(record.writer_id, "writer-a");
+
+        assert_eq!(
+            store
+                .read_namespaced("commerce.cart", &schema, "cart")
+                .expect("read"),
+            Some(json!({"items": []}))
+        );
+        store
+            .delete_namespaced("commerce.cart", "cart")
+            .expect("delete");
+        assert_eq!(
+            store
+                .read_namespaced("commerce.cart", &schema, "cart")
+                .expect("read after delete"),
+            None
+        );
+
+        let bad = store
+            .write_namespaced("commerce.cart", &schema, "cart/nested", json!({}))
+            .expect_err("slash in relative key");
+        assert_eq!(bad.code, DataStoreErrorCode::InvalidKey);
+
+        let mut seeded = InMemoryDataStore::new();
+        seeded
+            .write(StateRecord {
+                key: "commerce.cart/cart".to_string(),
+                value: json!("not-an-object"),
+                lamport_clock: 1,
+                writer_id: "writer-a".to_string(),
+            })
+            .expect("seed");
+        let store = RuntimeDataStore::new(seeded, "writer-a");
+        let invalid_stored = store
+            .read_namespaced("commerce.cart", &schema, "cart")
+            .expect_err("stored value must fail schema");
+        assert_eq!(
+            invalid_stored.code,
+            DataStoreErrorCode::SchemaValidationError
+        );
+    }
+
+    #[test]
     fn runtime_data_store_rejects_missing_schema_bad_keys_and_schema_violations() {
-        let adapter = MemoryDataStore::default();
+        let adapter = InMemoryDataStore::default();
         let mut store = RuntimeDataStore::new(adapter, "writer-a");
         let no_schema = stateful_contract(None);
         let schema = stateful_contract(Some(json!({
@@ -1411,7 +1631,7 @@ mod tests {
 
     #[test]
     fn lamport_clock_overflow_is_rejected_before_adapter_write() {
-        let adapter = MemoryDataStore::default();
+        let adapter = InMemoryDataStore::default();
         let clock = LamportClock::with_value("writer-a", u64::MAX);
         let mut store = RuntimeDataStore::with_clock(adapter, clock);
         let contract = stateful_contract(Some(json!({
@@ -1431,7 +1651,7 @@ mod tests {
 
     #[test]
     fn runtime_data_store_validates_reads_before_returning_stored_values() {
-        let mut adapter = MemoryDataStore::default();
+        let mut adapter = InMemoryDataStore::default();
         adapter
             .write(record("count", "writer-a", 1, json!("not an integer")))
             .expect("seed should succeed");
@@ -1452,8 +1672,8 @@ mod tests {
 
     #[test]
     fn reconnect_sync_merges_only_local_only_remote_clock_winner_and_writer_tie_breaks() {
-        let mut local = MemoryDataStore::default();
-        let mut remote = MemoryDataStore::default();
+        let mut local = InMemoryDataStore::default();
+        let mut remote = InMemoryDataStore::default();
         local
             .write(record("local_only", "local-a", 1, json!("local")))
             .expect("local write should succeed");
@@ -1500,8 +1720,8 @@ mod tests {
 
     #[test]
     fn sync_failure_restores_local_snapshot() {
-        let mut local = MemoryDataStore::default();
-        let mut remote = MemoryDataStore::default();
+        let mut local = FailingMemoryDataStore::default();
+        let mut remote = FailingMemoryDataStore::default();
         local
             .write(record("shared", "local-a", 2, json!("local")))
             .expect("local write should succeed");
@@ -1538,8 +1758,8 @@ mod tests {
 
     #[test]
     fn helper_paths_cover_remaining_datastore_branches() {
-        let mut local = RuntimeDataStore::new(MemoryDataStore::default(), "local-a");
-        let mut remote = MemoryDataStore::default();
+        let mut local = RuntimeDataStore::new(InMemoryDataStore::default(), "local-a");
+        let mut remote = InMemoryDataStore::default();
         remote
             .write(record("remote_only", "remote-a", 1, json!("remote")))
             .expect("remote seed should succeed");
@@ -1556,9 +1776,9 @@ mod tests {
         );
         assert_eq!(rule, ConflictResolutionRule::WriterIdentityTieBreak);
 
-        let mut failing_local = MemoryDataStore::default();
+        let mut failing_local = FailingMemoryDataStore::default();
         failing_local.fail_writes.set(true);
-        let mut seeded_remote = MemoryDataStore::default();
+        let mut seeded_remote = InMemoryDataStore::default();
         seeded_remote
             .write(record("missing_local", "remote-a", 1, json!("remote")))
             .expect("remote seed should succeed");

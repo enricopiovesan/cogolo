@@ -7,7 +7,7 @@
 use chrono::Utc;
 use semver::{Version, VersionReq};
 use serde::{Deserialize, Serialize};
-use serde_json::Value;
+use serde_json::{Value, json};
 use sha2::{Digest, Sha256};
 use std::collections::{HashMap, VecDeque};
 use std::fmt::Write as _;
@@ -26,6 +26,7 @@ use super::{
     ArtifactType, CapabilityExecutor, ConnectorInvocationEvidence, ExecutorCapability,
     ExecutorError, ExecutorOutput,
 };
+use crate::data_store::{DataStoreErrorCode, InMemoryDataStore, RuntimeDataStore};
 use crate::events::types::{LifecycleStatus, TraverseEvent};
 use traverse_contracts::{ConnectorRequirement, EventReference, ServiceType};
 
@@ -60,6 +61,25 @@ const EMIT_EVENT_ERR_UNDECLARED_EVENT: i32 = -2;
 /// The calling capability's `service_type` is not `Subscribable` (spec 098
 /// FR-003, acceptance scenario 3).
 const EMIT_EVENT_ERR_NOT_SUBSCRIBABLE: i32 = -3;
+
+/// Maximum bytes accepted for one `traverse_host::state_*` envelope
+/// (spec `1285-capability-state-host-abi` FR-007). Same bound as `emit_event`.
+const MAX_STATE_ENVELOPE_BYTES: usize = 64 * 1024;
+
+/// `traverse_host::state_*` succeeded (spec 1285 FR-009: get may write
+/// `{"found":false}` with this status).
+const STATE_OK: i32 = 0;
+/// Guest pointer/length invalid, envelope oversized/malformed, or get out
+/// buffer missing/insufficient (spec 1285 FR-007/FR-009).
+const STATE_ERR_INVALID_PAYLOAD: i32 = -1;
+/// Calling capability is not `Stateful` (spec 1285 FR-002).
+const STATE_ERR_NOT_STATEFUL: i32 = -2;
+/// No `DataStore` was injected for this run (spec 1285 FR-006).
+const STATE_ERR_NO_STORE: i32 = -3;
+/// Schema missing/empty, undeclared key, or value schema violation (spec 1285 FR-003).
+const STATE_ERR_SCHEMA: i32 = -5;
+/// Adapter/store failure after validation (spec 1285).
+const STATE_ERR_STORE: i32 = -6;
 
 /// `traverse_host::connector_invoke` is unavailable unless the embedding host
 /// supplies an activated, capability-authorized connector binding. The default
@@ -178,12 +198,28 @@ pub fn verify_wasm_host_abi_bytes(
 /// Executes `.wasm32-wasi` capability binaries via Wasmtime.
 ///
 /// Every invocation creates a fresh Wasmtime `Store` — no state leaks between calls.
-#[derive(Debug)]
 pub struct WasmExecutor {
     engine: Engine,
     limits: WasmExecutionLimits,
     module_cache: Mutex<CompiledModuleCache>,
     binary_cache: Mutex<LoadedBinaryCache>,
+    /// Optional injected `DataStore` for Stateful `state_*` host ABI calls
+    /// (spec `1285-capability-state-host-abi` FR-006). Absent means
+    /// `STATE_ERR_NO_STORE` — never an ambient fallback.
+    data_store: Option<Arc<Mutex<RuntimeDataStore<InMemoryDataStore>>>>,
+}
+
+impl std::fmt::Debug for WasmExecutor {
+    fn fmt(&self, formatter: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {
+        formatter
+            .debug_struct("WasmExecutor")
+            .field("engine", &self.engine)
+            .field("limits", &self.limits)
+            .field("module_cache", &self.module_cache)
+            .field("binary_cache", &self.binary_cache)
+            .field("data_store_configured", &self.data_store.is_some())
+            .finish()
+    }
 }
 
 impl WasmExecutor {
@@ -223,7 +259,30 @@ impl WasmExecutor {
             limits,
             module_cache: Mutex::new(CompiledModuleCache::new(cache_config.max_entries)),
             binary_cache: Mutex::new(LoadedBinaryCache::new(cache_config.max_entries)),
+            data_store: None,
         })
+    }
+
+    /// Injects a `DataStore` used by `traverse_host::state_*` during [`CapabilityExecutor::execute`].
+    #[must_use]
+    pub fn with_data_store(mut self, store: RuntimeDataStore<InMemoryDataStore>) -> Self {
+        self.data_store = Some(Arc::new(Mutex::new(store)));
+        self
+    }
+
+    /// Injects a shared `DataStore` handle (tests can inspect records after execution).
+    #[must_use]
+    pub fn with_shared_data_store(
+        mut self,
+        store: Arc<Mutex<RuntimeDataStore<InMemoryDataStore>>>,
+    ) -> Self {
+        self.data_store = Some(store);
+        self
+    }
+
+    /// Replaces or clears the injected `DataStore` for subsequent executions.
+    pub fn set_data_store(&mut self, store: Option<RuntimeDataStore<InMemoryDataStore>>) {
+        self.data_store = store.map(|store| Arc::new(Mutex::new(store)));
     }
 
     /// Return current compiled-module cache counters.
@@ -471,6 +530,10 @@ struct WasmStoreState {
     capability_id: String,
     emits: Vec<EventReference>,
     service_type: ServiceType,
+    /// Contract `state_schema` for `traverse_host::state_*` (spec 1285 FR-003).
+    state_schema: Option<Value>,
+    /// Injected store for `traverse_host::state_*` (spec 1285 FR-006).
+    data_store: Option<Arc<Mutex<RuntimeDataStore<InMemoryDataStore>>>>,
     /// Events accepted via `traverse_host::emit_event` during this call.
     emitted_events: Vec<TraverseEvent>,
     connector_context: Option<MediatedConnectorContext>,
@@ -516,6 +579,8 @@ impl CapabilityExecutor for WasmExecutor {
             &capability.capability_id,
             &capability.emits,
             capability.service_type.clone(),
+            capability.state_schema.clone(),
+            self.data_store.clone(),
             None,
             Some(&binary.checksum),
         )
@@ -557,6 +622,8 @@ impl WasmExecutor {
             "test-capability",
             &[],
             ServiceType::Stateless,
+            None,
+            None,
         )
         .map(|output| output.value)
     }
@@ -576,6 +643,31 @@ impl WasmExecutor {
         emits: &[EventReference],
         service_type: ServiceType,
     ) -> Result<ExecutorOutput, ExecutorError> {
+        self.run_bytes_with_capability_state(
+            wasm_bytes,
+            input,
+            capability_id,
+            emits,
+            service_type,
+            None,
+        )
+    }
+
+    /// Like [`run_bytes_with_capability`], with an optional contract `state_schema`
+    /// for `traverse_host::state_*` (uses the executor's injected `DataStore` if any).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] if ABI validation fails or execution cannot complete.
+    pub fn run_bytes_with_capability_state(
+        &self,
+        wasm_bytes: &[u8],
+        input: &Value,
+        capability_id: &str,
+        emits: &[EventReference],
+        service_type: ServiceType,
+        state_schema: Option<Value>,
+    ) -> Result<ExecutorOutput, ExecutorError> {
         self.run_wasm(
             wasm_bytes,
             input,
@@ -583,6 +675,61 @@ impl WasmExecutor {
             capability_id,
             emits,
             service_type,
+            state_schema,
+            self.data_store.clone(),
+        )
+    }
+
+    /// Execute a Stateful capability with an explicit injected `DataStore` and
+    /// `state_schema` (spec `1285-capability-state-host-abi`).
+    ///
+    /// Pass a shared [`Arc`] so callers can inspect store contents after the run.
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] if ABI validation fails or execution cannot complete.
+    pub fn run_bytes_with_stateful_store(
+        &self,
+        wasm_bytes: &[u8],
+        input: &Value,
+        capability_id: &str,
+        state_schema: Value,
+        data_store: Arc<Mutex<RuntimeDataStore<InMemoryDataStore>>>,
+    ) -> Result<ExecutorOutput, ExecutorError> {
+        self.run_wasm(
+            wasm_bytes,
+            input,
+            SUPPORTED_HOST_ABI_VERSION,
+            capability_id,
+            &[],
+            ServiceType::Stateful,
+            Some(state_schema),
+            Some(data_store),
+        )
+    }
+
+    /// Execute as Stateful with `state_schema` but no injected `DataStore`
+    /// (spec `1285-capability-state-host-abi` FR-006).
+    ///
+    /// # Errors
+    ///
+    /// Returns [`ExecutorError`] if ABI validation fails or execution cannot complete.
+    pub fn run_bytes_with_stateful_schema(
+        &self,
+        wasm_bytes: &[u8],
+        input: &Value,
+        capability_id: &str,
+        state_schema: Value,
+    ) -> Result<ExecutorOutput, ExecutorError> {
+        self.run_wasm(
+            wasm_bytes,
+            input,
+            SUPPORTED_HOST_ABI_VERSION,
+            capability_id,
+            &[],
+            ServiceType::Stateful,
+            Some(state_schema),
+            None,
         )
     }
 
@@ -608,6 +755,8 @@ impl WasmExecutor {
             capability_id,
             &[],
             ServiceType::Stateless,
+            None,
+            None,
             Some(connector_context),
             None,
         )
@@ -622,6 +771,8 @@ impl WasmExecutor {
         capability_id: &str,
         emits: &[EventReference],
         service_type: ServiceType,
+        state_schema: Option<Value>,
+        data_store: Option<Arc<Mutex<RuntimeDataStore<InMemoryDataStore>>>>,
     ) -> Result<ExecutorOutput, ExecutorError> {
         self.run_wasm_with_connectors(
             wasm_bytes,
@@ -630,6 +781,8 @@ impl WasmExecutor {
             capability_id,
             emits,
             service_type,
+            state_schema,
+            data_store,
             None,
             None,
         )
@@ -644,6 +797,8 @@ impl WasmExecutor {
         capability_id: &str,
         emits: &[EventReference],
         service_type: ServiceType,
+        state_schema: Option<Value>,
+        data_store: Option<Arc<Mutex<RuntimeDataStore<InMemoryDataStore>>>>,
         connector_context: Option<MediatedConnectorContext>,
         checksum: Option<&str>,
     ) -> Result<ExecutorOutput, ExecutorError> {
@@ -674,6 +829,16 @@ impl WasmExecutor {
         linker
             .func_wrap("traverse_host", "connector_invoke", handle_connector_invoke)
             .expect("connector_invoke host function registration should not conflict");
+        linker
+            .func_wrap("traverse_host", "state_get", handle_state_get)
+            .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("func_wrap state_get: {e}")))?;
+        linker
+            .func_wrap("traverse_host", "state_put", handle_state_put)
+            .map_err(|e| ExecutorError::RuntimeSetupFailed(format!("func_wrap state_put: {e}")))?;
+        #[allow(clippy::expect_used)]
+        linker
+            .func_wrap("traverse_host", "state_delete", handle_state_delete)
+            .expect("state_delete host function registration should not conflict");
 
         let mut store = Store::new(
             &self.engine,
@@ -683,6 +848,8 @@ impl WasmExecutor {
                 capability_id: capability_id.to_string(),
                 emits: emits.to_vec(),
                 service_type,
+                state_schema,
+                data_store,
                 emitted_events: Vec::new(),
                 connector_context,
                 connector_invocation_evidence: Vec::new(),
@@ -814,6 +981,206 @@ fn binary_file_identity(
     Ok(BinaryFileIdentity { len, modified })
 }
 
+/// Host implementation of `traverse_host::state_get` (spec
+/// `1285-capability-state-host-abi`). Guest envelope:
+/// `{"key":"<relative>","out_ptr":N,"out_max":M}`. On success writes
+/// `{"found":true,"value":...}` or `{"found":false}` into the out buffer.
+fn handle_state_get(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32) -> i32 {
+    if caller.data().service_type != ServiceType::Stateful {
+        return STATE_ERR_NOT_STATEFUL;
+    }
+    let Some(store) = caller.data().data_store.clone() else {
+        return STATE_ERR_NO_STORE;
+    };
+
+    let Some((memory, envelope)) = read_state_envelope(&mut caller, ptr, len) else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    let Some(key) = envelope
+        .get("key")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    let Some(out_ptr) = envelope.get("out_ptr").and_then(Value::as_i64) else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    let Some(out_max) = envelope.get("out_max").and_then(Value::as_i64) else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    if out_ptr < 0 || out_max < 0 {
+        return STATE_ERR_INVALID_PAYLOAD;
+    }
+    #[allow(clippy::cast_sign_loss, clippy::cast_possible_truncation)]
+    let (out_ptr, out_max) = (out_ptr as usize, out_max as usize);
+    if out_max > MAX_STATE_ENVELOPE_BYTES {
+        return STATE_ERR_INVALID_PAYLOAD;
+    }
+
+    let Some(state_schema) = caller.data().state_schema.clone() else {
+        return STATE_ERR_SCHEMA;
+    };
+    if state_schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_none_or(serde_json::Map::is_empty)
+    {
+        return STATE_ERR_SCHEMA;
+    }
+
+    let capability_id = caller.data().capability_id.clone();
+    let read_result = {
+        let guard = store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.read_namespaced(&capability_id, &state_schema, &key)
+    };
+    let response = match read_result {
+        Ok(Some(value)) => json!({ "found": true, "value": value }),
+        Ok(None) => json!({ "found": false }),
+        Err(error) => return map_state_store_error(error.code),
+    };
+
+    match serde_json::to_vec(&response) {
+        Ok(bytes) if bytes.len() <= out_max => {
+            if memory.write(&mut caller, out_ptr, &bytes).is_err() {
+                return STATE_ERR_INVALID_PAYLOAD;
+            }
+            STATE_OK
+        }
+        _ => STATE_ERR_INVALID_PAYLOAD,
+    }
+}
+
+/// Host implementation of `traverse_host::state_put` (spec
+/// `1285-capability-state-host-abi`). Guest envelope:
+/// `{"key":"<relative>","value":<json>}`. Host stamps Lamport metadata.
+fn handle_state_put(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32) -> i32 {
+    if caller.data().service_type != ServiceType::Stateful {
+        return STATE_ERR_NOT_STATEFUL;
+    }
+    let Some(store) = caller.data().data_store.clone() else {
+        return STATE_ERR_NO_STORE;
+    };
+
+    let Some((_memory, envelope)) = read_state_envelope(&mut caller, ptr, len) else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    let Some(key) = envelope
+        .get("key")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    let Some(value) = envelope.get("value").cloned() else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+
+    let Some(state_schema) = caller.data().state_schema.clone() else {
+        return STATE_ERR_SCHEMA;
+    };
+    if state_schema
+        .get("properties")
+        .and_then(Value::as_object)
+        .is_none_or(serde_json::Map::is_empty)
+    {
+        return STATE_ERR_SCHEMA;
+    }
+
+    let capability_id = caller.data().capability_id.clone();
+    let write_result = {
+        let mut guard = store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.write_namespaced(&capability_id, &state_schema, &key, value)
+    };
+    match write_result {
+        Ok(_) => STATE_OK,
+        Err(error) => map_state_store_error(error.code),
+    }
+}
+
+/// Host implementation of `traverse_host::state_delete` (spec
+/// `1285-capability-state-host-abi`). Guest envelope: `{"key":"<relative>"}`.
+fn handle_state_delete(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32) -> i32 {
+    if caller.data().service_type != ServiceType::Stateful {
+        return STATE_ERR_NOT_STATEFUL;
+    }
+    let Some(store) = caller.data().data_store.clone() else {
+        return STATE_ERR_NO_STORE;
+    };
+
+    let Some((_memory, envelope)) = read_state_envelope(&mut caller, ptr, len) else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    let Some(key) = envelope
+        .get("key")
+        .and_then(Value::as_str)
+        .map(str::to_string)
+    else {
+        return STATE_ERR_INVALID_PAYLOAD;
+    };
+    if caller.data().state_schema.as_ref().is_none_or(|schema| {
+        schema
+            .get("properties")
+            .and_then(Value::as_object)
+            .is_none_or(serde_json::Map::is_empty)
+    }) {
+        return STATE_ERR_SCHEMA;
+    }
+
+    let capability_id = caller.data().capability_id.clone();
+    let delete_result = {
+        let mut guard = store
+            .lock()
+            .unwrap_or_else(std::sync::PoisonError::into_inner);
+        guard.delete_namespaced(&capability_id, &key)
+    };
+    match delete_result {
+        Ok(()) => STATE_OK,
+        Err(error) => map_state_store_error(error.code),
+    }
+}
+
+fn read_state_envelope(
+    caller: &mut Caller<'_, WasmStoreState>,
+    ptr: i32,
+    len: i32,
+) -> Option<(wasmtime::Memory, Value)> {
+    if ptr < 0 || len < 0 {
+        return None;
+    }
+    #[allow(clippy::cast_sign_loss)]
+    let (ptr, len) = (ptr as usize, len as usize);
+    if len > MAX_STATE_ENVELOPE_BYTES {
+        return None;
+    }
+    let Some(Extern::Memory(memory)) = caller.get_export("memory") else {
+        return None;
+    };
+    let mut buffer = vec![0_u8; len];
+    if memory.read(&*caller, ptr, &mut buffer).is_err() {
+        return None;
+    }
+    let envelope = serde_json::from_slice::<Value>(&buffer).ok()?;
+    if !envelope.is_object() {
+        return None;
+    }
+    Some((memory, envelope))
+}
+
+fn map_state_store_error(code: DataStoreErrorCode) -> i32 {
+    match code {
+        DataStoreErrorCode::NoStateSchemaDeclared | DataStoreErrorCode::SchemaValidationError => {
+            STATE_ERR_SCHEMA
+        }
+        DataStoreErrorCode::InvalidKey => STATE_ERR_INVALID_PAYLOAD,
+        _ => STATE_ERR_STORE,
+    }
+}
+
 /// Host implementation of `traverse_host::emit_event` (spec
 /// 098-capability-event-host-abi FR-001). The guest passes a pointer/length
 /// into its own linear memory holding a JSON payload shaped
@@ -902,7 +1269,6 @@ fn handle_emit_event(mut caller: Caller<'_, WasmStoreState>, ptr: i32, len: i32)
     caller.data_mut().emitted_events.push(event);
     EMIT_EVENT_OK
 }
-
 /// Fail closed until an embedding host supplies an active application binding.
 ///
 /// The four integers are the versioned ABI's request pointer/length and

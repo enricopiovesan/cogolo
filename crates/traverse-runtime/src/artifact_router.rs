@@ -84,6 +84,7 @@ impl LocalExecutor for ArtifactRouter {
                     host_abi_version: None,
                     emits: capability.contract.emits.clone(),
                     service_type: capability.contract.service_type.clone(),
+                    state_schema: capability.contract.state_schema.clone(),
                 };
                 // Events emitted via `traverse_host::emit_event` during this
                 // call are returned as real `LocalExecutionOutput.emitted_events`

@@ -1876,6 +1876,7 @@ fn executor_capability_for(
         host_abi_version: None,
         emits: selected.contract.emits.clone(),
         service_type: selected.contract.service_type.clone(),
+        state_schema: selected.contract.state_schema.clone(),
     }
 }
 

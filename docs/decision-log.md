@@ -3158,3 +3158,37 @@ dependency. Remaining actions (none on the maintainer):
    implementation arc against Specs 996 and 130.
 3. Board changes from Decisions 2-5 applied to `#1272`, `#1274`, `#1275`,
    `#1168` directly on GitHub.
+
+## Decision 71: Implement Spec 1285 State Host ABI (Relative-Key v1)
+
+**Date**: 2026-09-08  
+**Issue**: #1285  
+**Spec**: `specs/1285-capability-state-host-abi/spec.md` (Draft)
+**Supersedes / refines**: Decision 68 partition field deferred in v1
+
+### Context
+
+Registry Wave 2 needs honest UMA Stateful capabilities. Host ABI 1.0.0 had
+`emit_event` for Subscribable but no guest import for managed persistence,
+despite `DataStore` / `RuntimeDataStore` already existing in-tree.
+
+### Decisions (owner `/brainstorm`, recommended option each time)
+
+1. Wire existing DataStore into `traverse_host` (not connector-only, not a parallel session ABI).
+2. Three imports only: `state_get`, `state_put`, `state_delete`.
+3. Host prefixes keys with `{capability_id}/`.
+4. Missing injected store → hard fail (`data_store_not_configured`); explicit in-memory inject for tests.
+5. Host stamps lamport/writer; guest sends `{key,value}` only.
+6. Fixed `state_schema.properties` keys; resource ids inside values.
+7. Stateful contracts require non-empty `state_schema`; Browser still forbidden.
+8. Ship Traverse ABI before registry Wave 2 publishes.
+9. New focused spec (098 playbook), not taxonomy-only amend.
+10. Extend `host_abi_v1` / ABI `1.0.0` whitelist (optional imports).
+
+### Outcome
+
+Landed Spec 1285 + `state_*` in `traverse-runtime` with Decision 68's trio and
+capability namespacing. v1 guest envelopes use relative keys only (resource ids
+inside values); an explicit `partition` parameter from Decision 68 remains a
+follow-up if multi-tenant key fan-out needs it at the ABI layer. Unblocks
+registry Wave 2 Stateful publishes.

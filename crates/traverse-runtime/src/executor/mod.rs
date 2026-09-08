@@ -67,6 +67,9 @@ pub struct ExecutorCapability {
     /// The capability contract's `service_type`; only `Subscribable` may call
     /// `traverse_host::emit_event` (spec 098-capability-event-host-abi FR-003).
     pub service_type: ServiceType,
+    /// Contract-declared `state_schema` used by `traverse_host::state_*`
+    /// (spec `1285-capability-state-host-abi` FR-003).
+    pub state_schema: Option<Value>,
 }
 
 /// Output of a [`CapabilityExecutor::execute`] call.

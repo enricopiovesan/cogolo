@@ -1090,6 +1090,12 @@ fn validate_manifest_risk_policy_rejects_any_egress_when_contract_denies_all() -
 fn stateful_with_browser_target_is_rejected() -> Result<(), String> {
     let mut contract = valid_contract();
     contract.service_type = ServiceType::Stateful;
+    contract.state_schema = Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "cart": {"type": "object"}
+        }
+    }));
     contract.permitted_targets = vec![ExecutionTarget::Browser, ExecutionTarget::Cloud];
 
     let failure = expect_validation_failure(validate_contract(
@@ -1154,6 +1160,12 @@ fn subscribable_with_event_trigger_passes() -> Result<(), String> {
 fn stateful_without_browser_passes() -> Result<(), String> {
     let mut contract = valid_contract();
     contract.service_type = ServiceType::Stateful;
+    contract.state_schema = Some(serde_json::json!({
+        "type": "object",
+        "properties": {
+            "cart": {"type": "object"}
+        }
+    }));
     contract.permitted_targets = vec![ExecutionTarget::Cloud, ExecutionTarget::Edge];
 
     validate_contract(
@@ -1165,6 +1177,57 @@ fn stateful_without_browser_passes() -> Result<(), String> {
         },
     )
     .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn stateful_without_state_schema_is_rejected() -> Result<(), String> {
+    let mut contract = valid_contract();
+    contract.service_type = ServiceType::Stateful;
+    contract.state_schema = None;
+    contract.permitted_targets = vec![ExecutionTarget::Cloud];
+
+    let failure = expect_validation_failure(validate_contract(
+        contract,
+        &ValidationContext {
+            governing_spec: GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    ))?;
+
+    let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
+    assert!(
+        codes.contains(&&ValidationErrorCode::MissingStateSchema),
+        "expected MissingStateSchema, got {codes:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn stateful_with_empty_state_schema_properties_is_rejected() -> Result<(), String> {
+    let mut contract = valid_contract();
+    contract.service_type = ServiceType::Stateful;
+    contract.state_schema = Some(serde_json::json!({
+        "type": "object",
+        "properties": {}
+    }));
+    contract.permitted_targets = vec![ExecutionTarget::Local];
+
+    let failure = expect_validation_failure(validate_contract(
+        contract,
+        &ValidationContext {
+            governing_spec: GOVERNING_SPEC,
+            validator_version: VALIDATOR_VERSION,
+            existing_published: None,
+        },
+    ))?;
+
+    let codes: Vec<_> = failure.errors.iter().map(|e| &e.code).collect();
+    assert!(
+        codes.contains(&&ValidationErrorCode::MissingStateSchema),
+        "expected MissingStateSchema, got {codes:?}"
+    );
     Ok(())
 }
 

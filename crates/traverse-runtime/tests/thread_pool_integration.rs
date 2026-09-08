@@ -126,6 +126,7 @@ fn executor_cap(artifact_type: ArtifactType) -> ExecutorCapability {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     }
 }
 

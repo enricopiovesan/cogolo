@@ -28,6 +28,7 @@ fn native_capability() -> ExecutorCapability {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: traverse_contracts::ServiceType::Stateless,
+        state_schema: None,
     }
 }
 
