@@ -82,6 +82,7 @@
 //! error metadata (spec 068 NFR-004).
 
 mod browser_local_plan;
+mod composed_workflow;
 mod registry_cache;
 mod test_double;
 
@@ -89,6 +90,9 @@ pub use browser_local_plan::{
     BROWSER_WORKFLOW_PROPOSAL_SCHEMA_VERSION, BrowserPlanError, BrowserPlanErrorCode,
     BrowserPlanResponse, BrowserPlanTarget, BrowserWorkflowProposal,
     SUPPORTED_CONTRACT_SCHEMA_VERSION, SnapshotIdentity, browser_local_plan,
+};
+pub use composed_workflow::{
+    ComposedWorkflowError, ComposedWorkflowErrorCode, execute_composed_workflow,
 };
 pub use registry_cache::{
     HostRegistryCache, PublicCapabilityMetadata, PublicMetadataRead, RegistryArtifactFetcher,

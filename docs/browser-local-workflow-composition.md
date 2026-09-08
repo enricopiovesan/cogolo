@@ -1,12 +1,13 @@
 # Browser-local workflow composition
 
 **Governing spec**: `1277-browser-local-workflow-composition` · **ADR**: ADR-0062
-· **Issue**: #1269
+· **Issues**: #1269 (planner), #1270 (execution)
 
 The backend-less `/discover` path turns a structured goal into governed
-execution without a Traverse-operated service. This page documents the first
-half — the browser planner surface in `traverse-embedder`. The runtime-composed
-execution adapter (local handoff, per-node events, failure/replan) is #1270.
+execution without a Traverse-operated service. Two `traverse-embedder`
+surfaces cover it: [`browser_local_plan`](#what-the-browser-planner-is) produces
+untrusted proposals, and [`execute_composed_workflow`](#executing-a-reviewed-composed-workflow)
+runs a reviewed one locally.
 
 ## What the browser planner is
 
@@ -84,3 +85,61 @@ identical-snapshot output, ambiguous producers with no automatic winner, no
 name/namespace inference, each invalid-snapshot-evidence class, prepared
 dependency drift (digest, cross-snapshot, missing record), the size bounds, the
 node-depth truncation signal, and evidence redaction.
+
+## Executing a reviewed composed workflow
+
+`traverse_embedder::execute_composed_workflow` takes a reviewer-accepted
+`BrowserWorkflowProposal`, the `SnapshotIdentity` it is bound to, the set of
+already prepared and digest-verified `VerifiedRegistryDependency` values, a
+local WASM `executor` (in production `traverse_runtime::ArtifactRouter::new()`),
+and a `SecurityPosture`. It runs entirely locally and offline:
+
+1. **Bind** — the proposal is structurally validated and topologically ordered
+   by the spec 109 `canonicalize_proposal`; then every node is resolved to the
+   exact prepared dependency for its `capability_id@version`. A node with no
+   prepared dependency, a dependency prepared against a different snapshot, or a
+   pinned artifact digest that disagrees with the dependency fails closed. No
+   substitute candidate, range re-resolution, fetch, sync, or bundle fallback is
+   ever attempted (spec 1277 FR-006, spec 1258).
+2. **Authorize** — if any node is not automatically authorizable
+   (`is_automatic_eligible`), execution is refused with `approval_required`:
+   this path carries no reviewer approval token, and authorization stays with
+   the local runtime (spec 1277 FR-005).
+3. **Execute** — the verified contracts and their digest-verified artifact paths
+   are registered into a fresh private `CapabilityRegistry`, and the spec 109
+   `execute_proposal` engine — the same one authored bundles use — runs one node
+   at a time in canonical order, threading data only through the proposal's
+   explicit mappings. It **stops at the first failed node**; later nodes are
+   marked skipped. There is no retry, compensation, replanning, or graph
+   mutation (spec 1277 FR-006).
+
+The result is a spec 109 `ProposalTrace`: per-node outcomes, mapping paths
+(never values), the bound snapshot digest, and a `Succeeded` / `Failed`
+terminal state. A node that runs and returns an error is not a call error — it
+is a `Failed` trace. Under the Production posture the runtime additionally
+requires signed artifacts (spec 065); a host deploying this path supplies the
+signature through the prepared cache.
+
+### Error taxonomy
+
+`ComposedWorkflowError { code, node_id, detail }` — `node_id` and `detail` name
+declared identities only.
+
+| Code | Meaning |
+| --- | --- |
+| `composed_workflow_snapshot_mismatch` | the reviewed proposal is not bound to the supplied snapshot identity |
+| `composed_workflow_proposal_invalid` | the proposal is structurally invalid or over a spec 109 limit |
+| `composed_workflow_missing_capability` | a node has no prepared verified dependency |
+| `composed_workflow_dependency_evidence_mismatch` | a dependency was prepared against a different snapshot |
+| `composed_workflow_artifact_digest_drift` | a node's pinned digest disagrees with its dependency |
+| `composed_workflow_dependency_contract_invalid` | a dependency's bytes are not a capability contract |
+| `composed_workflow_registry_rejected_contract` | the governed validator rejected a verified contract |
+| `composed_workflow_approval_required` | a node is not automatically authorizable |
+
+### Conformance
+
+`crates/traverse-embedder/src/composed_workflow.rs` tests cover a two-node
+happy path, a failing node that halts execution with the remaining node
+skipped, each fail-closed resolution class, the automatic-authorization gate,
+governed-validator rejection, the Production posture path, and acceptance of the
+real `ArtifactRouter` executor.
