@@ -1733,6 +1733,17 @@
         "specs/1258-offline-cache-activation/",
         "docs/adr/0061-offline-activation-from-verified-cache-evidence.md"
       ]
+    },
+    {
+      "id": "1277-browser-local-workflow-composition",
+      "version": "0.1.0",
+      "status": "approved",
+      "immutable": true,
+      "path": "specs/1277-browser-local-workflow-composition/spec.md",
+      "governs": [
+        "specs/1277-browser-local-workflow-composition/",
+        "docs/adr/0062-browser-local-workflow-composition.md"
+      ]
     }
   ]
 }
