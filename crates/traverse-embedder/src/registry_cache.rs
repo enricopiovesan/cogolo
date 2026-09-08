@@ -644,7 +644,7 @@ fn select_highest_active(
     }
 }
 
-fn index_snapshot_digest(snapshot: &SyncedPublicRegistryState) -> String {
+pub(crate) fn index_snapshot_digest(snapshot: &SyncedPublicRegistryState) -> String {
     let encoded = serde_json::to_vec(snapshot).unwrap_or_default();
     format!("sha256:{}", sha256_hex(&encoded))
 }

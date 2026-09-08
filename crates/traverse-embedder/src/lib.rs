@@ -81,9 +81,15 @@
 //! evidence: the embedder emits only runtime-owned outputs and stable
 //! error metadata (spec 068 NFR-004).
 
+mod browser_local_plan;
 mod registry_cache;
 mod test_double;
 
+pub use browser_local_plan::{
+    BROWSER_WORKFLOW_PROPOSAL_SCHEMA_VERSION, BrowserPlanError, BrowserPlanErrorCode,
+    BrowserPlanResponse, BrowserPlanTarget, BrowserWorkflowProposal,
+    SUPPORTED_CONTRACT_SCHEMA_VERSION, SnapshotIdentity, browser_local_plan,
+};
 pub use registry_cache::{
     HostRegistryCache, PublicCapabilityMetadata, PublicMetadataRead, RegistryArtifactFetcher,
     RegistryCacheError, RegistryCacheErrorCode, RegistryPrepareEvidence,
