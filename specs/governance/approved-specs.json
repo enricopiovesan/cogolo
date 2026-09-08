@@ -1660,7 +1660,8 @@
       "path": "specs/125-synced-public-registry-preparation/spec.md",
       "governs": [
         "crates/traverse-cli/",
-        "specs/125-synced-public-registry-preparation/"
+        "specs/125-synced-public-registry-preparation/",
+        "docs/adr/0056-synced-public-registry-bundle-preparation.md"
       ]
     },
     {

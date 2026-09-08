@@ -1,7 +1,8 @@
 # ADR-0056: Bridge Synced Public Index State Through an Explicit Prepared Bundle
 
-- Status: Proposed
-- Governing spec: `125-synced-public-registry-preparation` (Draft)
+- Status: Accepted
+- Date: 2026-08-29
+- Governing spec: `125-synced-public-registry-preparation` (Approved)
 - Extends: Specs 055, 118, 120, and 124; ADR-0051 and ADR-0055
 - Related issues: #1211, #1168, #1158, and `traverse-framework/registry` #328
 
@@ -41,3 +42,10 @@ subset of capabilities.
 - Add signature URLs to the registry index first: deferred because immutable
   sibling derivation from the already indexed contract URL is sufficient and
   keeps this slice additive.
+
+## Approval evidence
+
+The maintainer approved Spec 125 on 2026-08-29 after review against the live
+synced-index and published `signature.json` shape. The approved-spec registry
+records `125-synced-public-registry-preparation` at version 0.1.0. This ADR
+records that same approved decision; it does not alter the immutable spec.
