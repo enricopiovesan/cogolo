@@ -3062,3 +3062,99 @@ ADR index no longer has a duplicate `0059`. Follow-ups:
    the deferred-item follow-up tickets from Decision 68.
 3. Registry genericity enforcement (`1256`) and its audit of existing records
    are downstream registry-repo work.
+
+## Decision 70: Locked-Ticket Triage After the Spec 130 / 996 Approvals — Park the Registry-Reference Cluster on Registry #387
+
+- **Date**: 2026-09-08
+- **Status**: Accepted
+- **Governing specs**: `130-mixed-registry-reference-activation`, `996-registry-app-preparation` (both approved via Decision 69 / PRs #1286, #1284); `108-governed-runtime-workflow-composition` (declared to cover this `docs/decision-log.md` entry)
+- **Related issues**: `#1272`, `#1274`, `#1275`, `#1276`, `#1168`; `traverse-framework/registry#387`
+- **Origin**: `/brainstorm locked tickets` after Decision 69 approved the last
+  Traverse-side spec blockers. A live re-check found the entire exact-version
+  registry-reference cluster now waits on one thing: `traverse-framework/registry#387`
+  (expose the versioned preparation contract, `traverse-registry 0.18.0 -> 0.19.0`,
+  publish on the `v0.19.0` tag), which registry PR #392 moved `Blocked -> Ready`.
+  Nothing in the chain is blocked on the maintainer.
+
+### Context
+
+Post-Decision-69 dependency state:
+
+- `registry#387` — **Ready**, `agent:claude`, sequenced after `registry#384`
+  (done). Pure implementation + crate publish. No governance left.
+- `#1274` (verified preparation slice) — Blocked; Spec 996 accepted in both
+  repos; waits only on `registry#387` releasing a pinnable `traverse-registry
+  v0.19.0`.
+- `#1275` (offline activation slice) — Blocked on `#1274`; Spec 130 now
+  approved, clearing its only governance blocker.
+- `#1276` (conformance fixtures) — Blocked on `#1274` + `#1275`.
+- `#1168` (two-app reuse proof, `priority:p2`, parent `#1152`) — Blocked on the
+  whole chain plus prerequisites that are not ticketed (published capabilities,
+  two independently scoped apps).
+- `#1272` — the umbrella bug ticket; `#1273` (diagnosis) already merged.
+
+### Decision
+
+1. **Do not start Traverse-side work in parallel.** Keep `#1274`/`#1275`/`#1276`
+   parked until `traverse-registry v0.19.0` is pinnable. `#1274`'s own analysis
+   is that implementing before the crate API exists violates the cache-only
+   resolver boundary and creates ad-hoc public error semantics, and Spec 996
+   deliberately leaves the Rust type/error/evidence shapes to a Plan+implement
+   session. Parking is the honest state; the lever is `registry#387`, not
+   pre-building against it.
+2. **Make the cross-repo dependency legible on the board.** Add an explicit
+   "blocked by `traverse-framework/registry#387` (needs `traverse-registry
+   v0.19.0`)" line to `#1274` and a one-line dependency pointer to the `#1272`
+   umbrella. Leave `#1275`/`#1276` pointing at the Traverse ticket above them
+   (already legible via their Parent sections).
+3. **Move `#1168` to `future`.** It is not actionable until a four-ticket
+   cross-repo chain completes and needs prerequisites that do not yet exist.
+   `future` matches its actual readiness and its parent `#1152` / sibling
+   `#1150`, and keeps the `Blocked` column meaningful.
+4. **Keep `#1272` as the `Blocked` tracking umbrella** (with the dependency
+   note), distinct from leaf tickets. Its acceptance criteria remain the
+   end goal that `#1274` + `#1275` + `#1276` collectively satisfy; closing it is
+   the "cluster done" signal.
+5. **Tick the now-satisfied governance DoD boxes.** On `#1274`, check
+   "Governing spec/contract references ... explicit and accepted" (Spec 996 —
+   Traverse #1284, registry #391). On `#1275`, check "Spec 130 ... is the
+   documented governing surface" (PR #1286). Add a comment on each noting that
+   only implementation work remains. The checkbox tracks whether the governing
+   spec is accepted, not whether code is written; leaving it unticked
+   misrepresents remaining scope.
+
+### Alternatives Considered
+
+- **Start `#1275`/`#1276` scaffolding now against Spec 130** (stub the registry
+  crate behind a local trait) — rejected; the stubbed boundary may not match
+  `registry#387`'s real contract, `#1275`'s DoD needs `#1274`'s evidence format
+  which does not exist yet, and it risks half-wired merges.
+- **One combined implementation arc after `#387` ships** — folded into
+  Decision 1 (wait); this is how the work should be picked up, not a separate
+  choice.
+- **Propagate the `registry#387` dependency onto every ticket in the chain** —
+  rejected; four tickets to keep in sync, redundant with each body's
+  Parent/Depends-on section.
+- **Leave the dependency only in `#1274`'s comment thread** — rejected; buried
+  in seven comments, and the board shows only "Blocked" with no "on what",
+  forcing repeated re-derivation.
+- **Move `#1272` to `future` alongside `#1168`** — rejected; `#1274` is the
+  genuine "next up once `#387` ships", so marking its umbrella deferred is
+  misleading.
+- **Close `#1272` now** — rejected; loses the consolidated acceptance criteria
+  and the end-to-end "is the bug fixed" checkpoint.
+- **Leave all DoD boxes for the implementation PR** — rejected; the "governing
+  spec accepted" box was the actual blocker for weeks and is objectively done.
+
+### Outcome
+
+The registry-reference cluster is correctly parked with one visible external
+dependency. Remaining actions (none on the maintainer):
+
+1. `registry#387` — implement the preparation API in `crates/traverse-registry/`
+   and publish `traverse-registry v0.19.0`. This is the critical path for the
+   entire cluster and needs an ops/implementation session.
+2. Once `v0.19.0` is published: pick up `#1274` -> `#1275` -> `#1276` as one
+   implementation arc against Specs 996 and 130.
+3. Board changes from Decisions 2-5 applied to `#1272`, `#1274`, `#1275`,
+   `#1168` directly on GitHub.
