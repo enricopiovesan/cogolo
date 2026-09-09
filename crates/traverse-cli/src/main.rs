@@ -3363,20 +3363,25 @@ fn app_activate_at(
         return render_app_activation_failure(manifest_path, workspace_id, vec![error]);
     }
 
-    let manifest = match load_application_bundle_manifest(manifest_path) {
-        Ok(manifest) => manifest,
-        Err(failure) => {
-            return render_app_activation_failure(
-                manifest_path,
-                workspace_id,
-                failure
-                    .errors
-                    .into_iter()
-                    .map(AppValidationError::from_manifest_error)
-                    .collect(),
-            );
-        }
+    let resolver = SyncedRegistryComponentResolver {
+        workspace_root: state_root,
+        workspace_id,
     };
+    let manifest =
+        match load_application_bundle_manifest_with_resolver(manifest_path, Some(&resolver)) {
+            Ok(manifest) => manifest,
+            Err(failure) => {
+                return render_app_activation_failure(
+                    manifest_path,
+                    workspace_id,
+                    failure
+                        .errors
+                        .into_iter()
+                        .map(AppValidationError::from_manifest_error)
+                        .collect(),
+                );
+            }
+        };
     let host_input: HostActivationInput =
         read_json_file(host_activation_path).and_then(|value| {
             serde_json::from_value(value).map_err(|error| {
@@ -3626,7 +3631,6 @@ fn app_activate_at(
         "workspace_id": workspace_id,
         "app_id": manifest.app_id,
         "app_version": manifest.version,
-        "manifest_path": manifest_path.display().to_string(),
         "connectors": evidence,
         "artifacts": artifact_evidence,
         "governing_specs": ["039-connector-plugin-architecture", "103-application-connector-binding", "106-activation-artifact-resolution"],
