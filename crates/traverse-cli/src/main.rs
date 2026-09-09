@@ -3145,11 +3145,8 @@ impl RegistryComponentResolver for SyncedRegistryComponentResolver<'_> {
                 |error| error.message.clone(),
             ))
         })?;
-        let contract_path = cache_registry_asset(
-            self.workspace_root,
-            &record.contract_url,
-            &record.contract_digest,
-        )?;
+        let contract_path =
+            load_prepared_registry_asset(self.workspace_root, &record.contract_digest)?;
         let contract_text = fs::read_to_string(&contract_path).map_err(|error| {
             registry_resolution_failure(format!("failed to read cached registry contract: {error}"))
         })?;
@@ -3159,8 +3156,7 @@ impl RegistryComponentResolver for SyncedRegistryComponentResolver<'_> {
                 failure.errors[0].message
             ))
         })?;
-        let wasm_binary_path =
-            cache_registry_asset(self.workspace_root, &record.artifact_url, &record.digest)?;
+        let wasm_binary_path = load_prepared_registry_asset(self.workspace_root, &record.digest)?;
         Ok(ResolvedRegistryComponent {
             contract_path,
             contract,
@@ -3180,33 +3176,33 @@ fn registry_resolution_failure(message: String) -> ApplicationManifestFailure {
     }
 }
 
-fn cache_registry_asset(
+/// Load bytes which an explicit host preparation already verified and committed.
+///
+/// Application validation, activation, and execution are offline consumers of
+/// this cache: they never use Registry URLs or initiate a retrieval.
+fn load_prepared_registry_asset(
     workspace_root: &Path,
-    url: &str,
     expected_digest: &str,
 ) -> Result<PathBuf, ApplicationManifestFailure> {
-    if let Some(cache_path) = public_registry_cache_path(workspace_root, expected_digest)
-        && cache_path.exists()
-    {
-        let cached = fs::read(&cache_path).map_err(|error| {
-            registry_resolution_failure(format!("failed to read cached registry asset: {error}"))
+    let cache_path =
+        public_registry_cache_path(workspace_root, expected_digest).ok_or_else(|| {
+            registry_resolution_failure("prepared registry asset digest is invalid".to_string())
         })?;
-        return cache_verified_public_registry_bytes(workspace_root, expected_digest, &cached)
-            .map_err(|failure| registry_resolution_failure(failure.message));
-    }
-    let output = std::process::Command::new("curl")
-        .args(["-fsSL", url])
-        .output()
-        .map_err(|error| {
-            registry_resolution_failure(format!("failed to fetch registry asset: {error}"))
-        })?;
-    if !output.status.success() {
+    if !cache_path.exists() {
         return Err(registry_resolution_failure(
-            "registry asset download failed".to_string(),
+            "verified prepared registry asset is missing".to_string(),
         ));
     }
-    cache_verified_public_registry_bytes(workspace_root, expected_digest, &output.stdout)
-        .map_err(|failure| registry_resolution_failure(failure.message))
+    let cached = fs::read(&cache_path).map_err(|_| {
+        registry_resolution_failure(
+            "verified prepared registry asset could not be read".to_string(),
+        )
+    })?;
+    cache_verified_public_registry_bytes(workspace_root, expected_digest, &cached).map_err(|_| {
+        registry_resolution_failure(
+            "verified prepared registry asset does not match its digest".to_string(),
+        )
+    })
 }
 
 fn app_register_at(
@@ -7967,8 +7963,9 @@ mod tests {
     use traverse_contracts::{UsageEvent, UsageEventKind, UsageTelemetrySink};
     use traverse_registry::{
         PublicRegistryCapabilityRecord, PublicRegistryEventRecord, PublicRegistryIndex,
-        RegistryScope, load_application_bundle_manifest, load_registry_bundle,
-        load_synced_public_registry_state, write_synced_public_registry_state,
+        RegistryScope, cache_verified_public_registry_bytes, load_application_bundle_manifest,
+        load_registry_bundle, load_synced_public_registry_state,
+        write_synced_public_registry_state,
     };
 
     #[test]
@@ -9863,6 +9860,18 @@ mod tests {
             },
         )
         .expect("synced fixture state should persist");
+        cache_verified_public_registry_bytes(
+            &state_root,
+            &contract_digest,
+            &fs::read(&contract_path).expect("contract artifact should read"),
+        )
+        .expect("contract fixture should prepare");
+        cache_verified_public_registry_bytes(
+            &state_root,
+            &artifact_digest,
+            &fs::read(&artifact_path).expect("wasm artifact should read"),
+        )
+        .expect("artifact fixture should prepare");
 
         let validation = app_validate_at(&state_root, &manifest_path, Some("local"), true)
             .expect("synced registry component should validate");
@@ -9990,8 +9999,10 @@ mod tests {
     struct ExactVersionRegistrySources {
         contract_url: String,
         contract_digest: String,
+        contract_bytes: Vec<u8>,
         artifact_url: String,
         artifact_digest: String,
+        artifact_bytes: Vec<u8>,
     }
 
     /// Reads the checked-in expedition contract/artifact fixtures and returns
@@ -10004,20 +10015,36 @@ mod tests {
         let artifact_src = repo.join(
             "examples/capabilities/team-readiness-agent/artifacts/validate-team-readiness-agent.wasm",
         );
-        let contract_digest = format!(
-            "sha256:{}",
-            sha256_hex(&fs::read(&contract_src).expect("contract fixture should read"))
-        );
-        let artifact_digest = format!(
-            "sha256:{}",
-            sha256_hex(&fs::read(&artifact_src).expect("artifact fixture should read"))
-        );
+        let contract_bytes = fs::read(&contract_src).expect("contract fixture should read");
+        let artifact_bytes = fs::read(&artifact_src).expect("artifact fixture should read");
+        let contract_digest = format!("sha256:{}", sha256_hex(&contract_bytes));
+        let artifact_digest = format!("sha256:{}", sha256_hex(&artifact_bytes));
         ExactVersionRegistrySources {
             contract_url: format!("file://{}", contract_src.display()),
             contract_digest,
+            contract_bytes,
             artifact_url: format!("file://{}", artifact_src.display()),
             artifact_digest,
+            artifact_bytes,
         }
+    }
+
+    fn prepare_exact_version_registry_cache(
+        state_root: &Path,
+        sources: &ExactVersionRegistrySources,
+    ) {
+        cache_verified_public_registry_bytes(
+            state_root,
+            &sources.contract_digest,
+            &sources.contract_bytes,
+        )
+        .expect("contract fixture should prepare");
+        cache_verified_public_registry_bytes(
+            state_root,
+            &sources.artifact_digest,
+            &sources.artifact_bytes,
+        )
+        .expect("artifact fixture should prepare");
     }
 
     #[allow(clippy::too_many_arguments)]
@@ -10099,6 +10126,7 @@ mod tests {
             &sources.artifact_digest,
             false,
         );
+        prepare_exact_version_registry_cache(&state_root, &sources);
 
         let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
             .expect("exact-version reference should validate");
@@ -10142,10 +10170,9 @@ mod tests {
     }
 
     #[test]
-    fn registry_ref_contract_and_artifact_fetch_failures_are_indistinguishable() {
-        // Both a contract-URL failure and an artifact-URL failure surface the
-        // identical code AND the identical literal message, with no HTTP status
-        // and no indication of which asset failed.
+    fn registry_ref_validation_never_fetches_unprepared_assets() {
+        // Validation treats unusable URLs identically because it does not read
+        // them: both cases fail on the missing prepared cache entry.
         let sources = exact_version_registry_sources();
 
         let contract_state_root = unique_temp_dir();
@@ -10212,21 +10239,17 @@ mod tests {
         );
         assert_eq!(
             first_error_message(&contract_output),
-            "registry asset download failed"
+            "verified prepared registry asset is missing"
         );
         assert_eq!(
             first_error_message(&contract_output),
             first_error_message(&artifact_output),
-            "contract-URL and artifact-URL failures must be told apart by the next slice"
+            "validation must not expose or use registry URLs"
         );
     }
 
     #[test]
-    fn registry_ref_digest_mismatch_collapses_and_leaks_cache_path() {
-        // CHARACTERIZATION: a contract digest mismatch collapses onto the same
-        // code as every other boundary, and the message embeds the local
-        // content-addressed cache path -- a redaction defect the successor
-        // slice must close (spec 1258 FR-003).
+    fn registry_ref_cache_digest_mismatch_is_secret_free() {
         let state_root = unique_temp_dir();
         let fixture_root = unique_temp_dir();
         let sources = exact_version_registry_sources();
@@ -10243,6 +10266,13 @@ mod tests {
             false,
         );
 
+        let wrong_path =
+            traverse_registry::public_registry_cache_path(&state_root, &wrong_contract_digest)
+                .expect("wrong digest has a valid cache key");
+        fs::create_dir_all(wrong_path.parent().expect("cache parent"))
+            .expect("cache parent should create");
+        fs::write(&wrong_path, &sources.contract_bytes).expect("tampered cache should write");
+
         let output = app_validate_at(&state_root, &manifest_path, Some("local"), true)
             .expect("digest mismatch should render JSON evidence");
         assert_eq!(
@@ -10251,12 +10281,12 @@ mod tests {
         );
         let message = first_error_message(&output);
         assert!(
-            message.contains("digest mismatch"),
-            "message should mention the digest mismatch: {message}"
+            message.contains("does not match its digest"),
+            "message should identify the cache integrity failure: {message}"
         );
         assert!(
-            message.contains(".traverse/cache/sha256"),
-            "characterizes the current cache-path leak; the successor slice must redact this: {message}"
+            !message.contains(".traverse/cache/sha256"),
+            "cache integrity evidence must not expose host paths: {message}"
         );
     }
 
