@@ -994,6 +994,8 @@ pub enum ValidationErrorCode {
     InvalidPlacementConstraint,
     /// `service_type: subscribable` without a non-empty `event_trigger`.
     MissingEventTrigger,
+    /// `service_type: stateful` without a non-empty `state_schema.properties`.
+    MissingStateSchema,
     InvalidConnectorContract,
     InvalidConnectorRequirement,
     /// A manifest-declared risk policy would widen egress beyond what the
@@ -1838,6 +1840,28 @@ fn validate_placement_constraints(
             path: "$.permitted_targets".to_string(),
             severity: ErrorSeverity::Error,
         });
+    }
+    if contract.service_type == ServiceType::Stateful {
+        let properties_empty = contract
+            .state_schema
+            .as_ref()
+            .and_then(|schema| schema.get("properties"))
+            .and_then(Value::as_object)
+            .is_none_or(serde_json::Map::is_empty);
+        let schema_not_object = contract
+            .state_schema
+            .as_ref()
+            .is_none_or(|schema| !schema.is_object());
+        if contract.state_schema.is_none() || schema_not_object || properties_empty {
+            errors.push(ValidationError {
+                code: ValidationErrorCode::MissingStateSchema,
+                message: "Stateful capabilities must declare a non-empty state_schema object \
+                          with at least one property."
+                    .to_string(),
+                path: "$.state_schema".to_string(),
+                severity: ErrorSeverity::Error,
+            });
+        }
     }
     if contract.service_type == ServiceType::Subscribable
         && match contract.event_trigger.as_deref() {

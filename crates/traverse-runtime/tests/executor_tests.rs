@@ -5,6 +5,9 @@ use std::fmt::Write as _;
 use std::sync::atomic::{AtomicU64, Ordering};
 use std::sync::{Arc, Mutex};
 use traverse_contracts::{ConnectorRequirement, EventReference, ServiceType};
+use traverse_runtime::data_store::{
+    DataStore, InMemoryDataStore, LamportClock, RuntimeDataStore, StateRecord,
+};
 use traverse_runtime::executor::{
     ActivatedConnector, ArtifactType, CapabilityExecutor, ConnectorInvokeRequest,
     ConnectorInvokeResponse, ExecutorCapability, ExecutorError, ExecutorOutput, MediatedConnector,
@@ -65,6 +68,7 @@ fn native_executor_rejects_wasm_artifact_type() -> Result<(), String> {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
     let err = expect_err(executor.execute(&cap, &json!({})), "expected type error")?;
 
@@ -111,6 +115,7 @@ fn wasm_executor_errors_when_no_path_set() -> Result<(), String> {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
     let err = expect_err(
         executor.execute(&cap, &json!({})),
@@ -136,6 +141,7 @@ fn wasm_executor_errors_on_missing_file() -> Result<(), String> {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
     let err = expect_err(
         executor.execute(&cap, &json!({})),
@@ -175,6 +181,7 @@ fn wasm_executor_detects_checksum_mismatch() -> Result<(), String> {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     let err = expect_err(
@@ -1899,6 +1906,7 @@ fn wasm_executor_full_execute_path_via_disk() -> Result<(), String> {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     let input = json!({ "disk": true });
@@ -1958,6 +1966,7 @@ fn wasm_executor_execute_with_matching_checksum_succeeds() -> Result<(), String>
         host_abi_version: Some("1.0.0".to_string()),
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     let result = executor
@@ -1991,6 +2000,7 @@ fn wasm_executor_reuses_unchanged_binary_without_reading_or_hashing_again() -> R
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     let first_input = json!({ "call": 1 });
@@ -2044,6 +2054,7 @@ fn wasm_executor_binary_cache_evicts_oldest_path_deterministically() -> Result<(
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     executor
@@ -2097,6 +2108,7 @@ fn wasm_executor_cached_module_does_not_bypass_checksum_mismatch() -> Result<(),
         host_abi_version: Some("1.0.0".to_string()),
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     let input = json!({ "cache": true });
@@ -2136,6 +2148,7 @@ fn wasm_executor_invalid_binary_triggers_runtime_setup_failed() -> Result<(), St
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     };
 
     let err = expect_err(executor.execute(&cap, &json!({})), "expected error")?;
@@ -2558,6 +2571,531 @@ fn core_transition_action_status_does_not_emit_on_rejected_transition() -> Resul
     Ok(())
 }
 
+// --- `traverse_host::state_*` host ABI tests (spec 1285-capability-state-host-abi) ---
+
+fn cart_state_schema() -> Value {
+    json!({
+        "type": "object",
+        "properties": {
+            "cart": {
+                "type": "object",
+                "properties": {
+                    "items": { "type": "array" }
+                }
+            }
+        }
+    })
+}
+
+#[test]
+fn wasm_executor_state_put_get_round_trip_for_stateful_capability() -> Result<(), String> {
+    let put_payload = r#"{"key":"cart","value":{"items":[1]}}"#;
+    let get_payload = r#"{"key":"cart","out_ptr":2000,"out_max":512}"#;
+    let wasm_bytes = wat::parse_str(state_put_then_get_wat(put_payload, get_payload))
+        .map_err(|e| format!("{e}"))?;
+    let store = Arc::new(Mutex::new(RuntimeDataStore::new(
+        InMemoryDataStore::new(),
+        "test-writer",
+    )));
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let output = executor
+        .run_bytes_with_stateful_store(
+            &wasm_bytes,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    assert_eq!(output.value["found"], json!(true));
+    assert_eq!(output.value["value"], json!({"items":[1]}));
+
+    let guard = store.lock().map_err(|e| format!("poisoned store: {e}"))?;
+    let records = guard.adapter().records();
+    assert!(
+        records.contains_key("commerce.cart/cart"),
+        "expected namespaced key, got {:?}",
+        records.keys().collect::<Vec<_>>()
+    );
+    let record = &records["commerce.cart/cart"];
+    assert_eq!(record.writer_id, "test-writer");
+    assert_eq!(record.lamport_clock, 1);
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_state_put_rejected_for_non_stateful_capability() -> Result<(), String> {
+    let payload = r#"{"key":"cart","value":{"items":[]}}"#;
+    let wasm_bytes =
+        wat::parse_str(state_op_wat("state_put", payload)).map_err(|e| format!("{e}"))?;
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_capability(
+            &wasm_bytes,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateless,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_state_put_rejected_when_data_store_not_configured() -> Result<(), String> {
+    let payload = r#"{"key":"cart","value":{"items":[]}}"#;
+    let wasm_bytes =
+        wat::parse_str(state_op_wat("state_put", payload)).map_err(|e| format!("{e}"))?;
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_stateful_schema(
+            &wasm_bytes,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_state_put_rejected_for_oversized_and_oob_payload() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let store = Arc::new(Mutex::new(RuntimeDataStore::new(
+        InMemoryDataStore::new(),
+        "test-writer",
+    )));
+    let oversized_claim = 65 * 1024;
+    let wasm_over = wat::parse_str(state_op_wat_with_len(
+        "state_put",
+        r#"{"key":"cart","value":{}}"#,
+        oversized_claim,
+    ))
+    .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_over,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let wasm_oob = wat::parse_str(state_op_wat_with_ptr_len("state_put", 200_000, 10))
+        .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_oob,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let keys = store
+        .lock()
+        .map_err(|e| format!("{e}"))?
+        .list_keys()
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        keys.is_empty(),
+        "rejected puts must not write, got {keys:?}"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_state_put_rejected_for_undeclared_key() -> Result<(), String> {
+    let payload = r#"{"key":"other","value":{"items":[]}}"#;
+    let wasm_bytes =
+        wat::parse_str(state_op_wat("state_put", payload)).map_err(|e| format!("{e}"))?;
+    let store = Arc::new(Mutex::new(RuntimeDataStore::new(
+        InMemoryDataStore::new(),
+        "test-writer",
+    )));
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_bytes,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let guard = store.lock().map_err(|e| format!("{e}"))?;
+    assert!(
+        guard.adapter().records().is_empty(),
+        "undeclared key must not write"
+    );
+    Ok(())
+}
+
+#[test]
+fn wasm_executor_state_put_rejected_for_empty_state_schema_properties() -> Result<(), String> {
+    let payload = r#"{"key":"cart","value":{"items":[]}}"#;
+    let wasm_bytes =
+        wat::parse_str(state_op_wat("state_put", payload)).map_err(|e| format!("{e}"))?;
+    let store = Arc::new(Mutex::new(RuntimeDataStore::new(
+        InMemoryDataStore::new(),
+        "test-writer",
+    )));
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_bytes,
+            &json!({}),
+            "commerce.cart",
+            json!({"type":"object","properties":{}}),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let guard = store.lock().map_err(|e| format!("{e}"))?;
+    assert!(
+        guard.adapter().records().is_empty(),
+        "empty state_schema.properties must fail closed"
+    );
+    Ok(())
+}
+
+#[test]
+#[allow(clippy::too_many_lines)]
+fn wasm_executor_state_get_delete_and_inject_api_cover_remaining_branches() -> Result<(), String> {
+    let executor = WasmExecutor::new().map_err(|e| format!("{e:?}"))?;
+    let _ = format!("{executor:?}");
+
+    // get not-found
+    let get_payload = r#"{"key":"cart","out_ptr":2000,"out_max":512}"#;
+    let expected_miss = br#"{"found":false}"#;
+    let wasm_get = wat::parse_str(state_get_wat(get_payload, expected_miss.len()))
+        .map_err(|e| format!("{e}"))?;
+    let store = Arc::new(Mutex::new(RuntimeDataStore::new(
+        InMemoryDataStore::new(),
+        "test-writer",
+    )));
+    let missed = executor
+        .run_bytes_with_stateful_store(
+            &wasm_get,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    assert_eq!(missed.value, json!({"found": false}));
+
+    // put then delete then confirm gone
+    store
+        .lock()
+        .map_err(|e| format!("{e}"))?
+        .write_namespaced(
+            "commerce.cart",
+            &cart_state_schema(),
+            "cart",
+            json!({"items": [1]}),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let wasm_del = wat::parse_str(state_op_wat("state_delete", r#"{"key":"cart"}"#))
+        .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_del,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    assert!(
+        store
+            .lock()
+            .map_err(|e| format!("{e}"))?
+            .adapter()
+            .records()
+            .is_empty()
+    );
+
+    // get rejected when not Stateful / no store / bad envelopes
+    let wasm_get_op =
+        wat::parse_str(state_op_wat("state_get", get_payload)).map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_capability(
+            &wasm_get_op,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateless,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_capability_state(
+            &wasm_get_op,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateful,
+            Some(cart_state_schema()),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    for payload in [
+        r#"{"out_ptr":2000,"out_max":512}"#,
+        r#"{"key":"cart","out_max":512}"#,
+        r#"{"key":"cart","out_ptr":2000}"#,
+        r#"{"key":"cart","out_ptr":-1,"out_max":512}"#,
+        r#"{"key":"cart","out_ptr":2000,"out_max":70000}"#,
+        "[]",
+    ] {
+        let wasm =
+            wat::parse_str(state_op_wat("state_get", payload)).map_err(|e| format!("{e}"))?;
+        executor
+            .run_bytes_with_stateful_store(
+                &wasm,
+                &json!({}),
+                "commerce.cart",
+                cart_state_schema(),
+                Arc::clone(&store),
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+
+    // get with tiny out_max after seeding a value
+    store
+        .lock()
+        .map_err(|e| format!("{e}"))?
+        .write_namespaced(
+            "commerce.cart",
+            &cart_state_schema(),
+            "cart",
+            json!({"items": [1, 2, 3]}),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let tiny = r#"{"key":"cart","out_ptr":2000,"out_max":1}"#;
+    let wasm_tiny = wat::parse_str(state_op_wat("state_get", tiny)).map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_tiny,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    // put missing fields / invalid relative key / missing schema / lamport overflow
+    for payload in [
+        r#"{"value":{}}"#,
+        r#"{"key":"cart"}"#,
+        r#"{"key":"bad.key","value":{}}"#,
+    ] {
+        let wasm =
+            wat::parse_str(state_op_wat("state_put", payload)).map_err(|e| format!("{e}"))?;
+        executor
+            .run_bytes_with_stateful_store(
+                &wasm,
+                &json!({}),
+                "commerce.cart",
+                cart_state_schema(),
+                Arc::clone(&store),
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+    let wasm_put = wat::parse_str(state_op_wat(
+        "state_put",
+        r#"{"key":"cart","value":{"items":[]}}"#,
+    ))
+    .map_err(|e| format!("{e}"))?;
+    WasmExecutor::new()
+        .map_err(|e| format!("{e:?}"))?
+        .with_shared_data_store(Arc::clone(&store))
+        .run_bytes_with_capability_state(
+            &wasm_put,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateful,
+            None,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    let overflow_store = Arc::new(Mutex::new(RuntimeDataStore::with_clock(
+        InMemoryDataStore::new(),
+        LamportClock::with_value("test-writer", u64::MAX),
+    )));
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_put,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&overflow_store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    // delete branches
+    let wasm_del_bad = wat::parse_str(state_op_wat("state_delete", r#"{"nope":1}"#))
+        .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_capability(
+            &wasm_del,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateless,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_capability_state(
+            &wasm_del,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateful,
+            Some(cart_state_schema()),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_del_bad,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_del,
+            &json!({}),
+            "commerce.cart",
+            json!({"type":"object","properties":{}}),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let wasm_del_slash = wat::parse_str(state_op_wat("state_delete", r#"{"key":"a/b"}"#))
+        .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_del_slash,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    // inject API setters
+    let mut mutable = WasmExecutor::new()
+        .map_err(|e| format!("{e:?}"))?
+        .with_data_store(RuntimeDataStore::new(InMemoryDataStore::new(), "w"));
+    let _ = format!("{mutable:?}");
+    mutable.set_data_store(None);
+
+    // get empty schema + get without schema
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_get_op,
+            &json!({}),
+            "commerce.cart",
+            json!({"type":"object","properties":{}}),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    WasmExecutor::new()
+        .map_err(|e| format!("{e:?}"))?
+        .with_shared_data_store(Arc::clone(&store))
+        .run_bytes_with_capability_state(
+            &wasm_get_op,
+            &json!({}),
+            "commerce.cart",
+            &[],
+            ServiceType::Stateful,
+            None,
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    // get with out_ptr beyond memory (large out_max so write path is reached)
+    let wasm_oob_get = wat::parse_str(state_op_wat(
+        "state_get",
+        r#"{"key":"cart","out_ptr":200000,"out_max":512}"#,
+    ))
+    .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_oob_get,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+
+    // get schema-invalid stored value
+    {
+        let mut guard = store.lock().map_err(|e| format!("{e}"))?;
+        let _ = guard.delete_namespaced("commerce.cart", "cart");
+        drop(guard);
+    }
+    {
+        let mut adapter = InMemoryDataStore::new();
+        adapter
+            .write(StateRecord {
+                key: "commerce.cart/cart".to_string(),
+                value: json!("bad"),
+                lamport_clock: 1,
+                writer_id: "w".to_string(),
+            })
+            .map_err(|e| format!("{e:?}"))?;
+        let bad_store = Arc::new(Mutex::new(RuntimeDataStore::new(adapter, "w")));
+        executor
+            .run_bytes_with_stateful_store(
+                &wasm_get_op,
+                &json!({}),
+                "commerce.cart",
+                cart_state_schema(),
+                bad_store,
+            )
+            .map_err(|e| format!("{e:?}"))?;
+    }
+
+    // delete envelope / negative pointer / no memory
+    let wasm_del_oob = wat::parse_str(state_op_wat_with_raw_ptr_len("state_delete", -1, 4))
+        .map_err(|e| format!("{e}"))?;
+    executor
+        .run_bytes_with_stateful_store(
+            &wasm_del_oob,
+            &json!({}),
+            "commerce.cart",
+            cart_state_schema(),
+            Arc::clone(&store),
+        )
+        .map_err(|e| format!("{e:?}"))?;
+    let wasm_no_mem = wat::parse_str(
+        r#"
+        (module
+            (import "traverse_host" "state_delete"
+                (func $state_delete (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (func $_start (export "_start")
+                (drop (call $state_delete (i32.const 0) (i32.const 2)))
+                (unreachable)
+            )
+        )
+        "#,
+    )
+    .map_err(|e| format!("{e}"))?;
+    let _ = executor.run_bytes_with_stateful_store(
+        &wasm_no_mem,
+        &json!({}),
+        "commerce.cart",
+        cart_state_schema(),
+        Arc::clone(&store),
+    );
+
+    Ok(())
+}
+
 // --- helpers ---
 
 fn native_capability(id: &str) -> ExecutorCapability {
@@ -2569,6 +3107,7 @@ fn native_capability(id: &str) -> ExecutorCapability {
         host_abi_version: None,
         emits: Vec::new(),
         service_type: ServiceType::Stateless,
+        state_schema: None,
     }
 }
 
@@ -2611,15 +3150,10 @@ fn wat_escape(payload: &str) -> String {
     payload.replace('\\', "\\\\").replace('"', "\\\"")
 }
 
-/// A WASM module that writes `payload` into linear memory at offset 100,
-/// calls `traverse_host::emit_event(100, payload.len())`, then writes `{}`
-/// to stdout (a minimal valid JSON output, unrelated to the emit call).
 fn emit_event_wat(payload: &str) -> String {
     emit_event_wat_with_len(payload, payload.len())
 }
 
-/// As [`emit_event_wat`], but the guest claims `claimed_len` bytes instead
-/// of `payload.len()` — used to simulate an oversized length claim.
 fn emit_event_wat_with_len(payload: &str, claimed_len: usize) -> String {
     format!(
         r#"
@@ -2643,9 +3177,6 @@ fn emit_event_wat_with_len(payload: &str, claimed_len: usize) -> String {
     )
 }
 
-/// A WASM module that calls `traverse_host::emit_event(ptr, len)` directly
-/// with caller-supplied coordinates, ignoring what (if anything) is actually
-/// at that memory location — used to exercise the guest-memory bounds check.
 fn emit_event_wat_with_ptr_len(ptr: usize, len: usize) -> String {
     emit_event_wat_with_raw_ptr_len(
         i32::try_from(ptr).unwrap_or(i32::MAX),
@@ -2653,8 +3184,6 @@ fn emit_event_wat_with_ptr_len(ptr: usize, len: usize) -> String {
     )
 }
 
-/// As [`emit_event_wat_with_ptr_len`], but accepts raw `i32` coordinates
-/// directly — used to exercise a negative pointer or length.
 fn emit_event_wat_with_raw_ptr_len(ptr: i32, len: i32) -> String {
     format!(
         r#"
@@ -2676,7 +3205,116 @@ fn emit_event_wat_with_raw_ptr_len(ptr: i32, len: i32) -> String {
     )
 }
 
-/// Assert that `result` is `Err`, returning the error value or a descriptive `String` failure.
+fn state_op_wat(import_name: &str, payload: &str) -> String {
+    state_op_wat_with_len(import_name, payload, payload.len())
+}
+
+fn state_op_wat_with_len(import_name: &str, payload: &str, claimed_len: usize) -> String {
+    format!(
+        r#"
+        (module
+            (import "traverse_host" "{import_name}"
+                (func $state_op (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 2)
+            (data (i32.const 100) "{payload}")
+            (data (i32.const 300) "{{}}")
+            (func $_start (export "_start")
+                (drop (call $state_op (i32.const 100) (i32.const {claimed_len})))
+                (i32.store (i32.const 0) (i32.const 300))
+                (i32.store (i32.const 4) (i32.const 2))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4100)))
+            )
+        )
+        "#,
+        payload = wat_escape(payload),
+    )
+}
+
+fn state_op_wat_with_ptr_len(import_name: &str, ptr: usize, len: usize) -> String {
+    state_op_wat_with_raw_ptr_len(
+        import_name,
+        i32::try_from(ptr).unwrap_or(i32::MAX),
+        i32::try_from(len).unwrap_or(i32::MAX),
+    )
+}
+
+fn state_op_wat_with_raw_ptr_len(import_name: &str, ptr: i32, len: i32) -> String {
+    format!(
+        r#"
+        (module
+            (import "traverse_host" "{import_name}"
+                (func $state_op (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 1)
+            (data (i32.const 300) "{{}}")
+            (func $_start (export "_start")
+                (drop (call $state_op (i32.const {ptr}) (i32.const {len})))
+                (i32.store (i32.const 0) (i32.const 300))
+                (i32.store (i32.const 4) (i32.const 2))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4100)))
+            )
+        )
+        "#,
+    )
+}
+
+fn state_put_then_get_wat(put_payload: &str, get_payload: &str) -> String {
+    let expected = r#"{"found":true,"value":{"items":[1]}}"#;
+    let out_len = expected.len();
+    format!(
+        r#"
+        (module
+            (import "traverse_host" "state_put"
+                (func $state_put (param i32 i32) (result i32)))
+            (import "traverse_host" "state_get"
+                (func $state_get (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 2)
+            (data (i32.const 100) "{put_payload}")
+            (data (i32.const 500) "{get_payload}")
+            (func $_start (export "_start")
+                (drop (call $state_put (i32.const 100) (i32.const {put_len})))
+                (drop (call $state_get (i32.const 500) (i32.const {get_len})))
+                (i32.store (i32.const 0) (i32.const 2000))
+                (i32.store (i32.const 4) (i32.const {out_len}))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4100)))
+            )
+        )
+        "#,
+        put_payload = wat_escape(put_payload),
+        get_payload = wat_escape(get_payload),
+        put_len = put_payload.len(),
+        get_len = get_payload.len(),
+    )
+}
+
+fn state_get_wat(get_payload: &str, out_len: usize) -> String {
+    format!(
+        r#"
+        (module
+            (import "traverse_host" "state_get"
+                (func $state_get (param i32 i32) (result i32)))
+            (import "wasi_snapshot_preview1" "fd_write"
+                (func $fd_write (param i32 i32 i32 i32) (result i32)))
+            (memory (export "memory") 2)
+            (data (i32.const 500) "{get_payload}")
+            (func $_start (export "_start")
+                (drop (call $state_get (i32.const 500) (i32.const {get_len})))
+                (i32.store (i32.const 0) (i32.const 2000))
+                (i32.store (i32.const 4) (i32.const {out_len}))
+                (drop (call $fd_write (i32.const 1) (i32.const 0) (i32.const 1) (i32.const 4100)))
+            )
+        )
+        "#,
+        get_payload = wat_escape(get_payload),
+        get_len = get_payload.len(),
+    )
+}
+
 fn expect_err<T: std::fmt::Debug, E>(result: Result<T, E>, msg: &str) -> Result<E, String> {
     match result {
         Err(e) => Ok(e),

@@ -282,6 +282,7 @@ fn expedition_wasm_execution_writes_trace() -> Result<(), String> {
             host_abi_version: None,
             emits: Vec::new(),
             service_type: ServiceType::Stateless,
+            state_schema: None,
         },
         trace_id_override: None,
     };
@@ -403,6 +404,7 @@ fn run_expedition_via_router(wasm_bytes: &[u8], tmp_path: &str) -> Result<Router
             host_abi_version: None,
             emits: Vec::new(),
             service_type: ServiceType::Stateless,
+            state_schema: None,
         },
         trace_id_override: None,
     };

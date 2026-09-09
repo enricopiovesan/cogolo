@@ -52,6 +52,21 @@
       "module": "traverse_host",
       "name": "connector_invoke",
       "category": "mediated_connector_invocation"
+    },
+    {
+      "module": "traverse_host",
+      "name": "state_get",
+      "category": "managed_state"
+    },
+    {
+      "module": "traverse_host",
+      "name": "state_put",
+      "category": "managed_state"
+    },
+    {
+      "module": "traverse_host",
+      "name": "state_delete",
+      "category": "managed_state"
     }
   ]
 }
